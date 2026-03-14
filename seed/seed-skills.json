@@ -64,6 +64,33 @@
       "scope": "team",
       "source_file": "skills/workflows/technical-delivery.md",
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    },
+    {
+      "name": "fenix-tdd-workflow",
+      "slug": "fenix-tdd-workflow",
+      "description": "Test-Driven Development discipline for AI agents. Red-Green-Refactor cycle, detection heuristic, and anti-patterns.",
+      "category": "testing",
+      "scope": "team",
+      "source_file": "skills/methodology/tdd-workflow.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    },
+    {
+      "name": "fenix-board-progression",
+      "slug": "fenix-board-progression",
+      "description": "Rules for moving work items between statuses in Fenix boards. Covers work_status_next, work_status_done, and status categories.",
+      "category": "other",
+      "scope": "team",
+      "source_file": "skills/methodology/board-progression.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    },
+    {
+      "name": "fenix-tools-quickref",
+      "slug": "fenix-tools-quickref",
+      "description": "Complete quick reference for all Fenix MCP tools and their actions with parameters.",
+      "category": "documentation",
+      "scope": "team",
+      "source_file": "skills/reference/fenix-tools-quickref.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     }
   ]
 }
