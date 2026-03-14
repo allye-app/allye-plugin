@@ -1,0 +1,69 @@
+{
+  "version": "1.0",
+  "description": "Fenix Agent Plugin — skill definitions for seeding into Fenix DB",
+  "skills": [
+    {
+      "name": "using-fenix",
+      "slug": "using-fenix",
+      "description": "Bootstrap meta-skill for AI agents using the Fenix platform. Teaches when and how to use Fenix MCP tools with structured workflows. Injected at session start.",
+      "category": "other",
+      "scope": "team",
+      "source_file": "skills/bootstrap/using-fenix.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    },
+    {
+      "name": "fenix-memory-protocol",
+      "slug": "fenix-memory-protocol",
+      "description": "Complete memory protocol for AI agents using Fenix. Defines when and how to search, save, and link memories for cross-session continuity.",
+      "category": "other",
+      "scope": "team",
+      "source_file": "skills/methodology/memory-protocol.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    },
+    {
+      "name": "fenix-product-planning",
+      "slug": "fenix-product-planning",
+      "description": "Workflow for translating business requirements into epics, features, and stories in Fenix.",
+      "category": "architecture",
+      "scope": "team",
+      "source_file": "skills/workflows/product-planning.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    },
+    {
+      "name": "fenix-technical-planning",
+      "slug": "fenix-technical-planning",
+      "description": "Workflow for breaking a story into tasks through a structured discussion phase with decision capture.",
+      "category": "architecture",
+      "scope": "team",
+      "source_file": "skills/workflows/technical-planning.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    },
+    {
+      "name": "fenix-technical-development",
+      "slug": "fenix-technical-development",
+      "description": "Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution.",
+      "category": "backend",
+      "scope": "team",
+      "source_file": "skills/workflows/technical-development.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    },
+    {
+      "name": "fenix-technical-review",
+      "slug": "fenix-technical-review",
+      "description": "Workflow for reviewing implemented code with decision context from planning phase.",
+      "category": "code_review",
+      "scope": "team",
+      "source_file": "skills/workflows/technical-review.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    },
+    {
+      "name": "fenix-technical-delivery",
+      "slug": "fenix-technical-delivery",
+      "description": "Workflow for finalizing a story after all tasks pass review. Closes story, updates docs, cleans up.",
+      "category": "other",
+      "scope": "team",
+      "source_file": "skills/workflows/technical-delivery.md",
+      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+    }
+  ]
+}
