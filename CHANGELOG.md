@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.0.0...v1.1.0) (2026-03-14)
+
+
+### Features
+
+* improve session hook and bootstrap flow ([86ed910](https://github.com/fenix-assistant/fenix-plugin/commit/86ed910d238cbb0755cbc65d195daf30c1fb15ad))
+
 # 1.0.0 (2026-03-14)
 
 
