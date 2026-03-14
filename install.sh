@@ -41,30 +41,17 @@ print_error() {
   echo -e "${RED}✗${NC} $1"
 }
 
-# ─── Step 1: Get Fenix API URL and PAT ────────────────────────────────────────
+# ─── Step 1: Get Fenix PAT ─────────────────────────────────────────────────────
+
+API_URL="https://fenix-api.devshire.app"
 
 print_header
 
 echo "This installer will:"
-echo "  1. Connect to your Fenix instance"
+echo "  1. Connect to Fenix Cloud ($API_URL)"
 echo "  2. Seed workflow skills into your team's database"
 echo "  3. Configure your AI coding agents to use the plugin"
 echo ""
-
-# API URL
-if [ -n "$FENIX_API_URL" ]; then
-  print_step "Using FENIX_API_URL from environment: $FENIX_API_URL"
-  API_URL="$FENIX_API_URL"
-else
-  read -rp "Fenix API URL (e.g., https://api.fenix.dev): " API_URL
-  # Remove trailing slash
-  API_URL="${API_URL%/}"
-fi
-
-if [ -z "$API_URL" ]; then
-  print_error "API URL is required."
-  exit 1
-fi
 
 # PAT
 if [ -n "$FENIX_PAT" ]; then
@@ -226,7 +213,6 @@ if command -v claude &>/dev/null; then
 
   SETTINGS=$(echo "$SETTINGS" | jq \
     --arg cmd "$HOOK_CMD" \
-    --arg api_url "$API_URL" \
     --arg pat "$PAT" \
     '.hooks.SessionStart = [
       {
@@ -239,7 +225,7 @@ if command -v claude &>/dev/null; then
           }
         ]
       }
-    ] | .env = (.env // {}) | .env.FENIX_API_URL = $api_url | .env.FENIX_PAT = $pat')
+    ] | .env = (.env // {}) | .env.FENIX_PAT = $pat')
 
   echo "$SETTINGS" | jq '.' > "$CLAUDE_SETTINGS"
   print_success "Claude Code configured (SessionStart hook + env vars)"

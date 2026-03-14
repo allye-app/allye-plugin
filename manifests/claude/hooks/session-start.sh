@@ -13,8 +13,8 @@ set -e
 INPUT=$(cat)
 SOURCE=$(echo "$INPUT" | jq -r '.source // "startup"')
 
-# Config — set via install.sh or environment
-FENIX_API_URL="${FENIX_API_URL:-}"
+# Config
+FENIX_API_URL="https://fenix-api.devshire.app"
 FENIX_PAT="${FENIX_PAT:-}"
 SKILL_SLUG="using-fenix"
 
@@ -25,7 +25,7 @@ LOCAL_SKILL="$PLUGIN_ROOT/skills/bootstrap/using-fenix.md"
 
 # Function: fetch skill from Fenix API
 fetch_from_api() {
-  if [ -z "$FENIX_API_URL" ] || [ -z "$FENIX_PAT" ]; then
+  if [ -z "$FENIX_PAT" ]; then
     return 1
   fi
 
