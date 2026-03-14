@@ -1,0 +1,21 @@
+{
+  "name": "fenix",
+  "description": "Fenix Agent Plugin — methodology and workflow layer for AI coding agents using the Fenix platform. Adds structured workflows, memory protocol, TDD discipline, and board progression on top of Fenix MCP tools.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Fenix Assistant",
+    "email": "contact@devshire.app"
+  },
+  "homepage": "https://github.com/fenix-assistant/fenix-plugin",
+  "repository": "https://github.com/fenix-assistant/fenix-plugin",
+  "license": "MIT",
+  "keywords": [
+    "fenix",
+    "workflow",
+    "project-management",
+    "memory",
+    "tdd",
+    "planning",
+    "skills"
+  ]
+}

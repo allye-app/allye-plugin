@@ -26,11 +26,17 @@ This plugin adds:
 
 ## Quick start
 
-### 1. Get a Fenix PAT
+### Claude Code (recommended)
 
-Sign in to [Fenix](https://fenix.devshire.app), go to **Settings → API → Generate Token**.
+```
+/plugin marketplace add fenix-assistant/fenix-plugin
+/plugin install fenix
+/fenix-setup
+```
 
-### 2. Run the installer
+That's it. The plugin auto-configures the MCP server, SessionStart hook, and all workflow skills. The `/fenix-setup` command asks for your PAT once and saves it.
+
+### Other agents (Cursor, OpenCode, Codex, Gemini CLI)
 
 ```bash
 git clone https://github.com/fenix-assistant/fenix-plugin.git
@@ -39,14 +45,10 @@ cd fenix-plugin
 ```
 
 The installer will:
-- Validate your PAT
+- Ask for your Fenix PAT
+- Validate credentials
 - Seed 10 workflow skills into your Fenix database
 - Auto-detect installed agents and configure their MCP server
-- Set up the Claude Code SessionStart hook (if applicable)
-
-### 3. Start a new session
-
-Open your AI agent and start working. The plugin will guide the agent through Fenix workflows automatically.
 
 ## Skills included
 
@@ -106,29 +108,32 @@ Product Planning → Technical Planning → Development → Review → Delivery
 
 ```
 fenix-plugin/
-├── skills/
-│   ├── bootstrap/
-│   │   └── using-fenix.md           # Entry point meta-skill
-│   ├── workflows/
-│   │   ├── product-planning.md      # Requirements → work items
-│   │   ├── technical-planning.md    # Story → tasks (discussion phase)
-│   │   ├── technical-development.md # TDD implementation
-│   │   ├── technical-review.md      # Code review with context
-│   │   └── technical-delivery.md    # Finalize and deliver
-│   ├── methodology/
-│   │   ├── memory-protocol.md       # Cross-session continuity
-│   │   ├── tdd-workflow.md          # Red-Green-Refactor
-│   │   └── board-progression.md     # Status transitions
-│   └── reference/
-│       └── fenix-tools-quickref.md  # Tools cheat sheet
-├── manifests/
-│   ├── claude/hooks/session-start.sh
+├── .claude-plugin/
+│   ├── plugin.json                  # Claude Code plugin manifest
+│   └── marketplace.json             # Self-hosted marketplace
+├── .mcp.json                        # MCP server config (uses $FENIX_PAT)
+├── hooks/
+│   ├── hooks.json                   # Claude Code hook definitions
+│   └── session-start.sh             # Injects bootstrap skill at session start
+├── skills/                          # Claude Code plugin skills (SKILL.md format)
+│   ├── using-fenix/                 # Bootstrap meta-skill
+│   ├── fenix-setup/                 # /fenix-setup slash command
+│   ├── fenix-product-planning/      # Requirements → work items
+│   ├── fenix-technical-planning/    # Story → tasks (discussion phase)
+│   ├── fenix-technical-development/ # TDD implementation
+│   ├── fenix-technical-review/      # Code review with context
+│   ├── fenix-technical-delivery/    # Finalize and deliver
+│   ├── fenix-memory-protocol/       # Cross-session continuity
+│   ├── fenix-tdd-workflow/          # Red-Green-Refactor
+│   ├── fenix-board-progression/     # Status transitions
+│   └── fenix-tools-quickref/        # Tools cheat sheet
+├── manifests/                       # Other agents (non-Claude Code)
 │   ├── cursor/.cursorrules
 │   ├── opencode/opencode.json
 │   ├── codex/AGENTS.md
 │   └── gemini/GEMINI.md
 ├── seed/seed-skills.json            # Skill definitions for DB seeding
-└── install.sh                       # One-command installer
+└── install.sh                       # Multi-agent installer (non-Claude Code)
 ```
 
 ## Requirements

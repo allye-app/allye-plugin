@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "fenix-mcp": {
+      "type": "http",
+      "url": "https://fenix-mcp.devshire.app/jsonrpc",
+      "headers": {
+        "Authorization": "Bearer ${FENIX_PAT}"
+      }
+    }
+  }
+}

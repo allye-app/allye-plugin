@@ -1,0 +1,22 @@
+{
+  "name": "fenix-marketplace",
+  "owner": {
+    "name": "Fenix Assistant",
+    "email": "contact@devshire.app"
+  },
+  "metadata": {
+    "description": "Fenix Agent Plugin — methodology and workflow layer for AI coding agents",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "fenix",
+      "source": {
+        "source": "github",
+        "repo": "fenix-assistant/fenix-plugin"
+      },
+      "description": "Structured workflows, memory protocol, TDD discipline, and board progression for the Fenix platform",
+      "version": "1.0.0"
+    }
+  ]
+}
