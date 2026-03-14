@@ -5,9 +5,10 @@ set -e
 # Injects the using-fenix bootstrap skill at the start of every session.
 #
 # How it works:
-# 1. Tries to fetch the skill from Fenix API via MCP skill export
-# 2. Falls back to the local bundled skill file if API is unavailable
-# 3. Outputs JSON with additionalContext for Claude to consume
+# 1. Checks if FENIX_PAT is configured
+# 2. Tries to fetch the skill from Fenix API
+# 3. Falls back to the local bundled skill file
+# 4. Outputs JSON with additionalContext for Claude to consume
 
 # Read hook input from stdin
 INPUT=$(cat)
@@ -18,24 +19,49 @@ FENIX_API_URL="https://fenix-api.devshire.app"
 FENIX_PAT="${FENIX_PAT:-}"
 SKILL_SLUG="using-fenix"
 
-# Find the plugin root (where this script lives: manifests/claude/hooks/)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-LOCAL_SKILL="$PLUGIN_ROOT/skills/bootstrap/using-fenix.md"
+# Plugin root — use CLAUDE_PLUGIN_ROOT if available, otherwise derive from script location
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+LOCAL_SKILL="$PLUGIN_ROOT/skills/using-fenix/SKILL.md"
+
+# Fallback to legacy path if new structure doesn't exist yet
+if [ ! -f "$LOCAL_SKILL" ]; then
+  LOCAL_SKILL="$PLUGIN_ROOT/skills/bootstrap/using-fenix.md"
+fi
+
+# Check if PAT is configured
+if [ -z "$FENIX_PAT" ]; then
+  # No PAT — output setup instructions
+  SETUP_MSG="# Fenix Plugin — Setup Required
+
+Welcome to the Fenix Agent Plugin! To get started, run:
+
+\`\`\`
+/fenix-setup
+\`\`\`
+
+This will guide you through connecting your Fenix account."
+
+  jq -n --arg ctx "$SETUP_MSG" '{
+    "hookSpecificOutput": {
+      "hookEventName": "SessionStart",
+      "additionalContext": $ctx
+    }
+  }'
+  exit 0
+fi
 
 # Function: fetch skill from Fenix API
 fetch_from_api() {
-  if [ -z "$FENIX_PAT" ]; then
-    return 1
-  fi
-
-  RESPONSE=$(curl -s --max-time 10 \
+  HTTP_RESULT=$(curl -s --max-time 10 -w "\n%{http_code}" \
     -H "Authorization: Bearer $FENIX_PAT" \
     -H "Content-Type: application/json" \
     "$FENIX_API_URL/api/skills/export?slug=$SKILL_SLUG&format=claude" 2>/dev/null) || return 1
 
-  # Validate we got content back
-  if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
+  HTTP_CODE=$(echo "$HTTP_RESULT" | tail -1)
+  RESPONSE=$(echo "$HTTP_RESULT" | sed '$d')
+
+  # Only accept 200 responses with non-empty content
+  if [ "$HTTP_CODE" != "200" ] || [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
     return 1
   fi
 
@@ -49,7 +75,7 @@ read_local() {
   else
     echo "# Fenix Plugin"
     echo ""
-    echo "Fenix bootstrap skill not found. Run install.sh to set up the plugin."
+    echo "Bootstrap skill not found. Try reinstalling the plugin."
   fi
 }
 

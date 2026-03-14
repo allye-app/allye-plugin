@@ -52,12 +52,16 @@ fi
 
 # Function: fetch skill from Fenix API
 fetch_from_api() {
-  RESPONSE=$(curl -s --max-time 10 \
+  HTTP_RESULT=$(curl -s --max-time 10 -w "\n%{http_code}" \
     -H "Authorization: Bearer $FENIX_PAT" \
     -H "Content-Type: application/json" \
     "$FENIX_API_URL/api/skills/export?slug=$SKILL_SLUG&format=claude" 2>/dev/null) || return 1
 
-  if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
+  HTTP_CODE=$(echo "$HTTP_RESULT" | tail -1)
+  RESPONSE=$(echo "$HTTP_RESULT" | sed '$d')
+
+  # Only accept 200 responses with non-empty content
+  if [ "$HTTP_CODE" != "200" ] || [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
     return 1
   fi
 
