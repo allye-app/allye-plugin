@@ -1,0 +1,27 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    "@semantic-release/changelog",
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "jq --arg v \"${nextRelease.version}\" '.version = $v' .claude-plugin/plugin.json > /tmp/p.json && mv /tmp/p.json .claude-plugin/plugin.json && jq --arg v \"${nextRelease.version}\" '.metadata.version = $v | .plugins[0].version = $v' .claude-plugin/marketplace.json > /tmp/m.json && mv /tmp/m.json .claude-plugin/marketplace.json && cp skills/using-fenix/SKILL.md skills/bootstrap/using-fenix.md 2>/dev/null || true"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": [
+          ".claude-plugin/plugin.json",
+          ".claude-plugin/marketplace.json",
+          "skills/bootstrap/using-fenix.md",
+          "CHANGELOG.md"
+        ],
+        "message": "chore(release): v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    "@semantic-release/github"
+  ]
+}
