@@ -19,8 +19,9 @@ FENIX_API_URL="https://fenix-api.devshire.app"
 FENIX_PAT="${FENIX_PAT:-}"
 SKILL_SLUG="using-fenix"
 
-# Plugin root — use CLAUDE_PLUGIN_ROOT if available, otherwise derive from script location
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# Plugin root — always derive from script location (most reliable)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_SKILL="$PLUGIN_ROOT/skills/using-fenix/SKILL.md"
 
 # Fallback to legacy path if new structure doesn't exist yet
