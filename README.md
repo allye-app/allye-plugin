@@ -120,7 +120,7 @@ fenix-plugin/
 ├── .claude-plugin/
 │   ├── plugin.json                  # Claude Code plugin manifest
 │   └── marketplace.json             # Self-hosted marketplace
-├── .mcp.json                        # MCP server config (uses $FENIX_PAT)
+├── .mcp.json                        # MCP server config (auto-configured by plugin)
 ├── hooks/
 │   ├── hooks.json                   # Claude Code hook definitions
 │   └── session-start.sh             # Injects bootstrap skill at session start
