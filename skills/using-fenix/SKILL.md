@@ -31,13 +31,15 @@ This is not optional. Memories are how context survives between conversations.
 
 **Step 1: Initialize Fenix** — Call `initialize` (action: `init`) to load user context, team info, and core documents. This is mandatory and must happen before anything else.
 
-**Step 2: Search for memories** using `memory_search`:
+**Step 2: Check active team** — If the init response shows the user belongs to multiple teams and no team is active, ask the user which team they want to work with and call `team_switch` with the team name. Do not proceed until a team is selected — most tools require a team context.
+
+**Step 3: Search for memories** using `memory_search`:
 
 1. `"Session State"` — find where the user left off last time
 2. `"decision {topic}"` — find previous decisions about the current topic
 3. `"{work item key}"` — find context for the specific item being discussed (e.g., "PROJ-123")
 
-**Step 3: Greet the user** — Summarize what you know (from init + memories) before proceeding. If no memories are found, proceed normally with the context from init.
+**Step 4: Greet the user** — Summarize what you know (from init + memories) before proceeding. If no memories are found, proceed normally with the context from init.
 
 ### On conversation end
 
