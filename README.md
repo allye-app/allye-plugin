@@ -36,7 +36,20 @@ This plugin adds:
 
 That's it. The plugin auto-configures the MCP server, SessionStart hook, and all workflow skills. The `/fenix-setup` command asks for your PAT once and saves it.
 
-### Other agents (Cursor, OpenCode, Codex, Gemini CLI)
+### OpenCode, Cursor, Codex, Gemini CLI (agent-assisted)
+
+Paste this into your agent's chat:
+
+| Agent | Paste this |
+|-------|-----------|
+| OpenCode | `Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/install-opencode.md` |
+| Cursor | `Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/install-cursor.md` |
+| Codex | `Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/install-codex.md` |
+| Gemini CLI | `Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/install-gemini.md` |
+
+The agent will fetch the guide, ask for your PAT, and configure everything automatically.
+
+### Manual (all agents)
 
 ```bash
 git clone https://github.com/fenix-assistant/fenix-plugin.git
@@ -44,11 +57,7 @@ cd fenix-plugin
 ./install.sh
 ```
 
-The installer will:
-- Ask for your Fenix PAT
-- Validate credentials
-- Seed 10 workflow skills into your Fenix database
-- Auto-detect installed agents and configure their MCP server
+The installer auto-detects installed agents and configures MCP + skills for each one.
 
 ## Skills included
 
