@@ -263,36 +263,116 @@ fi
 if command -v cursor &>/dev/null || [ -d "$HOME/.cursor" ]; then
   print_success "Cursor detected"
 
-  # Copy .cursorrules if manifest exists
-  CURSOR_RULES="$SCRIPT_DIR/manifests/cursor/.cursorrules"
-  if [ -f "$CURSOR_RULES" ]; then
-    print_step "Cursor manifest available but not yet implemented (Fase 3)"
+  # Configure MCP server
+  CURSOR_MCP_DIR="$HOME/.cursor"
+  CURSOR_MCP="$CURSOR_MCP_DIR/mcp.json"
+  mkdir -p "$CURSOR_MCP_DIR"
+
+  if [ -f "$CURSOR_MCP" ]; then
+    CURSOR_CFG=$(cat "$CURSOR_MCP")
   else
-    print_warning "Cursor manifest not yet created — run install again after Fase 3"
+    CURSOR_CFG='{}'
   fi
+
+  CURSOR_CFG=$(echo "$CURSOR_CFG" | jq \
+    --arg pat "$PAT" \
+    '.mcpServers["fenix-mcp"] = {
+      "url": "https://fenix-mcp.devshire.app/jsonrpc",
+      "headers": {
+        "Authorization": ("Bearer " + $pat)
+      }
+    }')
+
+  echo "$CURSOR_CFG" | jq '.' > "$CURSOR_MCP"
+  print_success "Cursor MCP server configured"
+  AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
 fi
 
 # OpenCode
 if command -v opencode &>/dev/null; then
   print_success "OpenCode detected"
-  OPENCODE_CONFIG="$SCRIPT_DIR/manifests/opencode/opencode.json"
-  if [ -f "$OPENCODE_CONFIG" ]; then
-    print_step "OpenCode manifest available but not yet implemented (Fase 3)"
+
+  # Configure MCP server in global config
+  OPENCODE_DIR="$HOME/.config/opencode"
+  OPENCODE_CFG_FILE="$OPENCODE_DIR/opencode.json"
+  mkdir -p "$OPENCODE_DIR"
+
+  if [ -f "$OPENCODE_CFG_FILE" ]; then
+    OC_CFG=$(cat "$OPENCODE_CFG_FILE")
   else
-    print_warning "OpenCode manifest not yet created — run install again after Fase 3"
+    OC_CFG='{"$schema": "https://opencode.ai/config.json"}'
   fi
+
+  OC_CFG=$(echo "$OC_CFG" | jq \
+    --arg pat "$PAT" \
+    '.mcp["fenix-mcp"] = {
+      "type": "remote",
+      "url": "https://fenix-mcp.devshire.app/jsonrpc",
+      "headers": {
+        "Authorization": ("Bearer " + $pat)
+      },
+      "enabled": true
+    }')
+
+  echo "$OC_CFG" | jq '.' > "$OPENCODE_CFG_FILE"
+  print_success "OpenCode MCP server configured"
+  AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
 fi
 
 # Codex
 if command -v codex &>/dev/null; then
   print_success "Codex detected"
-  print_warning "Codex manifest not yet created — run install again after Fase 3"
+
+  # Configure MCP server in config.toml
+  CODEX_DIR="$HOME/.codex"
+  CODEX_CFG="$CODEX_DIR/config.toml"
+  mkdir -p "$CODEX_DIR"
+
+  # Append MCP config if not already present
+  if [ -f "$CODEX_CFG" ] && grep -q "fenix-mcp" "$CODEX_CFG" 2>/dev/null; then
+    # Update existing entry — replace the bearer token line
+    sed -i "s|bearer_token_env_var = .*|# Using FENIX_PAT_TOKEN env var|" "$CODEX_CFG"
+    print_success "Codex MCP server updated"
+  else
+    cat >> "$CODEX_CFG" << TOML
+
+[mcp_servers.fenix-mcp]
+url = "https://fenix-mcp.devshire.app/jsonrpc"
+http_headers = { "Authorization" = "Bearer $PAT" }
+enabled = true
+TOML
+    print_success "Codex MCP server configured"
+  fi
+  AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
 fi
 
 # Gemini CLI
 if command -v gemini &>/dev/null; then
   print_success "Gemini CLI detected"
-  print_warning "Gemini manifest not yet created — run install again after Fase 3"
+
+  # Configure MCP server in global settings
+  GEMINI_DIR="$HOME/.gemini"
+  GEMINI_SETTINGS="$GEMINI_DIR/settings.json"
+  mkdir -p "$GEMINI_DIR"
+
+  if [ -f "$GEMINI_SETTINGS" ]; then
+    GEMINI_CFG=$(cat "$GEMINI_SETTINGS")
+  else
+    GEMINI_CFG='{}'
+  fi
+
+  GEMINI_CFG=$(echo "$GEMINI_CFG" | jq \
+    --arg pat "$PAT" \
+    '.mcpServers["fenix-mcp"] = {
+      "httpUrl": "https://fenix-mcp.devshire.app/jsonrpc",
+      "headers": {
+        "Authorization": ("Bearer " + $pat)
+      }
+    }')
+
+  echo "$GEMINI_CFG" | jq '.' > "$GEMINI_SETTINGS"
+  print_success "Gemini CLI MCP server configured"
+  AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
 fi
 
 # ─── Done ──────────────────────────────────────────────────────────────────────
