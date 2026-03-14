@@ -214,7 +214,8 @@ if command -v claude &>/dev/null; then
   SETTINGS=$(echo "$SETTINGS" | jq \
     --arg cmd "$HOOK_CMD" \
     --arg pat "$PAT" \
-    '.hooks.SessionStart = [
+    '
+    .hooks.SessionStart = [
       {
         "matcher": "startup|resume",
         "hooks": [
@@ -225,10 +226,34 @@ if command -v claude &>/dev/null; then
           }
         ]
       }
-    ] | .env = (.env // {}) | .env.FENIX_PAT = $pat')
+    ]
+    | .env = (.env // {})
+    | .env.FENIX_PAT = $pat
+    ')
 
   echo "$SETTINGS" | jq '.' > "$CLAUDE_SETTINGS"
-  print_success "Claude Code configured (SessionStart hook + env vars)"
+  print_success "Claude Code hook configured"
+
+  # Add Fenix MCP server to ~/.claude.json
+  CLAUDE_JSON="$HOME/.claude.json"
+  if [ -f "$CLAUDE_JSON" ]; then
+    CLAUDE_CFG=$(cat "$CLAUDE_JSON")
+  else
+    CLAUDE_CFG='{}'
+  fi
+
+  CLAUDE_CFG=$(echo "$CLAUDE_CFG" | jq \
+    --arg pat "$PAT" \
+    '.mcpServers["fenix-mcp"] = {
+      "type": "http",
+      "url": "https://fenix-mcp.devshire.app/jsonrpc",
+      "headers": {
+        "Authorization": ("Bearer " + $pat)
+      }
+    }')
+
+  echo "$CLAUDE_CFG" | jq '.' > "$CLAUDE_JSON"
+  print_success "Fenix MCP server configured"
   AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
 else
   print_warning "Claude Code not found — skipping"
