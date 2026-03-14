@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.1.0...v1.1.1) (2026-03-14)
+
+
+### Bug Fixes
+
+* correct .mcp.json description in README ([61c8cb9](https://github.com/fenix-assistant/fenix-plugin/commit/61c8cb9fd346876ba2ee2fc385cb4ab92ed73bd4))
+
 # [1.1.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.0.0...v1.1.0) (2026-03-14)
 
 
