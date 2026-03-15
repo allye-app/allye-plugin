@@ -26,7 +26,7 @@ curl -s -w "\n%{http_code}" -H "Authorization: Bearer {PAT}" https://fenix-api.d
 - If the last line is `401` or `403`: PAT is invalid. Ask the user to check and try again.
 - If connection fails: Fenix API may be down. Ask the user to try later.
 
-## Step 3: Configure MCP Server
+## Step 3: Configure MCP Server and Plugin
 
 Read the current OpenCode global config:
 
@@ -34,7 +34,7 @@ Read the current OpenCode global config:
 cat ~/.config/opencode/opencode.json 2>/dev/null || echo '{}'
 ```
 
-Add the Fenix MCP server. Write the updated config using `jq`, replacing `{PAT}` with the actual token:
+Update the config with the Fenix MCP server AND the fenix-opencode plugin. Replace `{PAT}` with the actual token:
 
 ```bash
 CONFIG=$(cat ~/.config/opencode/opencode.json 2>/dev/null || echo '{"$schema": "https://opencode.ai/config.json"}')
@@ -48,64 +48,19 @@ CONFIG=$(echo "$CONFIG" | jq --arg pat "{PAT}" '
     },
     "enabled": true
   }
+  | .plugin = (.plugin // [])
+  | if (.plugin | index("fenix-opencode")) then . else .plugin += ["fenix-opencode"] end
 ')
 
 mkdir -p ~/.config/opencode
 echo "$CONFIG" | jq '.' > ~/.config/opencode/opencode.json
 ```
 
-## Step 4: Install Custom Agent
+This configures:
+- **Fenix MCP server** — connects to `fenix-mcp.devshire.app` with your PAT
+- **fenix-opencode plugin** — registers 5 specialized agents (Fenix, Plan, Build, Review, Deliver)
 
-Create the Fenix agent file for OpenCode:
-
-```bash
-mkdir -p ~/.config/opencode/agents
-```
-
-Write the following content to `~/.config/opencode/agents/fenix.md`:
-
-```markdown
----
-name: fenix
-description: Fenix workflow agent — structured planning, TDD development, memory protocol, and board progression.
----
-
-# Fenix Agent
-
-You have access to the **Fenix platform** via MCP. Before starting any work:
-
-1. **Search memories** — Run `memory_search` for session state, decisions, and context
-2. **Detect the workflow phase** — What does the user need?
-3. **Load the right skill** — Use `skill_list` to find and read the appropriate workflow skill
-4. **Save memories** — Before the conversation ends, save session state
-
-## Workflow Skills
-
-| User Intent | Skill Slug |
-|-------------|------------|
-| Define requirements, create epics/features/stories | `fenix-product-planning` |
-| Plan tasks for a story, discuss approach | `fenix-technical-planning` |
-| Implement code, write tests | `fenix-technical-development` |
-| Review code quality | `fenix-technical-review` |
-| Finalize delivery, close story | `fenix-technical-delivery` |
-
-## Non-Negotiable Rules
-
-1. **No implementation without tasks.** Plan first, always.
-2. **No skipping the discussion phase.** Identify gray areas, present options, capture decisions.
-3. **No status changes without work.** "Almost done" is not done.
-4. **TDD when applicable.** If you can write the test first, you must.
-5. **Memory first.** Always search at start, always save at end.
-
-## Reference Skills
-
-- `fenix-memory-protocol` — When and how to save/search memories
-- `fenix-tdd-workflow` — Red-Green-Refactor discipline
-- `fenix-board-progression` — How to move items between statuses
-- `fenix-tools-quickref` — Complete MCP tools reference
-```
-
-## Step 5: Seed Skills into Fenix
+## Step 4: Seed Skills into Fenix
 
 ### Handle multi-team users
 
@@ -155,7 +110,7 @@ Clean up after seeding:
 rm -rf "$PLUGIN_DIR"
 ```
 
-## Step 6: Confirm
+## Step 5: Confirm
 
 Tell the user:
 
@@ -163,12 +118,13 @@ Tell the user:
 >
 > **What was set up:**
 > - Fenix MCP server connected (fenix-mcp.devshire.app)
-> - Fenix agent installed (~/.config/opencode/agents/fenix.md)
-> - 10 workflow skills seeded into your Fenix database
+> - fenix-opencode plugin installed — 5 specialized agents:
+>   - **Fenix** — orchestrator (detects phase, delegates)
+>   - **Fenix Plan** — product and technical planning
+>   - **Fenix Build** — TDD implementation
+>   - **Fenix Review** — code review with context
+>   - **Fenix Deliver** — delivery and documentation
+> - Workflow skills seeded into your Fenix database
+> - User context auto-loads at the start of every conversation
 >
-> **Restart OpenCode** to activate the plugin. Then you can:
-> - Plan product features (epics, stories)
-> - Break stories into tasks with discussion phase
-> - Implement with TDD discipline
-> - Track progress on boards
-> - Save and search memories for cross-session continuity
+> **Restart OpenCode** to activate. You'll see the Fenix agents in the agent picker (Ctrl+T).

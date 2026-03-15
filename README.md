@@ -8,21 +8,25 @@ The Fenix MCP server gives your AI agent **12 tools with 68+ actions** for manag
 
 This plugin adds:
 
+- **Specialized agents** — Fenix Plan, Build, Review, Deliver — each focused on a workflow phase
 - **Structured workflows** — Product Planning → Technical Planning → Development → Review → Delivery
 - **Memory protocol** — Cross-session continuity so context is never lost
 - **TDD discipline** — Red-Green-Refactor with detection heuristics
 - **Board progression** — Correct status transitions for work items
 - **Discussion phase** — Gray area identification, trade-off analysis, and decision capture
+- **Dynamic skill loading** — Agents discover and follow team-specific skills automatically
 
-## Supported agents
+## Agents
 
-| Agent | MCP Config | Manifest |
-|-------|-----------|----------|
-| Claude Code | `~/.claude.json` | SessionStart hook |
-| Cursor | `~/.cursor/mcp.json` | `.cursorrules` |
-| OpenCode | `~/.config/opencode/opencode.json` | `opencode.json` |
-| Codex (OpenAI) | `~/.codex/config.toml` | `AGENTS.md` |
-| Gemini CLI | `~/.gemini/settings.json` | `GEMINI.md` |
+| Agent | What it does | Available on |
+|-------|-------------|-------------|
+| **Fenix** | Orchestrator — init, memory, detect phase, delegate | OpenCode, Claude Code |
+| **Fenix Plan** | Product + technical planning, discussion phase, trade-offs | OpenCode, Claude Code |
+| **Fenix Build** | TDD implementation, read-first, wave execution | OpenCode, Claude Code |
+| **Fenix Review** | Code review with decision context, acceptance criteria | OpenCode, Claude Code |
+| **Fenix Deliver** | Close story, update docs, clean TODOs | OpenCode, Claude Code |
+
+Other agents (Cursor, Codex, Gemini CLI) use a single-agent mode with the same workflow knowledge.
 
 ## Quick start
 
@@ -117,32 +121,36 @@ Product Planning → Technical Planning → Development → Review → Delivery
 
 ```
 fenix-plugin/
-├── .claude-plugin/
-│   ├── plugin.json                  # Claude Code plugin manifest
-│   └── marketplace.json             # Self-hosted marketplace
-├── .mcp.json                        # MCP server config (auto-configured by plugin)
-├── hooks/
-│   ├── hooks.json                   # Claude Code hook definitions
-│   └── session-start.sh             # Injects bootstrap skill at session start
-├── skills/                          # Claude Code plugin skills (SKILL.md format)
-│   ├── using-fenix/                 # Bootstrap meta-skill
-│   ├── fenix-setup/                 # /fenix-setup slash command
-│   ├── fenix-product-planning/      # Requirements → work items
-│   ├── fenix-technical-planning/    # Story → tasks (discussion phase)
-│   ├── fenix-technical-development/ # TDD implementation
-│   ├── fenix-technical-review/      # Code review with context
-│   ├── fenix-technical-delivery/    # Finalize and deliver
-│   ├── fenix-memory-protocol/       # Cross-session continuity
-│   ├── fenix-tdd-workflow/          # Red-Green-Refactor
-│   ├── fenix-board-progression/     # Status transitions
-│   └── fenix-tools-quickref/        # Tools cheat sheet
-├── manifests/                       # Other agents (non-Claude Code)
-│   ├── cursor/.cursorrules
-│   ├── opencode/opencode.json
-│   ├── codex/AGENTS.md
-│   └── gemini/GEMINI.md
-├── seed/seed-skills.json            # Skill definitions for DB seeding
-└── install.sh                       # Multi-agent installer (non-Claude Code)
+├── .claude-plugin/                    # Claude Code plugin manifest
+├── .mcp.json                          # MCP server config
+├── hooks/                             # Claude Code SessionStart hook
+├── agents/                            # Claude Code subagents
+│   ├── fenix-planner.md
+│   ├── fenix-builder.md
+│   ├── fenix-reviewer.md
+│   └── fenix-deliverer.md
+├── skills/                            # Shared skills (source of truth)
+│   ├── using-fenix/                   # Bootstrap meta-skill
+│   ├── fenix-setup/                   # /fenix-setup slash command
+│   ├── fenix-product-planning/        # Product planning workflow
+│   ├── fenix-technical-planning/      # Technical planning (discussion phase)
+│   ├── fenix-technical-development/   # TDD implementation
+│   ├── fenix-technical-review/        # Code review
+│   ├── fenix-technical-delivery/      # Delivery
+│   ├── fenix-memory-protocol/         # Memory protocol
+│   ├── fenix-tdd-workflow/            # TDD discipline
+│   ├── fenix-board-progression/       # Status transitions
+│   └── fenix-tools-quickref/          # Tools reference
+├── packages/
+│   └── fenix-opencode/               # OpenCode multi-agent plugin (npm)
+│       ├── src/agents/                # 5 TypeScript agent definitions
+│       ├── src/prompts/               # Prompt builder + shared fragments
+│       ├── src/context.ts             # Auto-injects user context
+│       └── src/index.ts               # Plugin entry point
+├── manifests/                         # Other agents (Cursor, Codex, Gemini)
+├── seed/seed-skills.json              # Skill definitions for DB seeding
+├── install.sh                         # Multi-agent installer
+└── release.sh                         # Automated release script
 ```
 
 ## Requirements

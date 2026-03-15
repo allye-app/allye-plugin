@@ -314,8 +314,14 @@ if command -v opencode &>/dev/null; then
       "enabled": true
     }')
 
+  # Add fenix-opencode plugin to plugin array
+  OC_CFG=$(echo "$OC_CFG" | jq '
+    .plugin = (.plugin // []) |
+    if (.plugin | index("fenix-opencode")) then . else .plugin += ["fenix-opencode"] end
+  ')
+
   echo "$OC_CFG" | jq '.' > "$OPENCODE_CFG_FILE"
-  print_success "OpenCode MCP server configured"
+  print_success "OpenCode MCP server + plugin configured"
   AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
 fi
 
