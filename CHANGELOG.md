@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.5.0...v1.6.0) (2026-03-15)
+
+
+### Features
+
+* rewrite README with user-focused documentation ([db71e49](https://github.com/fenix-assistant/fenix-plugin/commit/db71e494281aa40f64b38fe018479dd095997b0b))
+
 # [1.5.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.4.0...v1.5.0) (2026-03-15)
 
 
