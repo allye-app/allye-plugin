@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.4.0...v1.5.0) (2026-03-15)
+
+
+### Features
+
+* update install flow and docs for multi-agent system ([fbfef94](https://github.com/fenix-assistant/fenix-plugin/commit/fbfef9449e97b952e5bd53eb54ad9b399b572543))
+
 # [1.4.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.3.0...v1.4.0) (2026-03-15)
 
 
