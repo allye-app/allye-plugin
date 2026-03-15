@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.3.0...v1.4.0) (2026-03-15)
+
+
+### Features
+
+* auto-inject user context via system prompt transform ([8882db2](https://github.com/fenix-assistant/fenix-plugin/commit/8882db2a23b198e00768b524f28c25ffe9d42a73))
+
 # [1.3.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.2.0...v1.3.0) (2026-03-15)
 
 
