@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.1.1...v1.2.0) (2026-03-15)
+
+
+### Features
+
+* support multi-team skill seeding in install guides ([c1d3c26](https://github.com/fenix-assistant/fenix-plugin/commit/c1d3c26bdc7a3215339e0df4f666ecdbb9e9e2b2))
+
 ## [1.1.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.1.0...v1.1.1) (2026-03-14)
 
 
