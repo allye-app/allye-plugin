@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.2.0...v1.3.0) (2026-03-15)
+
+
+### Features
+
+* add fenix-opencode multi-agent plugin and Claude Code subagents ([c3c764c](https://github.com/fenix-assistant/fenix-plugin/commit/c3c764c6eb6fb4009c4e82b381746f38d8e4b581))
+
 # [1.2.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.1.1...v1.2.0) (2026-03-15)
 
 
