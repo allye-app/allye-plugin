@@ -1,0 +1,25 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "fenix-opencode",
+      "devDependencies": {
+        "@opencode-ai/plugin": "latest",
+        "typescript": "^5.5.0",
+      },
+      "peerDependencies": {
+        "@opencode-ai/plugin": ">=0.1.0",
+      },
+    },
+  },
+  "packages": {
+    "@opencode-ai/plugin": ["@opencode-ai/plugin@1.2.26", "", { "dependencies": { "@opencode-ai/sdk": "1.2.26", "zod": "4.1.8" } }, "sha512-pC71KGAI9T0+S84KpbEq9THp5pT7KOq+GmfdXkvQ7KSH5zi+iASWRhqorir73sKmEj2MQfpbe1BxdcU5qbeOwA=="],
+
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.2.26", "", {}, "sha512-HPB+0pfvTMPj2KEjNLF3oqgldKW8koTJ7ssqXwzndazqxS+gUynzvdIKIQP4+QIInNcc5nJMG9JtfLcePGgTLQ=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "zod": ["zod@4.1.8", "", {}, "sha512-5R1P+WwQqmmMIEACyzSvo4JXHY5WiAFHRMg+zBZKgKS+Q1viRa0C1hmUKtHltoIFKtIdki3pRxkmpP74jnNYHQ=="],
+  }
+}
