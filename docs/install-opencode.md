@@ -107,20 +107,35 @@ You have access to the **Fenix platform** via MCP. Before starting any work:
 
 ## Step 5: Seed Skills into Fenix
 
-Clone the plugin repo and run the seed:
+### Handle multi-team users
+
+First, validate the PAT response from Step 2. If the user belongs to **multiple teams**, ask:
+
+> You belong to multiple teams:
+> - {team 1 name} ({team 1 prefix})
+> - {team 2 name} ({team 2 prefix})
+>
+> Do you want to seed the skills to **all teams** or just one specific team?
+
+- If **all teams**: run the seed loop once for each team, passing the respective `team_id`
+- If **one team**: ask which team, then seed only to that one
+
+### Clone and seed
+
+Clone the plugin repo:
 
 ```bash
 PLUGIN_DIR=$(mktemp -d)
 git clone --depth 1 https://github.com/fenix-assistant/fenix-plugin.git "$PLUGIN_DIR"
 ```
 
-For each skill in the seed file, create it in Fenix. Read the seed file:
+Read the seed file:
 
 ```bash
 cat "$PLUGIN_DIR/seed/seed-skills.json"
 ```
 
-For each skill in the `skills` array, read the source file content and create the skill using the Fenix MCP tool:
+For each team being seeded, and for each skill in the `skills` array, read the source file content and create the skill:
 
 ```
 Action: skill_create
@@ -128,6 +143,8 @@ skill_name: {name from seed}
 skill_category: {category from seed}
 skill_description: {description from seed}
 skill_content: {content read from source_file}
+skill_scope: team
+team_id: {team uuid}
 ```
 
 If a skill already exists (check with `skill_list` first), use `skill_update` instead.
