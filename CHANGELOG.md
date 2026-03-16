@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.11.1...v1.12.0) (2026-03-16)
+
+
+### Features
+
+* add structured handoff flow from Plan to Build agent ([9df37a9](https://github.com/fenix-assistant/fenix-plugin/commit/9df37a96ef4e65157d8c41ffd4c813e29d5a20ea))
+
 ## [1.11.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.11.0...v1.11.1) (2026-03-16)
 
 
