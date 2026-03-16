@@ -1,3 +1,10 @@
+## [1.7.2](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.1...v1.7.2) (2026-03-16)
+
+
+### Bug Fixes
+
+* retrigger CI for npm publish with updated token ([3a65e1a](https://github.com/fenix-assistant/fenix-plugin/commit/3a65e1a30f4bde4e9337d97a95a5b938b8094dc9))
+
 ## [1.7.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.0...v1.7.1) (2026-03-16)
 
 
