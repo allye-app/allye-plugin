@@ -24,7 +24,7 @@ Say this to the user:
 >
 > Paste your PAT here:
 
-Wait for the user to provide the token. It will look like `pat_XXXXXXXX.XXXXXXXX`.
+Wait for the user to provide the token. It will look like `fnx_XXXXXXXX.XXXXXXXX` (or `pat_XXXXXXXX.XXXXXXXX` for older tokens).
 
 ## Step 2: Validate the PAT
 
@@ -78,4 +78,4 @@ After saving, tell the user:
 
 - If `jq` is not installed: tell the user to install it (`brew install jq` / `sudo apt install jq`)
 - If `~/.claude/settings.json` doesn't exist: create it with `{}`
-- If the PAT format looks wrong (doesn't start with `pat_`): warn but still try to validate — the format may change
+- If the PAT format looks wrong (doesn't start with `fnx_` or `pat_`): warn but still try to validate — the format may change
