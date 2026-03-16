@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.10.0...v1.11.0) (2026-03-16)
+
+
+### Features
+
+* add planning best practices from real usage feedback ([c923282](https://github.com/fenix-assistant/fenix-plugin/commit/c92328230ef93322e191489ed49f27d6ba08cd1c))
+
 # [1.10.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.9.2...v1.10.0) (2026-03-16)
 
 
