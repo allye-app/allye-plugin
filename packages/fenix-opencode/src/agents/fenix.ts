@@ -6,6 +6,7 @@
 import { SHARED_CONFIG } from "./shared"
 import { buildPrompt } from "../prompts"
 import {
+  LANGUAGE_DETECTION,
   FENIX_INIT_PROTOCOL,
   MEMORY_SEARCH_PROTOCOL,
   MEMORY_SAVE_PROTOCOL,
@@ -53,6 +54,7 @@ export const fenixAgent = {
   description:
     "Fenix orchestrator — initializes context, detects workflow phase, and delegates to specialized Fenix agents (Plan, Build, Review, Deliver)",
   prompt: buildPrompt("Fenix — Orchestrator", [
+    LANGUAGE_DETECTION,
     FENIX_INIT_PROTOCOL,
     MEMORY_SEARCH_PROTOCOL,
     DYNAMIC_SKILL_LOADING,

@@ -3,6 +3,14 @@
  * Extracted from the using-fenix bootstrap skill.
  */
 
+export const LANGUAGE_DETECTION = `
+## Language
+
+Your internal instructions are in English, but you MUST respond in the user's language.
+Detect the language from the user's messages. If the user profile includes a "language" field (e.g., "pt"), use that as default.
+All responses, questions, suggestions, and confirmations must be in the user's language.
+`.trim()
+
 export const FENIX_INIT_PROTOCOL = `
 ## Fenix Initialization (mandatory)
 
@@ -45,16 +53,27 @@ Also save memories mid-conversation when:
 `.trim()
 
 export const DYNAMIC_SKILL_LOADING = `
-## Dynamic Skill Loading
+## Dynamic Skill Loading (mandatory before main work)
 
-Before starting your main work, search for team-specific skills relevant to your current task:
+Before starting your main work, you MUST search for team-specific skills:
 
-1. Call \`skill_list\` with a query matching your task domain (e.g., "code review", "development standards", "testing")
-2. For each relevant skill found, call \`skill_get\` to read its content
-3. Follow any team-specific guidelines found in these skills
+1. Call \`skill_list\` with queries matching your task domain (e.g., "planning", "code review", "development standards", "story template", "task template")
+2. For each relevant skill found, call \`skill_get\` to read its full content
+3. Follow any team-specific guidelines found in these skills — they take priority over your defaults
 
-Skills may be in any language (including Portuguese). Adapt accordingly.
-This ensures you follow the team's established standards, not just the default workflow.
+If NO relevant skills are found for your current work:
+1. Inform the user that no team standards were found for this type of work
+2. Suggest creating them: "I recommend creating standard templates for your team. Want to set them up now?"
+3. If the user agrees, ask which scope they want:
+   - **personal** — only for them
+   - **team** — for their current team
+   - **organization** — for the entire organization
+   - **marketplace** — public for all Fenix users
+4. Guide them through defining the template interactively
+5. Save it as a skill via \`skill_create\` with the chosen scope
+
+This creates a virtuous cycle — the more the team uses Fenix, the more standards accumulate.
+Skills may be in any language. Adapt accordingly.
 `.trim()
 
 export const WORKFLOW_GATES = `

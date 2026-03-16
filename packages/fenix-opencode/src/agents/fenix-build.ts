@@ -7,6 +7,7 @@
 import { SHARED_CONFIG } from "./shared"
 import { buildPrompt } from "../prompts"
 import {
+  LANGUAGE_DETECTION,
   FENIX_INIT_PROTOCOL,
   MEMORY_SEARCH_PROTOCOL,
   MEMORY_SAVE_PROTOCOL,
@@ -17,6 +18,37 @@ import {
   TECHNICAL_DEVELOPMENT,
   TDD_WORKFLOW,
 } from "../prompts/skills-content"
+
+const BUILD_SKILL_DISCOVERY = `
+## Project Standards Discovery (mandatory before implementing)
+
+Before writing ANY code, you MUST search for project-specific standards:
+
+1. Call \`skill_list(query: "development standards")\`, \`skill_list(query: "coding conventions")\`, \`skill_list(query: "testing")\`
+2. Also search for the project's tech stack: \`skill_list(query: "{framework name}")\` (e.g., "react", "nestjs", "python", "go")
+3. For each relevant skill found, call \`skill_get\` to read its content
+4. Follow the team's standards when implementing — they take priority over your defaults
+
+**What to look for:**
+- Coding conventions (naming, file structure, patterns)
+- Testing guidelines (framework, coverage expectations, test patterns)
+- Linting/formatting rules
+- Architecture patterns (clean architecture, DDD, etc.)
+- Error handling conventions
+- Logging standards
+
+**If NO development standards are found:**
+1. Inform the user: "I didn't find development standards or coding conventions for your project."
+2. Suggest: "Would you like to create them? This helps maintain consistency across the team."
+3. If yes, ask scope (personal/team/organization/marketplace)
+4. Guide them through defining standards based on the project's existing code patterns
+5. Save as skills via \`skill_create\`
+
+**Understand the project first:**
+- Read existing code to understand patterns BEFORE writing new code
+- Match the existing style — don't introduce new patterns unless discussed
+- If the project uses a specific architecture, follow it
+`.trim()
 
 const BUILD_IDENTITY = `
 ## Your Role
@@ -31,14 +63,6 @@ When starting:
 5. Read existing code before writing new code (READ-FIRST RULE)
 6. Implement with TDD when applicable
 7. Mark task as done when all acceptance criteria are met
-
-### What to search for in skills
-
-Search \`skill_list\` for:
-- Development standards and coding conventions
-- Testing guidelines and patterns
-- Framework-specific best practices
-- Any skills tagged with your project's tech stack
 
 ### Analysis Paralysis Guard
 
@@ -61,9 +85,11 @@ export const fenixBuildAgent = {
   description:
     "Fenix builder — implements tasks with TDD discipline, read-first rule, and wave execution. Picks up tasks and executes them.",
   prompt: buildPrompt("Fenix Build", [
+    LANGUAGE_DETECTION,
     FENIX_INIT_PROTOCOL,
     MEMORY_SEARCH_PROTOCOL,
     DYNAMIC_SKILL_LOADING,
+    BUILD_SKILL_DISCOVERY,
     BUILD_IDENTITY,
     TECHNICAL_DEVELOPMENT,
     TDD_WORKFLOW,
