@@ -68,7 +68,10 @@ After installing, you get:
 - **Auto-loaded context** — your profile and team info injected before every conversation
 - **Dynamic skill discovery** — agents search for your team's standards via MCP
 
-**To update:** Run `bun update fenix-opencode` in your project, or remove `node_modules` and restart OpenCode.
+**To update:** Paste this into your agent:
+```
+Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-opencode.md
+```
 
 ### Cursor
 
@@ -82,7 +85,10 @@ After installing:
 - **MCP server** configured in `~/.cursor/mcp.json`
 - **`.cursorrules`** installed with workflow routing and non-negotiable rules
 
-**To update:** Re-run the install guide or update `.cursorrules` manually from the repo.
+**To update:** Paste this into your agent:
+```
+Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-cursor.md
+```
 
 ### Codex (OpenAI)
 
@@ -96,7 +102,10 @@ After installing:
 - **MCP server** configured in `~/.codex/config.toml`
 - **`AGENTS.md`** installed with workflow instructions
 
-**To update:** Re-run the install guide or update `AGENTS.md` manually from the repo.
+**To update:** Paste this into your agent:
+```
+Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-codex.md
+```
 
 ### Gemini CLI
 
@@ -110,7 +119,10 @@ After installing:
 - **MCP server** configured in `~/.gemini/settings.json`
 - **`GEMINI.md`** installed with workflow instructions
 
-**To update:** Re-run the install guide or update `GEMINI.md` manually from the repo.
+**To update:** Paste this into your agent:
+```
+Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-gemini.md
+```
 
 ### Manual (all agents)
 
@@ -128,14 +140,29 @@ Auto-detects installed agents and configures MCP + skills for each one.
 
 ## Updating
 
-| Platform | How to update |
-|----------|-------------|
-| **Claude Code** | `/plugin update fenix` then `/reload-plugins` |
-| **OpenCode** | `bun update fenix-opencode` in your project, or clear `node_modules` and restart |
-| **Cursor** | Re-run the install guide or manually update `.cursorrules` from the repo |
-| **Codex** | Re-run the install guide or manually update `AGENTS.md` from the repo |
-| **Gemini CLI** | Re-run the install guide or manually update `GEMINI.md` from the repo |
-| **Manual** | `cd fenix-plugin && git pull && ./install.sh` |
+### Claude Code
+
+```
+/plugin update fenix
+/reload-plugins
+```
+
+### Other agents (agent-assisted)
+
+Paste this into your agent's chat:
+
+| Agent | Paste this |
+|-------|-----------|
+| OpenCode | `Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-opencode.md` |
+| Cursor | `Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-cursor.md` |
+| Codex | `Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-codex.md` |
+| Gemini CLI | `Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-gemini.md` |
+
+### Manual
+
+```bash
+cd fenix-plugin && git pull && ./install.sh
+```
 
 ---
 
