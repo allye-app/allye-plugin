@@ -1,3 +1,10 @@
+## [1.7.3](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.2...v1.7.3) (2026-03-16)
+
+
+### Bug Fixes
+
+* update setup skill to document fnx_ token prefix ([3632013](https://github.com/fenix-assistant/fenix-plugin/commit/3632013a35d675df4b06ba17ba6403032abbef63))
+
 ## [1.7.2](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.1...v1.7.2) (2026-03-16)
 
 
