@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.9.0...v1.9.1) (2026-03-16)
+
+
+### Bug Fixes
+
+* add update instructions inline with each installation step ([002816f](https://github.com/fenix-assistant/fenix-plugin/commit/002816faad17a0277d1b08751faa3213c649fde0))
+
 # [1.9.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.8.0...v1.9.0) (2026-03-16)
 
 
