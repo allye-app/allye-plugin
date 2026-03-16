@@ -68,7 +68,7 @@ After installing, you get:
 - **Auto-loaded context** — your profile and team info injected before every conversation
 - **Dynamic skill discovery** — agents search for your team's standards via MCP
 
-**To update:** Automatic — `fenix-opencode` updates via npm on next launch.
+**To update:** Run `bun update fenix-opencode` in your project, or remove `node_modules` and restart OpenCode.
 
 ### Cursor
 
@@ -131,7 +131,7 @@ Auto-detects installed agents and configures MCP + skills for each one.
 | Platform | How to update |
 |----------|-------------|
 | **Claude Code** | `/plugin update fenix` then `/reload-plugins` |
-| **OpenCode** | Automatic — `fenix-opencode` updates via npm on next launch |
+| **OpenCode** | `bun update fenix-opencode` in your project, or clear `node_modules` and restart |
 | **Cursor** | Re-run the install guide or manually update `.cursorrules` from the repo |
 | **Codex** | Re-run the install guide or manually update `AGENTS.md` from the repo |
 | **Gemini CLI** | Re-run the install guide or manually update `GEMINI.md` from the repo |
