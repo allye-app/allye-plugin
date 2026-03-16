@@ -1,3 +1,10 @@
+## [1.9.2](https://github.com/fenix-assistant/fenix-plugin/compare/v1.9.1...v1.9.2) (2026-03-16)
+
+
+### Bug Fixes
+
+* correct OpenCode update instructions ([37767f4](https://github.com/fenix-assistant/fenix-plugin/commit/37767f42ae32e8b8adb3407d8f010fcd031281c2))
+
 ## [1.9.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.9.0...v1.9.1) (2026-03-16)
 
 
