@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.0...v1.7.1) (2026-03-16)
+
+
+### Bug Fixes
+
+* trigger CI for initial npm publish ([fa74904](https://github.com/fenix-assistant/fenix-plugin/commit/fa7490492032423f677a92d8f962443e9f14c0a1))
+
 # [1.7.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.6.0...v1.7.0) (2026-03-16)
 
 
