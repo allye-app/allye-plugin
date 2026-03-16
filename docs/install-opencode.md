@@ -60,57 +60,7 @@ This configures:
 - **Fenix MCP server** — connects to `fenix-mcp.devshire.app` with your PAT
 - **fenix-opencode plugin** — registers 5 specialized agents (Fenix, Plan, Build, Review, Deliver)
 
-## Step 4: Seed Skills into Fenix
-
-### Handle multi-team users
-
-First, validate the PAT response from Step 2. If the user belongs to **multiple teams**, ask:
-
-> You belong to multiple teams:
-> - {team 1 name} ({team 1 prefix})
-> - {team 2 name} ({team 2 prefix})
->
-> Do you want to seed the skills to **all teams** or just one specific team?
-
-- If **all teams**: run the seed loop once for each team, passing the respective `team_id`
-- If **one team**: ask which team, then seed only to that one
-
-### Clone and seed
-
-Clone the plugin repo:
-
-```bash
-PLUGIN_DIR=$(mktemp -d)
-git clone --depth 1 https://github.com/fenix-assistant/fenix-plugin.git "$PLUGIN_DIR"
-```
-
-Read the seed file:
-
-```bash
-cat "$PLUGIN_DIR/seed/seed-skills.json"
-```
-
-For each team being seeded, and for each skill in the `skills` array, read the source file content and create the skill:
-
-```
-Action: skill_create
-skill_name: {name from seed}
-skill_category: {category from seed}
-skill_description: {description from seed}
-skill_content: {content read from source_file}
-skill_scope: team
-team_id: {team uuid}
-```
-
-If a skill already exists (check with `skill_list` first), use `skill_update` instead.
-
-Clean up after seeding:
-
-```bash
-rm -rf "$PLUGIN_DIR"
-```
-
-## Step 5: Confirm
+## Step 4: Confirm
 
 Tell the user:
 
@@ -124,7 +74,7 @@ Tell the user:
 >   - **Fenix Build** — TDD implementation
 >   - **Fenix Review** — code review with context
 >   - **Fenix Deliver** — delivery and documentation
-> - Workflow skills seeded into your Fenix database
+> - 10 workflow skills available from the Fenix marketplace (no seed needed)
 > - User context auto-loads at the start of every conversation
 >
 > **Restart OpenCode** to activate. You'll see the Fenix agents in the agent picker (Ctrl+T).

@@ -57,11 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/m
 
 If the user already has a `~/.gemini/GEMINI.md`, append the Fenix content instead of overwriting.
 
-## Step 5: Seed Skills
-
-If the user belongs to **multiple teams**, ask whether to seed skills to all teams or just one. Then clone the plugin repo temporarily and seed skills into Fenix using the MCP tools. For each team and each skill in `seed/seed-skills.json`, use `skill_create` (with `team_id`) or `skill_update` via the Fenix MCP. See OpenCode install guide Step 5 for the full procedure.
-
-## Step 6: Confirm
+## Step 5: Confirm
 
 Tell the user:
 
