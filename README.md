@@ -51,6 +51,8 @@ After installing, you get:
 - **4 subagents** — planner, builder, reviewer, deliverer (delegated via Agent tool)
 - **11 skills** — loaded on-demand by the orchestrator
 
+**To update:** `/plugin update fenix` then `/reload-plugins`
+
 ### OpenCode
 
 Paste this into your agent:
@@ -66,6 +68,8 @@ After installing, you get:
 - **Auto-loaded context** — your profile and team info injected before every conversation
 - **Dynamic skill discovery** — agents search for your team's standards via MCP
 
+**To update:** Automatic — `fenix-opencode` updates via npm on next launch.
+
 ### Cursor
 
 Paste this into Cursor's agent chat:
@@ -77,6 +81,8 @@ Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistan
 After installing:
 - **MCP server** configured in `~/.cursor/mcp.json`
 - **`.cursorrules`** installed with workflow routing and non-negotiable rules
+
+**To update:** Re-run the install guide or update `.cursorrules` manually from the repo.
 
 ### Codex (OpenAI)
 
@@ -90,6 +96,8 @@ After installing:
 - **MCP server** configured in `~/.codex/config.toml`
 - **`AGENTS.md`** installed with workflow instructions
 
+**To update:** Re-run the install guide or update `AGENTS.md` manually from the repo.
+
 ### Gemini CLI
 
 Paste this into Gemini:
@@ -102,6 +110,8 @@ After installing:
 - **MCP server** configured in `~/.gemini/settings.json`
 - **`GEMINI.md`** installed with workflow instructions
 
+**To update:** Re-run the install guide or update `GEMINI.md` manually from the repo.
+
 ### Manual (all agents)
 
 ```bash
@@ -111,6 +121,8 @@ cd fenix-plugin
 ```
 
 Auto-detects installed agents and configures MCP + skills for each one.
+
+**To update:** `cd fenix-plugin && git pull && ./install.sh`
 
 ---
 
