@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.9.2...v1.10.0) (2026-03-16)
+
+
+### Features
+
+* add agent-assisted update guides for all platforms ([ebad2f2](https://github.com/fenix-assistant/fenix-plugin/commit/ebad2f2d31d876b0bde77c7bf222012fe849db64))
+
 ## [1.9.2](https://github.com/fenix-assistant/fenix-plugin/compare/v1.9.1...v1.9.2) (2026-03-16)
 
 
