@@ -1,3 +1,10 @@
+## [1.11.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.11.0...v1.11.1) (2026-03-16)
+
+
+### Bug Fixes
+
+* add hard boundary preventing Fenix Plan from implementing ([8d0c196](https://github.com/fenix-assistant/fenix-plugin/commit/8d0c1963afef6f843f8f95a8498725028e7d9ed5))
+
 # [1.11.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.10.0...v1.11.0) (2026-03-16)
 
 
