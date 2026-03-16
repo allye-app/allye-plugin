@@ -1,3 +1,10 @@
+## [1.7.4](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.3...v1.7.4) (2026-03-16)
+
+
+### Bug Fixes
+
+* remove seed step from install guides ([6140c34](https://github.com/fenix-assistant/fenix-plugin/commit/6140c3477f59f9dfa1d8be3a0a0dca8f2bb65de5))
+
 ## [1.7.3](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.2...v1.7.3) (2026-03-16)
 
 
