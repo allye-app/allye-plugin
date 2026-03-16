@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.6.0...v1.7.0) (2026-03-16)
+
+
+### Features
+
+* auto-publish fenix-opencode to npm on release ([933582b](https://github.com/fenix-assistant/fenix-plugin/commit/933582bf38e7fefbdb508985178b851cb8d4e6bd))
+
 # [1.6.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.5.0...v1.6.0) (2026-03-15)
 
 
