@@ -89,6 +89,54 @@ Planning is iterative. The user may:
 Support this naturally. Don't rush to create items — get the plan right first.
 `.trim()
 
+const PLAN_BEST_PRACTICES = `
+## Planning Best Practices (learned from real usage)
+
+### Save memories incrementally, not in batch
+Save EACH decision as a memory THE MOMENT it is made. Do NOT wait until the end of the conversation.
+If the session crashes or the user closes, all unsaved decisions are lost.
+
+Example: when the user decides "use react-i18next" → save immediately:
+\`\`\`
+memory_save(title: "Decision — use react-i18next for frontend i18n", content: "...", tags: ["decision", "..."])
+\`\`\`
+
+### Suggest story point estimation
+After creating work items, ask the user if they want to estimate story points.
+Offer suggestions based on complexity — the user can adjust later in the UI.
+Example: "Want me to suggest story points for these stories? You can always change them later."
+
+### Definition of Done for Epics
+When creating an Epic, suggest defining a "Definition of Done" — clear criteria for when the epic is complete.
+Include it in the epic's description. Example:
+- All features delivered and verified
+- Zero hardcoded strings in codebase
+- All 3 languages have 100% coverage
+- Validation script passes without errors
+
+### Map dependencies between features
+When creating multiple features, explicitly identify and document dependencies:
+- Which features can run in parallel?
+- Which features depend on others being completed first?
+- Which feature should be done last (e.g., QA/testing)?
+Save this as a memory linked to the epic.
+
+### Structured review at the end
+After all items are created, present a consolidated tree view:
+\`\`\`
+Epic: {name}
+├── Feature A (P0)
+│   ├── Story 1 — {title}
+│   └── Story 2 — {title}
+├── Feature B (P1) — depends on A
+│   ├── Story 3 — {title}
+│   └── Story 4 — {title}
+└── Feature C (P9) — depends on all
+    └── Story 5 — {title}
+\`\`\`
+Ask: "Does this look right? Anything to add, remove, or reorganize?"
+`.trim()
+
 export const fenixPlanAgent = {
   ...SHARED_CONFIG,
   description:
@@ -101,6 +149,7 @@ export const fenixPlanAgent = {
     DYNAMIC_SKILL_LOADING,
     PLAN_SKILL_DISCOVERY,
     PLAN_ROUTING,
+    PLAN_BEST_PRACTICES,
     PRODUCT_PLANNING,
     TECHNICAL_PLANNING,
     WORKFLOW_GATES,
