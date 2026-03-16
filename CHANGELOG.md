@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.8.0...v1.9.0) (2026-03-16)
+
+
+### Features
+
+* update README with updating guide, skill discovery, and language support ([fe10e39](https://github.com/fenix-assistant/fenix-plugin/commit/fe10e395fce59651dafa2eb028163b1eadd9148a))
+
 # [1.8.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.4...v1.8.0) (2026-03-16)
 
 
