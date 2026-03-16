@@ -6,6 +6,7 @@
 <p align="center">
   <a href="https://github.com/fenix-assistant/fenix-plugin/releases"><img src="https://img.shields.io/github/v/release/fenix-assistant/fenix-plugin" alt="Release"></a>
   <a href="https://github.com/fenix-assistant/fenix-plugin/blob/main/LICENSE"><img src="https://img.shields.io/github/license/fenix-assistant/fenix-plugin" alt="License"></a>
+  <a href="https://www.npmjs.com/package/fenix-opencode"><img src="https://img.shields.io/npm/v/fenix-opencode" alt="npm"></a>
   <img src="https://img.shields.io/badge/Claude_Code-supported-blue" alt="Claude Code">
   <img src="https://img.shields.io/badge/OpenCode-supported-green" alt="OpenCode">
   <img src="https://img.shields.io/badge/Cursor-supported-purple" alt="Cursor">
@@ -25,9 +26,11 @@ Your AI agent has **68+ tools** but no idea when to use them. Fenix adds the met
 | **Planning** | Discussion phase | Gray areas identified, options presented with trade-offs, decisions captured |
 | **Memory** | Cross-session continuity | Agent searches past context at start, saves session state at end |
 | **TDD** | Test-driven development | Red-Green-Refactor with automatic detection of when TDD applies |
-| **Skills** | Dynamic loading | Agents discover and follow your team's custom skills (any language) |
+| **Skills** | Dynamic discovery | Agents find and follow your team's standards automatically — no manual config |
+| **Standards** | Guided creation | No team standards? Agent suggests creating them with your chosen scope |
 | **Boards** | Status progression | Correct transitions: backlog → todo → in_progress → review → done |
 | **Context** | Auto-loaded profile | User context, team info, and preferences injected before first message |
+| **Language** | Multi-language | Agent responds in your language — configs are English, conversations are yours |
 
 ---
 
@@ -41,7 +44,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Fenix adds the met
 /fenix-setup
 ```
 
-The plugin auto-configures MCP server, SessionStart hook, and 11 workflow skills. `/fenix-setup` asks for your PAT once and saves it. Done.
+The plugin auto-configures MCP server, SessionStart hook, and 11 workflow skills. `/fenix-setup` asks for your PAT once and saves it.
 
 After installing, you get:
 - **Bootstrap hook** — injects workflow methodology at session start
@@ -56,12 +59,12 @@ Paste this into your agent:
 Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/install-opencode.md
 ```
 
-The agent will ask for your PAT, configure the MCP server, install the `fenix-opencode` plugin, and seed skills.
+The agent will ask for your PAT, configure the MCP server, and install the `fenix-opencode` plugin.
 
 After installing, you get:
 - **5 agents in the picker** — Fenix, Fenix Plan, Fenix Build, Fenix Review, Fenix Deliver (Ctrl+T to switch)
 - **Auto-loaded context** — your profile and team info injected before every conversation
-- **Dynamic skill loading** — agents search for your team's custom skills via MCP
+- **Dynamic skill discovery** — agents search for your team's standards via MCP
 
 ### Cursor
 
@@ -74,7 +77,6 @@ Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistan
 After installing:
 - **MCP server** configured in `~/.cursor/mcp.json`
 - **`.cursorrules`** installed with workflow routing and non-negotiable rules
-- **Skills seeded** into your Fenix database
 
 ### Codex (OpenAI)
 
@@ -87,7 +89,6 @@ Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistan
 After installing:
 - **MCP server** configured in `~/.codex/config.toml`
 - **`AGENTS.md`** installed with workflow instructions
-- **Skills seeded** into your Fenix database
 
 ### Gemini CLI
 
@@ -100,7 +101,6 @@ Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistan
 After installing:
 - **MCP server** configured in `~/.gemini/settings.json`
 - **`GEMINI.md`** installed with workflow instructions
-- **Skills seeded** into your Fenix database
 
 ### Manual (all agents)
 
@@ -114,6 +114,19 @@ Auto-detects installed agents and configures MCP + skills for each one.
 
 ---
 
+## Updating
+
+| Platform | How to update |
+|----------|-------------|
+| **Claude Code** | `/plugin update fenix` then `/reload-plugins` |
+| **OpenCode** | Automatic — `fenix-opencode` updates via npm on next launch |
+| **Cursor** | Re-run the install guide or manually update `.cursorrules` from the repo |
+| **Codex** | Re-run the install guide or manually update `AGENTS.md` from the repo |
+| **Gemini CLI** | Re-run the install guide or manually update `GEMINI.md` from the repo |
+| **Manual** | `cd fenix-plugin && git pull && ./install.sh` |
+
+---
+
 ## Agents
 
 On platforms that support multi-agent (OpenCode, Claude Code), you get 5 specialized agents:
@@ -121,15 +134,17 @@ On platforms that support multi-agent (OpenCode, Claude Code), you get 5 special
 | Agent | Who uses it | What it does |
 |-------|------------|-------------|
 | **Fenix** | Everyone | Orchestrator — initializes context, detects workflow phase, delegates to the right agent |
-| **Fenix Plan** | PO, tech lead, dev | All planning — from business requirements (epics/features/stories) to technical breakdown (discussion phase → tasks). Adapts level to who's talking. |
-| **Fenix Build** | Dev | Picks up tasks and implements them. TDD discipline, read-first rule, wave execution. Doesn't plan — executes. |
-| **Fenix Review** | Dev, tech lead | Reviews code with full context from planning decisions. Validates acceptance criteria one by one. |
-| **Fenix Deliver** | Dev | Closes the story. Verifies all tasks done, updates documentation, cleans up TODOs, saves delivery summary. |
+| **Fenix Plan** | PO, tech lead, dev | All planning — from business requirements (epics/features/stories) to technical breakdown (discussion phase → tasks). Discovers team work item templates. |
+| **Fenix Build** | Dev | Picks up tasks and implements them. Discovers coding conventions, testing standards. TDD discipline, read-first rule, wave execution. |
+| **Fenix Review** | Dev, tech lead | Reviews code with planning decision context. Discovers review checklists, security standards, quality gates. |
+| **Fenix Deliver** | Dev | Closes the story. Discovers documentation templates, deploy checklists. Updates docs, cleans up TODOs. |
 
 Every agent:
+- Responds in **your language** (detected from profile or messages)
 - Calls `initialize` to load your profile and team context
+- **Discovers team skills** before starting — coding standards, templates, checklists
+- If no standards found → **suggests creating them** with your chosen scope (personal/team/org/marketplace)
 - Searches memories for past decisions and session state
-- Loads team-specific skills dynamically via `skill_list`
 - Saves session state before ending
 
 On platforms without multi-agent (Cursor, Codex, Gemini CLI), a single agent handles all phases with the same workflow knowledge.
@@ -145,25 +160,25 @@ Product Planning → Technical Planning → Development → Review → Delivery
 ```
 
 ### Product Planning
-Understand business context → define hierarchy (Epic → Feature → Story) → create work items with acceptance criteria.
+Understand business context → discover team templates → define hierarchy (Epic → Feature → Story) → create work items with acceptance criteria.
 
 ### Technical Planning
 Get story → **discussion phase** (identify gray areas, present options with trade-offs, capture locked decisions) → create tasks with dependency waves.
 
 ### Development
-Pick task → read existing code first → TDD (Red → Green → Refactor) → mark done → next task.
+Pick task → discover coding standards → read existing code first → TDD (Red → Green → Refactor) → mark done → next task.
 
 ### Review
-Load planning decisions → review each task against acceptance criteria → check code quality, security, test coverage → approve or request changes.
+Discover review standards → load planning decisions → review each task against acceptance criteria → check code quality, security, test coverage → approve or request changes.
 
 ### Delivery
-Verify all tasks done → close story → update documentation → clean up TODOs → save delivery memory.
+Discover delivery standards → verify all tasks done → close story → update documentation → clean up TODOs → save delivery memory.
 
 ---
 
 ## Skills
 
-Skills are the knowledge base that powers the agents. They're loaded on-demand — not all at once.
+Skills are the knowledge base that powers the agents. 10 workflow skills are published in the **Fenix marketplace** — available to all users without setup.
 
 | Skill | What it teaches |
 |-------|----------------|
@@ -178,7 +193,16 @@ Skills are the knowledge base that powers the agents. They're loaded on-demand �
 | `fenix-board-progression` | Status transitions and board mechanics |
 | `fenix-tools-quickref` | Complete reference for all 12 MCP tools and 68+ actions |
 
-Your team can also create **custom skills** in Fenix (code review standards, dev guidelines, etc.) — agents discover and follow them automatically.
+### Custom team skills
+
+Your team can create custom skills in Fenix — agents discover and follow them automatically:
+
+- **Code review checklist** → Fenix Review follows it
+- **Backend story standard** → Fenix Plan uses it as template
+- **Deploy checklist** → Fenix Deliver follows it
+- **Coding conventions** → Fenix Build applies them
+
+No team skills yet? Each agent will suggest creating them when it doesn't find standards for its domain.
 
 ---
 
