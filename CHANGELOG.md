@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.4...v1.8.0) (2026-03-16)
+
+
+### Features
+
+* add project-aware skill discovery and language detection to all agents ([a7528ac](https://github.com/fenix-assistant/fenix-plugin/commit/a7528ac8c2fa5246ca8b6a486f0d891791dc5fc7))
+
 ## [1.7.4](https://github.com/fenix-assistant/fenix-plugin/compare/v1.7.3...v1.7.4) (2026-03-16)
 
 
