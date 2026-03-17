@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.0...v1.13.1) (2026-03-17)
+
+
+### Bug Fixes
+
+* setup now creates project-level .mcp.json for reliable env var resolution ([fe9d5d5](https://github.com/fenix-assistant/fenix-plugin/commit/fe9d5d5e529f50eb22129e7764b0995292093475)), closes [#9427](https://github.com/fenix-assistant/fenix-plugin/issues/9427)
+
 # [1.13.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.12.0...v1.13.0) (2026-03-17)
 
 
