@@ -12,7 +12,7 @@ This skill guides you through connecting the Fenix plugin to the user's Fenix ac
 1. Detect where the plugin is installed (scope)
 2. Ask the user for their **Fenix Personal Access Token (PAT)**
 3. Validate the PAT
-4. Configure MCP server + save PAT at the correct scope
+4. Configure MCP server at the correct scope
 5. Confirm the setup is complete
 
 ## Step 1: Detect Plugin Scope
@@ -20,22 +20,14 @@ This skill guides you through connecting the Fenix plugin to the user's Fenix ac
 Run this command to find where the Fenix plugin is installed:
 
 ```bash
-echo "=== Checking plugin scope ===" && LOCAL=$(cat .claude/settings.local.json 2>/dev/null | jq -r '.enabledPlugins // {} | keys[]' 2>/dev/null | grep -c fenix) && PROJECT=$(cat .claude/settings.json 2>/dev/null | jq -r '.enabledPlugins // {} | keys[]' 2>/dev/null | grep -c fenix) && GLOBAL=$(cat ~/.claude/settings.json 2>/dev/null | jq -r '.enabledPlugins // {} | keys[]' 2>/dev/null | grep -c fenix) && echo "local=$LOCAL project=$PROJECT global=$GLOBAL"
+echo "LOCAL:" && cat .claude/settings.local.json 2>/dev/null | jq -r '.enabledPlugins // {}' 2>/dev/null; echo "PROJECT:" && cat .claude/settings.json 2>/dev/null | jq -r '.enabledPlugins // {}' 2>/dev/null; echo "GLOBAL:" && cat ~/.claude/settings.json 2>/dev/null | jq -r '.enabledPlugins // {}' 2>/dev/null
 ```
 
 Determine the scope:
 
-- If `local > 0` or `project > 0` → plugin is installed **per-project** → save PAT + MCP locally
-- If `global > 0` → plugin is installed **globally** → save PAT + MCP globally
+- If fenix appears in **local** or **project** → plugin is installed **per-project**
+- If fenix appears in **global** → plugin is installed **globally**
 - If none found → default to **global**
-
-Also check if a PAT already exists:
-
-```bash
-echo "=== Existing PAT ===" && echo "Local: $(cat .claude/settings.local.json 2>/dev/null | jq -r '.env.FENIX_PAT // "not set"')" && echo "Global: $(cat ~/.claude/settings.json 2>/dev/null | jq -r '.env.FENIX_PAT // "not set"')"
-```
-
-If a PAT already exists, inform the user and ask if they want to replace it.
 
 ## Step 2: Ask for the PAT
 
@@ -61,59 +53,35 @@ curl -s -w "\n%{http_code}" -H "Authorization: Bearer {PAT}" https://fenix-api.d
 - If HTTP 401/403: the PAT is invalid. Ask the user to check and try again.
 - If connection error: Fenix API may be down. Ask the user to try later.
 
-## Step 4: Configure MCP + Save PAT
+## Step 4: Configure MCP Server
 
 <EXTREMELY_IMPORTANT>
-There are TWO things to configure:
-1. **The MCP server** — so Claude Code can connect to Fenix
-2. **The PAT as env var** — so the MCP server can authenticate
-
-### Why both are needed
-
-The plugin ships a `.mcp.json` with `${FENIX_PAT}`, but due to a known Claude Code limitation (GitHub #9427), env var expansion in plugin `.mcp.json` files may not work correctly. The fix is to create a project-level `.mcp.json` that takes precedence over the plugin's.
+The MCP configuration depends on the detected scope from Step 1.
 
 ### If Per-Project scope (local or project):
 
-**Step 4a: Create project-level `.mcp.json`**
+Use the `claude mcp add` command with `--scope local`. This registers the MCP server in `~/.claude.json` linked to the current project directory. Each project can have a different PAT for different Fenix tenants.
 
-Check if `.mcp.json` already exists at the project root:
-
-```bash
-cat .mcp.json 2>/dev/null | jq '.mcpServers["fenix-mcp"]' 2>/dev/null || echo "not found"
-```
-
-If it doesn't exist or doesn't have `fenix-mcp`, create/update it:
+First, remove any existing fenix-mcp at local scope (in case of reconfiguration):
 
 ```bash
-MCP_CONFIG=$(cat .mcp.json 2>/dev/null || echo '{}')
-MCP_CONFIG=$(echo "$MCP_CONFIG" | jq '
-  .mcpServers["fenix-mcp"] = {
-    "type": "http",
-    "url": "https://fenix-mcp.devshire.app/jsonrpc",
-    "headers": {
-      "Authorization": "Bearer ${FENIX_PAT}"
-    }
-  }
-')
-echo "$MCP_CONFIG" | jq '.' > .mcp.json
+claude mcp remove fenix-mcp -s local 2>/dev/null; echo "ready"
 ```
 
-This `.mcp.json` uses `${FENIX_PAT}` which is resolved from the settings file below. It's safe to commit — no secrets, just a variable reference.
-
-**Step 4b: Save PAT to `.claude/settings.local.json`**
+Then add the MCP server:
 
 ```bash
-mkdir -p .claude
-SETTINGS=$(cat .claude/settings.local.json 2>/dev/null || echo '{}')
-SETTINGS=$(echo "$SETTINGS" | jq --arg pat "{PAT}" '.env = (.env // {}) | .env.FENIX_PAT = $pat')
-echo "$SETTINGS" | jq '.' > .claude/settings.local.json
+claude mcp add fenix-mcp "https://fenix-mcp.devshire.app/jsonrpc" -t http -s local -H "Authorization: Bearer {PAT}"
 ```
 
-Note: `.claude/settings.local.json` is automatically gitignored by Claude Code — the PAT never enters git.
+This stores the MCP config in `~/.claude.json` under the current project path. It is:
+- **Not committed to git** — lives in the user's home directory
+- **Per-project** — different projects can have different PATs
+- **Persistent** — survives plugin updates (not in plugin cache)
 
 ### If Global scope:
 
-**Step 4a: Configure MCP in `~/.claude.json`**
+Configure MCP in `~/.claude.json` at the global level (not project-specific):
 
 ```bash
 CLAUDE_JSON=$(cat ~/.claude.json 2>/dev/null || echo '{}')
@@ -129,47 +97,39 @@ CLAUDE_JSON=$(echo "$CLAUDE_JSON" | jq --arg pat "{PAT}" '
 echo "$CLAUDE_JSON" | jq '.' > ~/.claude.json
 ```
 
-Note: For global scope, the PAT is hardcoded in `~/.claude.json` because there's no env var resolution at this level. This file is never committed to git.
+This applies to all projects that don't have a local MCP override.
 
-**Step 4b: Also save PAT as env var in `~/.claude/settings.json`**
+Also save PAT as env var for the SessionStart hook:
 
 ```bash
 SETTINGS=$(cat ~/.claude/settings.json 2>/dev/null || echo '{}')
 SETTINGS=$(echo "$SETTINGS" | jq --arg pat "{PAT}" '.env = (.env // {}) | .env.FENIX_PAT = $pat')
 echo "$SETTINGS" | jq '.' > ~/.claude/settings.json
 ```
-
-This ensures the PAT is available as `FENIX_PAT` env var for the SessionStart hook and any project-level `.mcp.json` files.
 </EXTREMELY_IMPORTANT>
 
-## Step 5: Reconnect MCP Server
+## Step 5: Verify Connection
 
-After saving the configuration, the MCP server needs to be reconnected to pick up the new PAT.
+After configuring, reload plugins and verify:
 
-Tell the user to do this:
+```bash
+claude mcp list 2>/dev/null || echo "check /mcp in Claude Code"
+```
 
-> **Important:** You need to reconnect the MCP server to activate the new PAT.
+Tell the user:
+
+> **Reload the plugin to activate the MCP connection:**
 >
-> 1. Open `/plugin` (type `/plugin` and press Enter)
-> 2. Go to the **Installed** tab
-> 3. Select **fenix** plugin
-> 4. Find the **fenix-mcp** MCP server
-> 5. Click **Reconnect**
->
-> After reconnecting, the MCP server will use the new PAT.
+> Run `/reload-plugins` — or if the MCP doesn't connect, open `/plugin` → **Installed** → **fenix** → **fenix-mcp** → **Reconnect**
 
-Wait for the user to confirm they've reconnected before proceeding.
+Wait for the user to confirm it's connected.
 
 ## Step 6: Confirm Setup
 
-After reconnecting, tell the user:
+After the MCP is connected, tell the user:
 
 > Fenix is connected! Authenticated as **{user name}** ({tenant name}).
-> Configuration saved at **{scope}** level.
->
-> **What was configured:**
-> - MCP server: fenix-mcp.devshire.app
-> - PAT saved as FENIX_PAT environment variable
+> MCP configured at **{scope}** level.
 >
 > Start a **new conversation** to activate the full workflow.
 >
@@ -183,13 +143,12 @@ After reconnecting, tell the user:
 If saved at per-project scope, also mention:
 
 > **Multi-tenant note:** This PAT applies only in this directory ({cwd}).
-> Other projects will use the global PAT (if configured).
+> Other projects will use the global MCP (if configured).
 > Run `/fenix-setup` in each project that uses a different Fenix tenant.
 
 ## Error Handling
 
 - If `jq` is not installed: tell the user to install it (`brew install jq` / `sudo apt install jq`)
-- If settings file doesn't exist: create it with `{}`
+- If `claude mcp add` fails with "already exists": run `claude mcp remove fenix-mcp -s local` first, then retry
 - If the PAT format looks wrong (doesn't start with `fnx_` or `pat_`): warn but still try to validate
-- If `.claude/` directory doesn't exist: create it with `mkdir -p .claude`
-- If `.mcp.json` already exists with other MCP servers: merge, don't overwrite — only add/update `fenix-mcp`
+- If `/reload-plugins` doesn't pick up the MCP: tell user to open a new session
