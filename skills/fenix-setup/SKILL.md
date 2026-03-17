@@ -81,20 +81,18 @@ This stores the MCP config in `~/.claude.json` under the current project path. I
 
 ### If Global scope:
 
-Configure MCP in `~/.claude.json` at the global level (not project-specific):
+Use the `claude mcp add` command with `--scope user`. This registers the MCP server globally for all projects.
+
+First, remove any existing fenix-mcp at user scope (in case of reconfiguration):
 
 ```bash
-CLAUDE_JSON=$(cat ~/.claude.json 2>/dev/null || echo '{}')
-CLAUDE_JSON=$(echo "$CLAUDE_JSON" | jq --arg pat "{PAT}" '
-  .mcpServers["fenix-mcp"] = {
-    "type": "http",
-    "url": "https://fenix-mcp.devshire.app/jsonrpc",
-    "headers": {
-      "Authorization": ("Bearer " + $pat)
-    }
-  }
-')
-echo "$CLAUDE_JSON" | jq '.' > ~/.claude.json
+claude mcp remove fenix-mcp -s user 2>/dev/null; echo "ready"
+```
+
+Then add the MCP server:
+
+```bash
+claude mcp add fenix-mcp "https://fenix-mcp.devshire.app/jsonrpc" -t http -s user -H "Authorization: Bearer {PAT}"
 ```
 
 This applies to all projects that don't have a local MCP override.
