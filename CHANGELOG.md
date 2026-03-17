@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.12.0...v1.13.0) (2026-03-17)
+
+
+### Features
+
+* auto-detect plugin scope in fenix-setup for multi-tenant support ([f99f226](https://github.com/fenix-assistant/fenix-plugin/commit/f99f226e5cb86649a0956213e49b27c9208b3629))
+
 # [1.12.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.11.1...v1.12.0) (2026-03-16)
 
 
