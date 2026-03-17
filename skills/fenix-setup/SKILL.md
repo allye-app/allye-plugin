@@ -142,9 +142,27 @@ echo "$SETTINGS" | jq '.' > ~/.claude/settings.json
 This ensures the PAT is available as `FENIX_PAT` env var for the SessionStart hook and any project-level `.mcp.json` files.
 </EXTREMELY_IMPORTANT>
 
-## Step 5: Confirm Setup
+## Step 5: Reconnect MCP Server
 
-After saving, tell the user:
+After saving the configuration, the MCP server needs to be reconnected to pick up the new PAT.
+
+Tell the user to do this:
+
+> **Important:** You need to reconnect the MCP server to activate the new PAT.
+>
+> 1. Open `/plugin` (type `/plugin` and press Enter)
+> 2. Go to the **Installed** tab
+> 3. Select **fenix** plugin
+> 4. Find the **fenix-mcp** MCP server
+> 5. Click **Reconnect**
+>
+> After reconnecting, the MCP server will use the new PAT.
+
+Wait for the user to confirm they've reconnected before proceeding.
+
+## Step 6: Confirm Setup
+
+After reconnecting, tell the user:
 
 > Fenix is connected! Authenticated as **{user name}** ({tenant name}).
 > Configuration saved at **{scope}** level.
