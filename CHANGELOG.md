@@ -1,3 +1,10 @@
+## [1.13.3](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.2...v1.13.3) (2026-03-17)
+
+
+### Bug Fixes
+
+* setup uses claude mcp add for local scope, direct config for global ([a587eaf](https://github.com/fenix-assistant/fenix-plugin/commit/a587eaf66c327f4a75089b52826f4ba44ac1d8d3)), closes [#9427](https://github.com/fenix-assistant/fenix-plugin/issues/9427)
+
 ## [1.13.2](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.1...v1.13.2) (2026-03-17)
 
 
