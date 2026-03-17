@@ -1,3 +1,10 @@
+## [1.13.4](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.3...v1.13.4) (2026-03-17)
+
+
+### Bug Fixes
+
+* remove .mcp.json from plugin, setup configures MCP for all scopes ([6fb8fd0](https://github.com/fenix-assistant/fenix-plugin/commit/6fb8fd083815c4839e824fb5e929b0f9426957f8)), closes [#9427](https://github.com/fenix-assistant/fenix-plugin/issues/9427)
+
 ## [1.13.3](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.2...v1.13.3) (2026-03-17)
 
 
