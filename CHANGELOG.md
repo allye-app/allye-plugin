@@ -1,3 +1,10 @@
+## [1.13.2](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.1...v1.13.2) (2026-03-17)
+
+
+### Bug Fixes
+
+* add MCP reconnect step to fenix-setup ([31048d9](https://github.com/fenix-assistant/fenix-plugin/commit/31048d9c31249a9a788749d4673114c84db08309))
+
 ## [1.13.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.0...v1.13.1) (2026-03-17)
 
 
