@@ -29,10 +29,17 @@ if [ ! -f "$LOCAL_SKILL" ]; then
   LOCAL_SKILL="$PLUGIN_ROOT/skills/bootstrap/using-fenix.md"
 fi
 
-# Check if PAT is configured
+# Check if PAT is configured — OAuth users won't have PAT set, that's OK
+# The .mcp.json handles OAuth automatically. PAT is only for CI/CD fallback.
 if [ -z "$FENIX_PAT" ]; then
-  # No PAT — output setup instructions
-  SETUP_MSG="# Fenix Plugin — Setup Required
+  # Check if .mcp.json exists (OAuth mode — no PAT needed)
+  MCP_JSON="$PLUGIN_ROOT/.mcp.json"
+  if [ -f "$MCP_JSON" ]; then
+    # OAuth mode — proceed to load skill without PAT
+    FENIX_PAT=""
+  else
+    # No PAT and no .mcp.json — need setup
+    SETUP_MSG="# Fenix Plugin — Setup Required
 
 Welcome to the Fenix Agent Plugin! To get started, run:
 
@@ -42,13 +49,14 @@ Welcome to the Fenix Agent Plugin! To get started, run:
 
 This will guide you through connecting your Fenix account."
 
-  jq -n --arg ctx "$SETUP_MSG" '{
-    "hookSpecificOutput": {
-      "hookEventName": "SessionStart",
-      "additionalContext": $ctx
-    }
-  }'
-  exit 0
+    jq -n --arg ctx "$SETUP_MSG" '{
+      "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": $ctx
+      }
+    }'
+    exit 0
+  fi
 fi
 
 # Function: fetch skill from Fenix API
