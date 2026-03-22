@@ -1,3 +1,10 @@
+## [1.14.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.14.0...v1.14.1) (2026-03-22)
+
+
+### Bug Fixes
+
+* **hook:** update session-start.sh to support OAuth mode (was editing wrong file) ([f2c7ad9](https://github.com/fenix-assistant/fenix-plugin/commit/f2c7ad98411528fb392065d775b5e025203956c0))
+
 # [1.14.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.4...v1.14.0) (2026-03-22)
 
 
