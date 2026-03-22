@@ -1,0 +1,6 @@
+{
+  "fenix": {
+    "type": "http",
+    "url": "https://fenix-mcp.devshire.app/mcp"
+  }
+}

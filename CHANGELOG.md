@@ -1,3 +1,24 @@
+## [2.0.0] — OAuth 2.1 Support (2026-03-19)
+
+### Features
+
+* **OAuth 2.1 authentication** — Plugin now uses OAuth by default. No PAT required for interactive use (Claude Code, Claude Desktop).
+* **New `.mcp.json`** — Clean format: `{ "fenix": { "type": "http", "url": "https://fenix-mcp.devshire.app/mcp" } }`
+* **Streamable HTTP transport** — New `/mcp` endpoint replaces deprecated `/jsonrpc`
+* **PAT fallback** — PAT still works for CI/CD and headless environments
+
+### Breaking Changes
+
+* MCP endpoint changed from `/jsonrpc` to `/mcp` (old endpoint still works but is deprecated)
+* `.mcp.json` format changed to root-key style (no `mcpServers` wrapper)
+* OAuth is now the default auth method — PAT setup only needed for CI/CD
+
+### Migration
+
+For interactive users (Claude Code/Desktop): **No action needed.** The plugin handles OAuth automatically.
+
+For CI/CD users: Continue using PAT. Run `/fenix-setup` and choose "PAT setup" to configure.
+
 ## [1.13.4](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.3...v1.13.4) (2026-03-17)
 
 
