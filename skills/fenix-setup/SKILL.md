@@ -1,49 +1,56 @@
 ---
 name: fenix-setup
-description: First-time setup for the Fenix plugin. Guides the user through connecting their Fenix account via OAuth (default) or PAT (for CLI/CI/CD). Handles multi-tenant setups with per-project MCP configuration.
+description: First-time setup for the Fenix plugin. OAuth is the default — no PAT needed for interactive use. PAT is only for CI/CD.
 ---
 
 # Fenix Setup
 
-This skill guides you through connecting the Fenix plugin to the user's Fenix account.
+<EXTREMELY_IMPORTANT>
+## DEFAULT BEHAVIOR: OAuth (No Setup Needed)
 
-## How Authentication Works
+If the user runs `/fenix-setup` interactively (Claude Code or Claude Desktop):
 
-Fenix supports two authentication methods:
+**DO NOT ask for a PAT. DO NOT run scope detection. DO NOT start the PAT flow.**
 
-1. **OAuth 2.1** (default for interactive use) — The plugin's `.mcp.json` points to `https://fenix-mcp.devshire.app/mcp`. When Claude Code or Claude Desktop connects, the OAuth flow triggers automatically: browser opens → login → select team → approve → done.
+Instead, tell the user exactly this:
 
-2. **PAT (Personal Access Token)** — Fallback for CI/CD pipelines and headless environments where a browser isn't available.
-
-## Scenario A: OAuth (Recommended)
-
-If the user is using Claude Code or Claude Desktop interactively:
-
-1. The `.mcp.json` is already included in the plugin — no configuration needed.
-2. On first tool call, the MCP server returns a 401 with a `WWW-Authenticate` header.
-3. Claude automatically opens the browser for the OAuth consent flow.
-4. The user logs in at Fenix, selects a team, and approves.
-5. Done — tokens are cached automatically.
-
-Tell the user:
-
-> Fenix uses OAuth for authentication. The first time you use a Fenix tool, your browser will open for login.
+> **Fenix uses OAuth — no setup required!**
 >
-> **No setup required!** Just start using Fenix tools and the auth flow will trigger automatically.
+> The plugin's `.mcp.json` is already configured. The first time you use a Fenix tool,
+> your browser will open automatically for login.
 >
-> If you're in a CI/CD or headless environment, say "I need PAT setup" and I'll guide you through it.
+> Just start a new conversation and use any Fenix tool (e.g., ask me to search memories
+> or list work items). The OAuth flow will trigger on the first request.
+>
+> If you're in a **CI/CD pipeline or headless environment** where a browser isn't available,
+> say **"I need PAT setup"** and I'll guide you through manual configuration.
 
-### Multi-Team / Multi-Project OAuth
+**Then stop. Do not proceed further unless the user explicitly says they need PAT setup.**
+</EXTREMELY_IMPORTANT>
 
-Each project directory can have its own OAuth session with a different team:
+## How OAuth Works (for context)
 
-- Token is scoped to the team selected during consent.
-- To switch teams, the user can revoke and re-authenticate.
-- Different project directories maintain separate OAuth sessions.
+1. The plugin includes `.mcp.json` pointing to `https://fenix-mcp.devshire.app/mcp`
+2. When Claude Code calls an MCP tool, the server returns 401 with `WWW-Authenticate` header
+3. Claude Code automatically opens the browser for the OAuth consent flow
+4. User logs in at Fenix, selects a team, approves
+5. Tokens are cached — subsequent requests work without re-authentication
 
-## Scenario B: PAT (CI/CD / Headless)
+### Multi-Team / Multi-Project
 
-If the user explicitly asks for PAT setup or is in a headless environment:
+- Each project directory maintains its own OAuth session
+- Token is scoped to the team selected during consent
+- To switch teams, revoke and re-authenticate
+
+---
+
+## PAT Setup (Only When User Explicitly Requests It)
+
+Only proceed with this section if the user says something like:
+- "I need PAT setup"
+- "I'm in CI/CD"
+- "I can't open a browser"
+- "headless environment"
 
 ### Step 1: Detect Plugin Scope
 
@@ -53,98 +60,60 @@ Run this command to find where the Fenix plugin is installed:
 echo "LOCAL:" && cat .claude/settings.local.json 2>/dev/null | jq -r '.enabledPlugins // {}' 2>/dev/null; echo "PROJECT:" && cat .claude/settings.json 2>/dev/null | jq -r '.enabledPlugins // {}' 2>/dev/null; echo "GLOBAL:" && cat ~/.claude/settings.json 2>/dev/null | jq -r '.enabledPlugins // {}' 2>/dev/null
 ```
 
-Determine the scope:
-
-- If fenix appears in **local** or **project** → plugin is installed **per-project**
-- If fenix appears in **global** → plugin is installed **globally**
+- If fenix appears in **local** or **project** → per-project scope
+- If fenix appears in **global** → global scope
 - If none found → default to **global**
 
 ### Step 2: Ask for the PAT
 
-Say this to the user:
-
 > To connect Fenix via PAT, I need your Personal Access Token.
 >
-> You can generate one at: **https://fenix.devshire.app** → Settings → API → Generate Token
+> Generate one at: **https://fenix.devshire.app** → Settings → API → Generate Token
 >
 > Paste your PAT here:
 
-Wait for the user to provide the token. It will look like `fnx_XXXXXXXX.XXXXXXXX` (or `pat_XXXXXXXX.XXXXXXXX` for older tokens).
+Token format: `fnx_XXXXXXXX.XXXXXXXX` or `pat_XXXXXXXX.XXXXXXXX`
 
 ### Step 3: Validate the PAT
-
-Run this command to validate the token against the Fenix API:
 
 ```bash
 curl -s -w "\n%{http_code}" -H "Authorization: Bearer {PAT}" https://fenix-api.devshire.app/api/auth/profile
 ```
 
-- If HTTP 200: the PAT is valid. Extract the user name and tenant from the response.
-- If HTTP 401/403: the PAT is invalid. Ask the user to check and try again.
-- If connection error: Fenix API may be down. Ask the user to try later.
+- HTTP 200: valid — extract user name and tenant
+- HTTP 401/403: invalid — ask user to retry
+- Connection error: API may be down
 
 ### Step 4: Configure MCP Server
 
-<EXTREMELY_IMPORTANT>
-The MCP configuration depends on the detected scope from Step 1.
-
-### If Per-Project scope (local or project):
-
-First, remove any existing fenix-mcp at local scope:
+**Per-Project scope:**
 
 ```bash
 claude mcp remove fenix-mcp -s local 2>/dev/null; echo "ready"
-```
-
-Then add the MCP server with PAT:
-
-```bash
 claude mcp add fenix-mcp "https://fenix-mcp.devshire.app/mcp" -t http -s local -H "Authorization: Bearer {PAT}"
 ```
 
-### If Global scope:
-
-First, remove any existing fenix-mcp at user scope:
+**Global scope:**
 
 ```bash
 claude mcp remove fenix-mcp -s user 2>/dev/null; echo "ready"
-```
-
-Then add the MCP server with PAT:
-
-```bash
 claude mcp add fenix-mcp "https://fenix-mcp.devshire.app/mcp" -t http -s user -H "Authorization: Bearer {PAT}"
 ```
 
-Note: The endpoint is now `/mcp` (not `/jsonrpc`). The old `/jsonrpc` endpoint still works but is deprecated.
-</EXTREMELY_IMPORTANT>
-
-### Step 5: Verify Connection
-
-After configuring, reload plugins and verify:
+### Step 5: Verify and Confirm
 
 ```bash
 claude mcp list 2>/dev/null || echo "check /mcp in Claude Code"
 ```
 
-Tell the user:
-
-> **Reload the plugin to activate the MCP connection:**
->
-> Run `/reload-plugins` — or if the MCP doesn't connect, open `/plugin` → **Installed** → **fenix** → **fenix-mcp** → **Reconnect**
-
-### Step 6: Confirm Setup
-
-After the MCP is connected, tell the user:
-
-> Fenix is connected! Authenticated as **{user name}** ({tenant name}).
+> Fenix connected! Authenticated as **{user name}** ({tenant name}).
 > MCP configured at **{scope}** level with PAT authentication.
 >
-> Start a **new conversation** to activate the full workflow.
+> Start a **new conversation** to activate.
 
 ## Error Handling
 
-- If `jq` is not installed: tell the user to install it (`brew install jq` / `sudo apt install jq`)
-- If `claude mcp add` fails with "already exists": run `claude mcp remove fenix-mcp -s local` first, then retry
-- If the PAT format looks wrong (doesn't start with `fnx_` or `pat_`): warn but still try to validate
-- If `/reload-plugins` doesn't pick up the MCP: tell user to open a new session
+- `jq` not installed → `brew install jq` / `sudo apt install jq`
+- `claude mcp add` fails → remove first, then retry
+- PAT format wrong → warn but still validate
+- `/reload-plugins` doesn't work → open new session
