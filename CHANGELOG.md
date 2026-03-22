@@ -1,3 +1,10 @@
+## [1.14.2](https://github.com/fenix-assistant/fenix-plugin/compare/v1.14.1...v1.14.2) (2026-03-22)
+
+
+### Bug Fixes
+
+* **setup:** make OAuth the assertive default — do not ask for PAT unless user requests it ([9953384](https://github.com/fenix-assistant/fenix-plugin/commit/995338442ec3ee51f2ba05bf416459c4c0a63384))
+
 ## [1.14.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.14.0...v1.14.1) (2026-03-22)
 
 
