@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.14.2...v1.15.0) (2026-03-22)
+
+
+### Features
+
+* **oauth:** OAuth for ALL platforms — zero PAT ([c3b70bc](https://github.com/fenix-assistant/fenix-plugin/commit/c3b70bcbc69215f7baa773c64ef61f9069d9e7a8))
+
 ## [1.14.2](https://github.com/fenix-assistant/fenix-plugin/compare/v1.14.1...v1.14.2) (2026-03-22)
 
 
