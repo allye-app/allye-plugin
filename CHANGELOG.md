@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.13.4...v1.14.0) (2026-03-22)
+
+
+### Features
+
+* **oauth:** update plugin for OAuth 2.1 authentication (TEMA-1234) ([3eb3330](https://github.com/fenix-assistant/fenix-plugin/commit/3eb3330dee5d1b930422a7e64ef70dea1afbb494))
+
 ## [2.0.0] — OAuth 2.1 Support (2026-03-19)
 
 ### Features
