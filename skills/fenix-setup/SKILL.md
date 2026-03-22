@@ -1,119 +1,110 @@
 ---
 name: fenix-setup
-description: First-time setup for the Fenix plugin. OAuth is the default — no PAT needed for interactive use. PAT is only for CI/CD.
+description: First-time setup for the Fenix plugin. Uses OAuth for ALL platforms — no PAT.
 ---
 
 # Fenix Setup
 
 <EXTREMELY_IMPORTANT>
-## DEFAULT BEHAVIOR: OAuth (No Setup Needed)
+## Fenix ALWAYS uses OAuth. Never ask for a PAT.
 
-If the user runs `/fenix-setup` interactively (Claude Code or Claude Desktop):
+The setup flow depends on whether the platform supports native MCP OAuth:
 
-**DO NOT ask for a PAT. DO NOT run scope detection. DO NOT start the PAT flow.**
+- **Claude Code / Claude Desktop** → OAuth is automatic via `.mcp.json`. No setup needed.
+- **All other platforms** (OpenCode, Cursor, Codex, Gemini, etc.) → Run the OAuth browser login script.
 
-Instead, tell the user exactly this:
-
-> **Fenix uses OAuth — no setup required!**
->
-> The plugin's `.mcp.json` is already configured. The first time you use a Fenix tool,
-> your browser will open automatically for login.
->
-> Just start a new conversation and use any Fenix tool (e.g., ask me to search memories
-> or list work items). The OAuth flow will trigger on the first request.
->
-> If you're in a **CI/CD pipeline or headless environment** where a browser isn't available,
-> say **"I need PAT setup"** and I'll guide you through manual configuration.
-
-**Then stop. Do not proceed further unless the user explicitly says they need PAT setup.**
+**NEVER ask the user for a PAT. NEVER mention PAT as an option.**
 </EXTREMELY_IMPORTANT>
 
-## How OAuth Works (for context)
+## Step 1: Detect Platform
 
-1. The plugin includes `.mcp.json` pointing to `https://fenix-mcp.devshire.app/mcp`
-2. When Claude Code calls an MCP tool, the server returns 401 with `WWW-Authenticate` header
-3. Claude Code automatically opens the browser for the OAuth consent flow
-4. User logs in at Fenix, selects a team, approves
-5. Tokens are cached — subsequent requests work without re-authentication
+Check which platform/agent is running. You can infer this from:
+- The environment (Claude Code has `CLAUDE_CODE` env, Claude Desktop has specific hooks)
+- The available tools and context
+- Or simply ask: "Which platform are you using?"
 
-### Multi-Team / Multi-Project
+## Step 2A: Claude Code / Claude Desktop (Native OAuth)
 
-- Each project directory maintains its own OAuth session
-- Token is scoped to the team selected during consent
-- To switch teams, revoke and re-authenticate
+If the user is on Claude Code or Claude Desktop:
 
----
-
-## PAT Setup (Only When User Explicitly Requests It)
-
-Only proceed with this section if the user says something like:
-- "I need PAT setup"
-- "I'm in CI/CD"
-- "I can't open a browser"
-- "headless environment"
-
-### Step 1: Detect Plugin Scope
-
-Run this command to find where the Fenix plugin is installed:
-
-```bash
-echo "LOCAL:" && cat .claude/settings.local.json 2>/dev/null | jq -r '.enabledPlugins // {}' 2>/dev/null; echo "PROJECT:" && cat .claude/settings.json 2>/dev/null | jq -r '.enabledPlugins // {}' 2>/dev/null; echo "GLOBAL:" && cat ~/.claude/settings.json 2>/dev/null | jq -r '.enabledPlugins // {}' 2>/dev/null
-```
-
-- If fenix appears in **local** or **project** → per-project scope
-- If fenix appears in **global** → global scope
-- If none found → default to **global**
-
-### Step 2: Ask for the PAT
-
-> To connect Fenix via PAT, I need your Personal Access Token.
+> **Fenix is already configured!** The plugin's `.mcp.json` handles OAuth automatically.
 >
-> Generate one at: **https://fenix.devshire.app** → Settings → API → Generate Token
+> The first time you use a Fenix tool, your browser will open for login.
+> Just start using Fenix — try asking me to search memories or list work items.
+
+**Stop here. No further setup needed.**
+
+## Step 2B: Other Platforms (OAuth via Browser Login Script)
+
+For OpenCode, Cursor, Codex, Gemini, or any platform without native MCP OAuth:
+
+Tell the user:
+
+> I'll run the Fenix OAuth login to connect your account via browser.
+
+### Run the OAuth login script:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:-$(pwd)}/scripts/oauth-login.sh"
+```
+
+If `CLAUDE_PLUGIN_ROOT` is not set, find the script:
+
+```bash
+SCRIPT=$(find ~/.claude/plugins -name "oauth-login.sh" -path "*/fenix*" 2>/dev/null | head -1) || SCRIPT=$(find . -name "oauth-login.sh" 2>/dev/null | head -1); echo "$SCRIPT"
+```
+
+Then run it:
+
+```bash
+bash "$SCRIPT"
+```
+
+The script will:
+1. Open the browser for Fenix OAuth login
+2. Start a local callback server on port 9316
+3. After the user logs in and selects a team, capture the authorization code
+4. Exchange the code for tokens
+5. Output `FENIX_ACCESS_TOKEN=...` and `FENIX_REFRESH_TOKEN=...`
+
+### Configure the platform with the obtained token:
+
+**For OpenCode:**
+The `opencode.json` manifest uses `${FENIX_ACCESS_TOKEN}`. Set the env var:
+
+```bash
+export FENIX_ACCESS_TOKEN="<the token from the script>"
+```
+
+Or update `opencode.json` directly with the token.
+
+**For Cursor:**
+Add MCP server in Cursor settings (Settings → MCP Servers):
+- Name: `fenix-mcp`
+- URL: `https://fenix-mcp.devshire.app/mcp`
+- Headers: `Authorization: Bearer <token>`
+
+**For other platforms:**
+Configure the MCP connection with:
+- URL: `https://fenix-mcp.devshire.app/mcp`
+- Authorization header: `Bearer <token>`
+
+### Confirm setup:
+
+> **Fenix connected via OAuth!**
 >
-> Paste your PAT here:
+> Start a new session to activate the Fenix tools.
 
-Token format: `fnx_XXXXXXXX.XXXXXXXX` or `pat_XXXXXXXX.XXXXXXXX`
+## Token Refresh
 
-### Step 3: Validate the PAT
-
-```bash
-curl -s -w "\n%{http_code}" -H "Authorization: Bearer {PAT}" https://fenix-api.devshire.app/api/auth/profile
-```
-
-- HTTP 200: valid — extract user name and tenant
-- HTTP 401/403: invalid — ask user to retry
-- Connection error: API may be down
-
-### Step 4: Configure MCP Server
-
-**Per-Project scope:**
-
-```bash
-claude mcp remove fenix-mcp -s local 2>/dev/null; echo "ready"
-claude mcp add fenix-mcp "https://fenix-mcp.devshire.app/mcp" -t http -s local -H "Authorization: Bearer {PAT}"
-```
-
-**Global scope:**
-
-```bash
-claude mcp remove fenix-mcp -s user 2>/dev/null; echo "ready"
-claude mcp add fenix-mcp "https://fenix-mcp.devshire.app/mcp" -t http -s user -H "Authorization: Bearer {PAT}"
-```
-
-### Step 5: Verify and Confirm
-
-```bash
-claude mcp list 2>/dev/null || echo "check /mcp in Claude Code"
-```
-
-> Fenix connected! Authenticated as **{user name}** ({tenant name}).
-> MCP configured at **{scope}** level with PAT authentication.
->
-> Start a **new conversation** to activate.
+OAuth tokens expire. When a token expires:
+- **Claude Code/Desktop**: Automatic refresh via OAuth flow
+- **Other platforms**: Run the login script again: `bash scripts/oauth-login.sh`
 
 ## Error Handling
 
-- `jq` not installed → `brew install jq` / `sudo apt install jq`
-- `claude mcp add` fails → remove first, then retry
-- PAT format wrong → warn but still validate
-- `/reload-plugins` doesn't work → open new session
+- `python3` not found → Required for the OAuth callback server. Install Python 3.
+- `openssl` not found → Required for PKCE. Install OpenSSL.
+- Browser doesn't open → Copy the URL from the terminal and open manually.
+- Port 9316 in use → Run with a different port: `bash scripts/oauth-login.sh 9317`
+- `jq` not found → `brew install jq` / `sudo apt install jq`

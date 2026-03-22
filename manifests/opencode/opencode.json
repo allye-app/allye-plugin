@@ -3,9 +3,9 @@
   "mcp": {
     "fenix-mcp": {
       "type": "remote",
-      "url": "https://fenix-mcp.devshire.app/jsonrpc",
+      "url": "https://fenix-mcp.devshire.app/mcp",
       "headers": {
-        "Authorization": "Bearer FENIX_PAT_PLACEHOLDER"
+        "Authorization": "Bearer ${FENIX_ACCESS_TOKEN}"
       },
       "enabled": true
     }
