@@ -2,31 +2,7 @@
 
 You are an AI agent helping the user install the Fenix plugin for OpenCode. Follow these steps exactly.
 
-## Step 1: Ask for the Fenix PAT
-
-Say this to the user:
-
-> To connect Fenix, I need your Personal Access Token (PAT).
->
-> You can generate one at: **https://fenix.devshire.app** → Settings → API → Generate Token
->
-> Paste your PAT here:
-
-Wait for the user to provide the token.
-
-## Step 2: Validate the PAT
-
-Run this command, replacing `{PAT}` with the user's token:
-
-```bash
-curl -s -w "\n%{http_code}" -H "Authorization: Bearer {PAT}" https://fenix-api.devshire.app/api/auth/profile
-```
-
-- If the last line is `200`: PAT is valid. Extract the user's name from the JSON response and confirm: "Authenticated as {name}."
-- If the last line is `401` or `403`: PAT is invalid. Ask the user to check and try again.
-- If connection fails: Fenix API may be down. Ask the user to try later.
-
-## Step 3: Configure MCP Server and Plugin
+## Step 1: Configure MCP Server and Plugin
 
 Read the current OpenCode global config:
 
@@ -34,18 +10,15 @@ Read the current OpenCode global config:
 cat ~/.config/opencode/opencode.json 2>/dev/null || echo '{}'
 ```
 
-Update the config with the Fenix MCP server AND the fenix-opencode plugin. Replace `{PAT}` with the actual token:
+Update the config with the Fenix MCP server (OAuth — no PAT needed) AND the fenix-opencode plugin:
 
 ```bash
 CONFIG=$(cat ~/.config/opencode/opencode.json 2>/dev/null || echo '{"$schema": "https://opencode.ai/config.json"}')
 
-CONFIG=$(echo "$CONFIG" | jq --arg pat "{PAT}" '
+CONFIG=$(echo "$CONFIG" | jq '
   .mcp["fenix-mcp"] = {
     "type": "remote",
-    "url": "https://fenix-mcp.devshire.app/jsonrpc",
-    "headers": {
-      "Authorization": ("Bearer " + $pat)
-    },
+    "url": "https://fenix-mcp.devshire.app/mcp",
     "enabled": true
   }
   | .plugin = (.plugin // [])
@@ -57,24 +30,30 @@ echo "$CONFIG" | jq '.' > ~/.config/opencode/opencode.json
 ```
 
 This configures:
-- **Fenix MCP server** — connects to `fenix-mcp.devshire.app` with your PAT
+- **Fenix MCP server** — connects to `fenix-mcp.devshire.app` with OAuth authentication
 - **fenix-opencode plugin** — registers 5 specialized agents (Fenix, Plan, Build, Review, Deliver)
 
-## Step 4: Confirm
+## Step 2: Authenticate
+
+After restarting OpenCode, the first time you use a Fenix tool, your browser will open automatically for OAuth login. Sign in with your Fenix account, select a team, and approve.
+
+Tokens are cached — you won't need to log in again unless the token expires.
+
+## Step 3: Confirm
 
 Tell the user:
 
 > Fenix is configured for OpenCode!
 >
 > **What was set up:**
-> - Fenix MCP server connected (fenix-mcp.devshire.app)
+> - Fenix MCP server connected via OAuth (fenix-mcp.devshire.app)
 > - fenix-opencode plugin installed — 5 specialized agents:
 >   - **Fenix** — orchestrator (detects phase, delegates)
 >   - **Fenix Plan** — product and technical planning
 >   - **Fenix Build** — TDD implementation
 >   - **Fenix Review** — code review with context
 >   - **Fenix Deliver** — delivery and documentation
-> - 10 workflow skills available from the Fenix marketplace (no seed needed)
+> - 10 workflow skills available from the Fenix marketplace
 > - User context auto-loads at the start of every conversation
 >
-> **Restart OpenCode** to activate. You'll see the Fenix agents in the agent picker (Ctrl+T).
+> **Restart OpenCode** to activate. Your browser will open for login on first use. You'll see the Fenix agents in the agent picker (Ctrl+T).
