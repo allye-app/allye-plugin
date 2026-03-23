@@ -18,6 +18,8 @@
 
 Your AI agent has **68+ tools** but no idea when to use them. Fenix adds the methodology layer — structured workflows, specialized agents, cross-session memory, and team-specific skills — so your agent plans before coding, tests before shipping, and remembers what happened yesterday.
 
+**Authentication is handled via OAuth 2.1** — your browser opens once for login, and tokens are managed automatically. No API keys or PATs to configure.
+
 ## What you get
 
 | | Feature | Description |

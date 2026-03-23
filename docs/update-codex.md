@@ -12,13 +12,29 @@ curl -fsSL https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/m
 
 ## Step 2: Verify MCP server
 
-Check that the Fenix MCP server is still configured:
+Check that the Fenix MCP server is configured with OAuth (no PAT headers):
 
 ```bash
 grep "fenix-mcp" ~/.codex/config.toml 2>/dev/null
 ```
 
-If it's missing, re-configure it (ask the user for their PAT if needed).
+If it has `http_headers` with a PAT, update the config to remove them:
+
+```bash
+sed -i '/http_headers.*Authorization.*Bearer/d' ~/.codex/config.toml
+sed -i 's|fenix-mcp.devshire.app/jsonrpc|fenix-mcp.devshire.app/mcp|g' ~/.codex/config.toml
+```
+
+If it's missing entirely, add it:
+
+```bash
+cat >> ~/.codex/config.toml << TOML
+
+[mcp_servers.fenix-mcp]
+url = "https://fenix-mcp.devshire.app/mcp"
+enabled = true
+TOML
+```
 
 ## Step 3: Confirm
 
@@ -26,4 +42,4 @@ Tell the user:
 
 > Fenix plugin updated for Codex CLI!
 >
-> **Start a new Codex session** to use the updated instructions.
+> **Start a new Codex session** to use the updated instructions. Authentication is now via OAuth — your browser will open on first use.

@@ -26,13 +26,19 @@ If custom content exists, append only the Fenix section.
 
 ## Step 2: Verify MCP server
 
-Check that the Fenix MCP server is still configured:
+Check that the Fenix MCP server is configured with OAuth (no PAT headers):
 
 ```bash
 cat ~/.gemini/settings.json | jq '.mcpServers["fenix-mcp"]'
 ```
 
-If it's missing, re-configure it (ask the user for their PAT if needed).
+If it has `headers.Authorization` with a PAT, update to OAuth:
+
+```bash
+CONFIG=$(cat ~/.gemini/settings.json)
+CONFIG=$(echo "$CONFIG" | jq '.mcpServers["fenix-mcp"] = { "httpUrl": "https://fenix-mcp.devshire.app/mcp" }')
+echo "$CONFIG" | jq '.' > ~/.gemini/settings.json
+```
 
 ## Step 3: Confirm
 
@@ -40,4 +46,4 @@ Tell the user:
 
 > Fenix plugin updated for Gemini CLI!
 >
-> **Start a new Gemini session** to use the updated instructions.
+> **Start a new Gemini session** to use the updated instructions. Authentication is now via OAuth — your browser will open on first use.
