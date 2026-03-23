@@ -1,3 +1,10 @@
+## [1.17.2](https://github.com/fenix-assistant/fenix-plugin/compare/v1.17.1...v1.17.2) (2026-03-23)
+
+
+### Bug Fixes
+
+* migrate all platform install/update docs from PAT to OAuth ([2c50abb](https://github.com/fenix-assistant/fenix-plugin/commit/2c50abbb1f5372c590b024a77087116725f866c2))
+
 ## [1.17.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.17.0...v1.17.1) (2026-03-23)
 
 
