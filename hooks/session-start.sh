@@ -94,6 +94,14 @@ SKILL_CONTENT=$(fetch_from_api || read_local)
 # Persist env vars for the session
 if [ -n "$CLAUDE_ENV_FILE" ]; then
   echo 'export FENIX_PLUGIN_LOADED=true' >> "$CLAUDE_ENV_FILE"
+
+  # Auto-generate tenant slug from current directory name for multi-account OAuth isolation.
+  # Each project directory gets a unique slug → unique MCP URL → separate OAuth token.
+  # Users can override by setting FENIX_TENANT_SLUG in their environment.
+  if [ -z "$FENIX_TENANT_SLUG" ]; then
+    FENIX_TENANT_SLUG=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+  fi
+  echo "export FENIX_TENANT_SLUG=$FENIX_TENANT_SLUG" >> "$CLAUDE_ENV_FILE"
 fi
 
 # Output structured JSON for Claude Code

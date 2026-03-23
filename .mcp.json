@@ -1,6 +1,6 @@
 {
   "fenix": {
     "type": "http",
-    "url": "https://fenix-mcp.devshire.app/mcp"
+    "url": "https://fenix-mcp.devshire.app/mcp/${FENIX_TENANT_SLUG:-default}"
   }
 }
