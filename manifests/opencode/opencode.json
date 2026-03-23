@@ -4,9 +4,6 @@
     "fenix-mcp": {
       "type": "remote",
       "url": "https://fenix-mcp.devshire.app/mcp",
-      "headers": {
-        "Authorization": "Bearer ${FENIX_ACCESS_TOKEN}"
-      },
       "enabled": true
     }
   }
