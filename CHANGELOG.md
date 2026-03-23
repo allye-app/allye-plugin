@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.15.0...v1.16.0) (2026-03-23)
+
+
+### Features
+
+* auto-generate tenant slug for multi-account OAuth isolation ([89599c2](https://github.com/fenix-assistant/fenix-plugin/commit/89599c2de9fdadaac79a2b900a2839ea72b74898))
+
 # [1.15.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.14.2...v1.15.0) (2026-03-22)
 
 
