@@ -1,3 +1,10 @@
+## [1.17.1](https://github.com/fenix-assistant/fenix-plugin/compare/v1.17.0...v1.17.1) (2026-03-23)
+
+
+### Bug Fixes
+
+* **opencode:** update install guide and config to use OAuth instead of PAT ([d91ae03](https://github.com/fenix-assistant/fenix-plugin/commit/d91ae0364cd92e4fb44ee73ed0b06be5d152acbc))
+
 # [1.17.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.16.0...v1.17.0) (2026-03-23)
 
 

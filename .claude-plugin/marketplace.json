@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Fenix Agent Plugin — methodology and workflow layer for AI coding agents",
-    "version": "1.17.0"
+    "version": "1.17.1"
   },
   "plugins": [
     {
@@ -16,7 +16,7 @@
         "repo": "fenix-assistant/fenix-plugin"
       },
       "description": "Structured workflows, memory protocol, TDD discipline, and board progression for the Fenix platform",
-      "version": "1.17.0"
+      "version": "1.17.1"
     }
   ]
 }
