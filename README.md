@@ -38,18 +38,55 @@ Your AI agent has **68+ tools** but no idea when to use them. Fenix adds the met
 
 ### Claude Code
 
+**Step 1 — Install the plugin:**
 ```
 /plugin marketplace add fenix-assistant/fenix-plugin
 /plugin install fenix
-/fenix-setup
+/reload-plugins
 ```
 
-The plugin auto-configures MCP server, SessionStart hook, and 11 workflow skills. `/fenix-setup` asks for your PAT once and saves it.
+**Step 2 — Authenticate:**
+1. Run `/plugin` to open the plugin panel
+2. Find **Fenix MCP Server** and click **Connect**
+3. Your browser opens for OAuth login — sign in with your Fenix account, select a team, and approve
+4. Done! The MCP server connects automatically
+
+> **No PAT needed.** Authentication is handled via OAuth 2.1 — your browser opens once, and tokens are cached automatically.
 
 After installing, you get:
+- **OAuth authentication** — browser-based login, no tokens to manage
 - **Bootstrap hook** — injects workflow methodology at session start
 - **4 subagents** — planner, builder, reviewer, deliverer (delegated via Agent tool)
 - **11 skills** — loaded on-demand by the orchestrator
+
+#### Multiple Fenix accounts (multi-tenant)
+
+If you use different Fenix accounts in different projects (e.g., personal account in `~/dev/myproject` and work account in `~/dev/company`), you need to **install the plugin with the "local" scope** (per-project) and configure a tenant slug for each project.
+
+**Step 1 — Install as local** (select "local" when prompted during install):
+```
+/plugin install fenix
+```
+
+**Step 2 — Configure each project:**
+
+Add `FENIX_TENANT_SLUG` to each project's `.claude/settings.local.json`:
+
+```json
+{
+  "env": {
+    "FENIX_TENANT_SLUG": "myproject"
+  }
+}
+```
+
+Use a unique slug per project (e.g., the project folder name). This creates separate OAuth sessions — each project authenticates independently with its own Fenix account.
+
+**Step 3 — Authenticate each project separately:**
+
+Open Claude Code in each project directory, run `/reload-plugins`, then go to `/plugin` → **Connect** on the Fenix MCP Server. Each project will open its own OAuth login flow.
+
+> **Single account users don't need this.** If you only use one Fenix account, just install and authenticate — it works out of the box.
 
 **To update:** `/plugin update fenix` then `/reload-plugins`
 
