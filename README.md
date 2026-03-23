@@ -61,30 +61,15 @@ After installing, you get:
 
 #### Multiple Fenix accounts (multi-tenant)
 
-If you use different Fenix accounts in different projects (e.g., personal account in `~/dev/myproject` and work account in `~/dev/company`), you need to **install the plugin with the "local" scope** (per-project) and configure a tenant slug for each project.
+If you use different Fenix accounts in different projects (e.g., personal account in `~/dev/myproject` and work account in `~/dev/company`), install the plugin with the **"local" scope** (per-project). Each project directory automatically gets its own OAuth session — no extra configuration needed.
 
-**Step 1 — Install as local** (select "local" when prompted during install):
-```
-/plugin install fenix
-```
+1. Open Claude Code in each project directory
+2. Install with local scope: `/plugin install fenix` (select "local" when prompted)
+3. Run `/reload-plugins`
+4. Go to `/plugin` → **Connect** on the Fenix MCP Server
+5. Log in with the Fenix account you want for that project
 
-**Step 2 — Configure each project:**
-
-Add `FENIX_TENANT_SLUG` to each project's `.claude/settings.local.json`:
-
-```json
-{
-  "env": {
-    "FENIX_TENANT_SLUG": "myproject"
-  }
-}
-```
-
-Use a unique slug per project (e.g., the project folder name). This creates separate OAuth sessions — each project authenticates independently with its own Fenix account.
-
-**Step 3 — Authenticate each project separately:**
-
-Open Claude Code in each project directory, run `/reload-plugins`, then go to `/plugin` → **Connect** on the Fenix MCP Server. Each project will open its own OAuth login flow.
+The plugin automatically generates a unique identifier per project directory, so each project authenticates independently. You can use a different Fenix account in each project without conflicts.
 
 > **Single account users don't need this.** If you only use one Fenix account, just install and authenticate — it works out of the box.
 
