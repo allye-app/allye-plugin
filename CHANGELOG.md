@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.16.0...v1.17.0) (2026-03-23)
+
+
+### Features
+
+* **opencode:** switch to OAuth — remove static auth headers ([c86a12e](https://github.com/fenix-assistant/fenix-plugin/commit/c86a12eb9ca85012397860e9fe99878c3915f8c3))
+
 # [1.16.0](https://github.com/fenix-assistant/fenix-plugin/compare/v1.15.0...v1.16.0) (2026-03-23)
 
 
