@@ -47,6 +47,11 @@ memory_search(query: "decision {feature/epic key}")
 memory_search(query: "{technical domain} architecture")
 ```
 
+If a relevant memory ID is found and context feels sparse, traverse its neighborhood:
+```
+memory_graph(memory_id: "{id}", depth: 2)  → surfaces connected decisions and blockers
+```
+
 Also check if tasks already exist for this story:
 
 ```

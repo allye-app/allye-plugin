@@ -93,18 +93,29 @@ Semantic memory system for cross-session continuity.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `memory_save` | Save a memory (auto-deduplicates) | `title`*, `content`* (markdown), `tags`* (array), `work_item_id`, `sprint_id`, `documentation_item_id`, `team_id` |
-| `memory_search` | Semantic search for memories | `query`* (natural language), `limit` (1-20), `tags` (filter), `team_id` |
+| `memory_save` | Save a memory (auto-deduplicates via graph) | `title`*, `content`* (markdown), `tags`* (array), `work_item_id`, `sprint_id`, `documentation_item_id`, `team_id` |
+| `memory_search` | Semantic search for memories | `query`* (natural language), `limit` (1-20), `tags`, `include_graph` (bool), `graph_depth` (1-5), `return_content` (bool), `team_id` |
+| `memory_graph` | BFS graph traversal from a memory node | `memory_id`* (UUID), `depth` (1-5, default 1), `relation_types` (filter), `include_invalidated` (bool), `graph_limit` (1-200) |
+| `memory_relations` | 1-hop direct relations of a memory | `memory_id`* (UUID), `direction` (outgoing\|incoming\|both), `relation_types`, `include_invalidated` (bool) |
 
-**Memory save behavior:**
-- ≥80% similarity to existing → updates existing memory
-- <80% similarity → creates new memory
+**Memory save behavior (F3):**
+- `action: "created"` — saved (new or superseded an existing)
+- `action: "rejected"` — exact duplicate (≥95% similarity), not saved; response includes the existing `memoryId`
+- `links[]` — graph edges auto-created on save (targetId, relationType, strength)
 - Auto-consolidation at version ≥5 or content ≥8000 chars
 
 **Search behavior:**
 - Uses AI embeddings, NOT keyword matching
 - Write queries like natural language, not keyword lists
 - Results ranked by semantic similarity
+- `include_graph=true` returns `relatedMemories[]` alongside each result (1-hop neighbors)
+- `return_content=false` by default (2-phase retrieval — metadata only, faster)
+
+**Graph traversal tips:**
+- After `memory_search`, use `memory_graph(memory_id, depth: 2)` to explore connected context
+- Use `memory_relations` for a quick 1-hop check (faster than BFS)
+- If timeout (408): reduce `depth`, add `relation_types` filter, or add `graph_limit`
+- Relation types: `similar | extends | caused_by | supersedes | contradicts | depends_on`
 
 ---
 
