@@ -257,3 +257,56 @@ Write queries like you're asking a colleague, not searching a database.
 | Saving implementation details | Code is the source of truth for code | Save the *why*, not the *what*. The code shows what changed; the memory explains why |
 | Not searching before saving | Creates duplicates (even with auto-dedup, scattered partial memories are worse than one good one) | Search first, then save or update |
 | Giant memory dumps | Hard to search, triggers early consolidation | Keep memories focused. One topic per memory. |
+
+---
+
+## 8. Graph Traversal Strategies
+
+The memory graph connects memories through explicit relation edges created at save time. Use traversal to discover clusters of related context that semantic search might miss.
+
+### When to use which approach
+
+| Approach | Use when |
+|----------|----------|
+| `memory_search(query)` | You know *what* you're looking for (semantic query) |
+| `memory_graph(memory_id, depth: 2)` | You have an ID and want to explore its neighborhood |
+| `memory_relations(memory_id)` | You want a quick 1-hop check of a specific memory |
+| `memory_search(query, include_graph: true)` | Search + graph context in one call |
+
+### Pattern: Context recovery with graph
+
+At session start, after finding the session state memory:
+
+```
+1. memory_search(query: "Session State {work key}")
+   → get session state memory ID
+
+2. memory_graph(memory_id: "{id}", depth: 2)
+   → explore connected decisions, trade-offs, blockers from past sessions
+```
+
+This surfaces memories that are linked but might not match the semantic query.
+
+### Pattern: Exploring a decision cluster
+
+```
+memory_graph(
+  memory_id: "{decision memory ID}",
+  depth: 2,
+  relation_types: ["extends", "caused_by", "supersedes"]
+)
+```
+
+### Interpreting graph results
+
+- **Depth 0** — the root memory itself
+- **Depth 1** — directly connected memories
+- **Depth 2+** — transitively connected (can grow fast — use `relation_types` or `graph_limit` to bound)
+- **Edge types:** `similar | extends | caused_by | supersedes | contradicts | depends_on`
+
+### Handling timeouts (408)
+
+If `memory_graph` or `memory_relations` returns a timeout:
+1. Reduce `depth` (try 1 instead of 2+)
+2. Add `relation_types` to narrow traversal
+3. Add `graph_limit` to cap total nodes returned

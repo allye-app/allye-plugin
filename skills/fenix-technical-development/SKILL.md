@@ -44,6 +44,11 @@ memory_search(query: "decision {story key}")
 memory_search(query: "Technical Plan {story key}")
 ```
 
+If session state or decision memories are found, optionally traverse the graph for richer context:
+```
+memory_graph(memory_id: "{id}", depth: 2)
+```
+
 **Pay special attention to locked decisions** — these were explicitly chosen by the user during the discussion phase and are non-negotiable.
 
 ---

@@ -30,6 +30,23 @@ After initialization, search for relevant memories:
 3. \`memory_search(query: "{work item key}")\` — if a specific item is mentioned
 
 If session state is found, summarize it for the user. If decisions are found, respect locked decisions.
+
+**Graph-aware context recovery (optional, when context is sparse):**
+If a relevant memory ID is found but you need richer context, traverse its neighborhood:
+\`memory_graph(memory_id: "{id}", depth: 2)\` → surfaces connected decisions and blockers.
+`.trim()
+
+export const GRAPH_TRAVERSAL_HINT = `
+## Memory Graph Traversal
+
+When you have a memory ID and need surrounding context:
+- \`memory_graph(memory_id, depth: 1-5)\` — BFS neighborhood (nodes + edges)
+- \`memory_relations(memory_id, direction: outgoing|incoming|both)\` — 1-hop direct links
+- \`memory_search(query, include_graph: true)\` — search + graph context in one call
+
+Relation types: \`similar | extends | caused_by | supersedes | contradicts | depends_on\`
+
+If graph traversal times out (408): reduce depth, add relation_types filter.
 `.trim()
 
 export const MEMORY_SAVE_PROTOCOL = `
@@ -94,7 +111,7 @@ export const TOOLS_QUICKREF = `
 | \`boards\` | View boards and columns. Understand status progression. |
 | \`sprints\` | List sprints, get active sprint, view sprint work items. |
 | \`docs\` | Create, read, update documentation. Tree navigation. |
-| \`intelligence\` | Save and search memories (semantic, embedding-based). |
+| \`intelligence\` | Save memories, semantic search, and graph traversal (BFS neighborhood, direct relations). |
 | \`productivity\` | Personal TODOs — create, list, update, delete. |
 | \`skills\` | List, get, export skills. Load team-specific guidelines. |
 | \`team\` | Switch active team, list teams, check current team. |
