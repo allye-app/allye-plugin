@@ -4,7 +4,10 @@
     "fenix-mcp": {
       "type": "remote",
       "url": "https://fenix-mcp.devshire.app/mcp",
-      "enabled": true
+      "enabled": true,
+      "oauth": {
+        "clientId": "opencode"
+      }
     }
   }
 }
