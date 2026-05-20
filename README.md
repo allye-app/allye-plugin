@@ -1,12 +1,12 @@
 <p align="center">
-  <strong>Fenix Agent Plugin</strong><br>
+  <strong>Allye Agent Plugin</strong><br>
   <em>Structured workflows and specialized agents for AI coding tools</em>
 </p>
 
 <p align="center">
-  <a href="https://github.com/fenix-assistant/fenix-plugin/releases"><img src="https://img.shields.io/github/v/release/fenix-assistant/fenix-plugin" alt="Release"></a>
-  <a href="https://github.com/fenix-assistant/fenix-plugin/blob/main/LICENSE"><img src="https://img.shields.io/github/license/fenix-assistant/fenix-plugin" alt="License"></a>
-  <a href="https://www.npmjs.com/package/fenix-opencode"><img src="https://img.shields.io/npm/v/fenix-opencode" alt="npm"></a>
+  <a href="https://github.com/allye-assistant/allye-plugin/releases"><img src="https://img.shields.io/github/v/release/allye-assistant/allye-plugin" alt="Release"></a>
+  <a href="https://github.com/allye-assistant/allye-plugin/blob/main/LICENSE"><img src="https://img.shields.io/github/license/allye-assistant/allye-plugin" alt="License"></a>
+  <a href="https://www.npmjs.com/package/allye-opencode"><img src="https://img.shields.io/npm/v/allye-opencode" alt="npm"></a>
   <img src="https://img.shields.io/badge/Claude_Code-supported-blue" alt="Claude Code">
   <img src="https://img.shields.io/badge/OpenCode-supported-green" alt="OpenCode">
   <img src="https://img.shields.io/badge/Cursor-supported-purple" alt="Cursor">
@@ -16,7 +16,7 @@
 
 ---
 
-Your AI agent has **68+ tools** but no idea when to use them. Fenix adds the methodology layer — structured workflows, specialized agents, cross-session memory, and team-specific skills — so your agent plans before coding, tests before shipping, and remembers what happened yesterday.
+Your AI agent has **68+ tools** but no idea when to use them. Allye adds the methodology layer — structured workflows, specialized agents, cross-session memory, and team-specific skills — so your agent plans before coding, tests before shipping, and remembers what happened yesterday.
 
 **Authentication is handled via OAuth 2.1** — your browser opens once for login, and tokens are managed automatically. No API keys or PATs to configure.
 
@@ -24,7 +24,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Fenix adds the met
 
 | | Feature | Description |
 |---|---------|-------------|
-| **Agents** | Specialized agents | Fenix Plan, Build, Review, Deliver — each focused on one workflow phase |
+| **Agents** | Specialized agents | Allye Plan, Build, Review, Deliver — each focused on one workflow phase |
 | **Planning** | Discussion phase | Gray areas identified, options presented with trade-offs, decisions captured |
 | **Memory** | Cross-session continuity | Agent searches past context at start, saves session state at end |
 | **TDD** | Test-driven development | Red-Green-Refactor with automatic detection of when TDD applies |
@@ -42,15 +42,15 @@ Your AI agent has **68+ tools** but no idea when to use them. Fenix adds the met
 
 **Step 1 — Install the plugin:**
 ```
-/plugin marketplace add fenix-assistant/fenix-plugin
-/plugin install fenix
+/plugin marketplace add allye-assistant/allye-plugin
+/plugin install allye
 /reload-plugins
 ```
 
 **Step 2 — Authenticate:**
 1. Run `/plugin` to open the plugin panel
-2. Find **Fenix MCP Server** and click **Connect**
-3. Your browser opens for OAuth login — sign in with your Fenix account, select a team, and approve
+2. Find **Allye MCP Server** and click **Connect**
+3. Your browser opens for OAuth login — sign in with your Allye account, select a team, and approve
 4. Done! The MCP server connects automatically
 
 > **No PAT needed.** Authentication is handled via OAuth 2.1 — your browser opens once, and tokens are cached automatically.
@@ -61,40 +61,40 @@ After installing, you get:
 - **4 subagents** — planner, builder, reviewer, deliverer (delegated via Agent tool)
 - **11 skills** — loaded on-demand by the orchestrator
 
-#### Multiple Fenix accounts (multi-tenant)
+#### Multiple Allye accounts (multi-tenant)
 
-If you use different Fenix accounts in different projects (e.g., personal account in `~/dev/myproject` and work account in `~/dev/company`), install the plugin with the **"local" scope** (per-project). Each project directory automatically gets its own OAuth session — no extra configuration needed.
+If you use different Allye accounts in different projects (e.g., personal account in `~/dev/myproject` and work account in `~/dev/company`), install the plugin with the **"local" scope** (per-project). Each project directory automatically gets its own OAuth session — no extra configuration needed.
 
 1. Open Claude Code in each project directory
-2. Install with local scope: `/plugin install fenix` (select "local" when prompted)
+2. Install with local scope: `/plugin install allye` (select "local" when prompted)
 3. Run `/reload-plugins`
-4. Go to `/plugin` → **Connect** on the Fenix MCP Server
-5. Log in with the Fenix account you want for that project
+4. Go to `/plugin` → **Connect** on the Allye MCP Server
+5. Log in with the Allye account you want for that project
 
-The plugin automatically generates a unique identifier per project directory, so each project authenticates independently. You can use a different Fenix account in each project without conflicts.
+The plugin automatically generates a unique identifier per project directory, so each project authenticates independently. You can use a different Allye account in each project without conflicts.
 
-> **Single account users don't need this.** If you only use one Fenix account, just install and authenticate — it works out of the box.
+> **Single account users don't need this.** If you only use one Allye account, just install and authenticate — it works out of the box.
 
-**To update:** `/plugin update fenix` then `/reload-plugins`
+**To update:** `/plugin update allye` then `/reload-plugins`
 
 ### OpenCode
 
 Paste this into your agent:
 
 ```
-Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/install-opencode.md
+Install allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/install-opencode.md
 ```
 
-The agent will ask for your PAT, configure the MCP server, and install the `fenix-opencode` plugin.
+The agent will ask for your PAT, configure the MCP server, and install the `allye-opencode` plugin.
 
 After installing, you get:
-- **5 agents in the picker** — Fenix, Fenix Plan, Fenix Build, Fenix Review, Fenix Deliver (Ctrl+T to switch)
+- **5 agents in the picker** — Allye, Allye Plan, Allye Build, Allye Review, Allye Deliver (Ctrl+T to switch)
 - **Auto-loaded context** — your profile and team info injected before every conversation
 - **Dynamic skill discovery** — agents search for your team's standards via MCP
 
 **To update:** Paste this into your agent:
 ```
-Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-opencode.md
+Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-opencode.md
 ```
 
 ### Cursor
@@ -102,7 +102,7 @@ Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant
 Paste this into Cursor's agent chat:
 
 ```
-Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/install-cursor.md
+Install allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/install-cursor.md
 ```
 
 After installing:
@@ -111,7 +111,7 @@ After installing:
 
 **To update:** Paste this into your agent:
 ```
-Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-cursor.md
+Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-cursor.md
 ```
 
 ### Codex (OpenAI)
@@ -119,7 +119,7 @@ Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant
 Paste this into Codex:
 
 ```
-Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/install-codex.md
+Install allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/install-codex.md
 ```
 
 After installing:
@@ -128,7 +128,7 @@ After installing:
 
 **To update:** Paste this into your agent:
 ```
-Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-codex.md
+Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-codex.md
 ```
 
 ### Gemini CLI
@@ -136,7 +136,7 @@ Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant
 Paste this into Gemini:
 
 ```
-Install fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/install-gemini.md
+Install allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/install-gemini.md
 ```
 
 After installing:
@@ -145,20 +145,20 @@ After installing:
 
 **To update:** Paste this into your agent:
 ```
-Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-gemini.md
+Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-gemini.md
 ```
 
 ### Manual (all agents)
 
 ```bash
-git clone https://github.com/fenix-assistant/fenix-plugin.git
-cd fenix-plugin
+git clone https://github.com/allye-assistant/allye-plugin.git
+cd allye-plugin
 ./install.sh
 ```
 
 Auto-detects installed agents and configures MCP + skills for each one.
 
-**To update:** `cd fenix-plugin && git pull && ./install.sh`
+**To update:** `cd allye-plugin && git pull && ./install.sh`
 
 ---
 
@@ -167,7 +167,7 @@ Auto-detects installed agents and configures MCP + skills for each one.
 ### Claude Code
 
 ```
-/plugin update fenix
+/plugin update allye
 /reload-plugins
 ```
 
@@ -177,15 +177,15 @@ Paste this into your agent's chat:
 
 | Agent | Paste this |
 |-------|-----------|
-| OpenCode | `Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-opencode.md` |
-| Cursor | `Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-cursor.md` |
-| Codex | `Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-codex.md` |
-| Gemini CLI | `Update fenix-plugin following: https://raw.githubusercontent.com/fenix-assistant/fenix-plugin/main/docs/update-gemini.md` |
+| OpenCode | `Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-opencode.md` |
+| Cursor | `Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-cursor.md` |
+| Codex | `Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-codex.md` |
+| Gemini CLI | `Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-gemini.md` |
 
 ### Manual
 
 ```bash
-cd fenix-plugin && git pull && ./install.sh
+cd allye-plugin && git pull && ./install.sh
 ```
 
 ---
@@ -196,11 +196,11 @@ On platforms that support multi-agent (OpenCode, Claude Code), you get 5 special
 
 | Agent | Who uses it | What it does |
 |-------|------------|-------------|
-| **Fenix** | Everyone | Orchestrator — initializes context, detects workflow phase, delegates to the right agent |
-| **Fenix Plan** | PO, tech lead, dev | All planning — from business requirements (epics/features/stories) to technical breakdown (discussion phase → tasks). Discovers team work item templates. |
-| **Fenix Build** | Dev | Picks up tasks and implements them. Discovers coding conventions, testing standards. TDD discipline, read-first rule, wave execution. |
-| **Fenix Review** | Dev, tech lead | Reviews code with planning decision context. Discovers review checklists, security standards, quality gates. |
-| **Fenix Deliver** | Dev | Closes the story. Discovers documentation templates, deploy checklists. Updates docs, cleans up TODOs. |
+| **Allye** | Everyone | Orchestrator — initializes context, detects workflow phase, delegates to the right agent |
+| **Allye Plan** | PO, tech lead, dev | All planning — from business requirements (epics/features/stories) to technical breakdown (discussion phase → tasks). Discovers team work item templates. |
+| **Allye Build** | Dev | Picks up tasks and implements them. Discovers coding conventions, testing standards. TDD discipline, read-first rule, wave execution. |
+| **Allye Review** | Dev, tech lead | Reviews code with planning decision context. Discovers review checklists, security standards, quality gates. |
+| **Allye Deliver** | Dev | Closes the story. Discovers documentation templates, deploy checklists. Updates docs, cleans up TODOs. |
 
 Every agent:
 - Responds in **your language** (detected from profile or messages)
@@ -241,29 +241,29 @@ Discover delivery standards → verify all tasks done → close story → update
 
 ## Skills
 
-Skills are the knowledge base that powers the agents. 10 workflow skills are published in the **Fenix marketplace** — available to all users without setup.
+Skills are the knowledge base that powers the agents. 10 workflow skills are published in the **Allye marketplace** — available to all users without setup.
 
 | Skill | What it teaches |
 |-------|----------------|
-| `using-fenix` | Bootstrap — memory protocol, skill routing, workflow gates |
-| `fenix-product-planning` | Business requirements → Epics → Features → Stories |
-| `fenix-technical-planning` | Story → Discussion Phase → Tasks with acceptance criteria |
-| `fenix-technical-development` | Task → TDD → Implementation with wave execution |
-| `fenix-technical-review` | Code review with decision context from planning |
-| `fenix-technical-delivery` | Verify → Close story → Update docs → Save memory |
-| `fenix-memory-protocol` | When and how to search/save memories across sessions |
-| `fenix-tdd-workflow` | Red-Green-Refactor cycle with detection heuristic |
-| `fenix-board-progression` | Status transitions and board mechanics |
-| `fenix-tools-quickref` | Complete reference for all 12 MCP tools and 68+ actions |
+| `using-allye` | Bootstrap — memory protocol, skill routing, workflow gates |
+| `allye-product-planning` | Business requirements → Epics → Features → Stories |
+| `allye-technical-planning` | Story → Discussion Phase → Tasks with acceptance criteria |
+| `allye-technical-development` | Task → TDD → Implementation with wave execution |
+| `allye-technical-review` | Code review with decision context from planning |
+| `allye-technical-delivery` | Verify → Close story → Update docs → Save memory |
+| `allye-memory-protocol` | When and how to search/save memories across sessions |
+| `allye-tdd-workflow` | Red-Green-Refactor cycle with detection heuristic |
+| `allye-board-progression` | Status transitions and board mechanics |
+| `allye-tools-quickref` | Complete reference for all 12 MCP tools and 68+ actions |
 
 ### Custom team skills
 
-Your team can create custom skills in Fenix — agents discover and follow them automatically:
+Your team can create custom skills in Allye — agents discover and follow them automatically:
 
-- **Code review checklist** → Fenix Review follows it
-- **Backend story standard** → Fenix Plan uses it as template
-- **Deploy checklist** → Fenix Deliver follows it
-- **Coding conventions** → Fenix Build applies them
+- **Code review checklist** → Allye Review follows it
+- **Backend story standard** → Allye Plan uses it as template
+- **Deploy checklist** → Allye Deliver follows it
+- **Coding conventions** → Allye Build applies them
 
 No team skills yet? Each agent will suggest creating them when it doesn't find standards for its domain.
 
@@ -271,7 +271,7 @@ No team skills yet? Each agent will suggest creating them when it doesn't find s
 
 ## Prerequisites
 
-- A [Fenix](https://app.fenix.devshire.app) account with a Personal Access Token (PAT)
+- A [Allye](https://app.allye.devshire.app) account with a Personal Access Token (PAT)
 - At least one supported AI coding agent installed
 - `jq` and `curl` (used by the installer and Claude Code hook)
 

@@ -1,37 +1,37 @@
 {
   "version": "1.0",
-  "description": "Fenix Agent Plugin — skill definitions for seeding into Fenix DB",
+  "description": "Allye Agent Plugin — skill definitions for seeding into Allye DB",
   "skills": [
     {
-      "name": "using-fenix",
-      "slug": "using-fenix",
-      "description": "Bootstrap meta-skill for AI agents using the Fenix platform. Teaches when and how to use Fenix MCP tools with structured workflows. Injected at session start.",
+      "name": "using-allye",
+      "slug": "using-allye",
+      "description": "Bootstrap meta-skill for AI agents using the Allye platform. Teaches when and how to use Allye MCP tools with structured workflows. Injected at session start.",
       "category": "other",
       "scope": "team",
-      "source_file": "skills/bootstrap/using-fenix.md",
+      "source_file": "skills/bootstrap/using-allye.md",
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     },
     {
-      "name": "fenix-memory-protocol",
-      "slug": "fenix-memory-protocol",
-      "description": "Complete memory protocol for AI agents using Fenix. Defines when and how to search, save, and link memories for cross-session continuity.",
+      "name": "allye-memory-protocol",
+      "slug": "allye-memory-protocol",
+      "description": "Complete memory protocol for AI agents using Allye. Defines when and how to search, save, and link memories for cross-session continuity.",
       "category": "other",
       "scope": "team",
       "source_file": "skills/methodology/memory-protocol.md",
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     },
     {
-      "name": "fenix-product-planning",
-      "slug": "fenix-product-planning",
-      "description": "Workflow for translating business requirements into epics, features, and stories in Fenix.",
+      "name": "allye-product-planning",
+      "slug": "allye-product-planning",
+      "description": "Workflow for translating business requirements into epics, features, and stories in Allye.",
       "category": "architecture",
       "scope": "team",
       "source_file": "skills/workflows/product-planning.md",
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     },
     {
-      "name": "fenix-technical-planning",
-      "slug": "fenix-technical-planning",
+      "name": "allye-technical-planning",
+      "slug": "allye-technical-planning",
       "description": "Workflow for breaking a story into tasks through a structured discussion phase with decision capture.",
       "category": "architecture",
       "scope": "team",
@@ -39,8 +39,8 @@
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     },
     {
-      "name": "fenix-technical-development",
-      "slug": "fenix-technical-development",
+      "name": "allye-technical-development",
+      "slug": "allye-technical-development",
       "description": "Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution.",
       "category": "backend",
       "scope": "team",
@@ -48,8 +48,8 @@
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     },
     {
-      "name": "fenix-technical-review",
-      "slug": "fenix-technical-review",
+      "name": "allye-technical-review",
+      "slug": "allye-technical-review",
       "description": "Workflow for reviewing implemented code with decision context from planning phase.",
       "category": "code_review",
       "scope": "team",
@@ -57,8 +57,8 @@
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     },
     {
-      "name": "fenix-technical-delivery",
-      "slug": "fenix-technical-delivery",
+      "name": "allye-technical-delivery",
+      "slug": "allye-technical-delivery",
       "description": "Workflow for finalizing a story after all tasks pass review. Closes story, updates docs, cleans up.",
       "category": "other",
       "scope": "team",
@@ -66,8 +66,8 @@
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     },
     {
-      "name": "fenix-tdd-workflow",
-      "slug": "fenix-tdd-workflow",
+      "name": "allye-tdd-workflow",
+      "slug": "allye-tdd-workflow",
       "description": "Test-Driven Development discipline for AI agents. Red-Green-Refactor cycle, detection heuristic, and anti-patterns.",
       "category": "testing",
       "scope": "team",
@@ -75,21 +75,21 @@
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     },
     {
-      "name": "fenix-board-progression",
-      "slug": "fenix-board-progression",
-      "description": "Rules for moving work items between statuses in Fenix boards. Covers work_status_next, work_status_done, and status categories.",
+      "name": "allye-board-progression",
+      "slug": "allye-board-progression",
+      "description": "Rules for moving work items between statuses in Allye boards. Covers work_status_next, work_status_done, and status categories.",
       "category": "other",
       "scope": "team",
       "source_file": "skills/methodology/board-progression.md",
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     },
     {
-      "name": "fenix-tools-quickref",
-      "slug": "fenix-tools-quickref",
-      "description": "Complete quick reference for all Fenix MCP tools and their actions with parameters.",
+      "name": "allye-tools-quickref",
+      "slug": "allye-tools-quickref",
+      "description": "Complete quick reference for all Allye MCP tools and their actions with parameters.",
       "category": "documentation",
       "scope": "team",
-      "source_file": "skills/reference/fenix-tools-quickref.md",
+      "source_file": "skills/reference/allye-tools-quickref.md",
       "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
     }
   ]

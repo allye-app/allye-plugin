@@ -1,15 +1,15 @@
 #!/bin/bash
 set -e
 
-# Fenix OAuth Login — Browser-based OAuth flow for all platforms
+# Allye OAuth Login — Browser-based OAuth flow for all platforms
 #
 # Usage: ./oauth-login.sh [--port PORT]
 #
-# Opens browser for Fenix OAuth login, captures the token via local callback server.
+# Opens browser for Allye OAuth login, captures the token via local callback server.
 # Works on macOS, Linux, and WSL.
 
-FENIX_API_URL="${FENIX_API_URL:-https://fenix-api.devshire.app}"
-CLIENT_ID="${FENIX_OAUTH_CLIENT_ID:-claude-code}"
+ALLYE_API_URL="${ALLYE_API_URL:-https://allye-api.devshire.app}"
+CLIENT_ID="${ALLYE_OAUTH_CLIENT_ID:-claude-code}"
 CALLBACK_PORT="${1:-9316}"
 REDIRECT_URI="http://127.0.0.1:${CALLBACK_PORT}/oauth/callback"
 
@@ -19,7 +19,7 @@ CODE_CHALLENGE=$(echo -n "$CODE_VERIFIER" | openssl dgst -sha256 -binary | opens
 STATE=$(openssl rand -hex 16)
 
 # Build authorization URL
-AUTH_URL="${FENIX_API_URL}/oauth/authorize"
+AUTH_URL="${ALLYE_API_URL}/oauth/authorize"
 AUTH_URL="${AUTH_URL}?response_type=code"
 AUTH_URL="${AUTH_URL}&client_id=${CLIENT_ID}"
 AUTH_URL="${AUTH_URL}&redirect_uri=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${REDIRECT_URI}'))")"
@@ -28,7 +28,7 @@ AUTH_URL="${AUTH_URL}&state=${STATE}"
 AUTH_URL="${AUTH_URL}&code_challenge=${CODE_CHALLENGE}"
 AUTH_URL="${AUTH_URL}&code_challenge_method=S256"
 
-echo "🔐 Fenix OAuth Login"
+echo "🔐 Allye OAuth Login"
 echo ""
 echo "Opening browser for authentication..."
 echo ""
@@ -104,7 +104,7 @@ class CallbackHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.end_headers()
-        self.wfile.write(b"<h2>Fenix Connected!</h2><p>You can close this tab and return to your terminal.</p>")
+        self.wfile.write(b"<h2>Allye Connected!</h2><p>You can close this tab and return to your terminal.</p>")
 
         # Output the code to stdout for the parent script
         print(json.dumps({"code": code, "state": state}))
@@ -145,7 +145,7 @@ fi
 echo "✅ Authorization code received. Exchanging for tokens..."
 
 # Exchange code for tokens
-TOKEN_RESPONSE=$(curl -s -X POST "${FENIX_API_URL}/oauth/token" \
+TOKEN_RESPONSE=$(curl -s -X POST "${ALLYE_API_URL}/oauth/token" \
   -H "Content-Type: application/json" \
   -d "{
     \"grant_type\": \"authorization_code\",
@@ -166,10 +166,10 @@ if [ -z "$ACCESS_TOKEN" ]; then
 fi
 
 echo ""
-echo "✅ Fenix authenticated successfully!"
+echo "✅ Allye authenticated successfully!"
 echo ""
 
 # Output token for the caller to use
-# The parent script (fenix-setup) will use this to configure the platform
-echo "FENIX_ACCESS_TOKEN=${ACCESS_TOKEN}"
-echo "FENIX_REFRESH_TOKEN=${REFRESH_TOKEN}"
+# The parent script (allye-setup) will use this to configure the platform
+echo "ALLYE_ACCESS_TOKEN=${ACCESS_TOKEN}"
+echo "ALLYE_REFRESH_TOKEN=${REFRESH_TOKEN}"

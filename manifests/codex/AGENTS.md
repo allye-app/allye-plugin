@@ -1,6 +1,6 @@
-# Fenix Agent Plugin
+# Allye Agent Plugin
 
-You have access to the **Fenix platform** via MCP. Before starting any work:
+You have access to the **Allye platform** via MCP. Before starting any work:
 
 1. **Search memories** — Run `memory_search` for session state, decisions, and context
 2. **Detect the workflow phase** — What does the user need?
@@ -11,11 +11,11 @@ You have access to the **Fenix platform** via MCP. Before starting any work:
 
 | User Intent | Skill Slug |
 |-------------|------------|
-| Define requirements, create epics/features/stories | `fenix-product-planning` |
-| Plan tasks for a story, discuss approach | `fenix-technical-planning` |
-| Implement code, write tests | `fenix-technical-development` |
-| Review code quality | `fenix-technical-review` |
-| Finalize delivery, close story | `fenix-technical-delivery` |
+| Define requirements, create epics/features/stories | `allye-product-planning` |
+| Plan tasks for a story, discuss approach | `allye-technical-planning` |
+| Implement code, write tests | `allye-technical-development` |
+| Review code quality | `allye-technical-review` |
+| Finalize delivery, close story | `allye-technical-delivery` |
 
 ## Non-Negotiable Rules
 
@@ -27,7 +27,7 @@ You have access to the **Fenix platform** via MCP. Before starting any work:
 
 ## Reference Skills
 
-- `fenix-memory-protocol` — When and how to save/search memories
-- `fenix-tdd-workflow` — Red-Green-Refactor discipline
-- `fenix-board-progression` — How to move items between statuses
-- `fenix-tools-quickref` — Complete MCP tools reference
+- `allye-memory-protocol` — When and how to save/search memories
+- `allye-tdd-workflow` — Red-Green-Refactor discipline
+- `allye-board-progression` — How to move items between statuses
+- `allye-tools-quickref` — Complete MCP tools reference

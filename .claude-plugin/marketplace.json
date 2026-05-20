@@ -1,21 +1,21 @@
 {
-  "name": "fenix-marketplace",
+  "name": "allye-marketplace",
   "owner": {
-    "name": "Fenix Assistant",
+    "name": "Allye Assistant",
     "email": "contact@devshire.app"
   },
   "metadata": {
-    "description": "Fenix Agent Plugin — methodology and workflow layer for AI coding agents",
+    "description": "Allye Agent Plugin — methodology and workflow layer for AI coding agents",
     "version": "1.17.2"
   },
   "plugins": [
     {
-      "name": "fenix",
+      "name": "allye",
       "source": {
         "source": "github",
-        "repo": "fenix-assistant/fenix-plugin"
+        "repo": "allye-assistant/allye-plugin"
       },
-      "description": "Structured workflows, memory protocol, TDD discipline, and board progression for the Fenix platform",
+      "description": "Structured workflows, memory protocol, TDD discipline, and board progression for the Allye platform",
       "version": "1.17.2"
     }
   ]

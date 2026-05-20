@@ -1,6 +1,6 @@
 {
-  "fenix": {
+  "allye": {
     "type": "http",
-    "url": "https://fenix-mcp.devshire.app/mcp/${FENIX_TENANT_SLUG:-default}"
+    "url": "https://allye-mcp.devshire.app/mcp/${ALLYE_TENANT_SLUG:-default}"
   }
 }

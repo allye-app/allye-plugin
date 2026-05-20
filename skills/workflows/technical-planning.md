@@ -1,5 +1,5 @@
 ---
-name: fenix-technical-planning
+name: allye-technical-planning
 description: Workflow for breaking a story into tasks through a structured discussion phase. Use when the user has a story and wants to plan the technical implementation.
 version: "1.0"
 category: workflow
@@ -261,7 +261,7 @@ Before considering technical planning complete, verify:
 - [ ] All decisions are classified (locked vs agent-discretion) and saved as memories
 - [ ] Tasks have verifiable acceptance criteria
 - [ ] Dependencies are mapped and wave structure is defined
-- [ ] Tasks are created in Fenix with proper parent relationship
+- [ ] Tasks are created in Allye with proper parent relationship
 - [ ] Story is moved to in_progress
 - [ ] Planning summary is saved as memory
 
@@ -269,4 +269,4 @@ Before considering technical planning complete, verify:
 
 ## What Comes Next
 
-The user picks a task (or the first task in Wave 1) and starts implementing. That transitions to **Technical Development** — load the `fenix-technical-development` skill.
+The user picks a task (or the first task in Wave 1) and starts implementing. That transitions to **Technical Development** — load the `allye-technical-development` skill.

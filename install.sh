@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-# Fenix Agent Plugin — Installer
-# 1. Prompts for Fenix PAT
-# 2. Validates PAT against Fenix API
-# 3. Seeds skills into Fenix DB
+# Allye Agent Plugin — Installer
+# 1. Prompts for Allye PAT
+# 2. Validates PAT against Allye API
+# 3. Seeds skills into Allye DB
 # 4. Detects installed AI agents and configures manifests
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,7 +20,7 @@ NC='\033[0m' # No Color
 print_header() {
   echo ""
   echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
-  echo -e "${BLUE}║     Fenix Agent Plugin Installer     ║${NC}"
+  echo -e "${BLUE}║     Allye Agent Plugin Installer     ║${NC}"
   echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
   echo ""
 }
@@ -41,28 +41,28 @@ print_error() {
   echo -e "${RED}✗${NC} $1"
 }
 
-# ─── Step 1: Get Fenix PAT ─────────────────────────────────────────────────────
+# ─── Step 1: Get Allye PAT ─────────────────────────────────────────────────────
 
-API_URL="https://fenix-api.devshire.app"
+API_URL="https://allye-api.devshire.app"
 
 print_header
 
 echo "This installer will:"
-echo "  1. Connect to Fenix Cloud ($API_URL)"
+echo "  1. Connect to Allye Cloud ($API_URL)"
 echo "  2. Seed workflow skills into your team's database"
 echo "  3. Configure your AI coding agents to use the plugin"
 echo ""
 
 # PAT
-if [ -n "$FENIX_PAT" ]; then
-  print_step "Using FENIX_PAT from environment"
-  PAT="$FENIX_PAT"
+if [ -n "$ALLYE_PAT" ]; then
+  print_step "Using ALLYE_PAT from environment"
+  PAT="$ALLYE_PAT"
 else
   echo ""
-  echo "Generate a Personal Access Token (PAT) in Fenix:"
+  echo "Generate a Personal Access Token (PAT) in Allye:"
   echo "  Settings → API → Generate Token"
   echo ""
-  read -rsp "Fenix PAT: " PAT
+  read -rsp "Allye PAT: " PAT
   echo ""
 fi
 
@@ -97,7 +97,7 @@ print_success "Authenticated as $USER_NAME ($TENANT_NAME)"
 # ─── Step 3: Seed Skills ──────────────────────────────────────────────────────
 
 echo ""
-print_step "Seeding skills into Fenix..."
+print_step "Seeding skills into Allye..."
 
 if [ ! -f "$SEED_FILE" ]; then
   print_error "Seed file not found: $SEED_FILE"
@@ -228,13 +228,13 @@ if command -v claude &>/dev/null; then
       }
     ]
     | .env = (.env // {})
-    | .env.FENIX_PAT = $pat
+    | .env.ALLYE_PAT = $pat
     ')
 
   echo "$SETTINGS" | jq '.' > "$CLAUDE_SETTINGS"
   print_success "Claude Code hook configured"
 
-  # Add Fenix MCP server to ~/.claude.json
+  # Add Allye MCP server to ~/.claude.json
   CLAUDE_JSON="$HOME/.claude.json"
   if [ -f "$CLAUDE_JSON" ]; then
     CLAUDE_CFG=$(cat "$CLAUDE_JSON")
@@ -244,16 +244,16 @@ if command -v claude &>/dev/null; then
 
   CLAUDE_CFG=$(echo "$CLAUDE_CFG" | jq \
     --arg pat "$PAT" \
-    '.mcpServers["fenix-mcp"] = {
+    '.mcpServers["allye-mcp"] = {
       "type": "http",
-      "url": "https://fenix-mcp.devshire.app/jsonrpc",
+      "url": "https://allye-mcp.devshire.app/jsonrpc",
       "headers": {
         "Authorization": ("Bearer " + $pat)
       }
     }')
 
   echo "$CLAUDE_CFG" | jq '.' > "$CLAUDE_JSON"
-  print_success "Fenix MCP server configured"
+  print_success "Allye MCP server configured"
   AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
 else
   print_warning "Claude Code not found — skipping"
@@ -276,8 +276,8 @@ if command -v cursor &>/dev/null || [ -d "$HOME/.cursor" ]; then
 
   CURSOR_CFG=$(echo "$CURSOR_CFG" | jq \
     --arg pat "$PAT" \
-    '.mcpServers["fenix-mcp"] = {
-      "url": "https://fenix-mcp.devshire.app/jsonrpc",
+    '.mcpServers["allye-mcp"] = {
+      "url": "https://allye-mcp.devshire.app/jsonrpc",
       "headers": {
         "Authorization": ("Bearer " + $pat)
       }
@@ -305,19 +305,19 @@ if command -v opencode &>/dev/null; then
 
   OC_CFG=$(echo "$OC_CFG" | jq \
     --arg pat "$PAT" \
-    '.mcp["fenix-mcp"] = {
+    '.mcp["allye-mcp"] = {
       "type": "remote",
-      "url": "https://fenix-mcp.devshire.app/jsonrpc",
+      "url": "https://allye-mcp.devshire.app/jsonrpc",
       "headers": {
         "Authorization": ("Bearer " + $pat)
       },
       "enabled": true
     }')
 
-  # Add fenix-opencode plugin to plugin array
+  # Add allye-opencode plugin to plugin array
   OC_CFG=$(echo "$OC_CFG" | jq '
     .plugin = (.plugin // []) |
-    if (.plugin | index("fenix-opencode")) then . else .plugin += ["fenix-opencode"] end
+    if (.plugin | index("allye-opencode")) then . else .plugin += ["allye-opencode"] end
   ')
 
   echo "$OC_CFG" | jq '.' > "$OPENCODE_CFG_FILE"
@@ -335,15 +335,15 @@ if command -v codex &>/dev/null; then
   mkdir -p "$CODEX_DIR"
 
   # Append MCP config if not already present
-  if [ -f "$CODEX_CFG" ] && grep -q "fenix-mcp" "$CODEX_CFG" 2>/dev/null; then
+  if [ -f "$CODEX_CFG" ] && grep -q "allye-mcp" "$CODEX_CFG" 2>/dev/null; then
     # Update existing entry — replace the bearer token line
-    sed -i "s|bearer_token_env_var = .*|# Using FENIX_PAT_TOKEN env var|" "$CODEX_CFG"
+    sed -i "s|bearer_token_env_var = .*|# Using ALLYE_PAT_TOKEN env var|" "$CODEX_CFG"
     print_success "Codex MCP server updated"
   else
     cat >> "$CODEX_CFG" << TOML
 
-[mcp_servers.fenix-mcp]
-url = "https://fenix-mcp.devshire.app/jsonrpc"
+[mcp_servers.allye-mcp]
+url = "https://allye-mcp.devshire.app/jsonrpc"
 http_headers = { "Authorization" = "Bearer $PAT" }
 enabled = true
 TOML
@@ -369,8 +369,8 @@ if command -v gemini &>/dev/null; then
 
   GEMINI_CFG=$(echo "$GEMINI_CFG" | jq \
     --arg pat "$PAT" \
-    '.mcpServers["fenix-mcp"] = {
-      "httpUrl": "https://fenix-mcp.devshire.app/jsonrpc",
+    '.mcpServers["allye-mcp"] = {
+      "httpUrl": "https://allye-mcp.devshire.app/jsonrpc",
       "headers": {
         "Authorization": ("Bearer " + $pat)
       }
@@ -393,7 +393,7 @@ echo "  Agents configured: $AGENTS_CONFIGURED"
 echo ""
 
 if [ "$AGENTS_CONFIGURED" -gt 0 ]; then
-  echo "Start a new session in your AI agent to use the Fenix plugin."
+  echo "Start a new session in your AI agent to use the Allye plugin."
 else
   echo "No supported agents were detected."
   echo "Install Claude Code, OpenCode, Cursor, Codex, or Gemini CLI and run this again."

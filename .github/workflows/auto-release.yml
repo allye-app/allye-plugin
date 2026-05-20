@@ -47,18 +47,18 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - name: Build fenix-opencode
-        working-directory: packages/fenix-opencode
+      - name: Build allye-opencode
+        working-directory: packages/allye-opencode
         run: |
           bun install
           bun run build
 
       - name: Check if version changed
         id: version
-        working-directory: packages/fenix-opencode
+        working-directory: packages/allye-opencode
         run: |
           LOCAL=$(jq -r '.version' package.json)
-          REMOTE=$(npm view fenix-opencode version 2>/dev/null || echo "0.0.0")
+          REMOTE=$(npm view allye-opencode version 2>/dev/null || echo "0.0.0")
           echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
           echo "remote=$REMOTE" >> "$GITHUB_OUTPUT"
           if [ "$LOCAL" != "$REMOTE" ]; then
@@ -69,7 +69,7 @@ jobs:
 
       - name: Publish to npm
         if: steps.version.outputs.changed == 'true'
-        working-directory: packages/fenix-opencode
+        working-directory: packages/allye-opencode
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,21 +1,21 @@
 ---
-name: fenix-memory-protocol
-description: Complete memory protocol for AI agents using Fenix. Defines when and how to search, save, and link memories for cross-session continuity.
+name: allye-memory-protocol
+description: Complete memory protocol for AI agents using Allye. Defines when and how to search, save, and link memories for cross-session continuity.
 version: "1.0"
 category: methodology
 ---
 
-# Fenix Memory Protocol
+# Allye Memory Protocol
 
 Memories are how context survives between conversations. Without them, every session starts from zero — decisions get repeated, context gets lost, and work gets duplicated.
 
-This skill defines the complete protocol for using Fenix's intelligent memory system (`memory_save` and `memory_search`).
+This skill defines the complete protocol for using Allye's intelligent memory system (`memory_save` and `memory_search`).
 
 ---
 
 ## 1. How the Memory System Works
 
-Fenix uses **semantic search powered by AI embeddings** — not keyword matching. This means:
+Allye uses **semantic search powered by AI embeddings** — not keyword matching. This means:
 
 - `"what did we decide about auth?"` finds memories about authentication even if the word "auth" doesn't appear
 - Queries should be natural language, not keyword lists
@@ -23,7 +23,7 @@ Fenix uses **semantic search powered by AI embeddings** — not keyword matching
 
 ### Auto-deduplication
 
-When you save a memory, Fenix automatically checks for similar existing memories:
+When you save a memory, Allye automatically checks for similar existing memories:
 
 - **≥80% similarity** → Updates the existing memory (appends new content with a dated separator)
 - **<80% similarity** → Creates a new memory
@@ -32,7 +32,7 @@ This means you don't need to worry about creating duplicates. Save freely — th
 
 ### Memory consolidation
 
-When a memory reaches version ≥5 or content ≥8000 characters, Fenix automatically summarizes it to keep it concise. You don't need to manage this.
+When a memory reaches version ≥5 or content ≥8000 characters, Allye automatically summarizes it to keep it concise. You don't need to manage this.
 
 ---
 
@@ -200,7 +200,7 @@ For hierarchical context, prefix with type:
 
 ## 5. Entity Linking
 
-Always link memories to relevant Fenix entities when available:
+Always link memories to relevant Allye entities when available:
 
 | Parameter | When to set |
 |-----------|-------------|
@@ -209,7 +209,7 @@ Always link memories to relevant Fenix entities when available:
 | `documentation_item_id` | Memory relates to a documentation page |
 | `team_id` | Memory is team-specific (required for multi-team users) |
 
-Entity links enable Fenix to build a knowledge graph — memories connected to work items, sprints, and docs create navigable context across the project.
+Entity links enable Allye to build a knowledge graph — memories connected to work items, sprints, and docs create navigable context across the project.
 
 ---
 

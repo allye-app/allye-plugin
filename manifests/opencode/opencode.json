@@ -1,9 +1,9 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "fenix-mcp": {
+    "allye-mcp": {
       "type": "remote",
-      "url": "https://fenix-mcp.devshire.app/mcp",
+      "url": "https://allye-mcp.devshire.app/mcp",
       "enabled": true,
       "oauth": {
         "clientId": "opencode"

@@ -7,7 +7,7 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "jq --arg v \"${nextRelease.version}\" '.version = $v' .claude-plugin/plugin.json > /tmp/p.json && mv /tmp/p.json .claude-plugin/plugin.json && jq --arg v \"${nextRelease.version}\" '.metadata.version = $v | .plugins[0].version = $v' .claude-plugin/marketplace.json > /tmp/m.json && mv /tmp/m.json .claude-plugin/marketplace.json && jq --arg v \"${nextRelease.version}\" '.version = $v' packages/fenix-opencode/package.json > /tmp/oc.json && mv /tmp/oc.json packages/fenix-opencode/package.json && cp skills/using-fenix/SKILL.md skills/bootstrap/using-fenix.md 2>/dev/null || true"
+        "prepareCmd": "jq --arg v \"${nextRelease.version}\" '.version = $v' .claude-plugin/plugin.json > /tmp/p.json && mv /tmp/p.json .claude-plugin/plugin.json && jq --arg v \"${nextRelease.version}\" '.metadata.version = $v | .plugins[0].version = $v' .claude-plugin/marketplace.json > /tmp/m.json && mv /tmp/m.json .claude-plugin/marketplace.json && jq --arg v \"${nextRelease.version}\" '.version = $v' packages/allye-opencode/package.json > /tmp/oc.json && mv /tmp/oc.json packages/allye-opencode/package.json && cp skills/using-allye/SKILL.md skills/bootstrap/using-allye.md 2>/dev/null || true"
       }
     ],
     [
@@ -16,8 +16,8 @@
         "assets": [
           ".claude-plugin/plugin.json",
           ".claude-plugin/marketplace.json",
-          "packages/fenix-opencode/package.json",
-          "skills/bootstrap/using-fenix.md",
+          "packages/allye-opencode/package.json",
+          "skills/bootstrap/using-allye.md",
           "CHANGELOG.md"
         ],
         "message": "chore(release): v${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"

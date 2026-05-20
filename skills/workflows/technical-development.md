@@ -1,5 +1,5 @@
 ---
-name: fenix-technical-development
+name: allye-technical-development
 description: Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution. Use when the user wants to write code, implement a task, or develop features.
 version: "1.0"
 category: workflow
@@ -7,7 +7,7 @@ category: workflow
 
 # Technical Development Workflow
 
-This skill guides you through implementing a task with discipline: read existing code first, write tests, implement, refactor, and track progress in Fenix.
+This skill guides you through implementing a task with discipline: read existing code first, write tests, implement, refactor, and track progress in Allye.
 
 Use this when the user wants to: write code, implement a task, fix a bug, add functionality, or develop features.
 
@@ -250,7 +250,7 @@ work_children(id: "{story uuid}")
 
 - If there are more tasks in the current wave → pick one
 - If the current wave is done → move to the next wave
-- If all tasks are done → transition to **Technical Review** (load `fenix-technical-review` skill)
+- If all tasks are done → transition to **Technical Review** (load `allye-technical-review` skill)
 
 ---
 
@@ -273,4 +273,4 @@ For each task, verify:
 
 ## What Comes Next
 
-When all tasks for the story are complete, transition to **Technical Review** — load the `fenix-technical-review` skill.
+When all tasks for the story are complete, transition to **Technical Review** — load the `allye-technical-review` skill.

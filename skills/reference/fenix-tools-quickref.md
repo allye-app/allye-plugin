@@ -1,13 +1,13 @@
 ---
-name: fenix-tools-quickref
-description: Complete quick reference for all Fenix MCP tools and their actions with parameters. Use when you need to know how to call a specific Fenix tool.
+name: allye-tools-quickref
+description: Complete quick reference for all Allye MCP tools and their actions with parameters. Use when you need to know how to call a specific Allye tool.
 version: "1.0"
 category: reference
 ---
 
-# Fenix Tools Quick Reference
+# Allye Tools Quick Reference
 
-Complete reference for all 12 Fenix MCP tools and their actions.
+Complete reference for all 12 Allye MCP tools and their actions.
 
 ---
 
@@ -194,11 +194,11 @@ Browse API endpoint documentation.
 
 ## initialize
 
-Bootstrap Fenix environment.
+Bootstrap Allye environment.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `init` | Initialize/reload Fenix environment and documents | — |
+| `init` | Initialize/reload Allye environment and documents | — |
 
 ---
 
@@ -208,7 +208,7 @@ Service monitoring.
 
 | Action | Description |
 |--------|-------------|
-| `health_check` | Check Fenix backend health status |
+| `health_check` | Check Allye backend health status |
 
 ---
 

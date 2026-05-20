@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Fenix Plugin — Release Script
+# Allye Plugin — Release Script
 # Usage: ./release.sh [major|minor|patch]
 # Default: patch
 
@@ -42,9 +42,9 @@ jq --arg v "$NEW_VERSION" '
 ' "$MARKETPLACE_JSON" > /tmp/marketplace.json.tmp
 mv /tmp/marketplace.json.tmp "$MARKETPLACE_JSON"
 
-# Sync SKILL.md files (using-fenix is the source of truth)
-if [ -f "$SCRIPT_DIR/skills/using-fenix/SKILL.md" ]; then
-  cp "$SCRIPT_DIR/skills/using-fenix/SKILL.md" "$SCRIPT_DIR/skills/bootstrap/using-fenix.md"
+# Sync SKILL.md files (using-allye is the source of truth)
+if [ -f "$SCRIPT_DIR/skills/using-allye/SKILL.md" ]; then
+  cp "$SCRIPT_DIR/skills/using-allye/SKILL.md" "$SCRIPT_DIR/skills/bootstrap/using-allye.md"
 fi
 
 # Commit and tag
@@ -59,4 +59,4 @@ git push && git push --tags
 echo ""
 echo -e "${GREEN}✓${NC} Released v$NEW_VERSION"
 echo ""
-echo "Users can update with: /plugin update fenix"
+echo "Users can update with: /plugin update allye"
