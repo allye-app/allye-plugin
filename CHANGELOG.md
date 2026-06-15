@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/allye-app/allye-plugin/compare/v1.0.1...v1.0.2) (2026-06-15)
+
+
+### Bug Fixes
+
+* correct MCP server host to mcp.allye.app ([f84891d](https://github.com/allye-app/allye-plugin/commit/f84891df39468a55466b19031b4895063a637b5a))
+
 ## [1.0.1](https://github.com/allye-app/allye-plugin/compare/v1.0.0...v1.0.1) (2026-06-15)
 
 
