@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/allye-app/allye-plugin/compare/v1.0.0...v1.0.1) (2026-06-15)
+
+
+### Bug Fixes
+
+* complete fenix→allye rebrand of agent files and bootstrap skill ([6e321d5](https://github.com/allye-app/allye-plugin/commit/6e321d5d26067c65dfc4dab5ab58f02d03340d12))
+
 # 1.0.0 (2026-06-15)
 
 
