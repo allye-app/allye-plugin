@@ -14,7 +14,7 @@ CONFIG=$(cat "$CURSOR_MCP" 2>/dev/null || echo '{}')
 
 CONFIG=$(echo "$CONFIG" | jq '
   .mcpServers["allye-mcp"] = {
-    "url": "https://allye-mcp.devshire.app/mcp"
+    "url": "https://mcp.allye.app/mcp"
   }
 ')
 

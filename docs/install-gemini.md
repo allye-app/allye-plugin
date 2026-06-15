@@ -14,7 +14,7 @@ CONFIG=$(cat "$GEMINI_SETTINGS" 2>/dev/null || echo '{}')
 
 CONFIG=$(echo "$CONFIG" | jq '
   .mcpServers["allye-mcp"] = {
-    "httpUrl": "https://allye-mcp.devshire.app/mcp"
+    "httpUrl": "https://mcp.allye.app/mcp"
   }
 ')
 

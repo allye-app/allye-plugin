@@ -36,7 +36,7 @@ If it has `headers.Authorization` with a PAT, update to OAuth:
 
 ```bash
 CONFIG=$(cat ~/.cursor/mcp.json)
-CONFIG=$(echo "$CONFIG" | jq '.mcpServers["allye-mcp"] = { "url": "https://allye-mcp.devshire.app/mcp" }')
+CONFIG=$(echo "$CONFIG" | jq '.mcpServers["allye-mcp"] = { "url": "https://mcp.allye.app/mcp" }')
 echo "$CONFIG" | jq '.' > ~/.cursor/mcp.json
 ```
 

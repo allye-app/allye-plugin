@@ -81,12 +81,12 @@ Or update `opencode.json` directly with the token.
 **For Cursor:**
 Add MCP server in Cursor settings (Settings → MCP Servers):
 - Name: `allye-mcp`
-- URL: `https://allye-mcp.devshire.app/mcp`
+- URL: `https://mcp.allye.app/mcp`
 - Headers: `Authorization: Bearer <token>`
 
 **For other platforms:**
 Configure the MCP connection with:
-- URL: `https://allye-mcp.devshire.app/mcp`
+- URL: `https://mcp.allye.app/mcp`
 - Authorization header: `Bearer <token>`
 
 ### Confirm setup:

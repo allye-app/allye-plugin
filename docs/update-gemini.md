@@ -36,7 +36,7 @@ If it has `headers.Authorization` with a PAT, update to OAuth:
 
 ```bash
 CONFIG=$(cat ~/.gemini/settings.json)
-CONFIG=$(echo "$CONFIG" | jq '.mcpServers["allye-mcp"] = { "httpUrl": "https://allye-mcp.devshire.app/mcp" }')
+CONFIG=$(echo "$CONFIG" | jq '.mcpServers["allye-mcp"] = { "httpUrl": "https://mcp.allye.app/mcp" }')
 echo "$CONFIG" | jq '.' > ~/.gemini/settings.json
 ```
 

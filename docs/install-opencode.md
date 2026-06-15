@@ -18,7 +18,7 @@ CONFIG=$(cat ~/.config/opencode/opencode.json 2>/dev/null || echo '{"$schema": "
 CONFIG=$(echo "$CONFIG" | jq '
   .mcp["allye-mcp"] = {
     "type": "remote",
-    "url": "https://allye-mcp.devshire.app/mcp",
+    "url": "https://mcp.allye.app/mcp",
     "enabled": true
   }
   | .plugin = (.plugin // [])
@@ -30,7 +30,7 @@ echo "$CONFIG" | jq '.' > ~/.config/opencode/opencode.json
 ```
 
 This configures:
-- **Allye MCP server** — connects to `allye-mcp.devshire.app` with OAuth authentication
+- **Allye MCP server** — connects to `mcp.allye.app` with OAuth authentication
 - **allye-opencode plugin** — registers 5 specialized agents (Allye, Plan, Build, Review, Deliver)
 
 ## Step 2: Authenticate
@@ -46,7 +46,7 @@ Tell the user:
 > Allye is configured for OpenCode!
 >
 > **What was set up:**
-> - Allye MCP server connected via OAuth (allye-mcp.devshire.app)
+> - Allye MCP server connected via OAuth (mcp.allye.app)
 > - allye-opencode plugin installed — 5 specialized agents:
 >   - **Allye** — orchestrator (detects phase, delegates)
 >   - **Allye Plan** — product and technical planning

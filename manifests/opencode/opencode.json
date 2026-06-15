@@ -3,7 +3,7 @@
   "mcp": {
     "allye-mcp": {
       "type": "remote",
-      "url": "https://allye-mcp.devshire.app/mcp",
+      "url": "https://mcp.allye.app/mcp",
       "enabled": true,
       "oauth": {
         "clientId": "opencode"

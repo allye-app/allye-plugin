@@ -22,7 +22,7 @@ If it has `http_headers` with a PAT, update the config to remove them:
 
 ```bash
 sed -i '/http_headers.*Authorization.*Bearer/d' ~/.codex/config.toml
-sed -i 's|allye-mcp.devshire.app/jsonrpc|allye-mcp.devshire.app/mcp|g' ~/.codex/config.toml
+sed -i 's|mcp.allye.app/jsonrpc|mcp.allye.app/mcp|g' ~/.codex/config.toml
 ```
 
 If it's missing entirely, add it:
@@ -31,7 +31,7 @@ If it's missing entirely, add it:
 cat >> ~/.codex/config.toml << TOML
 
 [mcp_servers.allye-mcp]
-url = "https://allye-mcp.devshire.app/mcp"
+url = "https://mcp.allye.app/mcp"
 enabled = true
 TOML
 ```

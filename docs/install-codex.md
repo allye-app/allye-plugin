@@ -16,7 +16,7 @@ else
   cat >> ~/.codex/config.toml << TOML
 
 [mcp_servers.allye-mcp]
-url = "https://allye-mcp.devshire.app/mcp"
+url = "https://mcp.allye.app/mcp"
 enabled = true
 TOML
 fi

@@ -246,7 +246,7 @@ if command -v claude &>/dev/null; then
     --arg pat "$PAT" \
     '.mcpServers["allye-mcp"] = {
       "type": "http",
-      "url": "https://allye-mcp.devshire.app/jsonrpc",
+      "url": "https://mcp.allye.app/jsonrpc",
       "headers": {
         "Authorization": ("Bearer " + $pat)
       }
@@ -277,7 +277,7 @@ if command -v cursor &>/dev/null || [ -d "$HOME/.cursor" ]; then
   CURSOR_CFG=$(echo "$CURSOR_CFG" | jq \
     --arg pat "$PAT" \
     '.mcpServers["allye-mcp"] = {
-      "url": "https://allye-mcp.devshire.app/jsonrpc",
+      "url": "https://mcp.allye.app/jsonrpc",
       "headers": {
         "Authorization": ("Bearer " + $pat)
       }
@@ -307,7 +307,7 @@ if command -v opencode &>/dev/null; then
     --arg pat "$PAT" \
     '.mcp["allye-mcp"] = {
       "type": "remote",
-      "url": "https://allye-mcp.devshire.app/jsonrpc",
+      "url": "https://mcp.allye.app/jsonrpc",
       "headers": {
         "Authorization": ("Bearer " + $pat)
       },
@@ -343,7 +343,7 @@ if command -v codex &>/dev/null; then
     cat >> "$CODEX_CFG" << TOML
 
 [mcp_servers.allye-mcp]
-url = "https://allye-mcp.devshire.app/jsonrpc"
+url = "https://mcp.allye.app/jsonrpc"
 http_headers = { "Authorization" = "Bearer $PAT" }
 enabled = true
 TOML
@@ -370,7 +370,7 @@ if command -v gemini &>/dev/null; then
   GEMINI_CFG=$(echo "$GEMINI_CFG" | jq \
     --arg pat "$PAT" \
     '.mcpServers["allye-mcp"] = {
-      "httpUrl": "https://allye-mcp.devshire.app/jsonrpc",
+      "httpUrl": "https://mcp.allye.app/jsonrpc",
       "headers": {
         "Authorization": ("Bearer " + $pat)
       }

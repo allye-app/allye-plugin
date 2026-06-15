@@ -11,7 +11,7 @@ import { readFileSync, existsSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
 
-const MCP_URL = "https://allye-mcp.devshire.app/jsonrpc"
+const MCP_URL = "https://mcp.allye.app/jsonrpc"
 
 // Cache context per process to avoid re-fetching on every message
 let cachedContext: string | null = null

@@ -1,6 +1,6 @@
 {
   "allye": {
     "type": "http",
-    "url": "https://allye-mcp.devshire.app/mcp/${ALLYE_TENANT_SLUG:-default}"
+    "url": "https://mcp.allye.app/mcp/${ALLYE_TENANT_SLUG:-default}"
   }
 }
