@@ -7,7 +7,7 @@ You are an AI agent helping the user update the Allye plugin for Cursor. Follow 
 Download the latest version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/manifests/cursor/.cursorrules > .cursorrules.new
+curl -fsSL https://raw.githubusercontent.com/allye-app/allye-plugin/main/manifests/cursor/.cursorrules > .cursorrules.new
 ```
 
 Check if the user has custom rules appended to their `.cursorrules`. If so, merge — don't overwrite:

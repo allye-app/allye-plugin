@@ -7,7 +7,7 @@ You are an AI agent helping the user update the Allye plugin for Gemini CLI. Fol
 Download the latest version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/manifests/gemini/GEMINI.md > ~/.gemini/GEMINI.md.new
+curl -fsSL https://raw.githubusercontent.com/allye-app/allye-plugin/main/manifests/gemini/GEMINI.md > ~/.gemini/GEMINI.md.new
 ```
 
 Check if the user has custom content in their GEMINI.md. If so, merge — don't overwrite:

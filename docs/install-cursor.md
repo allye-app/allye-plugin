@@ -26,7 +26,7 @@ echo "$CONFIG" | jq '.' > "$CURSOR_MCP"
 Download and place the Allye cursorrules in the user's project:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/manifests/cursor/.cursorrules > .cursorrules
+curl -fsSL https://raw.githubusercontent.com/allye-app/allye-plugin/main/manifests/cursor/.cursorrules > .cursorrules
 ```
 
 If the user has an existing `.cursorrules`, append the Allye rules instead of overwriting.

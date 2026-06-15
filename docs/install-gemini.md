@@ -26,7 +26,7 @@ echo "$CONFIG" | jq '.' > "$GEMINI_SETTINGS"
 Download the Allye GEMINI.md:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/manifests/gemini/GEMINI.md > ~/.gemini/GEMINI.md
+curl -fsSL https://raw.githubusercontent.com/allye-app/allye-plugin/main/manifests/gemini/GEMINI.md > ~/.gemini/GEMINI.md
 ```
 
 If the user already has a `~/.gemini/GEMINI.md`, append the Allye content instead of overwriting.

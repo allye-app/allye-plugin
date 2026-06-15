@@ -27,7 +27,7 @@ fi
 Download the Allye AGENTS.md:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/manifests/codex/AGENTS.md > ~/.codex/AGENTS.md
+curl -fsSL https://raw.githubusercontent.com/allye-app/allye-plugin/main/manifests/codex/AGENTS.md > ~/.codex/AGENTS.md
 ```
 
 This gives Codex the Allye workflow instructions globally.

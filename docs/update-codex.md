@@ -7,7 +7,7 @@ You are an AI agent helping the user update the Allye plugin for Codex CLI. Foll
 Download the latest version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/manifests/codex/AGENTS.md > ~/.codex/AGENTS.md
+curl -fsSL https://raw.githubusercontent.com/allye-app/allye-plugin/main/manifests/codex/AGENTS.md > ~/.codex/AGENTS.md
 ```
 
 ## Step 2: Verify MCP server

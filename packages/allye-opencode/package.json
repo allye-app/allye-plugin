@@ -38,7 +38,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/allye-assistant/allye-plugin",
+    "url": "https://github.com/allye-app/allye-plugin",
     "directory": "packages/allye-opencode"
   },
   "license": "MIT"

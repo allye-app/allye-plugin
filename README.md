@@ -4,8 +4,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/allye-assistant/allye-plugin/releases"><img src="https://img.shields.io/github/v/release/allye-assistant/allye-plugin" alt="Release"></a>
-  <a href="https://github.com/allye-assistant/allye-plugin/blob/main/LICENSE"><img src="https://img.shields.io/github/license/allye-assistant/allye-plugin" alt="License"></a>
+  <a href="https://github.com/allye-app/allye-plugin/releases"><img src="https://img.shields.io/github/v/release/allye-app/allye-plugin" alt="Release"></a>
+  <a href="https://github.com/allye-app/allye-plugin/blob/main/LICENSE"><img src="https://img.shields.io/github/license/allye-app/allye-plugin" alt="License"></a>
   <a href="https://www.npmjs.com/package/allye-opencode"><img src="https://img.shields.io/npm/v/allye-opencode" alt="npm"></a>
   <img src="https://img.shields.io/badge/Claude_Code-supported-blue" alt="Claude Code">
   <img src="https://img.shields.io/badge/OpenCode-supported-green" alt="OpenCode">
@@ -42,7 +42,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 
 **Step 1 — Install the plugin:**
 ```
-/plugin marketplace add allye-assistant/allye-plugin
+/plugin marketplace add allye-app/allye-plugin
 /plugin install allye
 /reload-plugins
 ```
@@ -82,7 +82,7 @@ The plugin automatically generates a unique identifier per project directory, so
 Paste this into your agent:
 
 ```
-Install allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/install-opencode.md
+Install allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/install-opencode.md
 ```
 
 The agent will ask for your PAT, configure the MCP server, and install the `allye-opencode` plugin.
@@ -94,7 +94,7 @@ After installing, you get:
 
 **To update:** Paste this into your agent:
 ```
-Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-opencode.md
+Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-opencode.md
 ```
 
 ### Cursor
@@ -102,7 +102,7 @@ Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant
 Paste this into Cursor's agent chat:
 
 ```
-Install allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/install-cursor.md
+Install allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/install-cursor.md
 ```
 
 After installing:
@@ -111,7 +111,7 @@ After installing:
 
 **To update:** Paste this into your agent:
 ```
-Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-cursor.md
+Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-cursor.md
 ```
 
 ### Codex (OpenAI)
@@ -119,7 +119,7 @@ Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant
 Paste this into Codex:
 
 ```
-Install allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/install-codex.md
+Install allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/install-codex.md
 ```
 
 After installing:
@@ -128,7 +128,7 @@ After installing:
 
 **To update:** Paste this into your agent:
 ```
-Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-codex.md
+Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-codex.md
 ```
 
 ### Gemini CLI
@@ -136,7 +136,7 @@ Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant
 Paste this into Gemini:
 
 ```
-Install allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/install-gemini.md
+Install allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/install-gemini.md
 ```
 
 After installing:
@@ -145,13 +145,13 @@ After installing:
 
 **To update:** Paste this into your agent:
 ```
-Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-gemini.md
+Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-gemini.md
 ```
 
 ### Manual (all agents)
 
 ```bash
-git clone https://github.com/allye-assistant/allye-plugin.git
+git clone https://github.com/allye-app/allye-plugin.git
 cd allye-plugin
 ./install.sh
 ```
@@ -177,10 +177,10 @@ Paste this into your agent's chat:
 
 | Agent | Paste this |
 |-------|-----------|
-| OpenCode | `Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-opencode.md` |
-| Cursor | `Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-cursor.md` |
-| Codex | `Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-codex.md` |
-| Gemini CLI | `Update allye-plugin following: https://raw.githubusercontent.com/allye-assistant/allye-plugin/main/docs/update-gemini.md` |
+| OpenCode | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-opencode.md` |
+| Cursor | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-cursor.md` |
+| Codex | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-codex.md` |
+| Gemini CLI | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-gemini.md` |
 
 ### Manual
 
