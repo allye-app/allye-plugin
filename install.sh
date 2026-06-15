@@ -43,7 +43,7 @@ print_error() {
 
 # ─── Step 1: Get Allye PAT ─────────────────────────────────────────────────────
 
-API_URL="https://allye-api.devshire.app"
+API_URL="https://api.allye.app"
 
 print_header
 

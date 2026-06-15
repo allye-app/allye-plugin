@@ -271,7 +271,7 @@ No team skills yet? Each agent will suggest creating them when it doesn't find s
 
 ## Prerequisites
 
-- A [Allye](https://app.allye.devshire.app) account with a Personal Access Token (PAT)
+- A [Allye](https://allye.app/hq) account with a Personal Access Token (PAT)
 - At least one supported AI coding agent installed
 - `jq` and `curl` (used by the installer and Claude Code hook)
 

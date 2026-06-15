@@ -8,7 +8,7 @@ set -e
 # Opens browser for Allye OAuth login, captures the token via local callback server.
 # Works on macOS, Linux, and WSL.
 
-ALLYE_API_URL="${ALLYE_API_URL:-https://allye-api.devshire.app}"
+ALLYE_API_URL="${ALLYE_API_URL:-https://api.allye.app}"
 CLIENT_ID="${ALLYE_OAUTH_CLIENT_ID:-claude-code}"
 CALLBACK_PORT="${1:-9316}"
 REDIRECT_URI="http://127.0.0.1:${CALLBACK_PORT}/oauth/callback"

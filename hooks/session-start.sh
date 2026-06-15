@@ -15,7 +15,7 @@ INPUT=$(cat)
 SOURCE=$(echo "$INPUT" | jq -r '.source // "startup"')
 
 # Config
-ALLYE_API_URL="https://allye-api.devshire.app"
+ALLYE_API_URL="https://api.allye.app"
 ALLYE_PAT="${ALLYE_PAT:-}"
 SKILL_SLUG="using-allye"
 
