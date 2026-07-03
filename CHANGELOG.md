@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/allye-app/allye-plugin/compare/v1.0.2...v1.0.3) (2026-06-15)
+
+
+### Bug Fixes
+
+* update devshire URLs to allye.app domain ([6f5da20](https://github.com/allye-app/allye-plugin/commit/6f5da20096310db310633fd5248747e3b5eea71d))
+
 ## [1.0.2](https://github.com/allye-app/allye-plugin/compare/v1.0.1...v1.0.2) (2026-06-15)
 
 
