@@ -21,18 +21,37 @@ Allye uses **semantic search powered by AI embeddings** — not keyword matching
 - Queries should be natural language, not keyword lists
 - Results are ranked by semantic similarity with scores
 
+### Memory sectors
+
+Every memory belongs to one of 7 sectors. **Always pass `sector` when saving.** If you omit it, the server infers the sector from the tags (fallback: `knowledge`).
+
+| Sector | What it holds | Use it for |
+|--------|---------------|------------|
+| `decisions` | Technical/product decisions and trade-offs, with rationale | "We chose X over Y because..." |
+| `sessions` | Session state and handovers | End-of-session continuity snapshots |
+| `patterns` | Reusable patterns and conventions | "Services in this codebase follow..." |
+| `incidents` | Bugs, blockers, regressions | "Deploy broke because..." |
+| `plans` | Plans and roadmaps | Action plans, milestones, next steps |
+| `knowledge` | Reusable learnings and background context (**default**) | Insights, findings, non-obvious constraints |
+| `preferences` | Personal preferences | "User prefers conventional commits" — auto-pinned, exempt from decay |
+
+**Scope is derived from the sector — you never pass a scope:**
+
+- **Personal** (visible only to you): `sessions`, `preferences`
+- **Team** (shared with the active team): `decisions`, `incidents`, `plans`, `patterns`, `knowledge`
+
+Search always covers the union of your personal memories and the active team's memories — not all teams.
+
+> **Note:** if a team-sector memory is saved without a usable active team, the API gracefully falls back to personal scope — the save never fails because of scope. You don't need to worry about scope at all; just pick the right sector.
+
 ### Auto-deduplication
 
 When you save a memory, Allye automatically checks for similar existing memories:
 
-- **≥80% similarity** → Updates the existing memory (appends new content with a dated separator)
-- **<80% similarity** → Creates a new memory
+- **≥95% similarity** → The save is **rejected** (`action: rejected`) and the existing memory is returned — no duplicate is created, and the existing memory is not modified
+- **<95% similarity** → Creates a new memory and auto-links it to similar ones (≥60% similarity) with relation edges (`similar`, `extends`, `caused_by`, `supersedes`, `contradicts`, `depends_on`)
 
-This means you don't need to worry about creating duplicates. Save freely — the system handles dedup.
-
-### Memory consolidation
-
-When a memory reaches version ≥5 or content ≥8000 characters, Allye automatically summarizes it to keep it concise. You don't need to manage this.
+If a save comes back `rejected`, the content is already covered — use the returned memory instead of rephrasing to force a save.
 
 ---
 
@@ -88,6 +107,7 @@ memory_save(
   title: "Decision — {short description}",
   content: "## Decision\n{what was decided}\n\n## Why\n{rationale and trade-offs considered}\n\n## Alternatives rejected\n{what was not chosen and why}\n\n## Classification\n{locked | agent-discretion}",
   tags: ["decision", "{work-item-key}", "{topic}"],
+  sector: "decisions",
   work_item_id: "{uuid if applicable}"
 )
 ```
@@ -104,7 +124,8 @@ When you evaluate trade-offs between approaches:
 memory_save(
   title: "Trade-off — {short description}",
   content: "## Options\n{option A vs B vs C}\n\n## Analysis\n{pros/cons of each}\n\n## Chosen\n{which one and why}",
-  tags: ["trade-off", "{work-item-key}", "{topic}"]
+  tags: ["trade-off", "{work-item-key}", "{topic}"],
+  sector: "decisions"
 )
 ```
 
@@ -116,7 +137,8 @@ When something blocks progress:
 memory_save(
   title: "Blocker — {short description}",
   content: "## Blocker\n{what's blocking}\n\n## Impact\n{what can't proceed}\n\n## Possible resolutions\n{ideas to unblock}",
-  tags: ["blocker", "{work-item-key}"]
+  tags: ["blocker", "{work-item-key}"],
+  sector: "incidents"
 )
 ```
 
@@ -128,7 +150,8 @@ When you discover something during implementation that would be lost between ses
 memory_save(
   title: "Context — {short description}",
   content: "## What\n{the insight or finding}\n\n## Why it matters\n{how this affects future work}",
-  tags: ["context", "{work-item-key}", "{topic}"]
+  tags: ["context", "{work-item-key}", "{topic}"],
+  sector: "knowledge"
 )
 ```
 
@@ -143,6 +166,7 @@ memory_save(
   title: "Session State — {WORK-KEY} {short description}",
   content: "## Current position\n{phase: planning/development/review/delivery}\n{current task/story}\n\n## Work completed\n- {item 1}\n- {item 2}\n\n## Decisions made\n- {decision 1} [locked|agent-discretion]\n- {decision 2} [locked|agent-discretion]\n\n## Blockers\n- {blocker or 'None'}\n\n## Next concrete step\n{exactly what to do when resuming — be specific}",
   tags: ["session-state", "{work-item-key}", "{current-phase}"],
+  sector: "sessions",
   work_item_id: "{uuid}",
   sprint_id: "{uuid if in active sprint}"
 )
@@ -255,5 +279,5 @@ Write queries like you're asking a colleague, not searching a database.
 | Using vague titles | Hard to find later | Be specific: "Decision — use PostgreSQL JSONB for dynamic fields" not "Database decision" |
 | Skipping entity links | Memories float disconnected | Always link to the work item you're working on |
 | Saving implementation details | Code is the source of truth for code | Save the *why*, not the *what*. The code shows what changed; the memory explains why |
-| Not searching before saving | Creates duplicates (even with auto-dedup, scattered partial memories are worse than one good one) | Search first, then save or update |
-| Giant memory dumps | Hard to search, triggers early consolidation | Keep memories focused. One topic per memory. |
+| Not searching before saving | Creates near-duplicates (only ≥95% similarity is rejected; scattered partial memories are worse than one good one) | Search first, then save |
+| Giant memory dumps | Hard to search, and content is capped at 10000 characters | Keep memories focused. One topic per memory. |
