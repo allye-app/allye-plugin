@@ -1,7 +1,7 @@
 ---
 name: allye-memory-protocol
 description: Complete memory protocol for AI agents using Allye. Defines when and how to search, save, and link memories for cross-session continuity.
-version: "2.0"
+version: "2.1"
 category: methodology
 ---
 
@@ -379,3 +379,69 @@ If `memory_graph` or `memory_relations` returns a timeout:
 1. Reduce `depth` (try 1 instead of 2+)
 2. Add `relation_types` to narrow traversal
 3. Add `graph_limit` to cap total nodes returned
+
+---
+
+## 10. Relocation Flow (Opt-in, One-Time)
+
+Before F1 shipped sector/scope, memories didn't have either concept. The backfill that introduced them had to put every pre-existing memory somewhere, so it landed all of it as `scope: personal, sector: knowledge` — a safe default, not necessarily the right one. Some of that content is genuinely personal (notes, session scratch). Some of it is really team knowledge (a decision, a pattern, an incident) that just predates the sector system and never got the chance to be shared.
+
+The relocation flow lets the agent surface that backlog and offer to promote it — **once per user, with explicit consent, never forced.**
+
+### When to offer it
+
+- At most **once per user**, ever. Not once per session — once, period.
+- A good moment: early in a session, right after the mandatory memory searches (§2), when there's a natural pause before diving into the actual task.
+- Never interrupt an in-progress task to offer this. If the user is mid-implementation or mid-debugging, wait for a natural break or skip it for that session (it's not urgent — it'll still be there next time, unless it's already been offered).
+
+### How to check the guard before offering
+
+Call `memory_relocation_candidates` (optionally with `limit`) and read `alreadyPrompted` in the response:
+
+```
+memory_relocation_candidates(limit: 20)
+```
+
+- `alreadyPrompted: true` → **stop.** Do not mention this flow to the user, this session or any future one. The user already went through it or explicitly dismissed it — asking again is exactly the nagging behavior this guard exists to prevent.
+- `alreadyPrompted: false` and `candidates` is empty → nothing to offer; don't mention the flow at all (there's nothing to decide).
+- `alreadyPrompted: false` and `candidates` is non-empty → proceed to the offer below.
+
+### How to offer it
+
+Summarize what was found, in plain language — do not dump the raw response:
+
+> "I found {N} memories from before the team/sector system existed, all currently marked personal. A few of these look like they might belong to the team — for example '{title}' looks like a `{suggestedSector}`. Want to review them and decide which ones to share with the team? This is a one-time thing, I won't ask again."
+
+Use each candidate's `suggestedSector` / `suggestedScope` / `confidence` as a starting point for the summary, but the suggestion is not a decision — the user reviews and can pick a different sector per item, or skip items entirely.
+
+### Applying the user's choices
+
+Once the user has told you which candidates to promote (and to which sector, if they want to override the suggestion), call `memory_relocation_apply` with exactly that approved subset:
+
+```
+memory_relocation_apply(relocations: [
+  { memoryId: "{id}", sector: "{approved sector}" }
+])
+```
+
+Do not include candidates the user didn't approve — this is an explicit opt-in per item, not a batch "promote everything" operation. Report the per-item outcome to the user:
+
+| Outcome | What happened | What to tell the user |
+|---------|---------------|------------------------|
+| `relocated` | Moved to team scope, no conflict | "Moved to the team." |
+| `merged` | Aggregated (non-destructively) into an existing team memory | "The team already had something similar — merged into that instead of duplicating." |
+| `superseded` | Promoted memory replaces an outdated team memory | "This replaces an older team memory that's now out of date." |
+| `noop` | Team already fully knows this — nothing duplicated | "The team already knew this — nothing new to add." |
+| `skipped` | No usable team, or already relocated | "Couldn't move this one — {reason}." |
+
+`memory_relocation_apply` sets the one-time marker as soon as it runs, even for a partial batch — the user doesn't need to review every candidate in one pass for the flow to count as "done." If they only approve some now, the rest remain personal; that's a valid outcome, not a half-finished state to chase.
+
+### If the user declines
+
+If the user says no, or "not now," or otherwise doesn't want to do this, call `memory_relocation_dismiss` — this sets the same one-time marker as a completed apply would, so the flow is never offered again:
+
+```
+memory_relocation_dismiss()
+```
+
+Do not substitute silence or a topic change for this call — an explicit decline still needs the marker set, otherwise the next session will offer the flow again.
