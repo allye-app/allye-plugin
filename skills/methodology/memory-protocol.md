@@ -1,7 +1,7 @@
 ---
 name: allye-memory-protocol
 description: Complete memory protocol for AI agents using Allye. Defines when and how to search, save, and link memories for cross-session continuity.
-version: "1.0"
+version: "2.0"
 category: methodology
 ---
 
@@ -44,14 +44,15 @@ Search always covers the union of your personal memories and the active team's m
 
 > **Note:** if a team-sector memory is saved without a usable active team, the API gracefully falls back to personal scope — the save never fails because of scope. You don't need to worry about scope at all; just pick the right sector.
 
-### Auto-deduplication
+`sessions` being personal-only is what makes it the landing zone for raw session consolidation (§4) — nothing durable or team-relevant should stay parked there. Anything worth remembering beyond "what happened in this conversation" belongs in one of the six team sectors instead, which is exactly what the mining step of the /save protocol (§4, Step 2) exists to do: read a `sessions` memory and decide, sector by sector, what graduates to team knowledge.
 
-When you save a memory, Allye automatically checks for similar existing memories:
+### Conflict resolution (not auto-dedup)
 
-- **≥95% similarity** → The save is **rejected** (`action: rejected`) and the existing memory is returned — no duplicate is created, and the existing memory is not modified
-- **<95% similarity** → Creates a new memory and auto-links it to similar ones (≥60% similarity) with relation edges (`similar`, `extends`, `caused_by`, `supersedes`, `contradicts`, `depends_on`)
+Every `memory_save` passes through conflict resolution — Allye checks for similar existing memories (similarity ≥60%, including near-identical ≥95%) and a resolver decides the outcome. There is no blind "too similar → reject" rule: even near-identical content can update, supersede, or merge into an existing memory instead of just bouncing.
 
-If a save comes back `rejected`, the content is already covered — use the returned memory instead of rephrasing to force a save.
+Four possible outcomes: `ADD`, `UPDATE`, `SUPERSEDE`, `NOOP`. `rejected` can still appear, but only as a residual case for schema validation failures (e.g. missing required fields) — never as an automatic consequence of similarity scoring.
+
+**What to do with each outcome** is covered in Step 3 of the /save protocol (§4) — that guidance applies to every `memory_save` call, not only ones made during /save.
 
 ---
 
@@ -155,11 +156,21 @@ memory_save(
 )
 ```
 
-### Session state (save at conversation end — mandatory)
+### Session state — handled by the /save protocol
 
 <EXTREMELY_IMPORTANT>
-Before the conversation ends, you MUST save a session state memory. This is the single most important memory you create — it's how the next session picks up where this one left off.
+Before the conversation ends (or whenever /save is invoked), you MUST run the full /save protocol described in §4. Session state is no longer a single ad hoc save — it's the first of three coordinated steps that also promote durable knowledge from the session into team sectors.
 </EXTREMELY_IMPORTANT>
+
+---
+
+## 4. The /save Protocol
+
+`/save` is not one `memory_save` call — it's a 3-step protocol that turns a session's raw activity into (a) a personal continuity snapshot and (b) correctly-scoped, durable team knowledge. Run the steps in order, every time /save is invoked or a conversation is about to end.
+
+### Step 1 — Consolidate the session (sector: `sessions`, personal)
+
+Save exactly ONE memory that summarizes the whole session, using the same shape as before:
 
 ```
 memory_save(
@@ -172,9 +183,43 @@ memory_save(
 )
 ```
 
+This memory is the raw material for Step 2 — write it richly enough (real decisions, real blockers, real next steps) that mining it actually produces something. A vague consolidation yields nothing worth promoting.
+
+### Step 2 — Mine the consolidation for promotable knowledge (team sectors, agent discretion)
+
+Re-read the Step 1 content and ask: **is any of this still true and useful outside this conversation?** If yes, save it separately, in the sector it actually belongs to — this is the mechanism that promotes knowledge from personal (`sessions`) to team (`decisions`, `incidents`, `plans`, `patterns`, `knowledge`).
+
+**Promote when the content is:**
+- A **decision** with rationale that the next person/session needs to respect → `decisions`
+- A **bug, regression, or blocker** with a real cause (not just "task was slow") → `incidents`
+- A **plan or roadmap step** that outlives this session → `plans`
+- A **reusable convention or pattern** discovered or confirmed while working → `patterns`
+- A **non-obvious constraint or insight** that would surprise someone starting fresh → `knowledge`
+
+**Do NOT promote:**
+- Anything that's just restating what the code/diff/commit already shows
+- Routine progress ("implemented X", "ran tests") with no durable lesson attached
+- Anything already covered by an existing team memory — search before promoting, same as any other save
+- Content that only makes sense in the context of this specific conversation
+
+Each promoted item is its own `memory_save` call — one topic per memory, sector matched to content type, tags following §5. Do not force a promotion just to have one; a session with zero promotable content is normal, and Step 2 saving nothing is a correct outcome.
+
+### Step 3 — Every save resolves a conflict — react to the outcome
+
+Both the Step 1 consolidation and every Step 2 promotion go through conflict resolution (§1) and come back with one of four outcomes. React accordingly — do not treat any of these as an error to work around:
+
+| Outcome | What happened | What you do |
+|---------|---------------|--------------|
+| `ADD` | No meaningful overlap found; a new memory was created | Nothing — proceed normally |
+| `UPDATE` | Existing memory was close enough to aggregate; it was updated in place, content merged | Nothing — the existing memory now holds both old and new; don't also create a separate memory for the same fact |
+| `SUPERSEDE` | New content invalidates the old; a new memory was created and the old one marked superseded (not deleted) | Nothing — this is expected when a decision changes or a plan is revised; don't manually go "fix" the old memory too |
+| `NOOP` | Content is already fully covered; nothing was written | Stop — do not reword and retry to force a save. Use the returned existing memory as the source of truth instead |
+
+If you find yourself rephrasing the same content to get past a `NOOP`, that's a signal the content wasn't actually new — trust the resolver.
+
 ---
 
-## 4. Tag Conventions
+## 5. Tag Conventions
 
 Use consistent tags so memories can be found reliably.
 
@@ -222,7 +267,7 @@ For hierarchical context, prefix with type:
 
 ---
 
-## 5. Entity Linking
+## 6. Entity Linking
 
 Always link memories to relevant Allye entities when available:
 
@@ -237,7 +282,7 @@ Entity links enable Allye to build a knowledge graph — memories connected to w
 
 ---
 
-## 6. Search Strategies
+## 7. Search Strategies
 
 ### Broad discovery
 
@@ -271,7 +316,7 @@ Write queries like you're asking a colleague, not searching a database.
 
 ---
 
-## 7. Anti-Patterns
+## 8. Anti-Patterns
 
 | Anti-pattern | Problem | Do this instead |
 |-------------|---------|-----------------|
@@ -279,5 +324,58 @@ Write queries like you're asking a colleague, not searching a database.
 | Using vague titles | Hard to find later | Be specific: "Decision — use PostgreSQL JSONB for dynamic fields" not "Database decision" |
 | Skipping entity links | Memories float disconnected | Always link to the work item you're working on |
 | Saving implementation details | Code is the source of truth for code | Save the *why*, not the *what*. The code shows what changed; the memory explains why |
-| Not searching before saving | Creates near-duplicates (only ≥95% similarity is rejected; scattered partial memories are worse than one good one) | Search first, then save |
+| Not searching before saving | Creates near-duplicates that conflict resolution then has to untangle via `UPDATE`/`SUPERSEDE`/`NOOP` — extra round trips you could've skipped | Search first, then save |
 | Giant memory dumps | Hard to search, and content is capped at 10000 characters | Keep memories focused. One topic per memory. |
+
+---
+
+## 9. Graph Traversal Strategies
+
+The memory graph connects memories through explicit relation edges created at save time. Use traversal to discover clusters of related context that semantic search might miss.
+
+### When to use which approach
+
+| Approach | Use when |
+|----------|----------|
+| `memory_search(query)` | You know *what* you're looking for (semantic query) |
+| `memory_graph(memory_id, depth: 2)` | You have an ID and want to explore its neighborhood |
+| `memory_relations(memory_id)` | You want a quick 1-hop check of a specific memory |
+| `memory_search(query, include_graph: true)` | Search + graph context in one call |
+
+### Pattern: Context recovery with graph
+
+At session start, after finding the session state memory:
+
+```
+1. memory_search(query: "Session State {work key}")
+   → get session state memory ID
+
+2. memory_graph(memory_id: "{id}", depth: 2)
+   → explore connected decisions, trade-offs, blockers from past sessions
+```
+
+This surfaces memories that are linked but might not match the semantic query.
+
+### Pattern: Exploring a decision cluster
+
+```
+memory_graph(
+  memory_id: "{decision memory ID}",
+  depth: 2,
+  relation_types: ["extends", "caused_by", "supersedes"]
+)
+```
+
+### Interpreting graph results
+
+- **Depth 0** — the root memory itself
+- **Depth 1** — directly connected memories
+- **Depth 2+** — transitively connected (can grow fast — use `relation_types` or `graph_limit` to bound)
+- **Edge types:** `similar | extends | caused_by | supersedes | contradicts | depends_on`
+
+### Handling timeouts (408)
+
+If `memory_graph` or `memory_relations` returns a timeout:
+1. Reduce `depth` (try 1 instead of 2+)
+2. Add `relation_types` to narrow traversal
+3. Add `graph_limit` to cap total nodes returned
