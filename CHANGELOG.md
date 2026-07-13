@@ -1,3 +1,10 @@
+## [1.2.2](https://github.com/allye-app/allye-plugin/compare/v1.2.1...v1.2.2) (2026-07-13)
+
+
+### Bug Fixes
+
+* move AskUserQuestion preference into using-allye as a global rule ([487221c](https://github.com/allye-app/allye-plugin/commit/487221c4fd32385fcf7f6d6b39898658ad94bccd))
+
 ## [1.2.1](https://github.com/allye-app/allye-plugin/compare/v1.2.0...v1.2.1) (2026-07-13)
 
 
