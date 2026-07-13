@@ -77,6 +77,14 @@ memory_save(
 \`\`\`
 `.trim()
 
+const DELIVER_COMPLETION = `
+## Completion
+
+Delivery is the end of the line for a story — there's no handoff onward. Once you've verified, closed, documented, and cleaned up:
+
+> "{STORY-KEY} is delivered. Next: pick another story from this feature → **Allye Orchestrator**. Plan a new feature or epic → **Allye Plan**."
+`.trim()
+
 export const allyeDeliverAgent = {
   ...SHARED_CONFIG,
   description:
@@ -90,6 +98,7 @@ export const allyeDeliverAgent = {
     DELIVER_IDENTITY,
     TECHNICAL_DELIVERY,
     BOARD_PROGRESSION,
+    DELIVER_COMPLETION,
     WORKFLOW_GATES,
     MEMORY_SAVE_PROTOCOL,
   ]),

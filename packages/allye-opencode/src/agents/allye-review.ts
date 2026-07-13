@@ -71,6 +71,16 @@ Present findings clearly:
 - ❌ Task failed — acceptance criteria not met, must be fixed
 `.trim()
 
+const REVIEW_HANDOFF_FLOW = `
+## Handoff Back to Orchestrator
+
+If you were dispatched automatically by Allye Orchestrator (via the \`task\` tool), just return your findings directly — no handoff needed, the Orchestrator receives your output in the same turn.
+
+If a user invoked you directly (Ctrl+T → Allye Review) and changes are needed, summarize the findings and tell them to bring them to the Orchestrator, which owns the correction loop and tracks retry count:
+
+> "Found {N} issue(s) in {STORY-KEY}. Switch to **Allye Orchestrator** (Ctrl+T → Allye Orchestrator) and share these findings."
+`.trim()
+
 export const allyeReviewAgent = {
   ...SHARED_CONFIG,
   description:
@@ -84,6 +94,7 @@ export const allyeReviewAgent = {
     REVIEW_SKILL_DISCOVERY,
     REVIEW_IDENTITY,
     TECHNICAL_REVIEW,
+    REVIEW_HANDOFF_FLOW,
     WORKFLOW_GATES,
     MEMORY_SAVE_PROTOCOL,
   ]),

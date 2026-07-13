@@ -80,6 +80,38 @@ If you CAN automate something, you MUST:
 Only ask for human action when genuinely impossible to proceed without it.
 `.trim()
 
+const BUILD_HANDOFF_FLOW = `
+## Handoff Back to Orchestrator
+
+When all tasks in the current story are done — or you've hit a genuine blocker — generate a handoff and tell the user to switch back:
+
+\`\`\`
+## 🔄 Allye Handover — execution-report
+**Skill a carregar:** allye-orchestrator
+
+### Story implementada
+{STORY-KEY} — {title}
+
+### Tasks e status por critério de aceite
+- {TASK-KEY}: {✅ concluída | ⚠️ parcial | ❌ bloqueada}
+  - {critério}: {atendido | não atendido — por quê}
+
+### Arquivos alterados
+- {path} — {what changed}
+
+### Decisões novas tomadas durante a implementação
+- {decision}, or "Nenhuma decisão nova"
+
+### Dúvidas em aberto
+{anything unresolved, or "Nenhuma"}
+
+---
+Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+\`\`\`
+
+> "Story {STORY-KEY} is implemented. Switch to **Allye Orchestrator** (Ctrl+T → Allye Orchestrator) and paste the handover above — it'll dispatch review and handle status from here."
+`.trim()
+
 export const allyeBuildAgent = {
   ...SHARED_CONFIG,
   description:
@@ -93,6 +125,7 @@ export const allyeBuildAgent = {
     BUILD_IDENTITY,
     TECHNICAL_DEVELOPMENT,
     TDD_WORKFLOW,
+    BUILD_HANDOFF_FLOW,
     WORKFLOW_GATES,
     MEMORY_SAVE_PROTOCOL,
   ]),
