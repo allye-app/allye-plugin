@@ -57,7 +57,7 @@ Before dispatching, do a quick completeness check on the story's tasks: does eac
 <!-- adapted from EveryInc/compound-engineering-plugin lfg (MIT) — verify the previous step's artifact before proceeding -->
 When the execution report comes back<!-- opencode-exclude:start --> (handover, in manual mode; direct return value, in automatic mode)<!-- opencode-exclude:end -->, don't take "done" at face value — check the report actually contains what it should before acting on it: files changed listed, tasks reported per acceptance criterion, not just a blanket "finished." An incomplete report is itself a signal to ask for more detail, not something to wave through.
 
-Once the report is genuinely complete, dispatch the `reviewer` subagent<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> — in parallel, automatically, no need to ask the user first<!-- opencode-exclude:start -->, regardless of which mode Executor ran in<!-- opencode-exclude:end -->. Review never needs to pause and ask anyone anything, which is what makes it always dispatch-appropriate. Pass it: the story key, the task keys, and the files changed from the execution report.
+Once the report is genuinely complete, dispatch the `reviewer` subagent<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> — in parallel, automatically, no need to ask the user first<!-- opencode-exclude:start -->, regardless of which mode Executor ran in<!-- opencode-exclude:end -->. Review never needs to pause and ask anyone anything, which is what makes it always dispatch-appropriate. Pass it: the active team (id and name), the story key, the task keys, and the files changed from the execution report.
 
 ## 6. React to review
 
