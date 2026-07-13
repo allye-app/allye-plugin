@@ -36,16 +36,16 @@ Manage work items: epics, features, stories, tasks, bugs, hotfixes, spikes, subt
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `work_create` | Create a single work item | `title`*, `item_type`*, `work_category`*, `description`, `parent_key`, `priority`, `story_points` |
-| `work_list` | List/search work items | `query`, `item_type`, `status_category`, `limit`, `offset` |
-| `work_get` | Get a work item by ID or key | `id` or `key`* |
-| `work_update` | Update a work item | `id`*, `title`, `description`, `priority`, `story_points`, `assignee_id` |
+| `work_create` | Create a single work item | `work_title`*, `work_type`*, `work_category`*, `work_description`, `parent_key`, `work_priority`, `story_points` |
+| `work_list` | List/search work items | `query`, `work_type`, `work_status` (status UUID — look up via `work_statuses()` first), `limit`, `offset` |
+| `work_get` | Get a work item by ID or key | `id` or `work_key`* |
+| `work_update` | Update a work item | `id`*, `work_title`, `work_description`, `work_priority`, `story_points`, `assignee_id` |
 | `work_children` | List child items of a parent | `id`* |
 | `work_assign_to_me` | Assign a work item to yourself | `id`* |
 | `work_status_next` | Move to next status in board progression (forward-only, errors at the last status) | `id`* |
 | `work_status_done` | Move directly to done status | `id`* |
-| `work_mine` | List items assigned to you | `status_category`, `item_type`, `limit` |
-| `work_bulk_create` | Create multiple items at once (max 50) | `items`* (array with `temp_id`, `title`, `item_type`, `work_category`, `parent_temp_id` **or** `parent_key`) |
+| `work_mine` | List items assigned to you | `limit`, `offset` (no status or item-type filter — not exposed by this action) |
+| `work_bulk_create` | Create multiple items at once (max 50) | `work_items`* (array with `temp_id`, `title`, `item_type`, `work_category`, `parent_temp_id` **or** `parent_key`) |
 | `work_statuses` | List all available statuses | — |
 
 **Item types:** `epic`, `feature`, `story`, `bug`, `hotfix`, `task`, `spike`, `subtask`
@@ -64,7 +64,7 @@ View boards and understand status progression.
 | `board_list` | List all boards | `limit`, `offset` |
 | `board_favorites` | List favorite boards | — |
 | `board_get` | Get board details | `board_id`* |
-| `board_columns` | Get board columns with statuses | `board_id` (optional — defaults to team's primary board) |
+| `board_columns` | Get board columns with statuses | `board_id`* |
 
 ---
 
@@ -87,21 +87,21 @@ Documentation pages and folders with tree navigation.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `doc_create` | Create a document | `doc_title`*, `doc_type`* (`folder`/`page`/`api_doc`/`guide`), `doc_emoji`*, `doc_content`, `doc_parent_id` |
+| `doc_create` | Create a document | `doc_title`*, `doc_emoji`* (required unless `doc_type` is `folder`), `doc_type` (`folder`/`page`/`api_doc`/`guide`, defaults to `page` if omitted), `doc_content`, `doc_parent_id` |
 | `doc_list` | List documents | `limit`, `offset` |
-| `doc_get` | Get document by ID | `id`*, `return_content` |
+| `doc_get` | Get document by ID | `id`* (always returns full content — `return_content` has no effect on this action) |
 | `doc_update` | Update a document | `id`*, `doc_title`, `doc_content`, `doc_description` |
 | `doc_delete` | Delete a document | `id`* |
 | `doc_roots` | List root-level documents | — |
 | `doc_recent` | List recently modified documents | `limit` |
-| `doc_analytics` | Get document analytics | `id`* |
+| `doc_analytics` | Get document analytics (team-wide only, not per-document) | `team_id` (optional) |
 | `doc_children` | List children of a document | `id`* |
 | `doc_tree` | Get document tree from a root | `id`* |
 | `doc_full_tree` | Get the entire document tree | — |
 | `doc_move` | Move a document | `id`*, `doc_parent_id`, `doc_position` |
 | `doc_publish` | Publish a document | `id`* |
-| `doc_version` | Create a version snapshot | `id`*, `doc_version` |
-| `doc_duplicate` | Duplicate a document | `id`* |
+| `doc_version` | Create a version snapshot | `id`*, `doc_version`* |
+| `doc_duplicate` | Duplicate a document | `id`*, `doc_title`* |
 
 **Doc types:** `folder`, `page`, `api_doc`, `guide`
 
@@ -113,8 +113,8 @@ Semantic memory system for cross-session continuity. **Full methodology (when/wh
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `memory_save` | Save a memory (conflict-resolved, never a blind duplicate) | `title`*, `content`* (markdown), `tags`* (array), `sector` (default `knowledge`), `work_item_id`, `sprint_id`, `documentation_item_id`, `team_id` |
-| `memory_search` | Semantic search for memories | `query`* (natural language), `limit` (1-20), `tags`, `sector`, `scope` (`personal`\|`team`), `include_graph` (bool), `graph_depth` (1-5), `return_content` (bool), `team_id` |
+| `memory_save` | Save a memory (conflict-resolved, never a blind duplicate) | `title`*, `content`* (markdown), `tags`* (array), `sector` (default `knowledge`) |
+| `memory_search` | Semantic search for memories | `query`* (natural language), `limit` (1-20), `tags`, `sector`, `scope` (`personal`\|`team`), `include_graph` (bool), `graph_depth` (1-5), `return_content` (bool) |
 | `memory_graph` | BFS graph traversal from a memory node | `memory_id`* (UUID), `depth` (1-5, default 1), `relation_types` (filter), `include_invalidated` (bool), `graph_limit` (1-200) |
 | `memory_relations` | 1-hop direct relations of a memory | `memory_id`* (UUID), `direction` (outgoing\|incoming\|both), `relation_types`, `include_invalidated` (bool) |
 | `memory_preferences` | Load the user's pinned `preferences`-sector memories (not a search — fixed budget, no query needed) | — |
@@ -175,7 +175,7 @@ Manage and export workflow skills.
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
 | `skill_create` | Create a skill | `skill_name`*, `skill_content`*, `skill_scope`*, `skill_category`*, `skill_description`, `skill_slug` (auto-generated if omitted), `skill_team_id` (required when `skill_scope: "team"`) |
-| `skill_list` | List/search skills | `query`, `skill_category`, `skill_scope`, `limit`, `offset` |
+| `skill_list` | List/search skills | `query`, `skill_scope`, `limit`, `offset` |
 | `skill_get` | Get skill by ID | `skill_id`* or `id`* |
 | `skill_update` | Update a skill | `skill_id`* or `id`*, `skill_name`, `skill_content`, `skill_description`, `skill_category`, `skill_is_active` |
 | `skill_delete` | Delete a skill | `skill_id`* or `id`* |
@@ -259,14 +259,14 @@ Bootstrap Allye environment.
 ### Create a full work item hierarchy
 
 ```
-1. work_create(title: "Epic", item_type: "epic")       → get epic key
-2. work_bulk_create(items: [features + stories])         → parent_key: epic key
+1. work_create(work_title: "Epic", work_type: "epic")   → get epic key
+2. work_bulk_create(work_items: [features + stories])    → parent_key: epic key
 ```
 
 ### Track progress on a task
 
 ```
-1. work_get(key: "TASK-123")                            → read task details
+1. work_get(work_key: "TASK-123")                        → read task details
 2. work_status_next(id: "...")                           → move to in_progress
 3. ... do the work ...
 4. work_status_done(id: "...")                           → mark complete
@@ -276,7 +276,7 @@ Bootstrap Allye environment.
 
 ```
 1. memory_search(query: "Session State")                → find last session
-2. work_mine(status_category: "in_progress")            → find active items
+2. work_mine()                                           → find active items (no status/type filter available)
 3. work_get(id: "...")                                   → load item details
 ```
 
