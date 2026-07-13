@@ -42,11 +42,6 @@ jq --arg v "$NEW_VERSION" '
 ' "$MARKETPLACE_JSON" > /tmp/marketplace.json.tmp
 mv /tmp/marketplace.json.tmp "$MARKETPLACE_JSON"
 
-# Sync SKILL.md files (using-allye is the source of truth)
-if [ -f "$SCRIPT_DIR/skills/using-allye/SKILL.md" ]; then
-  cp "$SCRIPT_DIR/skills/using-allye/SKILL.md" "$SCRIPT_DIR/skills/bootstrap/using-allye.md"
-fi
-
 # Commit and tag
 git add -A
 git commit -m "Release v$NEW_VERSION

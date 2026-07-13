@@ -18,15 +18,15 @@ const OUTPUT_FILE = resolve(__dirname, "../src/prompts/skills-content.ts")
 // Skill sources: variable name → file path (relative to skills dir)
 const SKILL_SOURCES: Record<string, string> = {
   USING_ALLYE: "using-allye/SKILL.md",
-  PRODUCT_PLANNING: "allye-product-planning/SKILL.md",
-  TECHNICAL_PLANNING: "allye-technical-planning/SKILL.md",
-  TECHNICAL_DEVELOPMENT: "allye-technical-development/SKILL.md",
-  TECHNICAL_REVIEW: "allye-technical-review/SKILL.md",
-  TECHNICAL_DELIVERY: "allye-technical-delivery/SKILL.md",
-  MEMORY_PROTOCOL: "allye-memory-protocol/SKILL.md",
-  TDD_WORKFLOW: "allye-tdd-workflow/SKILL.md",
-  BOARD_PROGRESSION: "allye-board-progression/SKILL.md",
-  TOOLS_QUICKREF: "allye-tools-quickref/SKILL.md",
+  PRODUCT_PLANNING: "product-planning/SKILL.md",
+  TECHNICAL_PLANNING: "technical-planning/SKILL.md",
+  TECHNICAL_DEVELOPMENT: "execution/SKILL.md",
+  TECHNICAL_REVIEW: "review/SKILL.md",
+  TECHNICAL_DELIVERY: "delivery/SKILL.md",
+  MEMORY_PROTOCOL: "memory-protocol/SKILL.md",
+  TDD_WORKFLOW: "tdd-workflow/SKILL.md",
+  BOARD_PROGRESSION: "board-progression/SKILL.md",
+  TOOLS_QUICKREF: "tools-quickref/SKILL.md",
 }
 
 function stripFrontmatter(content: string): string {
