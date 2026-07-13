@@ -1,3 +1,16 @@
+## [1.2.4](https://github.com/allye-app/allye-plugin/compare/v1.2.3...v1.2.4) (2026-07-13)
+
+
+### Bug Fixes
+
+* distinguish confirmed status categories from team-configurable status names ([1b600d1](https://github.com/allye-app/allye-plugin/commit/1b600d120b9f052765c7ccb0ffcda18040322e85))
+* pass active team to Reviewer's dispatch prompt ([862a247](https://github.com/allye-app/allye-plugin/commit/862a2477972f35e344789921b8484fdfd3a33073))
+* product-planning/technical-planning work_items calls against the real source ([0cf6766](https://github.com/allye-app/allye-plugin/commit/0cf6766150de7eba89c37f33f0267c3d30f753f9))
+* remove fabricated Entity Linking feature, stale memory claims ([b50ba68](https://github.com/allye-app/allye-plugin/commit/b50ba686be019754f5db99c4e63b87efed787b2a))
+* skill_list only returns metadata, add the missing skill_get follow-up ([4b4c45d](https://github.com/allye-app/allye-plugin/commit/4b4c45d08e4cb921c518d1a2da41da50fffb9825))
+* tools-quickref field names and parameters against the real allye-mcp source ([5a4a34f](https://github.com/allye-app/allye-plugin/commit/5a4a34f298719fc16438fcb1fa7965038c70c6e9))
+* work_get(key:) should be work_get(work_key:) ([42e4267](https://github.com/allye-app/allye-plugin/commit/42e42672017565b9c42bd32627136723390f7a98))
+
 ## [1.2.3](https://github.com/allye-app/allye-plugin/compare/v1.2.2...v1.2.3) (2026-07-13)
 
 
