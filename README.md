@@ -58,8 +58,8 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 After installing, you get:
 - **OAuth authentication** — browser-based login, no tokens to manage
 - **Bootstrap hook** — injects workflow methodology at session start
-- **4 subagents** — planner, builder, reviewer, deliverer (delegated via Agent tool)
-- **11 skills** — loaded on-demand by the orchestrator
+- **1 subagent** — reviewer, delegated via the Agent tool (the one phase that doesn't need to pause and ask you anything)
+- **11 skills** — planning, development, and delivery run as skills loaded directly into your conversation, loaded on-demand by the orchestrator, so they can ask you questions when something's ambiguous
 
 #### Multiple Allye accounts (multi-tenant)
 
@@ -192,25 +192,19 @@ cd allye-plugin && git pull && ./install.sh
 
 ## Agents
 
-On platforms that support multi-agent (OpenCode, Claude Code), you get 5 specialized agents:
+How multi-phase workflow support is implemented differs by platform, because not every platform lets a dispatched agent pause mid-task to ask you a question:
 
-| Agent | Who uses it | What it does |
-|-------|------------|-------------|
-| **Allye** | Everyone | Orchestrator — initializes context, detects workflow phase, delegates to the right agent |
-| **Allye Plan** | PO, tech lead, dev | All planning — from business requirements (epics/features/stories) to technical breakdown (discussion phase → tasks). Discovers team work item templates. |
-| **Allye Build** | Dev | Picks up tasks and implements them. Discovers coding conventions, testing standards. TDD discipline, read-first rule, wave execution. |
-| **Allye Review** | Dev, tech lead | Reviews code with planning decision context. Discovers review checklists, security standards, quality gates. |
-| **Allye Deliver** | Dev | Closes the story. Discovers documentation templates, deploy checklists. Updates docs, cleans up TODOs. |
+- **Claude Code** ships one dispatched subagent — **Reviewer** — since code review is the one phase that never needs to interrupt you. Planning, Technical Planning, Development, and Delivery run as skills loaded directly into your conversation instead, precisely so they *can* stop and ask when something's ambiguous.
+- **OpenCode** ships 5 agent-picker personas (Ctrl+T to switch) — Allye, Allye Plan, Allye Build, Allye Review, Allye Deliver — OpenCode's agent model supports switching personas interactively within a session, so all 5 can be full agents.
+- **Cursor, Codex, Gemini CLI** — a single agent handles all phases with the same workflow knowledge (no multi-agent picker on these platforms).
 
-Every agent:
+Every phase, on every platform:
 - Responds in **your language** (detected from profile or messages)
 - Calls `initialize` to load your profile and team context
 - **Discovers team skills** before starting — coding standards, templates, checklists
 - If no standards found → **suggests creating them** with your chosen scope (personal/team/org/marketplace)
 - Searches memories for past decisions and session state
 - Saves session state before ending
-
-On platforms without multi-agent (Cursor, Codex, Gemini CLI), a single agent handles all phases with the same workflow knowledge.
 
 ---
 
