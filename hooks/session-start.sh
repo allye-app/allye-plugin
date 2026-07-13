@@ -39,7 +39,7 @@ if [ -z "$ALLYE_PAT" ]; then
 Welcome to the Allye Agent Plugin! To get started, run:
 
 \`\`\`
-/allye-setup
+/allye:setup
 \`\`\`
 
 This will guide you through connecting your Allye account."

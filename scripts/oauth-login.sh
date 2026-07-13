@@ -170,6 +170,6 @@ echo "✅ Allye authenticated successfully!"
 echo ""
 
 # Output token for the caller to use
-# The parent script (allye-setup) will use this to configure the platform
+# The parent script (setup) will use this to configure the platform
 echo "ALLYE_ACCESS_TOKEN=${ACCESS_TOKEN}"
 echo "ALLYE_REFRESH_TOKEN=${REFRESH_TOKEN}"
