@@ -20,7 +20,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 
 **[Create a free Allye account →](https://allye.app/)**
 
-**Authentication is handled via OAuth 2.1** — on every supported platform, since the MCP connection itself is OAuth-gated. Your browser opens once for login, and tokens are managed automatically. No API keys or PATs to configure.
+**Authentication is handled via OAuth 2.1** — on every supported platform, since the MCP connection itself is OAuth-gated. Your browser opens once for login, and tokens are managed automatically.
 
 ## What you get
 
@@ -55,7 +55,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 3. Your browser opens for OAuth login — sign in with your Allye account, select a team, and approve
 4. Done! The MCP server connects automatically
 
-> **No PAT needed.** Authentication is handled via OAuth 2.1 — your browser opens once, and tokens are cached automatically.
+> Authentication is handled via OAuth 2.1 — your browser opens once, and tokens are cached automatically.
 
 After installing, you get:
 - **OAuth authentication** — browser-based login, no tokens to manage
@@ -87,7 +87,7 @@ Paste this into your agent:
 Install allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/install-opencode.md
 ```
 
-The agent will configure the MCP server (OAuth, no PAT needed) and install the `allye-opencode` plugin.
+The agent will configure the MCP server via OAuth and install the `allye-opencode` plugin.
 
 After installing, you get:
 - **6 agents in the picker** — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver (Ctrl+T to switch)
@@ -278,7 +278,7 @@ No team skills yet? Each agent will suggest creating them when it doesn't find s
 
 ## Prerequisites
 
-- An [Allye](https://allye.app/) account — authentication is OAuth 2.1 on every platform (the MCP connection itself is OAuth-gated), no PAT needed anywhere
+- An [Allye](https://allye.app/) account — authentication is OAuth 2.1 on every platform (the MCP connection itself is OAuth-gated)
 - At least one supported AI coding agent installed
 - `jq` and `curl` (used by the installer and Claude Code hook)
 
