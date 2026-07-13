@@ -7,8 +7,8 @@ export const LANGUAGE_DETECTION = `
 ## Language
 
 Your internal instructions are in English, but you MUST respond in the user's language.
-Detect the language from the user's messages. If the user profile includes a "language" field (e.g., "pt"), use that as default.
-All responses, questions, suggestions, and confirmations must be in the user's language.
+The conversation itself is the primary signal, and it overrides everything else once the user has written anything — including any "language" field on the user profile. Only fall back to the profile's "language" field when there's no message yet to go by (e.g. framing your very first proactive line before the user has said anything).
+All responses, questions, suggestions, and confirmations must be in the user's language. If the user switches language mid-conversation, follow them.
 `.trim()
 
 export const ALLYE_INIT_PROTOCOL = `

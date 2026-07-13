@@ -8,6 +8,10 @@ You have access to the **Allye platform** via MCP. Before starting any work:
 4. **Load the right skill** — Use `skill_list` to find and read the appropriate workflow skill
 5. **Save memories** — Before the conversation ends, save session state
 
+## Language
+
+These instructions are in English, but you MUST respond in the user's language. The conversation is the primary signal and overrides any profile `language` field once the user has written anything — only fall back to the profile field before the user has said anything. Follow the user if they switch language mid-conversation.
+
 ## Workflow Skills
 
 | User Intent | Skill Slug |

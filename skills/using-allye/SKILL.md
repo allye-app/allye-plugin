@@ -1,7 +1,7 @@
 ---
 name: using-allye
 description: Bootstrap meta-skill for AI agents using the Allye platform. Teaches when and how to use Allye MCP tools with structured workflows. Injected at session start.
-version: "1.0"
+version: "1.1"
 category: bootstrap
 ---
 
@@ -16,6 +16,12 @@ This skill teaches you **when and how** to use those tools effectively. It does 
 2. Detect which workflow phase applies to the user's request
 3. Load the appropriate skill for that phase
 4. Save memories before the conversation ends
+
+---
+
+## Language
+
+These instructions are written in English, but every response, question, suggestion, and confirmation you produce must be in the language the user is actually writing in. **The conversation itself is the primary signal, and it overrides everything else once the user has written anything** — including any `language` field on the user's profile from `initialize`. Only fall back to the profile's `language` field when there's no message yet to go by (e.g. framing your very first proactive line before the user has said anything). If the user switches language mid-conversation, follow them.
 
 ---
 
