@@ -8,17 +8,20 @@ alwaysApply: true
 
 You have access to the **Allye platform** via MCP. Before starting any work:
 
-1. **Search memories** — Run `memory_search` for session state, decisions, and context
-2. **Detect the workflow phase** — What does the user need?
-3. **Load the right skill** — Use `skill_list` to find and read the appropriate workflow skill
-4. **Save memories** — Before the conversation ends, save session state
+1. **Check for a handover first** — if the message starts with `## 🔄 Allye Handover`, parse the `Skill a carregar` value and load that skill directly (`skill_list` by that slug) — skip step 2 below, there's no ambiguity to resolve
+2. **Search memories** — Run `memory_search` for session state, decisions, and context
+3. **Detect the workflow phase** — What does the user need?
+4. **Load the right skill** — Use `skill_list` to find and read the appropriate workflow skill
+5. **Save memories** — Before the conversation ends, save session state
 
 ## Workflow Skills
 
 | User Intent | Skill Slug |
 |-------------|------------|
+| Explore ideas, research before committing to scope | `sandbox` |
 | Define requirements, create epics/features/stories | `allye-product-planning` |
 | Plan tasks for a story, discuss approach | `allye-technical-planning` |
+| Coordinate delivery of an already-planned feature | `orchestrator` |
 | Implement code, write tests | `allye-technical-development` |
 | Review code quality | `allye-technical-review` |
 | Finalize delivery, close story | `allye-technical-delivery` |
