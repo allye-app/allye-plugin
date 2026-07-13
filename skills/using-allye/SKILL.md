@@ -80,6 +80,16 @@ sprint_id: {uuid if applicable}
 
 Detect what the user needs and load the right skill. Skills are loaded on-demand — do NOT load all skills at once.
 
+### Handover detection (check this FIRST)
+
+Before running the phase-detection heuristic below, check whether the user's first message contains a `## 🔄 Allye Handover` block (see the `handover-protocol` skill for the full format). If it does:
+
+1. Parse the `{tipo}` from the marker line and the `Skill a carregar` value.
+2. Load that skill directly via `skill_list`/`skill_get` — skip the heuristic decision table entirely, there's no ambiguity to resolve.
+3. Treat every field in the handover as authoritative context for this session — locked decisions in particular are non-negotiable unless the user explicitly reopens them.
+
+If no handover marker is present, fall through to the decision table below as before.
+
 ### Decision table
 
 | User intent | Skill to load | Slug |
