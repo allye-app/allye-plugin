@@ -1,5 +1,5 @@
 ---
-name: allye-reviewer
+name: reviewer
 description: Allye reviewer — code review with planning decision context, validates acceptance criteria and code quality.
 ---
 
