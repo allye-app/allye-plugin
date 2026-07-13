@@ -2,7 +2,7 @@
 name: delivery
 description: Workflow for finalizing a story after all tasks pass review. Verifies completeness, closes the story, updates documentation, and cleans up. Use when all tasks are done and reviewed.
 version: "1.0"
-category: workflow
+category: methodology
 ---
 
 # Technical Delivery Workflow

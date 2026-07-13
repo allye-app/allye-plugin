@@ -2,7 +2,7 @@
 name: review
 description: Workflow for reviewing implemented code with decision context from planning. Use when the user wants to review code quality, validate implementation, or check tasks before delivery.
 version: "1.0"
-category: workflow
+category: methodology
 ---
 
 # Technical Review Workflow
