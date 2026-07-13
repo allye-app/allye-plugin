@@ -31,7 +31,7 @@ echo "$CONFIG" | jq '.' > ~/.config/opencode/opencode.json
 
 This configures:
 - **Allye MCP server** — connects to `mcp.allye.app` with OAuth authentication
-- **allye-opencode plugin** — registers 5 specialized agents (Allye, Plan, Build, Review, Deliver)
+- **allye-opencode plugin** — registers 6 specialized agents (Allye, Plan, Orchestrator, Build, Review, Deliver)
 
 ## Step 2: Authenticate
 
@@ -47,13 +47,14 @@ Tell the user:
 >
 > **What was set up:**
 > - Allye MCP server connected via OAuth (mcp.allye.app)
-> - allye-opencode plugin installed — 5 specialized agents:
->   - **Allye** — orchestrator (detects phase, delegates)
+> - allye-opencode plugin installed — 6 specialized agents:
+>   - **Allye** — orchestrator-router (detects phase, delegates)
 >   - **Allye Plan** — product and technical planning
+>   - **Allye Orchestrator** — delivery coordination (dispatch loop, status cascade)
 >   - **Allye Build** — TDD implementation
 >   - **Allye Review** — code review with context
 >   - **Allye Deliver** — delivery and documentation
-> - 10 workflow skills available from the Allye marketplace
+> - 13 workflow skills available from the Allye marketplace
 > - User context auto-loads at the start of every conversation
 >
 > **Restart OpenCode** to activate. Your browser will open for login on first use. You'll see the Allye agents in the agent picker (Ctrl+T).

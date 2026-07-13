@@ -8,7 +8,7 @@ alwaysApply: true
 
 You have access to the **Allye platform** via MCP. Before starting any work:
 
-1. **Check for a handover first** — if the message starts with `## 🔄 Allye Handover`, parse the `Skill a carregar` value and load that skill directly (`skill_list` by that slug) — skip step 2 below, there's no ambiguity to resolve
+1. **Check for a handover first** — if the message starts with `## 🔄 Allye Handover`, parse the `Skill a carregar` value and load that skill directly (`skill_list` by that slug) — skip step 2 below, there's no ambiguity to resolve. Handovers use bare skill names, but three skills kept `allye-*` backend slugs — resolve `product-planning` → `allye-product-planning`, `technical-planning` → `allye-technical-planning`, `execution` → `allye-technical-development` before querying; `orchestrator`, `sandbox`, and `handover-protocol` already match their backend slug as-is.
 2. **Search memories** — Run `memory_search` for session state, decisions, and context
 3. **Detect the workflow phase** — What does the user need?
 4. **Load the right skill** — Use `skill_list` to find and read the appropriate workflow skill

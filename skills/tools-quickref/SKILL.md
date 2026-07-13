@@ -18,7 +18,7 @@ Complete reference for all 12 Allye MCP tools and their actions.
 - **`work_create`/`work_bulk_create` require `work_category`**, even though it looks optional next to `item_type`. Omit it and the call fails, listing the full valid-category enum back to you (see below).
 - **Item types include more than the obvious five**: `epic`, `feature`, `story`, `bug`, `hotfix`, `task`, `spike`, `subtask` — not just epic/feature/story/task/bug.
 - **Assigning to someone else is two calls, not one.** `work_assign_to_me` only covers yourself. For anyone else: `team_members` (via `team`) to resolve their user id, then `work_update(id, assignee_id: "<their id>")`.
-- **`work_status_next` moves forward only.** It errors if the item is already at the last status in the board's progression, and there's no `work_status_prev`. Use `work_status_done` to jump straight to done regardless of current position. See the `board-progression` skill for the full resolution logic.
+- **`work_status_next` moves forward only.** It errors if the item is already at the last status in the board's progression, and there's no `work_status_prev`. Use `work_status_done` to jump straight to done regardless of current position. See the `allye-board-progression` skill for the full resolution logic.
 - **`work_bulk_create` caps at 50 items per call**, and each item takes `parent_temp_id` (reference another item in the same batch) **or** `parent_key` (reference an existing item) — never both on the same item.
 - **`doc_create` needs `doc_emoji`** for every type except `folder` — check `doc_full_tree` for placement before creating, always; don't guess a parent location.
 - **`memory_save` never silently fails or duplicates.** Every save resolves to one of four outcomes — `created`, `updated` (non-destructive merge), `superseded` (new one wins, old kept for audit), or `noop` (already fully captured, nothing written). Treat `noop` as "already known," not an error to reword-and-retry past.
@@ -26,7 +26,7 @@ Complete reference for all 12 Allye MCP tools and their actions.
 - **The memory relocation flow is one-time per user, ever** — always check `alreadyPrompted` on `memory_relocation_candidates` before offering it; offering it twice is exactly the nagging behavior the guard exists to prevent.
 - **`initialize` returns `profile.user.id`** — the reliable way to know "who's currently logged in" when deciding self-assignment vs. assigning to someone else.
 
-For the full memory methodology (when to search, when to save, sector selection, the `/save` protocol, graph traversal), see the `memory-protocol` skill — this file only covers the action-level API surface.
+For the full memory methodology (when to search, when to save, sector selection, the `/save` protocol, graph traversal), see the `allye-memory-protocol` skill — this file only covers the action-level API surface.
 
 ---
 
@@ -109,7 +109,7 @@ Documentation pages and folders with tree navigation.
 
 ## intelligence
 
-Semantic memory system for cross-session continuity. **Full methodology (when/what to save, sector selection, the `/save` protocol) lives in the `memory-protocol` skill — this is the action-level reference only.**
+Semantic memory system for cross-session continuity. **Full methodology (when/what to save, sector selection, the `/save` protocol) lives in the `allye-memory-protocol` skill — this is the action-level reference only.**
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|

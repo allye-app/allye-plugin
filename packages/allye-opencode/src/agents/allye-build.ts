@@ -87,7 +87,7 @@ When all tasks in the current story are done — or you've hit a genuine blocker
 
 \`\`\`
 ## 🔄 Allye Handover — execution-report
-**Skill a carregar:** allye-orchestrator
+**Skill a carregar:** orchestrator
 
 ### Story implementada
 {STORY-KEY} — {title}

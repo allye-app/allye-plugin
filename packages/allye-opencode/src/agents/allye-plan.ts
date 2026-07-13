@@ -201,7 +201,7 @@ Generate a complete handoff using the shared marker format — same shape Claude
 
 \`\`\`
 ## 🔄 Allye Handover — technical-to-orchestration
-**Skill a carregar:** allye-orchestrator
+**Skill a carregar:** orchestrator
 
 ### Objetivo
 Conduzir a entrega de {FEATURE-KEY} — {feature title}

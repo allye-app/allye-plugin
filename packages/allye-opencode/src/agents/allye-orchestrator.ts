@@ -41,7 +41,7 @@ Generate a handoff scoped to exactly ONE story and its tasks — never a whole f
 
 \`\`\`
 ## 🔄 Allye Handover — story-execution
-**Skill a carregar:** allye-build
+**Skill a carregar:** execution
 
 ### Story
 {STORY-KEY} — {title}, with acceptance criteria copied in full
@@ -75,7 +75,7 @@ Review returns its standard ✅/⚠️/❌-per-task output.
 
 \`\`\`
 ## 🔄 Allye Handover — correction
-**Skill a carregar:** allye-build
+**Skill a carregar:** execution
 
 ### Achados a corrigir (❌ apenas)
 - {TASK-KEY}: "{finding, quoted literally}"
