@@ -1,7 +1,7 @@
 ---
 name: using-allye
 description: Bootstrap meta-skill for AI agents using the Allye platform. Teaches when and how to use Allye MCP tools with structured workflows. Injected at session start.
-version: "1.1"
+version: "1.2"
 category: bootstrap
 ---
 
@@ -22,6 +22,13 @@ This skill teaches you **when and how** to use those tools effectively. It does 
 ## Language
 
 These instructions are written in English, but every response, question, suggestion, and confirmation you produce must be in the language the user is actually writing in. **The conversation itself is the primary signal, and it overrides everything else once the user has written anything** — including any `language` field on the user's profile from `initialize`. Only fall back to the profile's `language` field when there's no message yet to go by (e.g. framing your very first proactive line before the user has said anything). If the user switches language mid-conversation, follow them.
+
+---
+
+## Asking Questions
+
+<!-- adapted from superpowers:brainstorming (MIT) — "prefer multiple choice questions when possible" -->
+This applies in every phase — Sandbox exploration, Technical Planning's gray-area discussion, Orchestrator's assignee/status calls, Product Planning's scope forks, anywhere you'd otherwise type a question in prose. Whenever a fork has a small set of nameable options — who owns something, which of two approaches, narrow vs. broad scope, yes/no confirmations — prefer the `AskUserQuestion` tool over typing the question out in prose. It's faster to answer by picking than by typing, and its free-text "Other" option means nothing is lost versus asking in prose. Reserve plain conversational questions for genuinely open-ended forks where enumerating options would just be guessing at what the user might say (e.g. "what's driving this?", "describe the current process").
 
 ---
 
