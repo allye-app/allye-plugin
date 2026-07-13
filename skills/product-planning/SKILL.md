@@ -21,6 +21,12 @@ Understand context → Search memories → Define hierarchy → Create items →
 
 ---
 
+## Step 0: Check for a Discovery Doc
+
+If you arrived via a `discovery-to-planning` handover (see the `handover-protocol` skill), read the Discovery Doc it references before anything else — it already captures the approved direction, rejected alternatives, and any research findings. Treat it as established context, not something to re-derive.
+
+---
+
 ## Step 1: Understand the Business Context
 
 Before creating anything, have a conversation with the user to understand:
@@ -35,6 +41,9 @@ Before creating anything, have a conversation with the user to understand:
 Do NOT jump to creating work items before you understand the business context.
 Ask questions. Clarify ambiguities. The quality of planning depends on the quality of understanding.
 </EXTREMELY_IMPORTANT>
+
+<!-- adapted from bmad-code-org/BMAD-METHOD create-epics-and-stories (MIT) -->
+Treat this as a collaboration between equal partners, not an intake form — the user knows the business, you know how to structure it. Push back on ambiguity and offer options; don't just transcribe what's said.
 
 **If the user already has clear requirements** (e.g., a PRD, a spec, a detailed description), skip the discovery questions and move to Step 2.
 
@@ -59,12 +68,17 @@ work_list(query: "{product/project name}")
 - Review them to avoid duplication
 - Understand what was already planned or decided
 - Build on top of existing structure rather than starting fresh
+- When presenting the hierarchy in Step 3, mark each item explicitly as **reused** or **new** — never silently create a duplicate of something that already exists
 
 ---
 
 ## Step 3: Design the Work Item Hierarchy
 
 Plan the hierarchy before creating items. Present it to the user for approval.
+
+### Working vocabulary: squares and quadradinhos
+
+When talking through the structure with the user, a "square" is a Feature-sized deliverable — a puzzle piece of the overall product; a "quadradinho" is a Story inside it. This is conversational shorthand, not a new formal type — it still resolves to the real Epic → Feature → Story hierarchy below.
 
 ### Item types and when to use them
 
@@ -76,10 +90,12 @@ Plan the hierarchy before creating items. Present it to the user for approval.
 
 ### Hierarchy rules
 
+<!-- adapted from github/spec-kit story template language (MIT) -->
 - An **Epic** contains **Features**
 - A **Feature** contains **Stories**
-- Every Story must be **independently deliverable** — it produces a working increment
+- Every Story must be **independently testable and deliverable** — it produces a working increment on its own, not just alongside its siblings
 - Stories should follow the format: "As a {role}, I can {action} so that {benefit}" (when applicable)
+- Prioritize so that **P1 alone is a viable increment** — if only the highest-priority stories shipped, there should still be something real to show
 
 ### Present the plan
 
@@ -178,20 +194,22 @@ work_bulk_create(items: [
 
 ### Story descriptions
 
-Every story should have a clear description:
+Every story should have a clear description. Write acceptance criteria as concrete scenarios when the behavior has real branches — Given/When/Then makes each one independently verifiable:
 
+<!-- adapted from github/spec-kit story template language (MIT) -->
 ```markdown
 ## User Story
 As a {role}, I can {action} so that {benefit}.
 
 ## Acceptance Criteria
-- [ ] {criterion 1}
-- [ ] {criterion 2}
-- [ ] {criterion 3}
+- [ ] Given {context}, when {action}, then {outcome}
+- [ ] Given {context}, when {action}, then {outcome}
 
 ## Notes
 {any additional context, constraints, or dependencies}
 ```
+
+As detailed as possible beats terse — a mermaid flowchart or sequence diagram is welcome in the description when it clarifies a flow (`work_description` supports it). If the story involves a screen, offer to mock it up with the Artifact tool and carry the reference into the eventual handover — don't force it when there's no screen involved.
 
 ---
 
@@ -241,4 +259,4 @@ Before considering product planning complete, verify:
 
 ## What Comes Next
 
-After product planning is complete, the user will pick a story to work on. That transitions to **Technical Planning** — load the `allye-technical-planning` skill.
+After items are approved and created, ask the user whether to generate a **`planning-to-technical`** handover (see the `handover-protocol` skill) for Technical Planning. Include the doc reference (if any) and every created **and** reused key — Technical Planning has no other way to know which items are which.
