@@ -145,9 +145,10 @@ Create the top-level epic first:
 
 ```
 work_create(
-  title: "User Authentication System",
-  item_type: "epic",
-  description: "## Goal\n{business goal}\n\n## Scope\n{what's included}\n\n## Out of scope\n{what's excluded}\n\n## Success criteria\n{how we know it's done}"
+  work_title: "User Authentication System",
+  work_type: "epic",
+  work_category: "product",
+  work_description: "## Goal\n{business goal}\n\n## Scope\n{what's included}\n\n## Out of scope\n{what's excluded}\n\n## Success criteria\n{how we know it's done}"
 )
 ```
 
@@ -156,12 +157,12 @@ work_create(
 Use `work_bulk_create` to create the full hierarchy in one call:
 
 ```
-work_bulk_create(items: [
+work_bulk_create(work_items: [
   {
     "temp_id": "feat-1",
     "title": "Email/Password Auth",
     "item_type": "feature",
-    "work_category": "feature",
+    "work_category": "product",
     "parent_key": "PROJ-100",          // existing epic key
     "description": "..."
   },
@@ -169,7 +170,7 @@ work_bulk_create(items: [
     "temp_id": "story-1",
     "title": "User can register with email and password",
     "item_type": "story",
-    "work_category": "story",
+    "work_category": "product",
     "parent_temp_id": "feat-1",        // references the feature above
     "description": "..."
   },
@@ -177,7 +178,7 @@ work_bulk_create(items: [
     "temp_id": "story-2",
     "title": "User can log in with email and password",
     "item_type": "story",
-    "work_category": "story",
+    "work_category": "product",
     "parent_temp_id": "feat-1",
     "description": "..."
   }

@@ -36,13 +36,13 @@ The steps below plan **one story at a time** — but the unit Technical Planning
 Fetch the story the user wants to plan:
 
 ```
-work_get(id: "{story uuid}" or key: "{PROJ-123}")
+work_get(id: "{story uuid}" or work_key: "{PROJ-123}")
 ```
 
 Read the story's description, acceptance criteria, and parent context. If the story is part of a feature/epic, understand the broader scope:
 
 ```
-work_get(key: "{parent feature key}")
+work_get(work_key: "{parent feature key}")
 ```
 
 ---
@@ -223,12 +223,12 @@ Present the wave structure to the user so they understand the execution order.
 ### 4.5 Create Tasks via Bulk Create
 
 ```
-work_bulk_create(items: [
+work_bulk_create(work_items: [
   {
     "temp_id": "task-1",
     "title": "Set up database schema for {feature}",
     "item_type": "task",
-    "work_category": "task",
+    "work_category": "backend",
     "parent_key": "{STORY-KEY}",
     "description": "{full description with acceptance criteria}"
   },
@@ -236,7 +236,7 @@ work_bulk_create(items: [
     "temp_id": "task-2",
     "title": "Create API route structure for {feature}",
     "item_type": "task",
-    "work_category": "task",
+    "work_category": "backend",
     "parent_key": "{STORY-KEY}",
     "description": "{full description with acceptance criteria}"
   }
