@@ -20,7 +20,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 
 **[Create a free Allye account →](https://allye.app/)**
 
-**Authentication is handled via OAuth 2.1 on Claude Code** — your browser opens once for login, and tokens are managed automatically. No API keys or PATs to configure. Other platforms (OpenCode, Cursor, Codex, Gemini CLI) authenticate with a Personal Access Token — see Prerequisites below.
+**Authentication is handled via OAuth 2.1** — on every supported platform, since the MCP connection itself is OAuth-gated. Your browser opens once for login, and tokens are managed automatically. No API keys or PATs to configure.
 
 ## What you get
 
@@ -87,7 +87,7 @@ Paste this into your agent:
 Install allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/install-opencode.md
 ```
 
-The agent will ask for your PAT, configure the MCP server, and install the `allye-opencode` plugin.
+The agent will configure the MCP server (OAuth, no PAT needed) and install the `allye-opencode` plugin.
 
 After installing, you get:
 - **6 agents in the picker** — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver (Ctrl+T to switch)
@@ -278,9 +278,7 @@ No team skills yet? Each agent will suggest creating them when it doesn't find s
 
 ## Prerequisites
 
-- An [Allye](https://allye.app/) account
-  - **Claude Code** — OAuth 2.1, handled entirely through the plugin's connect flow. No PAT needed.
-  - **OpenCode, Cursor, Codex, Gemini CLI** — a Personal Access Token (PAT), generated from your Allye account settings.
+- An [Allye](https://allye.app/) account — authentication is OAuth 2.1 on every platform (the MCP connection itself is OAuth-gated), no PAT needed anywhere
 - At least one supported AI coding agent installed
 - `jq` and `curl` (used by the installer and Claude Code hook)
 
