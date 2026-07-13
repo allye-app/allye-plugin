@@ -11,6 +11,8 @@ This skill guides you through taking a story and turning it into actionable task
 
 Use this when the user has a story and wants to: plan tasks, discuss approach, evaluate technical options, or break down implementation work.
 
+**Never assume — always ask.** The user knows the direction they want, sometimes only after researching further. Your job is to surface the gray areas and present real options, not to quietly pick one and present it as the plan.
+
 ---
 
 ## Workflow Overview
@@ -82,6 +84,10 @@ Examples of gray areas:
 - Should we optimize for read speed or write speed?
 - How much backward compatibility do we need?
 
+**Mandatory:** whenever a story implies infrastructure, stack, or architecture choices, that is always a gray area to raise explicitly — never left to chance or agent discretion by default.
+
+**Need more than a hunch to evaluate an option?** Dispatch the `deep-search` agent (web research) or the `code-analyzer` agent (analyze a public repo), both via the `Agent` tool — research is available here, not only in Sandbox. Bring findings back into the discussion before locking a decision.
+
 ### 3.2 Present Options with Trade-offs
 
 For each gray area, present the user with **concrete options and trade-offs**:
@@ -148,6 +154,11 @@ Design tasks that are:
 - **Atomic** — Each task produces a single, verifiable outcome
 - **Ordered by dependency** — Independent tasks first, dependent tasks after
 - **Concrete** — No vague tasks like "set up the project" or "implement the feature"
+
+**Split by concern when a story spans them.** A story touching frontend, backend, and data modeling is usually 3+ tasks, not one — the Wave mechanic below (4.4) handles the ordering (e.g., data modeling before frontend when the payload shape is a hard dependency). These are illustrative categories, not a fixed taxonomy: decide the actual split with the user, scenario by scenario.
+
+<!-- adapted from superpowers:writing-plans task right-sizing (MIT) -->
+**Right-size each task**: the smallest unit that carries its own test cycle and is worth a fresh reviewer's gate. Fold setup/config into the task whose deliverable needs it; split only where a reviewer could reject one task while approving its neighbor.
 
 ### 4.2 Deep Work Rule
 
@@ -274,4 +285,4 @@ Before considering technical planning complete, verify:
 
 ## What Comes Next
 
-The user picks a task (or the first task in Wave 1) and starts implementing. That transitions to **Technical Development** — load the `allye-technical-development` skill.
+Emit a **`technical-to-orchestration`** handover (see the `handover-protocol` skill) for the Orchestrator. Spell out the full reading list — doc, epic, feature, every story, every task, grouped by wave — and every locked architecture decision. The Orchestrator has no other context; a vague pointer here becomes its problem later.
