@@ -40,6 +40,26 @@ function stripFrontmatter(content: string): string {
   return content.trim()
 }
 
+/**
+ * Removes content wrapped in <!-- opencode-exclude:start --> ... <!-- opencode-exclude:end -->
+ * markers. Skill files use these to fence off Claude-Code-only instructions
+ * (e.g. dispatching the `executor` subagent via the Agent tool) that must not
+ * be embedded into OpenCode agent prompts, where those capabilities don't exist.
+ */
+function stripOpencodeExcluded(content: string, sourcePath: string): string {
+  const stripped = content.replace(
+    /<!--\s*opencode-exclude:start\s*-->[\s\S]*?<!--\s*opencode-exclude:end\s*-->/g,
+    ""
+  )
+  if (/<!--\s*opencode-exclude:(start|end)\s*-->/.test(stripped)) {
+    throw new Error(
+      `Unbalanced opencode-exclude markers in ${sourcePath} — every start marker needs a matching end marker.`
+    )
+  }
+  // Collapse blank-line runs left behind by removed blocks.
+  return stripped.replace(/\n{3,}/g, "\n\n").trim()
+}
+
 function escapeTemplate(str: string): string {
   return str.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$")
 }
@@ -64,7 +84,7 @@ function main() {
     }
 
     const raw = readFileSync(fullPath, "utf-8")
-    const content = stripFrontmatter(raw)
+    const content = stripOpencodeExcluded(stripFrontmatter(raw), relativePath)
     const escaped = escapeTemplate(content)
 
     lines.push(`export const ${varName} = \`${escaped}\``)
