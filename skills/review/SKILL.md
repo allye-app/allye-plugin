@@ -134,10 +134,11 @@ memory_save(
 )
 ```
 
-If tasks need rework, move them back:
+If tasks need rework, set their status back explicitly. `work_status_next` only moves **forward** (there is no `work_status_prev`), so a backward move goes through `work_update` with an explicit status id:
 
 ```
-work_status_next(id: "{task uuid}")  // back to in_progress if applicable
+work_statuses()                                        // find the id of the target status (e.g. "In Progress")
+work_update(id: "{task uuid}", work_status: "{status uuid}")
 ```
 
 ---
@@ -167,6 +168,6 @@ If you can run the test suite, do it:
 
 ## What Comes Next
 
-If the review passes, transition to **Technical Delivery** — load the `allye-technical-delivery` skill.
+If the review passes, transition to **Delivery** — load the `delivery` skill (backend slug: `allye-technical-delivery`).
 
 If changes are needed, the developer addresses the findings (back to **Technical Development**), then returns here for re-review.

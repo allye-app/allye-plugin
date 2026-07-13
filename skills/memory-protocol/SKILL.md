@@ -50,7 +50,7 @@ Search always covers the union of your personal memories and the active team's m
 
 Every `memory_save` passes through conflict resolution — Allye checks for similar existing memories (similarity ≥60%, including near-identical ≥95%) and a resolver decides the outcome. There is no blind "too similar → reject" rule: even near-identical content can update, supersede, or merge into an existing memory instead of just bouncing.
 
-Four possible outcomes: `ADD`, `UPDATE`, `SUPERSEDE`, `NOOP`. `rejected` can still appear, but only as a residual case for schema validation failures (e.g. missing required fields) — never as an automatic consequence of similarity scoring.
+Four possible outcomes: `created`, `updated`, `superseded`, `noop`. Every save resolves to exactly one of these four — there is no `rejected` outcome, and never a blind reject based on similarity scoring.
 
 **What to do with each outcome** is covered in Step 3 of the /save protocol (§4) — that guidance applies to every `memory_save` call, not only ones made during /save.
 
@@ -210,12 +210,12 @@ Both the Step 1 consolidation and every Step 2 promotion go through conflict res
 
 | Outcome | What happened | What you do |
 |---------|---------------|--------------|
-| `ADD` | No meaningful overlap found; a new memory was created | Nothing — proceed normally |
-| `UPDATE` | Existing memory was close enough to aggregate; it was updated in place, content merged | Nothing — the existing memory now holds both old and new; don't also create a separate memory for the same fact |
-| `SUPERSEDE` | New content invalidates the old; a new memory was created and the old one marked superseded (not deleted) | Nothing — this is expected when a decision changes or a plan is revised; don't manually go "fix" the old memory too |
-| `NOOP` | Content is already fully covered; nothing was written | Stop — do not reword and retry to force a save. Use the returned existing memory as the source of truth instead |
+| `created` | No meaningful overlap found; a new memory was created | Nothing — proceed normally |
+| `updated` | Existing memory was close enough to aggregate; it was updated in place, content merged | Nothing — the existing memory now holds both old and new; don't also create a separate memory for the same fact |
+| `superseded` | New content invalidates the old; a new memory was created and the old one marked superseded (not deleted) | Nothing — this is expected when a decision changes or a plan is revised; don't manually go "fix" the old memory too |
+| `noop` | Content is already fully covered; nothing was written | Stop — do not reword and retry to force a save. Use the returned existing memory as the source of truth instead |
 
-If you find yourself rephrasing the same content to get past a `NOOP`, that's a signal the content wasn't actually new — trust the resolver.
+If you find yourself rephrasing the same content to get past a `noop`, that's a signal the content wasn't actually new — trust the resolver.
 
 ---
 
@@ -324,7 +324,7 @@ Write queries like you're asking a colleague, not searching a database.
 | Using vague titles | Hard to find later | Be specific: "Decision — use PostgreSQL JSONB for dynamic fields" not "Database decision" |
 | Skipping entity links | Memories float disconnected | Always link to the work item you're working on |
 | Saving implementation details | Code is the source of truth for code | Save the *why*, not the *what*. The code shows what changed; the memory explains why |
-| Not searching before saving | Creates near-duplicates that conflict resolution then has to untangle via `UPDATE`/`SUPERSEDE`/`NOOP` — extra round trips you could've skipped | Search first, then save |
+| Not searching before saving | Creates near-duplicates that conflict resolution then has to untangle via `updated`/`superseded`/`noop` — extra round trips you could've skipped | Search first, then save |
 | Giant memory dumps | Hard to search, and content is capped at 10000 characters | Keep memories focused. One topic per memory. |
 
 ---

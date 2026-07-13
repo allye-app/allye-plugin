@@ -1,7 +1,7 @@
 ---
 name: using-allye
 description: Bootstrap meta-skill for AI agents using the Allye platform. Teaches when and how to use Allye MCP tools with structured workflows. Injected at session start.
-version: "1.2"
+version: "1.3"
 category: bootstrap
 ---
 
@@ -28,7 +28,15 @@ These instructions are written in English, but every response, question, suggest
 ## Asking Questions
 
 <!-- adapted from superpowers:brainstorming (MIT) — "prefer multiple choice questions when possible" -->
-This applies in every phase — Sandbox exploration, Technical Planning's gray-area discussion, Orchestrator's assignee/status calls, Product Planning's scope forks, anywhere you'd otherwise type a question in prose. Whenever a fork has a small set of nameable options — who owns something, which of two approaches, narrow vs. broad scope, yes/no confirmations — prefer the `AskUserQuestion` tool over typing the question out in prose. It's faster to answer by picking than by typing, and its free-text "Other" option means nothing is lost versus asking in prose. Reserve plain conversational questions for genuinely open-ended forks where enumerating options would just be guessing at what the user might say (e.g. "what's driving this?", "describe the current process").
+<HARD-GATE>
+This applies in every phase — Sandbox exploration, Technical Planning's gray-area discussion, Orchestrator's assignee/status calls, Product Planning's scope forks, anywhere you'd otherwise type a question in prose. Whenever a fork has a small set of nameable options — who owns something, which of two approaches, narrow vs. broad scope, yes/no confirmations — use the `AskUserQuestion` tool instead of typing the question out in prose. It's faster to answer by picking than by typing, and its free-text "Other" option means nothing is lost versus asking in prose.
+
+**Never bundle an open-ended sub-question with an enumerable one in the same message.** If a question has both parts — "what's driving this, and who's the audience?" — split them: ask the open part in prose, and the enumerable part (audience: internal/external/both) via `AskUserQuestion`, as two separate turns. Bundling them is what makes the whole thing read as "open-ended" and skip the tool entirely — don't let the open half smuggle the enumerable half out of a structured question.
+
+Reserve plain conversational questions for forks that are genuinely open-ended on their own — where enumerating options would just be guessing at what the user might say (e.g. "what's driving this?", "describe the current process").
+</HARD-GATE>
+
+Note: `AskUserQuestion` inside skill-loaded contexts has known reliability issues in Claude Code itself (tracked upstream, e.g. anthropics/claude-code#29547, #30544) — it can silently return an empty answer or fall back to prose regardless of this instruction. Treat a prose fallback as a degraded but acceptable outcome, not a failure to correct mid-conversation; the underlying discipline (ask before deciding) still holds either way.
 
 ---
 
@@ -36,7 +44,7 @@ This applies in every phase — Sandbox exploration, Technical Planning's gray-a
 
 <EXTREMELY_IMPORTANT>
 At the START of every conversation, you MUST search for relevant memories before doing anything else.
-At the END of every conversation, you MUST save a session state memory.
+At the END of every conversation, you MUST run the `memory-protocol` skill's /save process.
 This is not optional. Memories are how context survives between conversations.
 </EXTREMELY_IMPORTANT>
 
@@ -54,38 +62,15 @@ This is not optional. Memories are how context survives between conversations.
 
 **Step 4: Greet the user** — Summarize what you know (from init + memories) before proceeding. If no memories are found, proceed normally with the context from init.
 
-### On conversation end
+### On conversation end (and saving in general)
 
-Save a session state memory using `memory_save`:
+Follow the `memory-protocol` skill's current save process — load it if you haven't already, and don't rely on an outdated inline copy of it here. That skill is the single source of truth for:
 
-```
-title: "Session State — [KEY] short description"
-content:
-  - Current position: which phase (planning/development/review/delivery), which task
-  - Work completed: what was done this session
-  - Decisions made: locked decisions + trade-offs evaluated
-  - Blockers: impediments found
-  - Next concrete step: exactly what to do when resuming
-tags: [session-state, {work-item-key}, {current-phase}]
-work_item_id: {uuid if applicable}
-sprint_id: {uuid if applicable}
-```
+- The **/save protocol** for session state (a 3-step process: consolidate the session into one `sector: "sessions"` memory, mine it for knowledge worth promoting to team sectors, react to each save's outcome)
+- **When to save mid-conversation** (decisions, trade-offs, blockers, non-obvious context — each in its correct sector)
+- **Tag conventions** and sector selection
 
-### When to save mid-conversation
-
-- A technical decision was made (save the "why", not the "what")
-- A trade-off was evaluated
-- A blocker was identified
-- Context that would be lost between conversations
-
-### Tag conventions
-
-| Category | Tags |
-|----------|------|
-| Phase | `planning`, `development`, `review`, `delivery` |
-| Work item | `PROJ-123`, `epic:PROJ-100`, `feature:PROJ-110` |
-| Topic | `architecture`, `api-design`, `database`, `testing`, `performance`, `security`, `deployment` |
-| Content type | `decision`, `trade-off`, `blocker`, `context`, `session-state` |
+One rule worth internalizing before you even load it: **every `memory_save` must pass a `sector`.**
 
 ---
 
@@ -128,12 +113,14 @@ If no handover marker is present, fall through to the decision table below as be
 
 ### How to load a skill
 
-Use the Allye MCP `skills` tool to load the skill content:
+Use the Allye MCP `skills` tool. `skill_list` only *lists* skills (metadata, no content) — use it to resolve the slug to an ID, then fetch the actual content with `skill_get`:
 
 ```
-Action: skill_list
-Query: {skill-slug}
+1. skill_list(query: "{skill-slug}")   → find the skill and its ID
+2. skill_get(id: "{skill id}")         → returns the full skill content
 ```
+
+(`skill_export` / `skill_export_merged` also return content, formatted for a specific agent — `skill_export_merged` is useful when loading several workflow skills at once.)
 
 Then read the skill content and follow its instructions. The loaded skill takes priority over this bootstrap for the duration of that workflow.
 

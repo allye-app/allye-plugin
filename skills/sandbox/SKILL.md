@@ -41,7 +41,7 @@ Not every gap needs a question. Ask when the answer would change *what* gets bui
 If the direction needs facts to evaluate — how a technology actually works, what a public repo actually does, what the current landscape looks like — offer to research before continuing the discussion, rather than reasoning from assumption.
 
 - **Web research** → dispatch the `deep-search` agent (`Agent` tool) with a single, explicit objective. It's bounded and doesn't need to ask you anything mid-task, which is what makes it safe to dispatch.
-- **Public repo analysis** → dispatch the `code-analyzer` agent (`Agent` tool) with the repo URL and a specific objective. It clones under the session scratchpad, reads thoroughly, reports, and deletes the clone unconditionally — you never touch the clone yourself.
+- **Public repo analysis** → dispatch the `code-analyzer` agent (`Agent` tool) with the repo URL, a specific objective, and the session scratchpad path (it only clones under that path, and will refuse to fall back to `/tmp` if you omit it). It reads thoroughly, reports, and deletes the clone unconditionally — you never touch the clone yourself.
 
 Both can run in parallel if you need both kinds of research at once — dispatch them in the same turn.
 

@@ -121,7 +121,7 @@ todo_list()
 ```
 
 For each TODO related to this story:
-- If it's done → mark as complete: `todo_update(id: "{todo uuid}", todo_completed: true)`
+- If it's done → mark as complete: `todo_update(id: "{todo uuid}", status: "completed")`
 - If it's no longer relevant → delete: `todo_delete(id: "{todo uuid}")`
 - If it's a future task → leave it, but make sure it's not blocking delivery
 
