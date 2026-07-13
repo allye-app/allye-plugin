@@ -1,3 +1,43 @@
+# [1.1.0](https://github.com/allye-app/allye-plugin/compare/v1.0.3...v1.1.0) (2026-07-13)
+
+
+### Bug Fixes
+
+* correct /allye-setup slash command to /allye:setup after skill rename ([ed1e543](https://github.com/allye-app/allye-plugin/commit/ed1e5433fbd39edce6014190893faf2fe2fc00b5))
+* correct tools-quickref against the real allye-mcp source, add gotchas section ([c7f8053](https://github.com/allye-app/allye-plugin/commit/c7f8053181320db53114ad06533be959e6820ac7))
+* remove dead bootstrap fallback, sync session-start hook copies ([a2f98e5](https://github.com/allye-app/allye-plugin/commit/a2f98e588c3540abba435f209f89ff5f05acf838))
+* repoint allye-opencode generate-prompts.ts at renamed skill dirs ([a860067](https://github.com/allye-app/allye-plugin/commit/a8600678a22d016b74ec76f88c99dfa9167c91e9))
+* repoint seed-skills.json source_file paths to renamed dirs, fix tools-quickref path bug ([eb80cef](https://github.com/allye-app/allye-plugin/commit/eb80cef136b1c305421658615a01726aa3b5634b))
+* resolve handover skill-slug mismatch, bring README up to date with guided workflow ([599f80f](https://github.com/allye-app/allye-plugin/commit/599f80fc9c756261821d9b2fcf963753a43c5ab9))
+
+
+### Features
+
+* add automatic Executor mode to Orchestrator ([b3c35fd](https://github.com/allye-app/allye-plugin/commit/b3c35fdc2f4b6c1a4a0c7386f40422b199dfbcf4))
+* add code-analyzer research subagent ([2cf2024](https://github.com/allye-app/allye-plugin/commit/2cf2024d44c105c35d98ac8cd103bc7cbe50b813))
+* add correction handover template ([a33afa4](https://github.com/allye-app/allye-plugin/commit/a33afa4c528dc16efd2796d31e945d393bcd046b))
+* add deep-search research subagent ([d51c1d9](https://github.com/allye-app/allye-plugin/commit/d51c1d9a01d0a970d5fb797bdb6b62cb43e14475))
+* add discovery-to-planning handover template ([48954b1](https://github.com/allye-app/allye-plugin/commit/48954b1e5d3c0df7f5def774457a44d2b9afd44b))
+* add execution-report handover template ([0f706c0](https://github.com/allye-app/allye-plugin/commit/0f706c021238fd6b9a13a713b0f4778d63c115c1))
+* add handoff sections to Build, Review, Deliver OpenCode agents ([1bd8fde](https://github.com/allye-app/allye-plugin/commit/1bd8fde2d09ae698c9cff2e58b40812afab9ebdc))
+* add handover auto-detection step to using-allye bootstrap ([aa8fbe5](https://github.com/allye-app/allye-plugin/commit/aa8fbe5b57786bce34a204c0642fa7265c86557a))
+* add handover-protocol skill (marker spec + 6-type catalog) ([e83bdcf](https://github.com/allye-app/allye-plugin/commit/e83bdcfab0ef391654b6063eb360256320211fad))
+* add handover-protocol, sandbox, orchestrator to OpenCode's skill sources ([69de01a](https://github.com/allye-app/allye-plugin/commit/69de01a2b3f604bbb0e73f448c67ea53edf7fb11))
+* add Orchestrator role to OpenCode agent picker ([e083480](https://github.com/allye-app/allye-plugin/commit/e0834806856f733e9731e9304ad7154d980cd185))
+* add orchestrator skill (assignee, dispatch loop, correction escalation, cascade) ([31c46d5](https://github.com/allye-app/allye-plugin/commit/31c46d51c093037e2939ebbcd9e4080d909b79e1))
+* add sandbox skill (ask-don't-decide discipline, research dispatch, Discovery Doc) ([c003a2e](https://github.com/allye-app/allye-plugin/commit/c003a2e516fc519b9291c385d8a926335091042f))
+* add technical-to-orchestration handover template ([fc57191](https://github.com/allye-app/allye-plugin/commit/fc5719194d2dc63f3616eb1b8c81f096c071e726))
+* generalize allye-plan.ts handoff onto the shared marker format, target Orchestrator ([eef3d98](https://github.com/allye-app/allye-plugin/commit/eef3d98d7b500720df724b45d5383fbbbae911c0))
+* register handover-protocol skill for backend seeding ([fe4a9e3](https://github.com/allye-app/allye-plugin/commit/fe4a9e3a1b0f9cd8f32ea243e61f7c49ff193e95))
+* register orchestrator skill for backend seeding ([16b9832](https://github.com/allye-app/allye-plugin/commit/16b9832a4bf175d29721155fd79570f9034bbc8a))
+* register sandbox skill for backend seeding ([14846c1](https://github.com/allye-app/allye-plugin/commit/14846c1a769a5a162f934a836eb966c3cdfb0a6a))
+* route Orchestrator in using-allye's phase detection ([e55f6ec](https://github.com/allye-app/allye-plugin/commit/e55f6ec5d1b412e157880d3e5591098d56716a2f))
+* route Sandbox in using-allye's phase detection ([123fae6](https://github.com/allye-app/allye-plugin/commit/123fae626192d5aa392aec8bfefd1d45b19aec69))
+* route Sandbox/Orchestrator and handover detection in single-agent manifests ([908ae22](https://github.com/allye-app/allye-plugin/commit/908ae2206d79b5cac7a759878f45115fe0d14ef1))
+* wire execution into handover catalog, scope to single story, strengthen ask-don't-assume and verification-before-completion ([e24d571](https://github.com/allye-app/allye-plugin/commit/e24d571df044bd21a70a719cf8439edb23c5907d))
+* wire product-planning into handover catalog, add squares vocabulary and story-quality guidance ([95f4eea](https://github.com/allye-app/allye-plugin/commit/95f4eea0fca29366e5ad3e739877acd7e73c4056))
+* wire technical-planning into handover catalog and orchestrator, add mandatory architecture gray area and task right-sizing ([fddc9ba](https://github.com/allye-app/allye-plugin/commit/fddc9ba0faa7ff63237c193e222ad68c8cf8312c))
+
 ## [1.0.3](https://github.com/allye-app/allye-plugin/compare/v1.0.2...v1.0.3) (2026-06-15)
 
 
