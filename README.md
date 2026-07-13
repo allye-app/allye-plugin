@@ -201,7 +201,7 @@ How multi-phase workflow support is implemented differs by platform, because not
 - **Cursor, Codex, Gemini CLI** — a single agent handles all phases with the same workflow knowledge (no multi-agent picker on these platforms).
 
 Every phase, on every platform:
-- Responds in **your language** (detected from profile or messages)
+- Responds in **your language** (detected from your messages, falling back to your profile only before you've said anything)
 - Calls `initialize` to load your profile and team context
 - **Discovers team skills** before starting — coding standards, templates, checklists
 - If no standards found → **suggests creating them** with your chosen scope (personal/team/org/marketplace)
