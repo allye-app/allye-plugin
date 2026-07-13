@@ -70,7 +70,7 @@ Follow the `memory-protocol` skill's current save process — load it if you hav
 - **When to save mid-conversation** (decisions, trade-offs, blockers, non-obvious context — each in its correct sector)
 - **Tag conventions** and sector selection
 
-One rule worth internalizing before you even load it: **every `memory_save` must pass a `sector`.**
+One rule worth internalizing before you even load it: **always pass `sector` explicitly** — it's optional and defaults to `knowledge`, which is rarely the sector you actually want.
 
 ---
 
@@ -190,14 +190,3 @@ The parent agent has already loaded it. You should focus on your specific task.
 Do NOT search for memories or save session state — the parent agent handles that.
 </SUBAGENT-STOP>
 
----
-
-## 7. Entity Linking
-
-When saving memories, always link to relevant entities:
-
-- **`work_item_id`** — when working on a specific work item
-- **`sprint_id`** — when working within an active sprint
-- **`documentation_item_id`** — when the memory relates to documentation
-
-This enables the Allye intelligence system to build a knowledge graph across your project.

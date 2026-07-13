@@ -23,7 +23,7 @@ Allye uses **semantic search powered by AI embeddings** — not keyword matching
 
 ### Memory sectors
 
-Every memory belongs to one of 7 sectors. **Always pass `sector` when saving.** If you omit it, the server infers the sector from the tags (fallback: `knowledge`).
+Every memory belongs to one of 7 sectors. **Always pass `sector` when saving.** If you omit it, the server defaults it to `knowledge`.
 
 | Sector | What it holds | Use it for |
 |--------|---------------|------------|
@@ -48,7 +48,7 @@ Search always covers the union of your personal memories and the active team's m
 
 ### Conflict resolution (not auto-dedup)
 
-Every `memory_save` passes through conflict resolution — Allye checks for similar existing memories (similarity ≥60%, including near-identical ≥95%) and a resolver decides the outcome. There is no blind "too similar → reject" rule: even near-identical content can update, supersede, or merge into an existing memory instead of just bouncing.
+Every `memory_save` passes through conflict resolution — Allye checks for similar existing memories and a resolver decides the outcome. There is no blind "too similar → reject" rule: even near-identical content can update, supersede, or merge into an existing memory instead of just bouncing.
 
 Four possible outcomes: `created`, `updated`, `superseded`, `noop`. Every save resolves to exactly one of these four — there is no `rejected` outcome, and never a blind reject based on similarity scoring.
 
@@ -108,8 +108,7 @@ memory_save(
   title: "Decision — {short description}",
   content: "## Decision\n{what was decided}\n\n## Why\n{rationale and trade-offs considered}\n\n## Alternatives rejected\n{what was not chosen and why}\n\n## Classification\n{locked | agent-discretion}",
   tags: ["decision", "{work-item-key}", "{topic}"],
-  sector: "decisions",
-  work_item_id: "{uuid if applicable}"
+  sector: "decisions"
 )
 ```
 
@@ -177,9 +176,7 @@ memory_save(
   title: "Session State — {WORK-KEY} {short description}",
   content: "## Current position\n{phase: planning/development/review/delivery}\n{current task/story}\n\n## Work completed\n- {item 1}\n- {item 2}\n\n## Decisions made\n- {decision 1} [locked|agent-discretion]\n- {decision 2} [locked|agent-discretion]\n\n## Blockers\n- {blocker or 'None'}\n\n## Next concrete step\n{exactly what to do when resuming — be specific}",
   tags: ["session-state", "{work-item-key}", "{current-phase}"],
-  sector: "sessions",
-  work_item_id: "{uuid}",
-  sprint_id: "{uuid if in active sprint}"
+  sector: "sessions"
 )
 ```
 
@@ -267,22 +264,7 @@ For hierarchical context, prefix with type:
 
 ---
 
-## 6. Entity Linking
-
-Always link memories to relevant Allye entities when available:
-
-| Parameter | When to set |
-|-----------|-------------|
-| `work_item_id` | Working on a specific epic, feature, story, task, or bug |
-| `sprint_id` | Working within an active sprint |
-| `documentation_item_id` | Memory relates to a documentation page |
-| `team_id` | Memory is team-specific (required for multi-team users) |
-
-Entity links enable Allye to build a knowledge graph — memories connected to work items, sprints, and docs create navigable context across the project.
-
----
-
-## 7. Search Strategies
+## 6. Search Strategies
 
 ### Broad discovery
 
@@ -316,20 +298,19 @@ Write queries like you're asking a colleague, not searching a database.
 
 ---
 
-## 8. Anti-Patterns
+## 7. Anti-Patterns
 
 | Anti-pattern | Problem | Do this instead |
 |-------------|---------|-----------------|
 | Saving every small change | Noise drowns out signal | Save decisions, trade-offs, blockers, and session state — not trivial details |
 | Using vague titles | Hard to find later | Be specific: "Decision — use PostgreSQL JSONB for dynamic fields" not "Database decision" |
-| Skipping entity links | Memories float disconnected | Always link to the work item you're working on |
 | Saving implementation details | Code is the source of truth for code | Save the *why*, not the *what*. The code shows what changed; the memory explains why |
 | Not searching before saving | Creates near-duplicates that conflict resolution then has to untangle via `updated`/`superseded`/`noop` — extra round trips you could've skipped | Search first, then save |
 | Giant memory dumps | Hard to search, and content is capped at 10000 characters | Keep memories focused. One topic per memory. |
 
 ---
 
-## 9. Graph Traversal Strategies
+## 8. Graph Traversal Strategies
 
 The memory graph connects memories through explicit relation edges created at save time. Use traversal to discover clusters of related context that semantic search might miss.
 
@@ -362,7 +343,7 @@ This surfaces memories that are linked but might not match the semantic query.
 memory_graph(
   memory_id: "{decision memory ID}",
   depth: 2,
-  relation_types: ["extends", "caused_by", "supersedes"]
+  relation_types: ["extends", "depends_on", "supersedes"]
 )
 ```
 
@@ -371,7 +352,7 @@ memory_graph(
 - **Depth 0** — the root memory itself
 - **Depth 1** — directly connected memories
 - **Depth 2+** — transitively connected (can grow fast — use `relation_types` or `graph_limit` to bound)
-- **Edge types:** `similar | extends | caused_by | supersedes | contradicts | depends_on`
+- **Edge types:** relation types are a free-form string, not a fixed enum — example relation types include `extends`, `depends_on`, and `supersedes`
 
 ### Handling timeouts (408)
 
@@ -382,7 +363,7 @@ If `memory_graph` or `memory_relations` returns a timeout:
 
 ---
 
-## 10. Relocation Flow (Opt-in, One-Time)
+## 9. Relocation Flow (Opt-in, One-Time)
 
 Before F1 shipped sector/scope, memories didn't have either concept. The backfill that introduced them had to put every pre-existing memory somewhere, so it landed all of it as `scope: personal, sector: knowledge` — a safe default, not necessarily the right one. Some of that content is genuinely personal (notes, session scratch). Some of it is really team knowledge (a decision, a pattern, an incident) that just predates the sector system and never got the chance to be shared.
 
