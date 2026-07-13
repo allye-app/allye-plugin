@@ -196,43 +196,44 @@ Wait for the user to answer before generating the handoff.
 
 ### Step 3: Generate handoff prompt
 
-Generate a complete handoff prompt that the user can paste into Allye Build. The prompt MUST include:
+<!-- adapted onto the shared Allye Handover marker format from the handover-protocol skill (Plan 2) -->
+Generate a complete handoff using the shared marker format — same shape Claude Code uses, so a handoff written on one platform reads the same on the other:
 
 \`\`\`
-I'm continuing work from a planning session. Here's the context:
+## 🔄 Allye Handover — technical-to-orchestration
+**Skill a carregar:** allye-orchestrator
 
-## Epic/Story
-- Key: {WORK-KEY}
-- Title: {title}
-- Link to parent: {parent key if applicable}
+### Objetivo
+Conduzir a entrega de {FEATURE-KEY} — {feature title}
 
-## Starting Task
-- Key: {TASK-KEY}
-- Title: {task title}
-- Acceptance criteria: {from task description}
+### Leitura obrigatória
+- Epic: {EPIC-KEY}
+- Feature: {FEATURE-KEY}
+- Stories e tasks por wave:
+  - {STORY-KEY} — {title}
+    - Wave 1: {TASK-KEY}, {TASK-KEY}
+    - Wave 2: {TASK-KEY}
 
-## Key Decisions (locked)
+### Decisões de arquitetura travadas
 - {decision 1}: {rationale}
 - {decision 2}: {rationale}
 
-## Dependencies
-- {dependency info}
-
-## Additional Context
+### Contexto adicional
 - {anything the user mentioned}
 - {relevant memories saved during planning}
 
-Please pick up {TASK-KEY} and start implementing.
+---
+Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
 \`\`\`
 
 ### Step 4: Instruct the user
 
-After generating the prompt, say:
+After generating the handoff, say:
 
-> "The plan is complete! To start implementing:
-> 1. Switch to **Allye Build** (Ctrl+T → Allye Build)
-> 2. Paste the prompt above
-> 3. The Build agent will pick up the task with full context"
+> "The plan is complete! To start delivery:
+> 1. Switch to **Allye Orchestrator** (Ctrl+T → Allye Orchestrator)
+> 2. Paste the handoff above
+> 3. The Orchestrator will coordinate implementation and review from here"
 
 ### Important:
 - ALWAYS generate the handoff prompt — don't just say "switch to Build"
