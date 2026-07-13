@@ -94,6 +94,7 @@ If no handover marker is present, fall through to the decision table below as be
 
 | User intent | Skill to load | Slug |
 |-------------|---------------|------|
+| Explore ideas, research before committing to scope, think out loud, no direction chosen yet | Sandbox / Discovery | `sandbox` |
 | Define product requirements, create epics/features/stories | Product Planning | `allye-product-planning` |
 | Plan technical tasks for a story, discuss approach | Technical Planning | `allye-technical-planning` |
 | Implement code, write tests, develop features | Technical Development | `allye-technical-development` |
@@ -102,6 +103,7 @@ If no handover marker is present, fall through to the decision table below as be
 
 ### How to detect the phase
 
+- **Sandbox / Discovery** — User wants to: explore ideas, think out loud, research before deciding, hasn't committed to a direction yet
 - **Product Planning** — User talks about: requirements, business needs, features, epics, user stories, product scope, MVP
 - **Technical Planning** — User has a story and wants to: break it into tasks, discuss approach, evaluate options, plan implementation
 - **Technical Development** — User wants to: write code, implement a task, fix a bug, add functionality, write tests
