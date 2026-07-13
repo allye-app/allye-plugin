@@ -44,9 +44,7 @@ mv /tmp/marketplace.json.tmp "$MARKETPLACE_JSON"
 
 # Commit and tag
 git add -A
-git commit -m "Release v$NEW_VERSION
-
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+git commit -m "Release v$NEW_VERSION"
 
 git tag "v$NEW_VERSION"
 git push && git push --tags
