@@ -229,18 +229,23 @@ if command -v claude &>/dev/null; then
   SETTINGS=$(echo "$SETTINGS" | jq \
     --arg cmd "$HOOK_CMD" \
     '
-    .hooks.SessionStart = [
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": $cmd,
-            "timeout": 15
-          }
-        ]
-      }
-    ]
+    .hooks.SessionStart = (.hooks.SessionStart // []) |
+    if (.hooks.SessionStart | any(.hooks[]?.command == $cmd)) then
+      .
+    else
+      .hooks.SessionStart += [
+        {
+          "matcher": "startup|resume",
+          "hooks": [
+            {
+              "type": "command",
+              "command": $cmd,
+              "timeout": 15
+            }
+          ]
+        }
+      ]
+    end
     ')
 
   # ALLYE_PAT in settings env is used only by the session-start hook's

@@ -236,9 +236,9 @@ After generating the handoff, say:
 > 3. The Orchestrator will coordinate implementation and review from here"
 
 ### Important:
-- ALWAYS generate the handoff prompt — don't just say "switch to Build"
-- The prompt must be COMPLETE — the Build agent starts from zero, it has no memory of this conversation
-- Include ALL locked decisions — Build must respect them
+- ALWAYS generate the handoff prompt — don't just say "switch to Orchestrator"
+- The prompt must be COMPLETE — the Orchestrator agent starts from zero, it has no memory of this conversation
+- Include ALL locked decisions — Orchestrator must respect them
 - Include the specific task key to start with — don't leave it vague
 `.trim()
 

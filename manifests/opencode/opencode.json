@@ -9,5 +9,6 @@
         "clientId": "opencode"
       }
     }
-  }
+  },
+  "plugin": ["allye-opencode"]
 }
