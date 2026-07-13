@@ -1,3 +1,13 @@
+## [1.2.5](https://github.com/allye-app/allye-plugin/compare/v1.2.4...v1.2.5) (2026-07-13)
+
+
+### Bug Fixes
+
+* execution version/category, HARD-GATE wording tension, Step 9 task sourcing ([3e4b771](https://github.com/allye-app/allye-plugin/commit/3e4b7718b8bf7cc3f77b0030505669ec17a76365))
+* install.sh hook clobbering, OpenCode package polish ([509d8a7](https://github.com/allye-app/allye-plugin/commit/509d8a715ab5981fec00c74101b2a88778bef9f0))
+* orchestrator warn-tier branch, correction-round persistence, OpenCode leak in handover-protocol ([36f7f5e](https://github.com/allye-app/allye-plugin/commit/36f7f5efcc53c7ab179dd0fd614067927c475c63))
+* remove hardcoded Co-Authored-By trailer from release.sh ([a0223b6](https://github.com/allye-app/allye-plugin/commit/a0223b63630598782ed640312ceba2c51ec328a5))
+
 ## [1.2.4](https://github.com/allye-app/allye-plugin/compare/v1.2.3...v1.2.4) (2026-07-13)
 
 
