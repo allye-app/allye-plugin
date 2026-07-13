@@ -1,6 +1,8 @@
 ---
 name: setup
 description: First-time setup for the Allye plugin. Uses OAuth for ALL platforms — no PAT.
+version: "1.0"
+category: bootstrap
 ---
 
 # Allye Setup
