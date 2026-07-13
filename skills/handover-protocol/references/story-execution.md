@@ -9,7 +9,7 @@
 - Exactly one story is named — if the Orchestrator is tempted to hand off two stories "to save a round trip," it must not; that's a feature-level handover in disguise.
 - **Every** task under that story is listed — all of them, across all waves, not just the first wave — with its acceptance criteria copied in **full** (not summarized, not just linked). The Executor's chat has no other context and will never receive a second handover for the rest of the story.
 - Tasks are grouped by wave so the Executor knows the execution order, but the wave grouping is ordering information only — it never shrinks the scope of the dispatch.
-- Applicable code standards were discovered (`skill_list`) and are named here, not left for the Executor to rediscover.
+- Applicable code standards were discovered (`skill_list` to find the relevant skill, then `skill_get(id: ...)` to fetch its actual content) and are named here, not left for the Executor to rediscover.
 
 ## Template
 
@@ -38,7 +38,7 @@ Implementar {STORY-KEY} — {título da story}
 - {decisão} — {motivo}
 
 ### Padrões de código aplicáveis
-{convenções descobertas via skill_list que devem ser seguidas, ou "Nenhum padrão de time encontrado — seguir convenções existentes no código"}
+{convenções descobertas via skill_list e obtidas via skill_get que devem ser seguidas, ou "Nenhum padrão de time encontrado — seguir convenções existentes no código"}
 
 ### Expectativa de TDD
 {se aplica Red-Green-Refactor e por quê, ou por que não se aplica}

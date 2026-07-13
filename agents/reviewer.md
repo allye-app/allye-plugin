@@ -19,7 +19,7 @@ Use the files-changed list to scope which files you actually review — it came 
 1. **Call `initialize`** (action: `init`) to load user context, team info, core documents.
 2. **Apply the team from your dispatch prompt** — call `team_switch` if the active team differs. The Orchestrator passes team context precisely so you never have to ask.
 3. **Search memories** — `memory_search("decision {story key}")`, `memory_search("Technical Plan {story key}")`, `memory_search("implementation {story key}")` — for locked decisions, agent-discretion decisions, and implementation notes.
-4. **Load team skills** — call `skill_list` for code review standards, security checklists, quality guidelines. Read and follow them.
+4. **Load team skills** — call `skill_list` for code review standards, security checklists, quality guidelines, then `skill_get(id: ...)` on each relevant one to retrieve its actual content. Read and follow them.
 
 ## Workflow
 
