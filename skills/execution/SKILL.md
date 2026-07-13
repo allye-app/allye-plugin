@@ -18,7 +18,7 @@ Use this when the user wants to: write code, implement a task, fix a bug, add fu
 ## Workflow Overview
 
 ```
-Get task → Search context → Move to in_progress → Read code → TDD (Red → Green → Refactor) → Verify → Move to done → Save memory
+Get task → Search context → Move to in_progress → Read code → TDD (Red → Green → Refactor) → Verify → Move to review → Save memory
 ```
 
 ---
@@ -63,7 +63,7 @@ If the task has dependencies (noted in its description), verify they're complete
 work_children(id: "{story uuid}")
 ```
 
-Check that prerequisite tasks are in "done" status. If they're not done, either:
+Check that prerequisite tasks are in "review" or "done" status — either means their implementation is complete (tasks you finished earlier in this story sit at `review` until the Reviewer approves them). If a prerequisite hasn't reached at least `review`, either:
 - Pick a different task from the same wave (if available)
 - Inform the user that this task is blocked
 
@@ -219,18 +219,18 @@ Examples of things that need human action:
 
 ---
 
-## Step 7: Mark Task as Done
+## Step 7: Move Task to Review
 
 <!-- adapted from superpowers:verification-before-completion (MIT) — evidence before assertions -->
-**Evidence before assertions.** Don't mark a task done because it looks right — run the tests, read the actual output, and confirm each acceptance criterion against that output before proceeding. "Should work" is not the same as "ran and passed."
+**Evidence before assertions.** Don't advance a task because it looks right — run the tests, read the actual output, and confirm each acceptance criterion against that output before proceeding. "Should work" is not the same as "ran and passed."
 
 Once all acceptance criteria are verifiably met and tests pass:
 
 ```
-work_status_done(id: "{task uuid}")
+work_status_next(id: "{task uuid}")
 ```
 
-This sets the task to the "done" status and records `completed_at`.
+This advances the task forward to the "review" status. **Do NOT call `work_status_done` here** — passing its own tests makes a task ready for review, not done. "Done" only happens after the Reviewer returns ✅, and that final move (`review` → `done`) is the Orchestrator's, not yours (see the `orchestrator` skill §7).
 
 ---
 
@@ -262,7 +262,7 @@ work_children(id: "{story uuid}")
 
 - If there are more tasks in the current wave → pick one
 - If the current wave is done → move to the next wave
-- If all tasks in the story are done → emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator
+- If every task in the story has reached `review` (implementation complete, awaiting Reviewer) → emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator
 
 ---
 
@@ -278,7 +278,7 @@ For each task, verify:
 - [ ] TDD cycle completed (or tests written after for non-TDD-suitable tasks)
 - [ ] All acceptance criteria are met
 - [ ] Tests pass
-- [ ] Task moved to done
+- [ ] Task moved to review (never directly to done — that's the Orchestrator's move after Reviewer ✅)
 - [ ] Implementation memory saved (if non-trivial)
 
 ---

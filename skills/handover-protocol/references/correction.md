@@ -7,7 +7,7 @@
 ## Before emitting, confirm
 
 - Only the ❌ findings are included — ✅ and ⚠️ items are not corrections, don't pad this handover with them.
-- The correction round number is tracked — per spec §6.4, the Orchestrator escalates to the human after the **3rd** failed round on the same task instead of emitting a 4th correction handover.
+- The correction round number is tracked — per spec §6.4, at most **2** correction handovers are ever emitted for the same task. If the 2nd correction round's review also comes back ❌ (i.e., the 3rd review failure on that task), the Orchestrator does not emit a 3rd correction handover — it stops and escalates to the human instead.
 - Each finding is quoted from the Reviewer's actual output, not paraphrased — paraphrasing risks losing precision about what exactly needs to change.
 
 ## Template
@@ -25,7 +25,7 @@ Corrigir os achados de review abaixo em {STORY-KEY} — nada além disso.
 
 ### Rodada de correção
 Esta é a {N}ª tentativa de correção nesta story.
-{Se N for igual a 3, o Orchestrator não deveria estar emitindo este handover — deveria ter escalado para o usuário em vez disso. Ver skills/orchestrator.}
+{Se N for maior que 2, o Orchestrator não deveria estar emitindo este handover — o máximo são 2 handovers de correção por task; a 3ª falha de review escala para o usuário em vez de gerar um 3º handover. Ver skills/orchestrator.}
 
 ---
 Corrija SÓ o que está listado acima — não refaça a story inteira. Se algo não estiver claro, PARE e pergunte — não prossiga chutando.

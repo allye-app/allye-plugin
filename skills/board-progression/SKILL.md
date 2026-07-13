@@ -157,10 +157,11 @@ backlog → todo → in_progress → review → done
 
 Tasks are the most granular:
 ```
-todo → in_progress → done
+todo → in_progress → review → done
 ```
 - `in_progress`: actively being implemented
-- `done`: acceptance criteria met, tests pass
+- `review`: acceptance criteria met, tests pass — the Executor advances the task here (`work_status_next`) and no further; the task now awaits the Reviewer
+- `done`: Reviewer returned ✅ — the **Orchestrator** makes this final move (`work_status_done`), never the Executor. If the Reviewer returns ❌, the task simply stays at `review` while a correction round runs (no backward move exists or is needed)
 
 ### Bug
 
@@ -177,6 +178,7 @@ todo → in_progress → testing → done
 | Mistake | Why it's wrong | Do this instead |
 |---------|---------------|-----------------|
 | Moving story to done before all tasks are done | Misrepresents progress | Check `work_children` first — all tasks must be done |
+| Marking a task done as soon as its own tests pass | Done requires Reviewer approval, not just green tests | `work_status_next` to `review`; the Orchestrator moves it to done after Reviewer ✅ |
 | Skipping statuses with repeated `work_status_next` | Loses tracking fidelity | Only advance when the work for that status is actually complete |
 | Moving to in_progress without planning | No tasks = no accountability | Run Technical Planning first, create tasks, then advance |
 | Forgetting to check board structure | Different teams may have different progressions | Always check `board_columns` if unsure about available statuses |

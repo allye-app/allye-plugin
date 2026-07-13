@@ -31,45 +31,51 @@ Move claimed items to `in_progress` (`work_status_next`) as work on them actuall
 
 ## 4. Dispatch Executor — one story at a time
 
-Before dispatching, do a quick completeness check on the story's tasks: does each one have concrete, verifiable acceptance criteria — something you could actually judge as met or not-met? A task like "data modeling" with no defined schema, or "handle errors" with no defined error cases, is not execution-ready. If a task looks underspecified, say so to the user now and resolve it (or route back to `technical-planning`) before dispatching — don't let an obviously vague task go to Executor and discover that the hard way, in either mode below.
+Before dispatching, do a quick completeness check on the story's tasks: does each one have concrete, verifiable acceptance criteria — something you could actually judge as met or not-met? A task like "data modeling" with no defined schema, or "handle errors" with no defined error cases, is not execution-ready. If a task looks underspecified, say so to the user now and resolve it (or route back to `technical-planning`) before dispatching — don't let an obviously vague task go to Executor and discover that the hard way<!-- opencode-exclude:start -->, in either mode below<!-- opencode-exclude:end -->.
 
+<!-- opencode-exclude:start -->
 **Ask the user: automatic or manual?**
+<!-- opencode-exclude:end -->
 
-- **Manual** (the original flow — default when unsure): emit a `story-execution` handover (`handover-protocol` → `references/story-execution.md`) scoped to exactly one story and its tasks. The user runs it in a fresh Executor chat.
+- <!-- opencode-exclude:start -->**Manual** (the original flow — default when unsure): <!-- opencode-exclude:end -->emit a `story-execution` handover (`handover-protocol` → `references/story-execution.md`) scoped to exactly one story and its tasks. The user runs it in a fresh Executor chat.
+<!-- opencode-exclude:start -->
 - **Automatic**: dispatch the `executor` subagent directly via the `Agent` tool, in this same conversation. Fill out the exact same fields `references/story-execution.md` defines — story, tasks with acceptance criteria copied in full, locked decisions, applicable code standards, TDD expectation — and use that filled-out content as the dispatch prompt, instead of a handover the user pastes. **Same information, same template, different transport** — automatic mode is not a lighter briefing than manual, it's the identical one delivered a different way.
+<!-- opencode-exclude:end -->
 
-Either way, the scope is identical: **exactly one story and its tasks, never a whole feature.** Too much scope in one dispatch means it starts making its own planning decisions, which isn't its job in either mode.
+<!-- opencode-exclude:start -->Either way, the scope is identical: <!-- opencode-exclude:end -->**exactly one story and its tasks, never a whole feature.** Too much scope in one dispatch means it starts making its own planning decisions, which isn't its job<!-- opencode-exclude:start --> in either mode<!-- opencode-exclude:end -->.
 
+<!-- opencode-exclude:start -->
 <!-- flagged for override: this is a genuinely new capability, not yet battle-tested against the manual flow's track record -->
 **Automatic mode's limit — the reason this is a choice, not a silent default:** the `executor` subagent cannot pause and ask a question, unlike the interactive `execution` skill. It follows a halt-and-report contract instead of an ask-a-question one: if a task turns out to be underspecified once it's actually being implemented (the pre-flight check above catches the obvious cases, not all of them), it reports that task back as `❌ blocked` with the specific question, rather than guessing a design to fill the gap. When a dispatch comes back with a blocked task:
 
 1. Put the exact question in front of the user yourself — you can ask, even though the subagent couldn't.
 2. Once answered, re-dispatch the `executor` subagent for just that task with the clarification included, or offer to switch that one story to manual mode if the gap turns out to be bigger than a quick answer.
+<!-- opencode-exclude:end -->
 
 ## 5. Dispatch Reviewer — automatic and parallel
 
 <!-- adapted from EveryInc/compound-engineering-plugin lfg (MIT) — verify the previous step's artifact before proceeding -->
-When the execution report comes back (handover, in manual mode; direct return value, in automatic mode), don't take "done" at face value — check the report actually contains what it should before acting on it: files changed listed, tasks reported per acceptance criterion, not just a blanket "finished." An incomplete report is itself a signal to ask for more detail, not something to wave through.
+When the execution report comes back<!-- opencode-exclude:start --> (handover, in manual mode; direct return value, in automatic mode)<!-- opencode-exclude:end -->, don't take "done" at face value — check the report actually contains what it should before acting on it: files changed listed, tasks reported per acceptance criterion, not just a blanket "finished." An incomplete report is itself a signal to ask for more detail, not something to wave through.
 
-Once the report is genuinely complete, dispatch the `reviewer` subagent via the `Agent` tool — in parallel, automatically, no need to ask the user first, regardless of which mode Executor ran in. Review never needs to pause and ask anyone anything, which is what makes it always dispatch-appropriate. Pass it: the story key, the task keys, and the files changed from the execution report.
+Once the report is genuinely complete, dispatch the `reviewer` subagent<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> — in parallel, automatically, no need to ask the user first<!-- opencode-exclude:start -->, regardless of which mode Executor ran in<!-- opencode-exclude:end -->. Review never needs to pause and ask anyone anything, which is what makes it always dispatch-appropriate. Pass it: the story key, the task keys, and the files changed from the execution report.
 
 ## 6. React to review
 
 Reviewer returns its standard ✅/⚠️/❌-per-task output (unchanged from the `review` skill — no new format to learn).
 
-- **All ✅** → proceed to the status cascade (§7).
-- **Any ❌** → send corrections back, in whichever mode the story is running, using `references/correction.md`'s exact fields either way (only the failed findings, the correction-round count, the story reference — never a full re-brief of the story): emit it as a `correction` handover for manual mode, or use the same filled-out fields as the dispatch prompt for a re-dispatch of the `executor` subagent for automatic mode. Loop back to §5 once the next execution report arrives.
+- **All ✅** → move each approved task the rest of the way to `done` yourself — the Executor only advanced it as far as `review` — then proceed to the status cascade (§7).
+- **Any ❌** → the failed task simply stays at `review` while the correction round runs. No backward move is needed (or possible — `work_status_next` only moves forward, per `allye-board-progression`): the task never reached `done`, because reaching `done` requires your move after Reviewer ✅. Send corrections back<!-- opencode-exclude:start -->, in whichever mode the story is running,<!-- opencode-exclude:end --> using `references/correction.md`'s exact fields<!-- opencode-exclude:start --> either way<!-- opencode-exclude:end --> (only the failed findings, the correction-round count, the story reference — never a full re-brief of the story): emit it as a `correction` handover<!-- opencode-exclude:start --> for manual mode, or use the same filled-out fields as the dispatch prompt for a re-dispatch of the `executor` subagent for automatic mode<!-- opencode-exclude:end -->. Loop back to §5 once the next execution report arrives.
 
 <!-- adapted from bmad-code-org/BMAD-METHOD correct-course (MIT) — structured change-impact analysis for corrections that ripple beyond one task -->
 **Before emitting a routine correction, check whether the finding is actually local.** Most ❌ findings are narrow — a missed edge case, a broken test. But if a finding suggests something baked into the technical plan itself was wrong (a data model assumption, an architecture choice that doesn't hold), don't just patch around it silently in a correction handover — that ripples into other tasks and stories that assumed the same thing. Surface it to the user explicitly before continuing; a silent local patch over a wrong foundational assumption just relocates the bug.
 
-**Decided (spec review, 2026-07-12): escalate after 3 failed review rounds on the same task.** Track how many correction handovers this task has already received. On the 3rd ❌ for the same task, do not emit a 4th correction handover — stop and tell the user. Two rounds of the same task failing review for different specific reasons is normal; three rounds usually means something deeper is being missed, and it's worth a human look before burning a fourth round.
+**Decided (spec review, 2026-07-12): at most 2 correction handovers are ever emitted for the same task.** Track how many correction handovers this task has already received. If a task that has already received 2 correction handovers comes back ❌ again — i.e., this is the 3rd review failure on that task — do not emit a 3rd correction handover: stop and escalate to the user instead. Two correction rounds failing for different specific reasons is normal; a third failure usually means something deeper is being missed, and it's worth a human look before burning another round.
 
 ## 7. Status cascade — continuous, not just at the end
 
 Apply this at every level, as work actually completes — not once at the tail end of the whole feature:
 
-1. Task reaches done (criteria met, tests pass, Reviewer ✅) → `work_children` on the parent story → all done? → `work_status_done` the story.
+1. Reviewer returns ✅ on a task (criteria met, tests pass) → **you** move it from `review` to `done` via `work_status_done` (which also records `completed_at`) — the Executor deliberately left it at `review`, and this last move is exclusively yours, made only after Reviewer ✅ → `work_children` on the parent story → all done? → `work_status_done` the story.
 2. Story done → `work_children` on the parent feature → all done? → `work_status_done` the feature.
 3. Feature done → `work_children` on the parent epic → all done? → `work_status_done` the epic.
 
@@ -84,4 +90,4 @@ Unclear assignee, no active sprint to assign into, conflicting or unexpected sta
 
 ## 10. Memory
 
-Search at start (§1). Save session state before ending — current position in the feature (which story/wave), what's been dispatched, what's pending review, any escalations raised. If a correction round revealed something worth remembering beyond this session (a wrong assumption, a pattern), save it as its own memory in the appropriate sector, per the `memory-protocol` skill — don't let it live only in this session's state snapshot.
+Search at start (§1). Save session state before ending — current position in the feature (which story/wave), what's been dispatched, what's pending review, any escalations raised. If a correction round revealed something worth remembering beyond this session (a wrong assumption, a pattern), save it as its own memory in the appropriate sector, per the `allye-memory-protocol` skill — don't let it live only in this session's state snapshot.
