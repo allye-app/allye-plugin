@@ -18,8 +18,11 @@ const OUTPUT_FILE = resolve(__dirname, "../src/prompts/skills-content.ts")
 // Skill sources: variable name → file path (relative to skills dir)
 const SKILL_SOURCES: Record<string, string> = {
   USING_ALLYE: "using-allye/SKILL.md",
+  HANDOVER_PROTOCOL: "handover-protocol/SKILL.md",
+  SANDBOX: "sandbox/SKILL.md",
   PRODUCT_PLANNING: "product-planning/SKILL.md",
   TECHNICAL_PLANNING: "technical-planning/SKILL.md",
+  ORCHESTRATOR: "orchestrator/SKILL.md",
   TECHNICAL_DEVELOPMENT: "execution/SKILL.md",
   TECHNICAL_REVIEW: "review/SKILL.md",
   TECHNICAL_DELIVERY: "delivery/SKILL.md",
