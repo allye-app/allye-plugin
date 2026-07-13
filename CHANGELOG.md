@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/allye-app/allye-plugin/compare/v1.2.0...v1.2.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* restore language-detection instruction, missing from Claude Code and 3 other platforms ([b31dc82](https://github.com/allye-app/allye-plugin/commit/b31dc829af4143495a7e730515f0f2fc2e94f15f))
+
 # [1.2.0](https://github.com/allye-app/allye-plugin/compare/v1.1.1...v1.2.0) (2026-07-13)
 
 
