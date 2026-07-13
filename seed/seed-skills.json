@@ -151,6 +151,21 @@
         "codex",
         "gemini"
       ]
+    },
+    {
+      "name": "handover-protocol",
+      "slug": "handover-protocol",
+      "description": "The shared contract for handing off context between Allye workflow phases as copy-pasted chat text.",
+      "category": "other",
+      "scope": "team",
+      "source_file": "skills/handover-protocol/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     }
   ]
 }
