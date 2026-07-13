@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/allye-app/allye-plugin/compare/v1.1.0...v1.1.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* OAuth 2.1 is the auth mechanism on every platform, not just Claude Code ([423cb49](https://github.com/allye-app/allye-plugin/commit/423cb49f375a6f2ad4d04525d91ac0d092eaf5a0))
+
 # [1.1.0](https://github.com/allye-app/allye-plugin/compare/v1.0.3...v1.1.0) (2026-07-13)
 
 

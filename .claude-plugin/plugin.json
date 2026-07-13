@@ -1,7 +1,7 @@
 {
   "name": "allye",
   "description": "Allye Agent Plugin — methodology and workflow layer for AI coding agents using the Allye platform. Adds structured workflows, memory protocol, TDD discipline, and board progression on top of Allye MCP tools.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": {
     "name": "Allye Assistant",
     "email": "faq@devshire.app"
