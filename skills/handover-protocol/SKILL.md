@@ -42,7 +42,9 @@ Six types. Each is a distinct handoff with its own objective and field set — n
 | `execution-report` | Executor → Orchestrator | Devolver o resultado da implementação | `references/execution-report.md` |
 | `correction` | Orchestrator → Executor | Corrigir achados específicos do review | `references/correction.md` |
 
-**Reviewer never receives a handover.** It's the one role invoked via the `Agent` tool with a constructed prompt (story + tasks + files changed), dispatched by the Orchestrator — not by a pasted handover.
+**Reviewer never receives a handover.** It's invoked via the `Agent` tool with a constructed prompt (story + tasks + files changed), dispatched by the Orchestrator — not by a pasted handover.
+
+**Executor is reachable both ways.** In manual mode it receives `story-execution`/`correction` handovers as documented above. In automatic mode (Orchestrator's choice, offered per story) it's dispatched via the `Agent` tool instead, the same way Reviewer is — see `agents/executor.md`. Either way the content is the same; only the transport differs.
 
 ## 3. Writing a good handover (mandatory checklist)
 

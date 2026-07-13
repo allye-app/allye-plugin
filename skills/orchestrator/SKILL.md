@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Drives delivery of a planned feature — manages assignee, dispatches Executor for one story at a time, dispatches Reviewer in parallel, runs the correction loop, and cascades status up the work-item hierarchy. Use when a technical-to-orchestration handover arrives, or when the user wants to coordinate delivery of an already-planned feature (assign work, track status, drive tasks through review).
-version: "1.0"
+version: "1.1"
 category: methodology
 ---
 
@@ -31,21 +31,34 @@ Move claimed items to `in_progress` (`work_status_next`) as work on them actuall
 
 ## 4. Dispatch Executor — one story at a time
 
-Emit a `story-execution` handover (`handover-protocol` → `references/story-execution.md`) scoped to **exactly one story and its tasks** — never a whole feature in one handover. This is the scoping rule the entire loop depends on: a fresh Executor chat with too much scope starts making its own planning decisions, which isn't its job.
+Before dispatching, do a quick completeness check on the story's tasks: does each one have concrete, verifiable acceptance criteria — something you could actually judge as met or not-met? A task like "data modeling" with no defined schema, or "handle errors" with no defined error cases, is not execution-ready. If a task looks underspecified, say so to the user now and resolve it (or route back to `technical-planning`) before dispatching — don't let an obviously vague task go to Executor and discover that the hard way, in either mode below.
 
-## 5. Dispatch Reviewer — the one automatic, parallel step
+**Ask the user: automatic or manual?**
+
+- **Manual** (the original flow — default when unsure): emit a `story-execution` handover (`handover-protocol` → `references/story-execution.md`) scoped to exactly one story and its tasks. The user runs it in a fresh Executor chat.
+- **Automatic**: dispatch the `executor` subagent directly via the `Agent` tool, in this same conversation. Fill out the exact same fields `references/story-execution.md` defines — story, tasks with acceptance criteria copied in full, locked decisions, applicable code standards, TDD expectation — and use that filled-out content as the dispatch prompt, instead of a handover the user pastes. **Same information, same template, different transport** — automatic mode is not a lighter briefing than manual, it's the identical one delivered a different way.
+
+Either way, the scope is identical: **exactly one story and its tasks, never a whole feature.** Too much scope in one dispatch means it starts making its own planning decisions, which isn't its job in either mode.
+
+<!-- flagged for override: this is a genuinely new capability, not yet battle-tested against the manual flow's track record -->
+**Automatic mode's limit — the reason this is a choice, not a silent default:** the `executor` subagent cannot pause and ask a question, unlike the interactive `execution` skill. It follows a halt-and-report contract instead of an ask-a-question one: if a task turns out to be underspecified once it's actually being implemented (the pre-flight check above catches the obvious cases, not all of them), it reports that task back as `❌ blocked` with the specific question, rather than guessing a design to fill the gap. When a dispatch comes back with a blocked task:
+
+1. Put the exact question in front of the user yourself — you can ask, even though the subagent couldn't.
+2. Once answered, re-dispatch the `executor` subagent for just that task with the clarification included, or offer to switch that one story to manual mode if the gap turns out to be bigger than a quick answer.
+
+## 5. Dispatch Reviewer — automatic and parallel
 
 <!-- adapted from EveryInc/compound-engineering-plugin lfg (MIT) — verify the previous step's artifact before proceeding -->
-When the Executor's `execution-report` handover comes back, don't take "done" at face value — check the report actually contains what it should before acting on it: files changed listed, tasks reported per acceptance criterion, not just a blanket "finished." An incomplete report is itself a signal to ask the user or the Executor chat for more detail, not something to wave through.
+When the execution report comes back (handover, in manual mode; direct return value, in automatic mode), don't take "done" at face value — check the report actually contains what it should before acting on it: files changed listed, tasks reported per acceptance criterion, not just a blanket "finished." An incomplete report is itself a signal to ask for more detail, not something to wave through.
 
-Once the report is genuinely complete, dispatch the `reviewer` subagent via the `Agent` tool — in parallel, automatically, no need to ask the user first. This is the one dispatch-appropriate step in the whole pipeline, because review doesn't need to pause and ask anyone anything. Pass it: the story key, the task keys, and the files changed from the execution report.
+Once the report is genuinely complete, dispatch the `reviewer` subagent via the `Agent` tool — in parallel, automatically, no need to ask the user first, regardless of which mode Executor ran in. Review never needs to pause and ask anyone anything, which is what makes it always dispatch-appropriate. Pass it: the story key, the task keys, and the files changed from the execution report.
 
 ## 6. React to review
 
 Reviewer returns its standard ✅/⚠️/❌-per-task output (unchanged from the `review` skill — no new format to learn).
 
 - **All ✅** → proceed to the status cascade (§7).
-- **Any ❌** → emit a `correction` handover (`handover-protocol` → `references/correction.md`) back to the same Executor, containing only the failed findings — not a full re-brief of the story. Loop back to §5 once the Executor's next `execution-report` arrives.
+- **Any ❌** → send corrections back, in whichever mode the story is running, using `references/correction.md`'s exact fields either way (only the failed findings, the correction-round count, the story reference — never a full re-brief of the story): emit it as a `correction` handover for manual mode, or use the same filled-out fields as the dispatch prompt for a re-dispatch of the `executor` subagent for automatic mode. Loop back to §5 once the next execution report arrives.
 
 <!-- adapted from bmad-code-org/BMAD-METHOD correct-course (MIT) — structured change-impact analysis for corrections that ripple beyond one task -->
 **Before emitting a routine correction, check whether the finding is actually local.** Most ❌ findings are narrow — a missed edge case, a broken test. But if a finding suggests something baked into the technical plan itself was wrong (a data model assumption, an architecture choice that doesn't hold), don't just patch around it silently in a correction handover — that ripples into other tasks and stories that assumed the same thing. Surface it to the user explicitly before continuing; a silent local patch over a wrong foundational assumption just relocates the bug.
