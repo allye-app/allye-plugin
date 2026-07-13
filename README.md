@@ -246,15 +246,15 @@ Skills are the knowledge base that powers the agents. 10 workflow skills are pub
 | Skill | What it teaches |
 |-------|----------------|
 | `using-allye` | Bootstrap — memory protocol, skill routing, workflow gates |
-| `allye-product-planning` | Business requirements → Epics → Features → Stories |
-| `allye-technical-planning` | Story → Discussion Phase → Tasks with acceptance criteria |
-| `allye-technical-development` | Task → TDD → Implementation with wave execution |
-| `allye-technical-review` | Code review with decision context from planning |
-| `allye-technical-delivery` | Verify → Close story → Update docs → Save memory |
-| `allye-memory-protocol` | When and how to search/save memories across sessions |
-| `allye-tdd-workflow` | Red-Green-Refactor cycle with detection heuristic |
-| `allye-board-progression` | Status transitions and board mechanics |
-| `allye-tools-quickref` | Complete reference for all 12 MCP tools and 68+ actions |
+| `product-planning` | Business requirements → Epics → Features → Stories |
+| `technical-planning` | Story → Discussion Phase → Tasks with acceptance criteria |
+| `execution` | Task → TDD → Implementation with wave execution |
+| `review` | Code review with decision context from planning |
+| `delivery` | Verify → Close story → Update docs → Save memory |
+| `memory-protocol` | When and how to search/save memories across sessions |
+| `tdd-workflow` | Red-Green-Refactor cycle with detection heuristic |
+| `board-progression` | Status transitions and board mechanics |
+| `tools-quickref` | Complete reference for all 12 MCP tools and 68+ actions |
 
 ### Custom team skills
 
