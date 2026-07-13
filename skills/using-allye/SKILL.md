@@ -97,6 +97,7 @@ If no handover marker is present, fall through to the decision table below as be
 | Explore ideas, research before committing to scope, think out loud, no direction chosen yet | Sandbox / Discovery | `sandbox` |
 | Define product requirements, create epics/features/stories | Product Planning | `allye-product-planning` |
 | Plan technical tasks for a story, discuss approach | Technical Planning | `allye-technical-planning` |
+| Coordinate delivery of an already-planned feature — assign work, track status, drive tasks through review | Orchestrator | `orchestrator` |
 | Implement code, write tests, develop features | Technical Development | `allye-technical-development` |
 | Review code, check implementation quality | Technical Review | `allye-technical-review` |
 | Finalize delivery, close story, update docs | Technical Delivery | `allye-technical-delivery` |
@@ -106,6 +107,7 @@ If no handover marker is present, fall through to the decision table below as be
 - **Sandbox / Discovery** — User wants to: explore ideas, think out loud, research before deciding, hasn't committed to a direction yet
 - **Product Planning** — User talks about: requirements, business needs, features, epics, user stories, product scope, MVP
 - **Technical Planning** — User has a story and wants to: break it into tasks, discuss approach, evaluate options, plan implementation
+- **Orchestrator** — User wants to: coordinate delivery, assign work items, track story/task status, drive review for an already-planned feature
 - **Technical Development** — User wants to: write code, implement a task, fix a bug, add functionality, write tests
 - **Technical Review** — User wants to: review code, check quality, validate implementation, get feedback
 - **Technical Delivery** — User wants to: finish a story, merge, deploy, update documentation, close items
