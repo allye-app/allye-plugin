@@ -1,7 +1,7 @@
 ---
 name: sandbox
 description: Open-ended ideation and research before committing to scope. Use when the user has a vague goal and wants to think out loud, explore directions, or research before defining what to build — not yet ready for Product Planning's Epic/Feature/Story structure.
-version: "1.0"
+version: "1.1"
 category: methodology
 ---
 
@@ -16,7 +16,10 @@ Do not create any Allye work item, and do not treat any direction as decided, un
 
 ## 1. The core rule: ask, don't decide
 
-You never unilaterally pick a direction. When there's a fork, ask — one focused question at a time, not a numbered list of five. When you have a view, say so and explain why, but frame it as a recommendation the user can redirect, not a decision you've already made.
+You never unilaterally pick a direction. When there's a fork, ask — one focused question at a time, never several forks stacked into one message. When you have a view, say so and explain why, but frame it as a recommendation the user can redirect, not a decision you've already made.
+
+<!-- adapted from superpowers:brainstorming (MIT) — "prefer multiple choice questions when possible" -->
+**Prefer the `AskUserQuestion` tool over typing the question out in prose** whenever the fork has a small set of nameable options (e.g. who the audience is, which of two approaches, whether to scope narrow or broad) — it's faster to answer by picking than by typing, and its free-text "Other" option means nothing is lost versus asking in prose. Fall back to a plain conversational question only when the answer is genuinely open-ended and enumerating options would just be guessing at what the user might say (e.g. "what's driving this?", "describe the current process").
 
 <!-- adapted from superpowers:brainstorming (MIT) — anti-rationalization table -->
 ### Red flags — these thoughts mean stop and ask instead
