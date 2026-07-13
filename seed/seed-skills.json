@@ -8,8 +8,14 @@
       "description": "Bootstrap meta-skill for AI agents using the Allye platform. Teaches when and how to use Allye MCP tools with structured workflows. Injected at session start.",
       "category": "other",
       "scope": "team",
-      "source_file": "skills/bootstrap/using-allye.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/using-allye/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     },
     {
       "name": "allye-memory-protocol",
@@ -17,8 +23,14 @@
       "description": "Complete memory protocol for AI agents using Allye. Defines when and how to search, save, and link memories for cross-session continuity.",
       "category": "other",
       "scope": "team",
-      "source_file": "skills/methodology/memory-protocol.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/memory-protocol/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     },
     {
       "name": "allye-product-planning",
@@ -26,8 +38,14 @@
       "description": "Workflow for translating business requirements into epics, features, and stories in Allye.",
       "category": "architecture",
       "scope": "team",
-      "source_file": "skills/workflows/product-planning.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/product-planning/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     },
     {
       "name": "allye-technical-planning",
@@ -35,8 +53,14 @@
       "description": "Workflow for breaking a story into tasks through a structured discussion phase with decision capture.",
       "category": "architecture",
       "scope": "team",
-      "source_file": "skills/workflows/technical-planning.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/technical-planning/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     },
     {
       "name": "allye-technical-development",
@@ -44,8 +68,14 @@
       "description": "Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution.",
       "category": "backend",
       "scope": "team",
-      "source_file": "skills/workflows/technical-development.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/execution/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     },
     {
       "name": "allye-technical-review",
@@ -53,8 +83,14 @@
       "description": "Workflow for reviewing implemented code with decision context from planning phase.",
       "category": "code_review",
       "scope": "team",
-      "source_file": "skills/workflows/technical-review.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/review/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     },
     {
       "name": "allye-technical-delivery",
@@ -62,8 +98,14 @@
       "description": "Workflow for finalizing a story after all tasks pass review. Closes story, updates docs, cleans up.",
       "category": "other",
       "scope": "team",
-      "source_file": "skills/workflows/technical-delivery.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/delivery/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     },
     {
       "name": "allye-tdd-workflow",
@@ -71,8 +113,14 @@
       "description": "Test-Driven Development discipline for AI agents. Red-Green-Refactor cycle, detection heuristic, and anti-patterns.",
       "category": "testing",
       "scope": "team",
-      "source_file": "skills/methodology/tdd-workflow.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/tdd-workflow/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     },
     {
       "name": "allye-board-progression",
@@ -80,8 +128,14 @@
       "description": "Rules for moving work items between statuses in Allye boards. Covers work_status_next, work_status_done, and status categories.",
       "category": "other",
       "scope": "team",
-      "source_file": "skills/methodology/board-progression.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/board-progression/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     },
     {
       "name": "allye-tools-quickref",
@@ -89,8 +143,14 @@
       "description": "Complete quick reference for all Allye MCP tools and their actions with parameters.",
       "category": "documentation",
       "scope": "team",
-      "source_file": "skills/reference/allye-tools-quickref.md",
-      "supported_agents": ["claude", "opencode", "cursor", "codex", "gemini"]
+      "source_file": "skills/tools-quickref/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     }
   ]
 }
