@@ -259,4 +259,4 @@ Before considering product planning complete, verify:
 
 ## What Comes Next
 
-After items are approved and created, ask the user whether to generate a **`planning-to-technical`** handover (see the `handover-protocol` skill) for Technical Planning. Include the doc reference (if any) and every created **and** reused key — Technical Planning has no other way to know which items are which.
+After items are approved and created, ask the user whether to generate a **`planning-to-technical`** handover (see the `handover-protocol` skill) for Technical Planning. Fill the template's `Doc:` line with the Discovery Doc reference if one exists upstream (or "Nenhum doc adicional" if not), and list every created **and** reused key — Technical Planning has no other way to know which items are which.

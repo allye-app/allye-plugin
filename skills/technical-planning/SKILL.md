@@ -23,6 +23,14 @@ Get story → Search context → Discussion Phase → Create tasks → Move stor
 
 ---
 
+## 0. Scope: one feature, story by story
+
+The steps below plan **one story at a time** — but the unit Technical Planning hands to the Orchestrator is the **feature**. When the target feature has multiple stories (a `planning-to-technical` handover usually lists several), work through every story under that feature in sequence, one at a time, running the full workflow (Steps 1–6) for each before starting the next.
+
+**Emit only ONE `technical-to-orchestration` handover, at the very end — after the last story in the feature is planned, never after each individual story.** That handover must cover every story and every task, grouped by wave, which is only honest once all of the feature's stories have actually been planned. If the session ends before all stories are planned, save session state (Step 6) and resume in a fresh chat — don't emit a partial feature-level handover.
+
+---
+
 ## Step 1: Get the Story
 
 Fetch the story the user wants to plan:
@@ -280,9 +288,12 @@ Before considering technical planning complete, verify:
 - [ ] Tasks are created in Allye with proper parent relationship
 - [ ] Story is moved to in_progress
 - [ ] Planning summary is saved as memory
+- [ ] All of the feature's stories are planned before the `technical-to-orchestration` handover is emitted (see §0)
 
 ---
 
 ## What Comes Next
 
-Emit a **`technical-to-orchestration`** handover (see the `handover-protocol` skill) for the Orchestrator. Spell out the full reading list — doc, epic, feature, every story, every task, grouped by wave — and every locked architecture decision. The Orchestrator has no other context; a vague pointer here becomes its problem later.
+**If the feature has more stories still unplanned, go back to Step 1 for the next story — no handover yet (see §0).**
+
+Once the last story in the feature is planned, emit a **`technical-to-orchestration`** handover (see the `handover-protocol` skill) for the Orchestrator. Spell out the full reading list — doc, epic, feature, every story, every task, grouped by wave — and every locked architecture decision, across all the stories planned in this cycle. The Orchestrator has no other context; a vague pointer here becomes its problem later.
