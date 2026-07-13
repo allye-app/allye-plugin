@@ -24,7 +24,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 
 | | Feature | Description |
 |---|---------|-------------|
-| **Agents** | Specialized agents | Allye Plan, Build, Review, Deliver — each focused on one workflow phase |
+| **Workflow** | Guided delivery | Sandbox → Product Planning → Technical Planning → Orchestrator → Executor → Reviewer, connected by handovers between fresh, lean-context chats |
 | **Planning** | Discussion phase | Gray areas identified, options presented with trade-offs, decisions captured |
 | **Memory** | Cross-session continuity | Agent searches past context at start, saves session state at end |
 | **TDD** | Test-driven development | Red-Green-Refactor with automatic detection of when TDD applies |
@@ -58,8 +58,8 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 After installing, you get:
 - **OAuth authentication** — browser-based login, no tokens to manage
 - **Bootstrap hook** — injects workflow methodology at session start
-- **1 subagent** — reviewer, delegated via the Agent tool (the one phase that doesn't need to pause and ask you anything)
-- **11 skills** — planning, development, and delivery run as skills loaded directly into your conversation, loaded on-demand by the orchestrator, so they can ask you questions when something's ambiguous
+- **4 dispatched subagents** — reviewer, deep-search, code-analyzer, executor, delegated via the Agent tool for phases that don't need to pause and ask you anything (executor only runs this way if you opt into automatic mode — manual is the default)
+- **14 skills** — Sandbox, Planning, Technical Planning, Orchestrator, and Delivery run as skills loaded directly into your conversation, loaded on-demand by the bootstrap, so they can ask you questions when something's ambiguous
 
 #### Multiple Allye accounts (multi-tenant)
 
@@ -88,7 +88,7 @@ Install allye-plugin following: https://raw.githubusercontent.com/allye-app/ally
 The agent will ask for your PAT, configure the MCP server, and install the `allye-opencode` plugin.
 
 After installing, you get:
-- **5 agents in the picker** — Allye, Allye Plan, Allye Build, Allye Review, Allye Deliver (Ctrl+T to switch)
+- **6 agents in the picker** — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver (Ctrl+T to switch)
 - **Auto-loaded context** — your profile and team info injected before every conversation
 - **Dynamic skill discovery** — agents search for your team's standards via MCP
 
@@ -194,8 +194,8 @@ cd allye-plugin && git pull && ./install.sh
 
 How multi-phase workflow support is implemented differs by platform, because not every platform lets a dispatched agent pause mid-task to ask you a question:
 
-- **Claude Code** ships one dispatched subagent — **Reviewer** — since code review is the one phase that never needs to interrupt you. Planning, Technical Planning, Development, and Delivery run as skills loaded directly into your conversation instead, precisely so they *can* stop and ask when something's ambiguous.
-- **OpenCode** ships 5 agent-picker personas (Ctrl+T to switch) — Allye, Allye Plan, Allye Build, Allye Review, Allye Deliver — OpenCode's agent model supports switching personas interactively within a session, so all 5 can be full agents.
+- **Claude Code** ships four dispatched subagents — **Reviewer**, **Deep Search**, **Code Analyzer**, and **Executor** — for phases that never need to interrupt you (Executor only runs this way if the Orchestrator's automatic mode is chosen for a story; its default is manual). Sandbox, Product Planning, Technical Planning, Orchestrator, and manual-mode Executor run as skills loaded directly into your conversation instead, precisely so they *can* stop and ask when something's ambiguous.
+- **OpenCode** ships 6 agent-picker personas (Ctrl+T to switch) — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver — OpenCode's agent model supports switching personas interactively within a session, so all 6 can be full agents. The automatic-Executor dispatch mode is Claude-Code-only for now; OpenCode always runs Executor (Allye Build) as an interactive agent.
 - **Cursor, Codex, Gemini CLI** — a single agent handles all phases with the same workflow knowledge (no multi-agent picker on these platforms).
 
 Every phase, on every platform:
@@ -210,11 +210,16 @@ Every phase, on every platform:
 
 ## Workflow
 
+Each phase runs in its own fresh, lean-context chat. When one finishes, it emits a **handover** — a block of chat text you review and paste as the first message of the next chat, which auto-detects it and loads the right skill.
+
 ```
-Product Planning → Technical Planning → Development → Review → Delivery
-       ↑                                                          |
-       └──────────────────── next story ──────────────────────────┘
+Sandbox → Product Planning → Technical Planning → Orchestrator ⇄ Executor → Reviewer
+                                                        ↑                       |
+                                                        └──── next story ───────┘
 ```
+
+### Sandbox
+Explore ideas, research before committing to scope, think out loud — no work items created here. Dispatches Deep Search / Code Analyzer subagents for research. Exits with a Discovery Doc once a direction is approved.
 
 ### Product Planning
 Understand business context → discover team templates → define hierarchy (Epic → Feature → Story) → create work items with acceptance criteria.
@@ -222,29 +227,35 @@ Understand business context → discover team templates → define hierarchy (Ep
 ### Technical Planning
 Get story → **discussion phase** (identify gray areas, present options with trade-offs, capture locked decisions) → create tasks with dependency waves.
 
-### Development
-Pick task → discover coding standards → read existing code first → TDD (Red → Green → Refactor) → mark done → next task.
+### Orchestrator
+Coordinates delivery of an already-planned feature: manages assignee and status, dispatches **Executor** one story at a time (manual handover, or automatic subagent dispatch — your choice per story), dispatches **Reviewer** in parallel once a report comes back, runs the correction loop, and cascades status up the work-item hierarchy.
 
-### Review
-Discover review standards → load planning decisions → review each task against acceptance criteria → check code quality, security, test coverage → approve or request changes.
+### Executor
+Implements exactly one story's tasks with TDD (Red → Green → Refactor). Runs either as an interactive skill (manual mode, can ask you questions) or as a dispatched subagent (automatic mode — halts and reports back instead of guessing when a task is underspecified).
+
+### Reviewer
+Reviews each task against acceptance criteria — code quality, security, test coverage — always dispatched automatically in parallel, since review never needs to pause and ask anyone anything.
 
 ### Delivery
-Discover delivery standards → verify all tasks done → close story → update documentation → clean up TODOs → save delivery memory.
+Once an epic's whole status cascade completes, the Orchestrator offers — never forces — a close-out: verify all tasks done, update documentation, clean up TODOs, save a delivery memory. A deliberate step, not an automatic one.
 
 ---
 
 ## Skills
 
-Skills are the knowledge base that powers the agents. 10 workflow skills are published in the **Allye marketplace** — available to all users without setup.
+Skills are the knowledge base that powers the agents. 13 workflow skills are published in the **Allye marketplace** — available to all users without setup (`setup` itself is Claude Code's local install-time skill and isn't marketplace-published).
 
 | Skill | What it teaches |
 |-------|----------------|
-| `using-allye` | Bootstrap — memory protocol, skill routing, workflow gates |
+| `using-allye` | Bootstrap — memory protocol, skill routing, handover detection, workflow gates |
+| `sandbox` | Explore ideas, research a direction, exit with a Discovery Doc — no work items created |
 | `product-planning` | Business requirements → Epics → Features → Stories |
 | `technical-planning` | Story → Discussion Phase → Tasks with acceptance criteria |
+| `orchestrator` | Coordinate delivery — assignee, dispatch Executor/Reviewer, correction loop, status cascade |
 | `execution` | Task → TDD → Implementation with wave execution |
 | `review` | Code review with decision context from planning |
 | `delivery` | Verify → Close story → Update docs → Save memory |
+| `handover-protocol` | The shared contract for handing off context between phases as chat text |
 | `memory-protocol` | When and how to search/save memories across sessions |
 | `tdd-workflow` | Red-Green-Refactor cycle with detection heuristic |
 | `board-progression` | Status transitions and board mechanics |
