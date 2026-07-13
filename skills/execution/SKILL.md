@@ -11,6 +11,8 @@ This skill guides you through implementing a task with discipline: read existing
 
 Use this when the user wants to: write code, implement a task, fix a bug, add functionality, or develop features.
 
+**Scope, if you arrived via a `story-execution` or `correction` handover (see `handover-protocol`):** read only the one story and its tasks named in the handover — nothing else. A `correction` handover carries only the failed findings, not the whole story again; fix exactly what it lists.
+
 ---
 
 ## Workflow Overview
@@ -117,6 +119,8 @@ Do not read endlessly. Reading is preparation, not implementation.
 
 ## Step 5: TDD — Test-Driven Development
 
+<!-- full discipline lives in the tdd-workflow skill, aligned with superpowers:test-driven-development (MIT) -->
+
 ### Should I use TDD for this task?
 
 Apply the **TDD Detection Heuristic**:
@@ -184,7 +188,7 @@ After completing the task, if it has **visual or behavioral impact** that the us
 
 ### `decision` Checkpoint
 
-If during implementation you encounter a choice not covered by the discussion phase:
+**If uncertain which path to take, STOP and ask — never proceed on assumption.** If during implementation you encounter a choice not covered by the discussion phase:
 
 > "I found a decision point not covered in planning:
 > {describe the options}
@@ -217,7 +221,10 @@ Examples of things that need human action:
 
 ## Step 7: Mark Task as Done
 
-Once all acceptance criteria are met and tests pass:
+<!-- adapted from superpowers:verification-before-completion (MIT) — evidence before assertions -->
+**Evidence before assertions.** Don't mark a task done because it looks right — run the tests, read the actual output, and confirm each acceptance criterion against that output before proceeding. "Should work" is not the same as "ran and passed."
+
+Once all acceptance criteria are verifiably met and tests pass:
 
 ```
 work_status_done(id: "{task uuid}")
@@ -255,7 +262,7 @@ work_children(id: "{story uuid}")
 
 - If there are more tasks in the current wave → pick one
 - If the current wave is done → move to the next wave
-- If all tasks are done → transition to **Technical Review** (load `allye-technical-review` skill)
+- If all tasks in the story are done → emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator
 
 ---
 
@@ -278,4 +285,4 @@ For each task, verify:
 
 ## What Comes Next
 
-When all tasks for the story are complete, transition to **Technical Review** — load the `allye-technical-review` skill.
+Emit the `execution-report` handover: files changed, tests added, status per acceptance criterion (not a blanket "done"), any new decisions made along the way, and any open questions. The Orchestrator decides from there whether to dispatch Reviewer or, if this is a `correction` round, loop back with more specific findings.
