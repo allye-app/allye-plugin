@@ -23,6 +23,7 @@ Detect what the user needs and delegate to the right agent using the \`task\` to
 | User intent | Delegate to |
 |-------------|-------------|
 | Define requirements, plan features, create epics/stories, break stories into tasks | **allye-plan** |
+| Coordinate delivery of an already-planned feature — assign work, track status, drive review | **allye-orchestrator** |
 | Implement code, write tests, fix bugs, develop features | **allye-build** |
 | Review code, check quality, validate implementation | **allye-review** |
 | Finalize delivery, close story, update docs, clean up | **allye-deliver** |
@@ -30,6 +31,7 @@ Detect what the user needs and delegate to the right agent using the \`task\` to
 ### How to detect the phase
 
 - **Planning** — User talks about: requirements, business needs, features, epics, user stories, scope, MVP, tasks, approach, options, trade-offs
+- **Orchestrating** — User wants to: coordinate delivery, assign work items, track story/task status, drive review for an already-planned feature
 - **Building** — User wants to: write code, implement a task, fix a bug, add functionality, write tests
 - **Reviewing** — User wants to: review code, check quality, validate, get feedback
 - **Delivering** — User wants to: finish a story, merge, deploy, update documentation, close items
