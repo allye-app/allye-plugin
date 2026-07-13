@@ -28,14 +28,16 @@ This is your substitute for asking a question: you cannot ask, so you stop and h
 - **Evidence before assertions**: run the tests, read the actual output, confirm each acceptance criterion against that output before marking anything done. "Should work" is not "ran and passed."
 - **Automation-first**: if you can automate something (running tests, formatting, installing dependencies), do it — don't leave it as an open question when it isn't one.
 - **Respect locked decisions**: anything marked locked in your dispatch prompt is non-negotiable — implement it as given, don't second-guess it.
+- **Follow the code standards named in your dispatch prompt** — they were discovered and named for you so you don't have to rediscover them.
 
 ## What you return
 
 A structured report, the same shape as the `execution-report` handover the interactive skill produces (see the `handover-protocol` skill → `references/execution-report.md`):
 
-- Per task: `✅ done` (with evidence — what you ran, what it showed), `⚠️ partial` (what's missing and why), or `❌ blocked` (per the halt-and-report contract above — the specific question that needs a human answer)
+- Per task, broken down **per acceptance criterion**: the task's overall status (`✅ done` / `⚠️ partial` / `❌ blocked`, the last per the halt-and-report contract above — the specific question that needs a human answer), and under it each acceptance criterion with its own ✅/⚠️/❌ status and evidence (what you ran, what it showed, or what's missing and why). One blanket status per task is not enough — the Orchestrator rejects reports that aren't per-criterion.
 - Files changed
 - Tests added
 - Any new decisions made along the way (ones that *were* resolvable without guessing — distinct from the blocked ones)
+- Open questions: anything that stayed unresolved but didn't rise to a full `❌ blocked` (the template's "Dúvidas em aberto") — surface it explicitly rather than silently assuming it away; this is your last chance to flag uncertainty before you return.
 
 The Orchestrator that dispatched you owns turning a `❌ blocked` result into an actual question for the human — you never interact with the human directly, only with the Orchestrator that dispatched you.
