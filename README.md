@@ -18,7 +18,9 @@
 
 Your AI agent has **68+ tools** but no idea when to use them. Allye adds the methodology layer — structured workflows, specialized agents, cross-session memory, and team-specific skills — so your agent plans before coding, tests before shipping, and remembers what happened yesterday.
 
-**Authentication is handled via OAuth 2.1** — your browser opens once for login, and tokens are managed automatically. No API keys or PATs to configure.
+**[Create a free Allye account →](https://allye.app/)**
+
+**Authentication is handled via OAuth 2.1 on Claude Code** — your browser opens once for login, and tokens are managed automatically. No API keys or PATs to configure. Other platforms (OpenCode, Cursor, Codex, Gemini CLI) authenticate with a Personal Access Token — see Prerequisites below.
 
 ## What you get
 
@@ -276,9 +278,19 @@ No team skills yet? Each agent will suggest creating them when it doesn't find s
 
 ## Prerequisites
 
-- A [Allye](https://allye.app/hq) account with a Personal Access Token (PAT)
+- An [Allye](https://allye.app/) account
+  - **Claude Code** — OAuth 2.1, handled entirely through the plugin's connect flow. No PAT needed.
+  - **OpenCode, Cursor, Codex, Gemini CLI** — a Personal Access Token (PAT), generated from your Allye account settings.
 - At least one supported AI coding agent installed
 - `jq` and `curl` (used by the installer and Claude Code hook)
+
+## Contributing
+
+Issues and PRs are welcome. Open an issue first for anything beyond a small fix, so the approach can be agreed on before you write code. PRs are reviewed before merge — expect feedback, and please keep unrelated changes out of a single PR.
+
+## Roadmap
+
+Today, Allye Agent Plugin is built around the Allye workspace. The long-term direction is to make the workflow layer (planning, orchestration, TDD, memory) work with other backends too — issue trackers like Jira and Linear, and memory stores like Obsidian or other local options — so teams can keep their existing tools and still get the methodology layer on top. Nothing here is scheduled yet; treat it as direction, not a commitment.
 
 ## License
 
