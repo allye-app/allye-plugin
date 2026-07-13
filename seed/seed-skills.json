@@ -181,6 +181,21 @@
         "codex",
         "gemini"
       ]
+    },
+    {
+      "name": "orchestrator",
+      "slug": "orchestrator",
+      "description": "Drives delivery of a planned feature — assignee, dispatch loop, correction escalation, status cascade.",
+      "category": "other",
+      "scope": "team",
+      "source_file": "skills/orchestrator/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     }
   ]
 }
