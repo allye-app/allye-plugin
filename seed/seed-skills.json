@@ -166,6 +166,21 @@
         "codex",
         "gemini"
       ]
+    },
+    {
+      "name": "sandbox",
+      "slug": "sandbox",
+      "description": "Open-ended ideation and research before committing to scope — the entry point before Product Planning.",
+      "category": "other",
+      "scope": "team",
+      "source_file": "skills/sandbox/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     }
   ]
 }
