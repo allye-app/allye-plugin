@@ -1,8 +1,8 @@
 ---
 name: product-planning
 description: Workflow for translating business requirements into epics, features, and stories in Allye. Use when the user wants to plan a product, define scope, or create work item hierarchies.
-version: "1.0"
-category: workflow
+version: "1.1"
+category: methodology
 ---
 
 # Product Planning Workflow

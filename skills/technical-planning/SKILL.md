@@ -1,8 +1,8 @@
 ---
 name: technical-planning
 description: Workflow for breaking a story into tasks through a structured discussion phase. Use when the user has a story and wants to plan the technical implementation.
-version: "1.0"
-category: workflow
+version: "1.1"
+category: methodology
 ---
 
 # Technical Planning Workflow
