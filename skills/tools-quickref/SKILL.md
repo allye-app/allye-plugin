@@ -1,7 +1,7 @@
 ---
 name: tools-quickref
-description: Complete quick reference for all Allye MCP tools and their actions with parameters. Use when you need to know how to call a specific Allye tool.
-version: "1.0"
+description: Complete quick reference for all Allye MCP tools and their actions with parameters, plus the concrete gotchas that cause silent failures or confusing errors. Use when you need to know how to call a specific Allye tool, or you hit an unexpected error/behavior from one.
+version: "2.0"
 category: reference
 ---
 
@@ -11,27 +11,47 @@ Complete reference for all 12 Allye MCP tools and their actions.
 
 ---
 
+## Gotchas (read this first if something didn't work as expected)
+
+<!-- mined directly from the allye-mcp source, not guessed — see allye_mcp/application/tools/*.py -->
+
+- **`work_create`/`work_bulk_create` require `work_category`**, even though it looks optional next to `item_type`. Omit it and the call fails, listing the full valid-category enum back to you (see below).
+- **Item types include more than the obvious five**: `epic`, `feature`, `story`, `bug`, `hotfix`, `task`, `spike`, `subtask` — not just epic/feature/story/task/bug.
+- **Assigning to someone else is two calls, not one.** `work_assign_to_me` only covers yourself. For anyone else: `team_members` (via `team`) to resolve their user id, then `work_update(id, assignee_id: "<their id>")`.
+- **`work_status_next` moves forward only.** It errors if the item is already at the last status in the board's progression, and there's no `work_status_prev`. Use `work_status_done` to jump straight to done regardless of current position. See the `board-progression` skill for the full resolution logic.
+- **`work_bulk_create` caps at 50 items per call**, and each item takes `parent_temp_id` (reference another item in the same batch) **or** `parent_key` (reference an existing item) — never both on the same item.
+- **`doc_create` needs `doc_emoji`** for every type except `folder` — check `doc_full_tree` for placement before creating, always; don't guess a parent location.
+- **`memory_save` never silently fails or duplicates.** Every save resolves to one of four outcomes — `created`, `updated` (non-destructive merge), `superseded` (new one wins, old kept for audit), or `noop` (already fully captured, nothing written). Treat `noop` as "already known," not an error to reword-and-retry past.
+- **Memory `sector` determines scope automatically — you never set scope directly.** `sessions` and `preferences` are always personal; every other sector (`decisions`, `incidents`, `plans`, `patterns`, `knowledge`) is always team. Passing `sector` wrong is the #1 way a memory ends up invisible to the rest of the team.
+- **The memory relocation flow is one-time per user, ever** — always check `alreadyPrompted` on `memory_relocation_candidates` before offering it; offering it twice is exactly the nagging behavior the guard exists to prevent.
+- **`initialize` returns `profile.user.id`** — the reliable way to know "who's currently logged in" when deciding self-assignment vs. assigning to someone else.
+
+For the full memory methodology (when to search, when to save, sector selection, the `/save` protocol, graph traversal), see the `memory-protocol` skill — this file only covers the action-level API surface.
+
+---
+
 ## work_items
 
-Manage work items: epics, features, stories, tasks, and bugs.
+Manage work items: epics, features, stories, tasks, bugs, hotfixes, spikes, subtasks.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `work_create` | Create a single work item | `title`*, `item_type`*, `work_category`, `description`, `parent_key`, `priority`, `story_points` |
+| `work_create` | Create a single work item | `title`*, `item_type`*, `work_category`*, `description`, `parent_key`, `priority`, `story_points` |
 | `work_list` | List/search work items | `query`, `item_type`, `status_category`, `limit`, `offset` |
 | `work_get` | Get a work item by ID or key | `id` or `key`* |
-| `work_update` | Update a work item | `id`*, `title`, `description`, `priority`, `story_points` |
+| `work_update` | Update a work item | `id`*, `title`, `description`, `priority`, `story_points`, `assignee_id` |
 | `work_children` | List child items of a parent | `id`* |
 | `work_assign_to_me` | Assign a work item to yourself | `id`* |
-| `work_status_next` | Move to next status in board progression | `id`* |
+| `work_status_next` | Move to next status in board progression (forward-only, errors at the last status) | `id`* |
 | `work_status_done` | Move directly to done status | `id`* |
 | `work_mine` | List items assigned to you | `status_category`, `item_type`, `limit` |
-| `work_bulk_create` | Create multiple items at once (max 50) | `items`* (array with `temp_id`, `title`, `item_type`, `work_category`, `parent_temp_id` or `parent_key`) |
+| `work_bulk_create` | Create multiple items at once (max 50) | `items`* (array with `temp_id`, `title`, `item_type`, `work_category`, `parent_temp_id` **or** `parent_key`) |
 | `work_statuses` | List all available statuses | — |
 
-**Item types:** `epic`, `feature`, `story`, `task`, `bug`
+**Item types:** `epic`, `feature`, `story`, `bug`, `hotfix`, `task`, `spike`, `subtask`
 **Priority values:** `critical`, `high`, `medium`, `low`
 **Status categories:** `backlog`, `todo`, `in_progress`, `testing`, `review`, `deploying`, `done`, `cancelled`
+**`work_category` is required on every create call** — values: `backend`, `frontend`, `mobile`, `fullstack`, `devops`, `infra`, `platform`, `sre`, `database`, `security`, `data`, `analytics`, `ai_ml`, `qa`, `automation`, `design`, `research`, `product`, `project`, `agile`, `support`, `operations`, `documentation`, `training`, `architecture`, `planning`, `development`
 
 ---
 
@@ -41,10 +61,10 @@ View boards and understand status progression.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `board_list` | List all boards | `limit` |
+| `board_list` | List all boards | `limit`, `offset` |
 | `board_favorites` | List favorite boards | — |
-| `board_get` | Get board details | `id`* |
-| `board_columns` | Get board columns with statuses | `id` (optional — defaults to team's primary board) |
+| `board_get` | Get board details | `board_id`* |
+| `board_columns` | Get board columns with statuses | `board_id` (optional — defaults to team's primary board) |
 
 ---
 
@@ -54,10 +74,10 @@ Manage sprint cycles.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `sprint_list` | List all sprints | `limit`, `status` |
+| `sprint_list` | List all sprints | `limit`, `offset` (no `status` filter — not exposed by this action) |
 | `sprint_active` | Get the currently active sprint | — |
-| `sprint_get` | Get sprint details | `id`* |
-| `sprint_work_items` | List work items in a sprint | `id`*, `limit` |
+| `sprint_get` | Get sprint details | `sprint_id`* |
+| `sprint_work_items` | List work items in a sprint | `sprint_id`* |
 
 ---
 
@@ -89,24 +109,29 @@ Documentation pages and folders with tree navigation.
 
 ## intelligence
 
-Semantic memory system for cross-session continuity.
+Semantic memory system for cross-session continuity. **Full methodology (when/what to save, sector selection, the `/save` protocol) lives in the `memory-protocol` skill — this is the action-level reference only.**
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `memory_save` | Save a memory (auto-deduplicates via graph) | `title`*, `content`* (markdown), `tags`* (array), `work_item_id`, `sprint_id`, `documentation_item_id`, `team_id` |
-| `memory_search` | Semantic search for memories | `query`* (natural language), `limit` (1-20), `tags`, `include_graph` (bool), `graph_depth` (1-5), `return_content` (bool), `team_id` |
+| `memory_save` | Save a memory (conflict-resolved, never a blind duplicate) | `title`*, `content`* (markdown), `tags`* (array), `sector` (default `knowledge`), `work_item_id`, `sprint_id`, `documentation_item_id`, `team_id` |
+| `memory_search` | Semantic search for memories | `query`* (natural language), `limit` (1-20), `tags`, `sector`, `scope` (`personal`\|`team`), `include_graph` (bool), `graph_depth` (1-5), `return_content` (bool), `team_id` |
 | `memory_graph` | BFS graph traversal from a memory node | `memory_id`* (UUID), `depth` (1-5, default 1), `relation_types` (filter), `include_invalidated` (bool), `graph_limit` (1-200) |
 | `memory_relations` | 1-hop direct relations of a memory | `memory_id`* (UUID), `direction` (outgoing\|incoming\|both), `relation_types`, `include_invalidated` (bool) |
+| `memory_preferences` | Load the user's pinned `preferences`-sector memories (not a search — fixed budget, no query needed) | — |
+| `memory_relocation_candidates` | Step 1 of the one-time personal→team relocation flow — lists pre-sector-system memories with suggestions | `limit`, `offset` |
+| `memory_relocation_apply` | Step 2 — apply the user-approved subset of relocation candidates | `relocations`* (array of `{memoryId, sector, teamId?}`) |
+| `memory_relocation_dismiss` | "Not now" path for the relocation flow — sets the one-time marker without moving anything | — |
 
-**Memory save behavior (F3):**
-- `action: "created"` — saved (new or superseded an existing)
-- `action: "rejected"` — exact duplicate (≥95% similarity), not saved; response includes the existing `memoryId`
-- `links[]` — graph edges auto-created on save (targetId, relationType, strength)
-- Auto-consolidation at version ≥5 or content ≥8000 chars
+**Sectors** (pass `sector` on every save — omitting it defaults to `knowledge`, which is rarely what you want): `decisions`, `sessions`, `patterns`, `incidents`, `plans`, `knowledge`, `preferences`. Scope is derived automatically: `sessions`/`preferences` are always personal; the other five are always team — there is no separate `scope` parameter on save.
+
+**`memory_save` outcomes** — every save resolves to exactly one of these (no blind-reject-by-similarity):
+- `created` — new, independent memory
+- `updated` — non-destructive merge into an existing memory
+- `superseded` — new memory created, old one invalidated (kept for audit)
+- `noop` — already fully captured; nothing written, response points at the existing memory
 
 **Search behavior:**
-- Uses AI embeddings, NOT keyword matching
-- Write queries like natural language, not keyword lists
+- Uses AI embeddings, NOT keyword matching — write queries like natural language, not keyword lists
 - Results ranked by semantic similarity
 - `include_graph=true` returns `relatedMemories[]` alongside each result (1-hop neighbors)
 - `return_content=false` by default (2-phase retrieval — metadata only, faster)
@@ -121,22 +146,25 @@ Semantic memory system for cross-session continuity.
 
 ## productivity
 
-Personal TODO management.
+Personal TODO management. **The `todo_` prefix is only on action names — the fields themselves are NOT prefixed** (it's `title`/`content`, not `todo_title`/`todo_description`).
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `todo_create` | Create a TODO | `todo_title`*, `todo_description`, `todo_priority`, `todo_due_date`, `todo_category`, `todo_tags` |
-| `todo_list` | List TODOs | `todo_status`, `todo_category`, `todo_priority`, `limit` |
+| `todo_create` | Create a TODO | `title`*, `content`* (markdown, required — not optional), `status`, `priority`, `category`, `tags`, `due_date` |
+| `todo_list` | List TODOs (no status filter → returns pending + in_progress merged, not everything) | `status`, `category`, `priority`, `limit`, `offset` |
 | `todo_get` | Get TODO by ID | `id`* |
-| `todo_update` | Update a TODO | `id`*, `todo_title`, `todo_completed`, `todo_priority` |
+| `todo_update` | Update a TODO | `id`*, `title`, `content`, `status`, `priority`, `category`, `tags`, `due_date` |
 | `todo_delete` | Delete a TODO | `id`* |
 | `todo_stats` | Get TODO statistics | — |
 | `todo_search` | Search TODOs | `query`* |
 | `todo_overdue` | List overdue TODOs | — |
-| `todo_upcoming` | List upcoming TODOs | — |
+| `todo_upcoming` | List upcoming TODOs | `days` (1-30) |
 | `todo_categories` | List available categories | — |
 | `todo_tags` | List used tags | — |
 | `todo_help` | Show TODO help | — |
+
+**`status` values:** `pending` (shown as "backlog" in the UI), `in_progress`, `completed`, `cancelled` — there is no separate boolean "completed" flag, status IS the completion state.
+**`priority` values:** `low`, `medium`, `high`, `urgent`.
 
 ---
 
@@ -146,46 +174,49 @@ Manage and export workflow skills.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `skill_create` | Create a skill | `skill_name`*, `skill_category`*, `skill_content`, `skill_description`, `skill_scope` |
-| `skill_list` | List/search skills | `query`, `skill_category`, `limit` |
-| `skill_get` | Get skill by ID | `id`* |
-| `skill_update` | Update a skill | `id`*, `skill_name`, `skill_content`, `skill_description` |
-| `skill_delete` | Delete a skill | `id`* |
-| `skill_marketplace` | Browse marketplace skills | `query`, `skill_category` |
-| `skill_fork` | Fork a marketplace skill | `skill_id`* |
-| `skill_export` | Export a skill in agent format | `id`*, `skill_export_format`* |
+| `skill_create` | Create a skill | `skill_name`*, `skill_content`*, `skill_scope`*, `skill_category`*, `skill_description`, `skill_slug` (auto-generated if omitted), `skill_team_id` (required when `skill_scope: "team"`) |
+| `skill_list` | List/search skills | `query`, `skill_category`, `skill_scope`, `limit`, `offset` |
+| `skill_get` | Get skill by ID | `skill_id`* or `id`* |
+| `skill_update` | Update a skill | `skill_id`* or `id`*, `skill_name`, `skill_content`, `skill_description`, `skill_category`, `skill_is_active` |
+| `skill_delete` | Delete a skill | `skill_id`* or `id`* |
+| `skill_marketplace` | Browse marketplace skills | `query`, `limit`, `offset` |
+| `skill_fork` | Fork a marketplace skill | `skill_id`* or `id`*, `skill_scope`* (only `personal`/`team`/`organization` — no `marketplace`) |
+| `skill_export` | Export a skill in agent format | `skill_id`* or `id`*, `skill_export_format`* |
 | `skill_import_github` | Import skill from GitHub | `repo_url`* |
-| `skill_install` | Install a skill | `skill_id`* |
+| `skill_install` | Install a skill | `skill_id`* or `id`* |
 | `skill_export_merged` | Export multiple skills merged | `skill_ids`*, `skill_export_format`* |
 
-**Export formats:** `cursor`, `claude`, `copilot`, `windsurf`
+**`skill_create` requires all three of `skill_content`, `skill_scope`, and `skill_category`** — easy to miss since only `skill_name` reads as obviously required.
+**Export formats:** `cursor`, `claude`, `copilot`, `windsurf`, `opencode`, `codex`, `gemini`
+**Skill scopes (create):** `personal`, `team`, `organization`, `marketplace`
 **Skill categories:** `frontend`, `backend`, `mobile`, `fullstack`, `devops`, `infrastructure`, `architecture`, `code_review`, `testing`, `security`, `documentation`, `performance`, `other`
 
 ---
 
 ## team
 
-Team management and switching.
+Team management, switching, and member lookup.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
 | `team_help` | Show team management help | — |
-| `team_switch` | Switch active team | `team_query`* (team name) |
+| `team_switch` | Switch active team | `team_query`* (name, prefix, or ID — partial match supported) |
 | `team_list` | List available teams | — |
 | `team_current` | Show current active team | — |
+| `team_members` | List active members of a team — **the way to resolve a user id for `work_update(assignee_id: ...)`** | `team_query` (optional — defaults to the active team) |
 
 ---
 
 ## user_config
 
-Personal configuration documents.
+Personal configuration documents ("Core Documents"). **The title field is `name`, not `title`** — a common mix-up since every other tool in this reference uses `title`.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `create` | Create a config document | `title`*, `content`* |
-| `list` | List config documents | — |
+| `create` | Create a config document | `name`*, `content`*, `mode_id`, `is_default`, `metadata` |
+| `list` | List config documents | `limit`, `offset`, `return_content` |
 | `get` | Get config document | `id`* |
-| `update` | Update config document | `id`*, `title`, `content` |
+| `update` | Update config document | `id`*, `name`, `content`, `mode_id`, `is_default`, `metadata` |
 | `delete` | Delete config document | `id`* |
 | `help` | Show help | — |
 
@@ -199,7 +230,7 @@ Browse API endpoint documentation.
 |--------|-------------|----------------|
 | `api_catalog_search` | Search API endpoints | `query`* |
 | `api_catalog_list` | List all endpoints | `limit`, `offset` |
-| `api_catalog_get` | Get endpoint details | `id`* |
+| `api_catalog_get` | Get endpoint details | `api_spec_id`* or `id`* |
 
 ---
 
@@ -209,17 +240,17 @@ Bootstrap Allye environment.
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `init` | Initialize/reload Allye environment and documents | — |
+| `init` | Initialize/reload Allye environment, profile, and core documents. Returns `profile.user.id` — the way to resolve "who's logged in" | `include_user_docs` (bool, default `true` — set `false` for a lighter payload when you don't need personal documents) |
 
 ---
 
 ## health
 
-Service monitoring.
+**Not an action-based tool** — unlike everything else in this reference, there's no `action` parameter and no sub-actions. The tool itself is the check.
 
-| Action | Description |
-|--------|-------------|
-| `health_check` | Check Allye backend health status |
+| Tool name | Description | Parameters |
+|-----------|-------------|------------|
+| `allye_health_check` | Check Allye backend health status | none |
 
 ---
 
