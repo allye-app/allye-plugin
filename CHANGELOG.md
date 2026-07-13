@@ -1,3 +1,16 @@
+## [1.2.3](https://github.com/allye-app/allye-plugin/compare/v1.2.2...v1.2.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* cross-platform parity — stale counts, missing slug notes, non-portable handovers ([ade8bd0](https://github.com/allye-app/allye-plugin/commit/ade8bd0796b526a2c00cb1980a3c54ebaf10a3ad))
+* filter Claude-Code-only automatic-Executor text out of the OpenCode-generated prompt ([394dc20](https://github.com/allye-app/allye-plugin/commit/394dc205f239a517836bea92e0245fa98aa833fe))
+* install.sh was entirely PAT-based against the deprecated /jsonrpc endpoint ([11237fe](https://github.com/allye-app/allye-plugin/commit/11237fe3ff07a6f0f33073234866c2af184924ea))
+* memory_save vocabulary mismatch, stale save protocol, broken tool calls ([66340f6](https://github.com/allye-app/allye-plugin/commit/66340f6c58c1a6e9093c0a4cb8cbcde972a3bc39))
+* rewrite reviewer agent to match the non-interactive dispatch contract ([662e6b6](https://github.com/allye-app/allye-plugin/commit/662e6b652260e4be859993cf73aadfa59d6d5c01))
+* story-execution handover self-contradicted on scope, Discovery Doc reference was silently dropped ([c853f78](https://github.com/allye-app/allye-plugin/commit/c853f782f420e3f33b6737604f2daf81cdd2991c))
+* task done-status flow and correction-round rule were internally contradictory ([8dc5c09](https://github.com/allye-app/allye-plugin/commit/8dc5c0936940be51fbbc923b5e38dfd475c019a9))
+
 ## [1.2.2](https://github.com/allye-app/allye-plugin/compare/v1.2.1...v1.2.2) (2026-07-13)
 
 
