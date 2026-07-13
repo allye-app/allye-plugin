@@ -28,7 +28,7 @@ Get task → Search context → Move to in_progress → Read code → TDD (Red �
 Fetch the task you're about to implement:
 
 ```
-work_get(key: "{TASK-KEY}")
+work_get(work_key: "{TASK-KEY}")
 ```
 
 Read its description carefully — it should contain:

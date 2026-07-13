@@ -26,7 +26,7 @@ Get story context → Load decisions → Review each task → Document findings 
 ### Get the story and its tasks
 
 ```
-work_get(key: "{STORY-KEY}")
+work_get(work_key: "{STORY-KEY}")
 work_children(id: "{story uuid}")
 ```
 
