@@ -11,11 +11,22 @@ This skill defines how to correctly move work items between statuses using Allye
 
 ---
 
-## 1. Status Categories
+## 1. Status Categories vs. Status Names
 
-Allye uses these status categories, in typical progression order:
+The MCP client can only **confirm** 4 status categories — `work_statuses()` (`work_items.py`) groups every status under a hardcoded `category_order`:
 
-| Category | Meaning |
+| Category (confirmed) | Meaning |
+|----------|---------|
+| `proposed` | Not yet started (backlog/todo-like) |
+| `in_progress` | Actively being worked on |
+| `done` | Completed and verified |
+| `cancelled` | Will not be done |
+
+That's the only taxonomy the MCP client source guarantees. Specific status **names** (e.g. "Backlog", "Todo", "In Progress", "Testing", "Review", "Deploying", "Done") are team-configurable `WorkflowStatus` records mapped onto those 4 categories via board columns — they are not enumerable or guaranteed from the client code alone, and a given team's board may use different names or skip some of them.
+
+With that caveat, the finer-grained progression below is a common, practical convention (not something the client confirms) that this skill assumes as its default working model, because most teams do configure something like it:
+
+| Status name (convention) | Meaning |
 |----------|---------|
 | `backlog` | Not yet planned — sitting in the backlog |
 | `todo` | Planned and ready to start |
@@ -26,7 +37,7 @@ Allye uses these status categories, in typical progression order:
 | `done` | Completed and verified |
 | `cancelled` | Will not be done |
 
-Each team can customize their board with different columns and map statuses to columns as they see fit. The categories above are the semantic meaning — the actual status names may vary.
+Each team can customize their board with different columns and map statuses to columns as they see fit. Before relying on any specific status name, check `work_statuses()` (categories + actual names for the team) and `board_columns()` (which columns exist on the board in question).
 
 ---
 
@@ -118,7 +129,7 @@ Returns all available statuses with their categories and names.
 board_columns()
 ```
 
-Returns the board structure showing which statuses are in which columns and their order. This is the source of truth for `work_status_next` progression.
+Returns the board's columns for the given `board_id` — each rendered as `- {column name} (ID: {column id})`. Note: this tool's text output does not surface which statuses map to which column, nor an explicit ordering field (`boards.py`'s `board_columns` action only formats `name` and `id` per column) — that richer structure may exist in the underlying API but isn't exposed here. Use it to confirm which columns exist on a board; pair it with `work_statuses()` for status names/categories.
 
 ---
 
