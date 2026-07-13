@@ -1,8 +1,8 @@
 ---
 name: execution
 description: Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution. Use when the user wants to write code, implement a task, or develop features.
-version: "1.0"
-category: workflow
+version: "1.1"
+category: methodology
 ---
 
 # Technical Development Workflow
@@ -107,12 +107,14 @@ This is not optional. Writing code without reading the context leads to:
 ### Analysis Paralysis Guard
 
 <HARD-GATE>
-If you have read 5+ files without writing any code, STOP and ask yourself:
+This checkpoint applies to exploratory reads beyond what the task already named — reading every file the task itself points you to (see "What to read" above) is still mandatory, not capped by this count.
+
+If you have read 5+ files *beyond those named/implied by the task* without writing any code, STOP and ask yourself:
 
 1. **Do I have enough context to start?** → If yes, start writing. Perfect understanding is not required.
 2. **Am I blocked by missing information?** → If yes, tell the user what's blocking you.
 
-Do not read endlessly. Reading is preparation, not implementation.
+Do not read endlessly in search of additional context. Reading is preparation, not implementation.
 </HARD-GATE>
 
 ---
@@ -254,15 +256,13 @@ Only save if there's genuinely useful context. Don't save trivial implementation
 
 ## Step 9: Pick Next Task
 
-After completing a task, check what's next:
+After completing a task, pick the next one from the **handover's own wave-ordered task list** — not from a live API call. The `story-execution` handover already contains every task across every wave for the whole story, so it's the authoritative scope; going back to the API for *new* tasks would risk pulling in tasks added to the story after the handover was dispatched, which are out of scope (see line ~14).
 
-```
-work_children(id: "{story uuid}")
-```
-
-- If there are more tasks in the current wave → pick one
-- If the current wave is done → move to the next wave
+- If there are more tasks in the current wave (per the handover's list) → pick one
+- If the current wave is done → move to the next wave (per the handover's list)
 - If every task in the story has reached `review` (implementation complete, awaiting Reviewer) → emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator
+
+Use `work_children(id: "{story uuid}")` only to **verify/check the status** of tasks already in the handover's list (e.g. confirming a dependency reached `review`) — never to discover new tasks to work on. If `work_children` reveals a task under this story that is **not** in the handover's task list, do not execute it — it wasn't in scope when the handover was dispatched. Instead, note it as an open question ("Dúvidas em aberto") in the `execution-report` handover so the Orchestrator can decide whether to bring it into scope.
 
 ---
 
