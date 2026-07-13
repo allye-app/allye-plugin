@@ -1,5 +1,5 @@
 ---
-name: allye-memory-protocol
+name: memory-protocol
 description: Complete memory protocol for AI agents using Allye. Defines when and how to search, save, and link memories for cross-session continuity.
 version: "2.1"
 category: methodology

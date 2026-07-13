@@ -1,5 +1,5 @@
 ---
-name: allye-board-progression
+name: board-progression
 description: Rules for moving work items between statuses in Allye boards. Covers work_status_next, work_status_done, and status categories.
 version: "1.0"
 category: methodology

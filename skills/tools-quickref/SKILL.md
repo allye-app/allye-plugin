@@ -1,5 +1,5 @@
 ---
-name: allye-tools-quickref
+name: tools-quickref
 description: Complete quick reference for all Allye MCP tools and their actions with parameters. Use when you need to know how to call a specific Allye tool.
 version: "1.0"
 category: reference

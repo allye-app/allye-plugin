@@ -1,5 +1,5 @@
 ---
-name: allye-tdd-workflow
+name: tdd-workflow
 description: Test-Driven Development discipline for AI agents. Red-Green-Refactor cycle, detection heuristic, and anti-patterns. Use when implementing features or fixing bugs.
 version: "1.0"
 category: methodology

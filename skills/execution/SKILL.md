@@ -1,5 +1,5 @@
 ---
-name: allye-technical-development
+name: execution
 description: Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution. Use when the user wants to write code, implement a task, or develop features.
 version: "1.0"
 category: workflow

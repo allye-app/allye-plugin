@@ -1,5 +1,5 @@
 ---
-name: allye-setup
+name: setup
 description: First-time setup for the Allye plugin. Uses OAuth for ALL platforms — no PAT.
 ---
 
