@@ -24,11 +24,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_SKILL="$PLUGIN_ROOT/skills/using-allye/SKILL.md"
 
-# Fallback to legacy path if new structure doesn't exist yet
-if [ ! -f "$LOCAL_SKILL" ]; then
-  LOCAL_SKILL="$PLUGIN_ROOT/skills/bootstrap/using-allye.md"
-fi
-
 # Check if PAT is configured — OAuth users won't have PAT set, that's OK
 # The .mcp.json handles OAuth automatically. PAT is only for CI/CD fallback.
 if [ -z "$ALLYE_PAT" ]; then

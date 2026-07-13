@@ -24,11 +24,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_SKILL="$PLUGIN_ROOT/skills/using-allye/SKILL.md"
 
-# Fallback to legacy path if new structure doesn't exist yet
-if [ ! -f "$LOCAL_SKILL" ]; then
-  LOCAL_SKILL="$PLUGIN_ROOT/skills/bootstrap/using-allye.md"
-fi
-
 # Check if PAT is configured — OAuth users won't have PAT set, that's OK
 # The .mcp.json handles OAuth automatically. PAT is only for CI/CD fallback.
 if [ -z "$ALLYE_PAT" ]; then
@@ -94,6 +89,14 @@ SKILL_CONTENT=$(fetch_from_api || read_local)
 # Persist env vars for the session
 if [ -n "$CLAUDE_ENV_FILE" ]; then
   echo 'export ALLYE_PLUGIN_LOADED=true' >> "$CLAUDE_ENV_FILE"
+
+  # Auto-generate tenant slug from current directory name for multi-account OAuth isolation.
+  # Each project directory gets a unique slug → unique MCP URL → separate OAuth token.
+  # Users can override by setting ALLYE_TENANT_SLUG in their environment.
+  if [ -z "$ALLYE_TENANT_SLUG" ]; then
+    ALLYE_TENANT_SLUG=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+  fi
+  echo "export ALLYE_TENANT_SLUG=$ALLYE_TENANT_SLUG" >> "$CLAUDE_ENV_FILE"
 fi
 
 # Output structured JSON for Claude Code
