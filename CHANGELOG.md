@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/allye-app/allye-plugin/compare/v1.1.1...v1.2.0) (2026-07-13)
+
+
+### Features
+
+* **sandbox:** prefer AskUserQuestion tool for enumerable forks ([a9b5c9d](https://github.com/allye-app/allye-plugin/commit/a9b5c9d9830738f1277d4ebba11bae229787c8b0))
+
 ## [1.1.1](https://github.com/allye-app/allye-plugin/compare/v1.1.0...v1.1.1) (2026-07-13)
 
 
