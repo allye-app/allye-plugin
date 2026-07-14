@@ -1,3 +1,10 @@
+## [1.2.6](https://github.com/allye-app/allye-plugin/compare/v1.2.5...v1.2.6) (2026-07-14)
+
+
+### Bug Fixes
+
+* orchestrator reads the full work-item subtree, not just the handover's listed keys ([6cc31e7](https://github.com/allye-app/allye-plugin/commit/6cc31e76dfc634b20193359ca49d762680b34464))
+
 ## [1.2.5](https://github.com/allye-app/allye-plugin/compare/v1.2.4...v1.2.5) (2026-07-13)
 
 
