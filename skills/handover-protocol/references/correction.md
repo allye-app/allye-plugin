@@ -2,7 +2,7 @@
 
 **Emitted by:** `orchestrator`
 **Received by:** `execution` (the same Executor chat/session that produced the original implementation, when possible)
-**Objetivo:** Corrigir achados específicos do review — este handover é deliberadamente estreito. It never re-briefs the whole story; that would defeat the point of a lean, targeted correction pass.
+**Objective:** Fix specific review findings — this handover is deliberately narrow. It never re-briefs the whole story; that would defeat the point of a lean, targeted correction pass.
 
 ## Before emitting, confirm
 
@@ -14,19 +14,19 @@
 
 ```markdown
 ## 🔄 Allye Handover — correction
-**Skill a carregar:** execution
+**Skill to load:** execution
 
-### Objetivo
-Corrigir os achados de review abaixo em {STORY-KEY} — nada além disso.
+### Objective
+Fix the review findings below in {STORY-KEY} — nothing more.
 
-### Achados a corrigir (❌ apenas)
-- {TASK-KEY}: "{achado do reviewer, citado literalmente}"
-- {TASK-KEY}: "{achado do reviewer, citado literalmente}"
+### Findings to fix (❌ only)
+- {TASK-KEY}: "{reviewer finding, quoted literally}"
+- {TASK-KEY}: "{reviewer finding, quoted literally}"
 
-### Rodada de correção
-Esta é a {N}ª tentativa de correção nesta story.
-{Se N for maior que 2, o Orchestrator não deveria estar emitindo este handover — o máximo são 2 handovers de correção por task; a 3ª falha de review escala para o usuário em vez de gerar um 3º handover. Ver skills/orchestrator.}
+### Correction round
+This is correction attempt {N} for this story.
+{If N is greater than 2, the Orchestrator shouldn't be emitting this handover — the max is 2 correction handovers per task; a 3rd review failure escalates to the user instead of producing a 3rd handover. See skills/orchestrator.}
 
 ---
-Corrija SÓ o que está listado acima — não refaça a story inteira. Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+Fix ONLY what's listed above — don't redo the whole story. If anything is unclear, STOP and ask — don't proceed on a guess.
 ```

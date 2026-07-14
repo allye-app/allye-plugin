@@ -38,6 +38,6 @@ A structured report, the same shape as the `execution-report` handover the inter
 - Files changed
 - Tests added
 - Any new decisions made along the way (ones that *were* resolvable without guessing — distinct from the blocked ones)
-- Open questions: anything that stayed unresolved but didn't rise to a full `❌ blocked` (the template's "Dúvidas em aberto") — surface it explicitly rather than silently assuming it away; this is your last chance to flag uncertainty before you return.
+- Open questions: anything that stayed unresolved but didn't rise to a full `❌ blocked` (the template's "Open questions") — surface it explicitly rather than silently assuming it away; this is your last chance to flag uncertainty before you return.
 
 The Orchestrator that dispatched you owns turning a `❌ blocked` result into an actual question for the human — you never interact with the human directly, only with the Orchestrator that dispatched you.

@@ -2,7 +2,7 @@
 
 **Emitted by:** `execution`
 **Received by:** `orchestrator`
-**Objetivo:** Devolver o resultado da implementação — o que o Orchestrator usa para decidir se dispara o Reviewer ou já cascateia status.
+**Objective:** Return the implementation result — what the Orchestrator uses to decide whether to dispatch the Reviewer or cascade status right away.
 
 ## Before emitting, confirm
 
@@ -14,29 +14,29 @@
 
 ```markdown
 ## 🔄 Allye Handover — execution-report
-**Skill a carregar:** orchestrator
+**Skill to load:** orchestrator
 
-### Story implementada
-{STORY-KEY} — {título}
+### Story implemented
+{STORY-KEY} — {title}
 
-### Tasks e status por critério de aceite
-- {TASK-KEY}: {✅ concluída | ⚠️ parcial | ❌ bloqueada}
-  - {critério 1}: {atendido | não atendido — por quê}
-  - {critério 2}: {atendido | não atendido — por quê}
+### Tasks and status per acceptance criterion
+- {TASK-KEY}: {✅ done | ⚠️ partial | ❌ blocked}
+  - {criterion 1}: {met | not met — why}
+  - {criterion 2}: {met | not met — why}
 
-### Arquivos alterados
-- {path} — {o que mudou}
-- {path} — {o que mudou}
+### Files changed
+- {path} — {what changed}
+- {path} — {what changed}
 
-### Testes adicionados
-{quais, o que cobrem, ou "Nenhum teste foi necessário — motivo"}
+### Tests added
+{which, what they cover, or "No test was needed — reason"}
 
-### Decisões novas tomadas durante a implementação
-- {decisão} — {motivo}, ou "Nenhuma decisão nova"
+### New decisions made during implementation
+- {decision} — {rationale}, or "No new decision"
 
-### Dúvidas em aberto
-{qualquer coisa que ficou sem resposta e precisa de decisão humana, ou "Nenhuma"}
+### Open questions
+{anything that stayed unanswered and needs a human decision, or "None"}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```

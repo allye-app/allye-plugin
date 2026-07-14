@@ -201,29 +201,29 @@ Generate a complete handoff using the shared marker format — same shape Claude
 
 \`\`\`
 ## 🔄 Allye Handover — technical-to-orchestration
-**Skill a carregar:** orchestrator
+**Skill to load:** orchestrator
 
-### Objetivo
-Conduzir a entrega de {FEATURE-KEY} — {feature title}
+### Objective
+Drive delivery of {FEATURE-KEY} — {feature title}
 
-### Leitura obrigatória
+### Required reading
 - Epic: {EPIC-KEY}
 - Feature: {FEATURE-KEY}
-- Stories e tasks por wave:
+- Stories and tasks by wave:
   - {STORY-KEY} — {title}
     - Wave 1: {TASK-KEY}, {TASK-KEY}
     - Wave 2: {TASK-KEY}
 
-### Decisões de arquitetura travadas
+### Locked architecture decisions
 - {decision 1}: {rationale}
 - {decision 2}: {rationale}
 
-### Contexto adicional
+### Additional context
 - {anything the user mentioned}
 - {relevant memories saved during planning}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 \`\`\`
 
 ### Step 4: Instruct the user

@@ -121,29 +121,29 @@ New skill: `skills/handover-protocol/`. **Each transition is its own named hando
 A handover is chat text only — never saved as a memory or file (the Allye doc/work items it references are the durable record; the handover is a disposable transport vehicle, copy-pasted by hand in both directions).
 
 ```markdown
-## 🔄 Allye Handover — {tipo}
-**Skill a carregar:** {skill-slug}
-...corpo específico do tipo...
+## 🔄 Allye Handover — {type}
+**Skill to load:** {skill-slug}
+...type-specific body...
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
 
 ### 5.2 The six types
 
-| Tipo | Transição | Objetivo específico | Payload distintivo |
+| Type | Transition | Specific objective | Distinctive payload |
 |---|---|---|---|
-| `discovery-to-planning` | Sandbox → Planning | Transformar a direção aprovada em estrutura de entregáveis | Discovery Doc ref; caminhos explorados **e rejeitados** (com o porquê); achados de pesquisa; protótipos se houver |
-| `planning-to-technical` | Planning → Tech Planning | Detalhar tecnicamente os squares aprovados | Chaves de epic/feature/story (criadas E reusadas, distinguidas); decisões de negócio travadas; protótipos |
-| `technical-to-orchestration` | Tech Planning → Orchestrator | Conduzir a entrega da feature planejada | Lista de leitura completa: doc + hierarquia + tasks + waves; decisões de arquitetura travadas |
-| `story-execution` | Orchestrator → Executor | Implementar exatamente uma story | UMA story + suas tasks, nada além; standards de código aplicáveis; expectativa de TDD |
-| `execution-report` | Executor → Orchestrator | Devolver o resultado da implementação | Arquivos alterados; testes adicionados; status por critério de aceite; decisões novas; dúvidas abertas |
-| `correction` | Orchestrator → Executor | Corrigir achados específicos do review | Só os achados ❌ do reviewer + tasks afetadas + ref da story — **não** re-briefa a story inteira |
+| `discovery-to-planning` | Sandbox → Planning | Turn the approved direction into a deliverable structure | Discovery Doc ref; paths explored **and rejected** (with why); research findings; prototypes if any |
+| `planning-to-technical` | Planning → Tech Planning | Technically detail the approved squares | Epic/feature/story keys (created AND reused, distinguished); locked business decisions; prototypes |
+| `technical-to-orchestration` | Tech Planning → Orchestrator | Drive delivery of the planned feature | Full reading list: doc + hierarchy + tasks + waves; locked architecture decisions |
+| `story-execution` | Orchestrator → Executor | Implement exactly one story | ONE story + its tasks, nothing more; applicable code standards; TDD expectation |
+| `execution-report` | Executor → Orchestrator | Return the implementation result | Files changed; tests added; status per acceptance criterion; new decisions; open questions |
+| `correction` | Orchestrator → Executor | Fix specific review findings | Only the reviewer's ❌ findings + affected tasks + story ref — **doesn't** re-brief the whole story |
 
 (Reviewer never receives a handover — it's invoked via the `Agent` tool with a constructed prompt, not by paste.)
 
 ### 5.3 Auto-detection
 
-`using-allye`'s bootstrap gets a new step, checked before the existing phase-detection table: if the user's first message contains a `## 🔄 Allye Handover` block, parse the `{tipo}` and `Skill a carregar`, and load that skill immediately — skip heuristic phase-guessing (explicit marker over inference, Bruno's choice). Detection lives in every bootstrap surface: Claude Code (`skills/using-allye/SKILL.md` via `hooks/session-start.sh`) and the OpenCode adapter — same marker format everywhere, so a handover generated on one tool works pasted into another.
+`using-allye`'s bootstrap gets a new step, checked before the existing phase-detection table: if the user's first message contains a `## 🔄 Allye Handover` block, parse the `{type}` and `Skill to load`, and load that skill immediately — skip heuristic phase-guessing (explicit marker over inference, Bruno's choice). Detection lives in every bootstrap surface: Claude Code (`skills/using-allye/SKILL.md` via `hooks/session-start.sh`) and the OpenCode adapter — same marker format everywhere, so a handover generated on one tool works pasted into another.
 
 ## 6. Phase designs
 

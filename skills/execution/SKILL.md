@@ -262,7 +262,7 @@ After completing a task, pick the next one from the **handover's own wave-ordere
 - If the current wave is done → move to the next wave (per the handover's list)
 - If every task in the story has reached `review` (implementation complete, awaiting Reviewer) → emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator
 
-Use `work_children(id: "{story uuid}")` only to **verify/check the status** of tasks already in the handover's list (e.g. confirming a dependency reached `review`) — never to discover new tasks to work on. If `work_children` reveals a task under this story that is **not** in the handover's task list, do not execute it — it wasn't in scope when the handover was dispatched. Instead, note it as an open question ("Dúvidas em aberto") in the `execution-report` handover so the Orchestrator can decide whether to bring it into scope.
+Use `work_children(id: "{story uuid}")` only to **verify/check the status** of tasks already in the handover's list (e.g. confirming a dependency reached `review`) — never to discover new tasks to work on. If `work_children` reveals a task under this story that is **not** in the handover's task list, do not execute it — it wasn't in scope when the handover was dispatched. Instead, note it as an open question ("Open questions") in the `execution-report` handover so the Orchestrator can decide whether to bring it into scope.
 
 ---
 

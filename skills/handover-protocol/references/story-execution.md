@@ -2,7 +2,7 @@
 
 **Emitted by:** `orchestrator`
 **Received by:** `execution`
-**Objetivo:** Implementar exatamente **uma** story — nunca uma feature inteira, e sempre a story **inteira**: todas as suas tasks, de todas as waves, em um único dispatch. This is the scoping rule the whole Orchestrator/Executor loop depends on: one dispatch = one whole story. There is no per-wave handover and no follow-up "next wave" handover — the Executor works through the waves in order and reports back once, when the story is done.
+**Objective:** Implement exactly **one** story — never a whole feature, and always the **entire** story: all of its tasks, across all waves, in a single dispatch. This is the scoping rule the whole Orchestrator/Executor loop depends on: one dispatch = one whole story. There is no per-wave handover and no follow-up "next wave" handover — the Executor works through the waves in order and reports back once, when the story is done.
 
 ## Before emitting, confirm
 
@@ -15,34 +15,34 @@
 
 ```markdown
 ## 🔄 Allye Handover — story-execution
-**Skill a carregar:** execution
+**Skill to load:** execution
 
-### Objetivo
-Implementar {STORY-KEY} — {título da story}
+### Objective
+Implement {STORY-KEY} — {story title}
 
 ### Story
-- Chave: {STORY-KEY}
-- Critérios de aceite: {copiados da descrição da story}
+- Key: {STORY-KEY}
+- Acceptance criteria: {copied from the story description}
 
-### Tasks (todas as tasks da story, agrupadas por wave)
+### Tasks (every task in the story, grouped by wave)
 - Wave 1:
-  - {TASK-KEY} — {título}
-    - Critérios de aceite: {copiados na íntegra da descrição da task}
-  - {TASK-KEY} — {título}
-    - Critérios de aceite: {copiados na íntegra da descrição da task}
+  - {TASK-KEY} — {title}
+    - Acceptance criteria: {copied in full from the task description}
+  - {TASK-KEY} — {title}
+    - Acceptance criteria: {copied in full from the task description}
 - Wave 2:
-  - {TASK-KEY} — {título}
-    - Critérios de aceite: {copiados na íntegra da descrição da task}
+  - {TASK-KEY} — {title}
+    - Acceptance criteria: {copied in full from the task description}
 
-### Decisões travadas aplicáveis
-- {decisão} — {motivo}
+### Applicable locked decisions
+- {decision} — {rationale}
 
-### Padrões de código aplicáveis
-{convenções descobertas via skill_list e obtidas via skill_get que devem ser seguidas, ou "Nenhum padrão de time encontrado — seguir convenções existentes no código"}
+### Applicable code standards
+{conventions discovered via skill_list and fetched via skill_get that must be followed, or "No team standard found — follow existing conventions in the code"}
 
-### Expectativa de TDD
-{se aplica Red-Green-Refactor e por quê, ou por que não se aplica}
+### TDD expectation
+{whether Red-Green-Refactor applies and why, or why it doesn't}
 
 ---
-Leia SÓ essa story e essas tasks — nada além disso. Execute as waves na ordem listada. Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+Read ONLY this story and these tasks — nothing more. Execute the waves in the listed order. If anything is unclear, STOP and ask — don't proceed on a guess.
 ```

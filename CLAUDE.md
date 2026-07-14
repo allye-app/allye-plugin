@@ -41,7 +41,7 @@ Six phases, connected by handovers instead of one continuous conversation — ea
 
 `skills/sandbox/` can also dispatch two bounded, question-free research subagents — `agents/deep-search.md` (multi-source web research) and `agents/code-analyzer.md` (clones a public repo under the session scratchpad, analyzes, reports, deletes unconditionally) — also available from Technical Planning.
 
-**The Handover Catalog** (`skills/handover-protocol/`) is the shared contract: a handover is chat text only (never saved as a memory or file), always starting with a `## 🔄 Allye Handover — {tipo}` marker `using-allye` auto-detects. Six named types, each with its own objective and field set (not one generic template) — see `skills/handover-protocol/references/*.md`: `discovery-to-planning`, `planning-to-technical`, `technical-to-orchestration`, `story-execution`, `execution-report`, `correction`.
+**The Handover Catalog** (`skills/handover-protocol/`) is the shared contract: a handover is chat text only (never saved as a memory or file), always starting with a `## 🔄 Allye Handover — {type}` marker `using-allye` auto-detects. Six named types, each with its own objective and field set (not one generic template) — see `skills/handover-protocol/references/*.md`: `discovery-to-planning`, `planning-to-technical`, `technical-to-orchestration`, `story-execution`, `execution-report`, `correction`.
 
 Design spec: `docs/superpowers/specs/2026-07-12-guided-delivery-workflow-design.md`. Implementation plans (all executed): `docs/superpowers/plans/2026-07-12-guided-delivery-workflow-0{1..6}-*.md`.
 

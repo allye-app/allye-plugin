@@ -23,7 +23,7 @@ Plan 1's "What comes next" and the design spec's market research (§9.1) both fl
 - Every new/edited `.ts` file in this plan must pass `npx tsc --noEmit` (run from `packages/allye-opencode/`) before its task is considered done — this is a hard gate, not optional.
 - `src/prompts/skills-content.ts` is gitignored (confirmed: `packages/allye-opencode/.gitignore` lists it explicitly) — regenerating it is a verification step, never a commit.
 - Every task's final commit uses `git commit -m "..." -- <exact-path>` (pathspec-scoped) — same requirement as Plans 3-5.
-- Marker-format handoffs introduced here use the same `## 🔄 Allye Handover — {tipo}` shape as Plan 2's Claude Code catalog — same field names, same spirit, ported into OpenCode's existing "generate a prompt, tell the user to paste it after switching agents" mechanism (Ctrl+T), which already matches Claude Code's "paste into a fresh chat" mechanic closely.
+- Marker-format handoffs introduced here use the same `## 🔄 Allye Handover — {type}` shape as Plan 2's Claude Code catalog — same field names, same spirit, ported into OpenCode's existing "generate a prompt, tell the user to paste it after switching agents" mechanism (Ctrl+T), which already matches Claude Code's "paste into a fresh chat" mechanic closely.
 
 ## File Structure
 
@@ -166,7 +166,7 @@ Generate a handoff scoped to exactly ONE story and its tasks — never a whole f
 
 \`\`\`
 ## 🔄 Allye Handover — story-execution
-**Skill a carregar:** allye-build
+**Skill to load:** allye-build
 
 ### Story
 {STORY-KEY} — {title}, with acceptance criteria copied in full
@@ -174,11 +174,11 @@ Generate a handoff scoped to exactly ONE story and its tasks — never a whole f
 ### Tasks
 {TASK-KEY list with acceptance criteria}
 
-### Decisões travadas aplicáveis
+### Applicable locked decisions
 {locked decisions from planning}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 \`\`\`
 
 ### Step 2: Receive the execution report, dispatch Review
@@ -200,16 +200,16 @@ Review returns its standard ✅/⚠️/❌-per-task output.
 
 \`\`\`
 ## 🔄 Allye Handover — correction
-**Skill a carregar:** allye-build
+**Skill to load:** allye-build
 
-### Achados a corrigir (❌ apenas)
+### Findings to fix (❌ only)
 - {TASK-KEY}: "{finding, quoted literally}"
 
-### Rodada de correção
-Esta é a {N}ª tentativa de correção nesta story.
+### Correction round
+This is correction attempt {N} for this story.
 
 ---
-Corrija SÓ o que está listado acima — não refaça a story inteira.
+Fix ONLY what's listed above — don't redo the whole story.
 \`\`\`
 
 **Escalate to the user instead of emitting a 4th correction handoff if the same task fails review 3 times.** Two rounds failing for different specific reasons is normal; three usually means something deeper is being missed.
@@ -388,29 +388,29 @@ Generate a complete handoff using the shared marker format — same shape Claude
 
 \`\`\`
 ## 🔄 Allye Handover — technical-to-orchestration
-**Skill a carregar:** allye-orchestrator
+**Skill to load:** allye-orchestrator
 
-### Objetivo
-Conduzir a entrega de {FEATURE-KEY} — {feature title}
+### Objective
+Drive delivery of {FEATURE-KEY} — {feature title}
 
-### Leitura obrigatória
+### Required reading
 - Epic: {EPIC-KEY}
 - Feature: {FEATURE-KEY}
-- Stories e tasks por wave:
+- Stories and tasks by wave:
   - {STORY-KEY} — {title}
     - Wave 1: {TASK-KEY}, {TASK-KEY}
     - Wave 2: {TASK-KEY}
 
-### Decisões de arquitetura travadas
+### Locked architecture decisions
 - {decision 1}: {rationale}
 - {decision 2}: {rationale}
 
-### Contexto adicional
+### Additional context
 - {anything the user mentioned}
 - {relevant memories saved during planning}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 \`\`\`
 
 ### Step 4: Instruct the user
@@ -485,26 +485,26 @@ When all tasks in the current story are done — or you've hit a genuine blocker
 
 \`\`\`
 ## 🔄 Allye Handover — execution-report
-**Skill a carregar:** allye-orchestrator
+**Skill to load:** allye-orchestrator
 
-### Story implementada
+### Story implemented
 {STORY-KEY} — {title}
 
-### Tasks e status por critério de aceite
-- {TASK-KEY}: {✅ concluída | ⚠️ parcial | ❌ bloqueada}
-  - {critério}: {atendido | não atendido — por quê}
+### Tasks and status per acceptance criterion
+- {TASK-KEY}: {✅ done | ⚠️ partial | ❌ blocked}
+  - {criterion}: {met | not met — why}
 
-### Arquivos alterados
+### Files changed
 - {path} — {what changed}
 
-### Decisões novas tomadas durante a implementação
-- {decision}, or "Nenhuma decisão nova"
+### New decisions made during implementation
+- {decision}, or "No new decision"
 
-### Dúvidas em aberto
-{anything unresolved, or "Nenhuma"}
+### Open questions
+{anything unresolved, or "None"}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 \`\`\`
 
 > "Story {STORY-KEY} is implemented. Switch to **Allye Orchestrator** (Ctrl+T → Allye Orchestrator) and paste the handover above — it'll dispatch review and handle status from here."
@@ -711,7 +711,7 @@ Find (identical in all three files):
 ```
 Replace with (in all three files):
 ```markdown
-1. **Check for a handover first** — if the message starts with `## 🔄 Allye Handover`, parse the `Skill a carregar` value and load that skill directly (`skill_list` by that slug) — skip step 2 below, there's no ambiguity to resolve
+1. **Check for a handover first** — if the message starts with `## 🔄 Allye Handover`, parse the `Skill to load` value and load that skill directly (`skill_list` by that slug) — skip step 2 below, there's no ambiguity to resolve
 2. **Search memories** — Run `memory_search` for session state, decisions, and context
 3. **Detect the workflow phase** — What does the user need?
 4. **Load the right skill** — Use `skill_list` to find and read the appropriate workflow skill
@@ -776,4 +776,4 @@ Expected: no output (identical table content between the two non-frontmatter man
 
 - **Spec coverage:** §9.3's four OpenCode/manifest change-map rows are all covered: `allye-plan.ts` (Task 3), `allye-build.ts`/`allye-review.ts`/`allye-deliver.ts` (Task 4), `allye.ts` "or new agent" (Task 2, via the new `allye-orchestrator.ts`), `manifests/{codex,cursor,gemini}` (Task 5). The runtime-adapter rework is explicitly deferred with reasoning, not silently dropped.
 - **Placeholder scan:** every task gives complete, literal file content or exact find/replace text — no "TBD." The `{STORY-KEY}`-style tokens inside the generated marker templates are intentional fill-in-the-blank fields for the *agent's future users*, matching the same convention already used throughout Plan 2's Claude Code templates and the pre-existing `PLAN_HANDOFF_FLOW`.
-- **Type/name consistency:** `allye-orchestrator` (registry key) matches across `index.ts`, `allye.ts`'s routing table, and every handoff's `Skill a carregar` value. Handover type names (`technical-to-orchestration`, `story-execution`, `execution-report`, `correction`) match Plan 2's catalog exactly. This plan is the first to be verified against a real TypeScript compiler, not just structural greps — every task's Step includes an `npx tsc --noEmit` gate.
+- **Type/name consistency:** `allye-orchestrator` (registry key) matches across `index.ts`, `allye.ts`'s routing table, and every handoff's `Skill to load` value. Handover type names (`technical-to-orchestration`, `story-execution`, `execution-report`, `correction`) match Plan 2's catalog exactly. This plan is the first to be verified against a real TypeScript compiler, not just structural greps — every task's Step includes an `npx tsc --noEmit` gate.

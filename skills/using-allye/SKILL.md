@@ -82,7 +82,7 @@ Detect what the user needs and load the right skill. Skills are loaded on-demand
 
 Before running the phase-detection heuristic below, check whether the user's first message contains a `## 🔄 Allye Handover` block (see the `handover-protocol` skill for the full format). If it does:
 
-1. Parse the `{tipo}` from the marker line and the `Skill a carregar` value.
+1. Parse the `{type}` from the marker line and the `Skill to load` value.
 2. Resolve it to a backend slug if needed — handover templates always use the bare skill name, but three skills kept their original `allye-*` backend slug through the Plan 1 rename (see the "Slug" column below): `product-planning` → `allye-product-planning`, `technical-planning` → `allye-technical-planning`, `execution` → `allye-technical-development`. Every other value (`orchestrator`, `sandbox`, `handover-protocol`) already matches its backend slug directly.
 3. Load that skill directly via `skill_list`/`skill_get` with the resolved slug — skip the heuristic decision table entirely, there's no ambiguity to resolve.
 4. Treat every field in the handover as authoritative context for this session — locked decisions in particular are non-negotiable unless the user explicitly reopens them.

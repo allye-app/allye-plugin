@@ -87,26 +87,26 @@ When all tasks in the current story are done — or you've hit a genuine blocker
 
 \`\`\`
 ## 🔄 Allye Handover — execution-report
-**Skill a carregar:** orchestrator
+**Skill to load:** orchestrator
 
-### Story implementada
+### Story implemented
 {STORY-KEY} — {title}
 
-### Tasks e status por critério de aceite
-- {TASK-KEY}: {✅ concluída | ⚠️ parcial | ❌ bloqueada}
-  - {critério}: {atendido | não atendido — por quê}
+### Tasks and status per acceptance criterion
+- {TASK-KEY}: {✅ done | ⚠️ partial | ❌ blocked}
+  - {criterion}: {met | not met — why}
 
-### Arquivos alterados
+### Files changed
 - {path} — {what changed}
 
-### Decisões novas tomadas durante a implementação
-- {decision}, or "Nenhuma decisão nova"
+### New decisions made during implementation
+- {decision}, or "No new decision"
 
-### Dúvidas em aberto
-{anything unresolved, or "Nenhuma"}
+### Open questions
+{anything unresolved, or "None"}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 \`\`\`
 
 > "Story {STORY-KEY} is implemented. Switch to **Allye Orchestrator** (Ctrl+T → Allye Orchestrator) and paste the handover above — it'll dispatch review and handle status from here."

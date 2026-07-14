@@ -72,29 +72,29 @@ A handover is how context moves between Allye workflow phases without carrying a
 Every handover starts with the same one-line marker and ends with the same reminder. Everything between them is specific to the handover's type — see §2.
 
 ```markdown
-## 🔄 Allye Handover — {tipo}
-**Skill a carregar:** {skill-slug}
+## 🔄 Allye Handover — {type}
+**Skill to load:** {skill-slug}
 
-...corpo específico do tipo — ver references/{tipo}.md...
+...type-specific body — see references/{type}.md...
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
 
-The bootstrap skill (`using-allye`) scans the first message of every fresh conversation for the `## 🔄 Allye Handover` line. When found, it parses `{tipo}` and `Skill a carregar`, loads that skill directly, and skips its own phase-detection heuristic. See `using-allye`'s "Handover detection" step.
+The bootstrap skill (`using-allye`) scans the first message of every fresh conversation for the `## 🔄 Allye Handover` line. When found, it parses `{type}` and `Skill to load`, loads that skill directly, and skips its own phase-detection heuristic. See `using-allye`'s "Handover detection" step.
 
 ## 2. The catalog
 
 Six types. Each is a distinct handoff with its own objective and field set — not a generic form filled in differently. Full templates live in `references/`.
 
-| Tipo | Transição | Objetivo | Template |
+| Type | Transition | Objective | Template |
 |---|---|---|---|
-| `discovery-to-planning` | Sandbox → Planning | Transformar a direção aprovada em estrutura de entregáveis | `references/discovery-to-planning.md` |
-| `planning-to-technical` | Planning → Tech Planning | Detalhar tecnicamente os squares aprovados | `references/planning-to-technical.md` |
-| `technical-to-orchestration` | Tech Planning → Orchestrator | Conduzir a entrega da feature planejada | `references/technical-to-orchestration.md` |
-| `story-execution` | Orchestrator → Executor | Implementar exatamente uma story | `references/story-execution.md` |
-| `execution-report` | Executor → Orchestrator | Devolver o resultado da implementação | `references/execution-report.md` |
-| `correction` | Orchestrator → Executor | Corrigir achados específicos do review | `references/correction.md` |
+| `discovery-to-planning` | Sandbox → Planning | Turn the approved direction into a deliverable structure | `references/discovery-to-planning.md` |
+| `planning-to-technical` | Planning → Tech Planning | Technically detail the approved squares | `references/planning-to-technical.md` |
+| `technical-to-orchestration` | Tech Planning → Orchestrator | Drive delivery of the planned feature | `references/technical-to-orchestration.md` |
+| `story-execution` | Orchestrator → Executor | Implement exactly one story | `references/story-execution.md` |
+| `execution-report` | Executor → Orchestrator | Return the implementation result | `references/execution-report.md` |
+| `correction` | Orchestrator → Executor | Fix specific review findings | `references/correction.md` |
 
 **Reviewer never receives a handover.** It's the one role invoked via the `Agent` tool with a constructed prompt (story + tasks + files changed), dispatched by the Orchestrator — not by a pasted handover.
 
@@ -142,7 +142,7 @@ git commit -m "feat: add handover-protocol skill (marker spec + 6-type catalog)"
 
 **Emitted by:** `sandbox` (once approved by the user)
 **Received by:** `product-planning`
-**Objetivo:** Transformar a direção aprovada durante o Sandbox em estrutura de entregáveis (squares/quadradinhos → Epic/Feature/Story).
+**Objective:** Turn the direction approved during Sandbox into a deliverable structure (squares/sub-squares → Epic/Feature/Story).
 
 ## Before emitting, confirm
 
@@ -154,33 +154,33 @@ git commit -m "feat: add handover-protocol skill (marker spec + 6-type catalog)"
 
 ```markdown
 ## 🔄 Allye Handover — discovery-to-planning
-**Skill a carregar:** product-planning
+**Skill to load:** product-planning
 
-### Objetivo
-{uma frase: qual produto/objetivo está sendo planejado}
+### Objective
+{one sentence: which product/objective is being planned}
 
 ### Discovery Doc
-- Título: {título do doc}
-- Referência no Allye: {doc id ou caminho na árvore}
+- Title: {doc title}
+- Reference in Allye: {doc id or path in the tree}
 
-### Direção aprovada
-{síntese do que foi decidido no Sandbox — o quê e por quê}
+### Approved direction
+{synthesis of what was decided in Sandbox — what and why}
 
-### Caminhos explorados e rejeitados
-- {caminho A} — rejeitado porque {motivo}
-- {caminho B} — rejeitado porque {motivo}
+### Paths explored and rejected
+- {path A} — rejected because {reason}
+- {path B} — rejected because {reason}
 
-### Achados de pesquisa
-{resumo do que deep-search / code-analyzer trouxeram, com fonte — "Nenhuma pesquisa foi feita" se não houve}
+### Research findings
+{summary of what deep-search / code-analyzer brought back, with source — "No research was done" if none}
 
-### Protótipos
-{referência de artifacts gerados, ou "Nenhum protótipo foi feito"}
+### Prototypes
+{reference to generated artifacts, or "No prototype was made"}
 
-### Contexto adicional
-{qualquer coisa mais que o próximo chat precisa saber}
+### Additional context
+{anything else the next chat needs to know}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
 ```
 
@@ -208,7 +208,7 @@ git commit -m "feat: add discovery-to-planning handover template"
 
 **Emitted by:** `product-planning`
 **Received by:** `technical-planning`
-**Objetivo:** Detalhar tecnicamente os squares (Features) e quadradinhos (Stories) aprovados na fase de negócio.
+**Objective:** Technically detail the squares (Features) and sub-squares (Stories) approved in the business phase.
 
 ## Before emitting, confirm
 
@@ -220,28 +220,28 @@ git commit -m "feat: add discovery-to-planning handover template"
 
 ```markdown
 ## 🔄 Allye Handover — planning-to-technical
-**Skill a carregar:** technical-planning
+**Skill to load:** technical-planning
 
-### Objetivo
-{qual story ou conjunto de stories será detalhado tecnicamente agora}
+### Objective
+{which story or set of stories will be technically detailed now}
 
-### Leitura obrigatória
-- Epic: {KEY} — {título} ({reusado | criado})
-- Feature(s): {KEY} — {título} ({reusado | criado})
-- Story(ies) a planejar agora: {KEY} — {título} ({reusado | criado})
+### Required reading
+- Epic: {KEY} — {title} ({reused | created})
+- Feature(s): {KEY} — {title} ({reused | created})
+- Story(ies) to plan now: {KEY} — {title} ({reused | created})
 
-### Decisões de negócio travadas
-- {decisão 1} — {motivo}
-- {decisão 2} — {motivo}
+### Locked business decisions
+- {decision 1} — {rationale}
+- {decision 2} — {rationale}
 
-### Protótipos
-{referência, ou "Nenhum protótipo foi feito"}
+### Prototypes
+{reference, or "No prototype was made"}
 
-### Contexto adicional
+### Additional context
 {}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
 ```
 
@@ -269,7 +269,7 @@ git commit -m "feat: add planning-to-technical handover template"
 
 **Emitted by:** `technical-planning`
 **Received by:** `orchestrator`
-**Objetivo:** Conduzir a entrega da feature planejada — este é o handover mais "carregado": o Orchestrator não tem contexto de negócio nem de arquitetura além do que está aqui.
+**Objective:** Drive delivery of the planned feature — this is the most "loaded" handover: the Orchestrator has no business or architecture context beyond what's here.
 
 ## Before emitting, confirm
 
@@ -281,31 +281,31 @@ git commit -m "feat: add planning-to-technical handover template"
 
 ```markdown
 ## 🔄 Allye Handover — technical-to-orchestration
-**Skill a carregar:** orchestrator
+**Skill to load:** orchestrator
 
-### Objetivo
-Conduzir a entrega de {FEATURE-KEY} — {título da feature}
+### Objective
+Drive delivery of {FEATURE-KEY} — {feature title}
 
-### Leitura obrigatória
-- Doc: {título e referência, ou "Nenhum doc adicional"}
+### Required reading
+- Doc: {title and reference, or "No additional doc"}
 - Epic: {EPIC-KEY}
 - Feature: {FEATURE-KEY}
-- Stories e tasks por wave:
-  - {STORY-KEY} — {título}
+- Stories and tasks by wave:
+  - {STORY-KEY} — {title}
     - Wave 1: {TASK-KEY}, {TASK-KEY}
     - Wave 2: {TASK-KEY}
-  - {STORY-KEY} — {título}
+  - {STORY-KEY} — {title}
     - Wave 1: {TASK-KEY}
 
-### Decisões de arquitetura travadas
-- {decisão} — {motivo}
-- {decisão} — {motivo}
+### Locked architecture decisions
+- {decision} — {rationale}
+- {decision} — {rationale}
 
-### Contexto adicional
+### Additional context
 {}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
 ```
 
@@ -333,7 +333,7 @@ git commit -m "feat: add technical-to-orchestration handover template"
 
 **Emitted by:** `orchestrator`
 **Received by:** `execution`
-**Objetivo:** Implementar exatamente **uma** story — nunca uma feature inteira. This is the scoping rule the whole Orchestrator/Executor loop depends on.
+**Objective:** Implement exactly **one** story — never a whole feature. This is the scoping rule the whole Orchestrator/Executor loop depends on.
 
 ## Before emitting, confirm
 
@@ -345,30 +345,30 @@ git commit -m "feat: add technical-to-orchestration handover template"
 
 ```markdown
 ## 🔄 Allye Handover — story-execution
-**Skill a carregar:** execution
+**Skill to load:** execution
 
-### Objetivo
-Implementar {STORY-KEY} — {título da story}
+### Objective
+Implement {STORY-KEY} — {story title}
 
 ### Story
-- Chave: {STORY-KEY}
-- Critérios de aceite: {copiados da descrição da story}
+- Key: {STORY-KEY}
+- Acceptance criteria: {copied from the story description}
 
 ### Tasks (nesta wave)
-- {TASK-KEY} — {título} — {critérios de aceite resumidos}
-- {TASK-KEY} — {título} — {critérios de aceite resumidos}
+- {TASK-KEY} — {title} — {summarized acceptance criteria}
+- {TASK-KEY} — {title} — {summarized acceptance criteria}
 
-### Decisões travadas aplicáveis
-- {decisão} — {motivo}
+### Applicable locked decisions
+- {decision} — {rationale}
 
-### Padrões de código aplicáveis
-{convenções descobertas via skill_list que devem ser seguidas, ou "Nenhum padrão de time encontrado — seguir convenções existentes no código"}
+### Applicable code standards
+{conventions discovered via skill_list that must be followed, or "No team standard found — follow existing conventions in the code"}
 
-### Expectativa de TDD
-{se aplica Red-Green-Refactor e por quê, ou por que não se aplica}
+### TDD expectation
+{whether Red-Green-Refactor applies and why, or why it doesn't}
 
 ---
-Leia SÓ essa story e essas tasks — nada além disso. Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+Read ONLY this story and these tasks — nothing more. If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
 ```
 
@@ -396,7 +396,7 @@ git commit -m "feat: add story-execution handover template"
 
 **Emitted by:** `execution`
 **Received by:** `orchestrator`
-**Objetivo:** Devolver o resultado da implementação — o que o Orchestrator usa para decidir se dispara o Reviewer ou já cascateia status.
+**Objective:** Return the implementation result — what the Orchestrator uses to decide whether to dispatch the Reviewer or cascade status right away.
 
 ## Before emitting, confirm
 
@@ -408,31 +408,31 @@ git commit -m "feat: add story-execution handover template"
 
 ```markdown
 ## 🔄 Allye Handover — execution-report
-**Skill a carregar:** orchestrator
+**Skill to load:** orchestrator
 
-### Story implementada
-{STORY-KEY} — {título}
+### Story implemented
+{STORY-KEY} — {title}
 
-### Tasks e status por critério de aceite
-- {TASK-KEY}: {✅ concluída | ⚠️ parcial | ❌ bloqueada}
-  - {critério 1}: {atendido | não atendido — por quê}
-  - {critério 2}: {atendido | não atendido — por quê}
+### Tasks and status per acceptance criterion
+- {TASK-KEY}: {✅ done | ⚠️ partial | ❌ blocked}
+  - {criterion 1}: {met | not met — why}
+  - {criterion 2}: {met | not met — why}
 
-### Arquivos alterados
-- {path} — {o que mudou}
-- {path} — {o que mudou}
+### Files changed
+- {path} — {what changed}
+- {path} — {what changed}
 
-### Testes adicionados
-{quais, o que cobrem, ou "Nenhum teste foi necessário — motivo"}
+### Tests added
+{which, what they cover, or "No test was needed — reason"}
 
-### Decisões novas tomadas durante a implementação
-- {decisão} — {motivo}, ou "Nenhuma decisão nova"
+### New decisions made during implementation
+- {decision} — {rationale}, or "No new decision"
 
-### Dúvidas em aberto
-{qualquer coisa que ficou sem resposta e precisa de decisão humana, ou "Nenhuma"}
+### Open questions
+{anything that stayed unanswered and needs a human decision, or "None"}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
 ```
 
@@ -460,7 +460,7 @@ git commit -m "feat: add execution-report handover template"
 
 **Emitted by:** `orchestrator`
 **Received by:** `execution` (the same Executor chat/session that produced the original implementation, when possible)
-**Objetivo:** Corrigir achados específicos do review — este handover é deliberadamente estreito. It never re-briefs the whole story; that would defeat the point of a lean, targeted correction pass.
+**Objective:** Fix specific review findings — this handover is deliberately narrow. It never re-briefs the whole story; that would defeat the point of a lean, targeted correction pass.
 
 ## Before emitting, confirm
 
@@ -472,21 +472,21 @@ git commit -m "feat: add execution-report handover template"
 
 ```markdown
 ## 🔄 Allye Handover — correction
-**Skill a carregar:** execution
+**Skill to load:** execution
 
-### Objetivo
-Corrigir os achados de review abaixo em {STORY-KEY} — nada além disso.
+### Objective
+Fix the review findings below in {STORY-KEY} — nothing more.
 
-### Achados a corrigir (❌ apenas)
-- {TASK-KEY}: "{achado do reviewer, citado literalmente}"
-- {TASK-KEY}: "{achado do reviewer, citado literalmente}"
+### Findings to fix (❌ only)
+- {TASK-KEY}: "{reviewer finding, quoted literally}"
+- {TASK-KEY}: "{reviewer finding, quoted literally}"
 
-### Rodada de correção
-Esta é a {N}ª tentativa de correção nesta story.
-{Se N for igual a 3, o Orchestrator não deveria estar emitindo este handover — deveria ter escalado para o usuário em vez disso. Ver skills/orchestrator.}
+### Correction round
+This is correction attempt {N} for this story.
+{If N equals 3, the Orchestrator shouldn't be emitting this handover — it should have escalated to the user instead. See skills/orchestrator.}
 
 ---
-Corrija SÓ o que está listado acima — não refaça a story inteira. Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+Fix ONLY what's listed above — don't redo the whole story. If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
 ```
 
@@ -529,7 +529,7 @@ Detect what the user needs and load the right skill. Skills are loaded on-demand
 
 Before running the phase-detection heuristic below, check whether the user's first message contains a `## 🔄 Allye Handover` block (see the `handover-protocol` skill for the full format). If it does:
 
-1. Parse the `{tipo}` from the marker line and the `Skill a carregar` value.
+1. Parse the `{type}` from the marker line and the `Skill to load` value.
 2. Load that skill directly via `skill_list`/`skill_get` — skip the heuristic decision table entirely, there's no ambiguity to resolve.
 3. Treat every field in the handover as authoritative context for this session — locked decisions in particular are non-negotiable unless the user explicitly reopens them.
 
@@ -618,14 +618,14 @@ for f in discovery-to-planning planning-to-technical technical-to-orchestration 
   grep "^### " "skills/handover-protocol/references/$f.md" | tail -n +1
 done
 ```
-Expected: each type's field list under "## Template" is visibly different from the others (e.g. `story-execution` has "Expectativa de TDD", `correction` has "Rodada de correção", `discovery-to-planning` has "Caminhos explorados e rejeitados" — none of these appear in the other types).
+Expected: each type's field list under "## Template" is visibly different from the others (e.g. `story-execution` has "TDD expectation", `correction` has "Correction round", `discovery-to-planning` has "Paths explored and rejected" — none of these appear in the other types).
 
 - [ ] **Step 3: Confirm no stray references to non-existent skills**
 
 ```bash
-grep -rn "Skill a carregar:\*\* sandbox\|Skill a carregar:\*\* orchestrator" skills/handover-protocol/references/*.md
+grep -rn "Skill to load:\*\* sandbox\|Skill to load:\*\* orchestrator" skills/handover-protocol/references/*.md
 ```
-Expected: matches on `orchestrator` (used by `technical-to-orchestration`, `execution-report`) are fine — `orchestrator` doesn't exist as a skill yet (Plan 4), but this plan is explicitly writing the contract those future skills will honor, per Global Constraints. No match on `sandbox` should appear as a `Skill a carregar` target (Sandbox never *receives* a handover — it's the entry point).
+Expected: matches on `orchestrator` (used by `technical-to-orchestration`, `execution-report`) are fine — `orchestrator` doesn't exist as a skill yet (Plan 4), but this plan is explicitly writing the contract those future skills will honor, per Global Constraints. No match on `sandbox` should appear as a `Skill to load` target (Sandbox never *receives* a handover — it's the entry point).
 
 - [ ] **Step 4: If everything passes, this plan is complete — no commit needed for this task (verification only)**
 
@@ -633,7 +633,7 @@ Expected: matches on `orchestrator` (used by `technical-to-orchestration`, `exec
 
 - **Spec coverage:** §5.1 (marker) → Task 1. §5.2 (6 types) → Tasks 2-7, one each, all with genuinely distinct fields. §5.3 (auto-detection) → Task 8. Nothing in spec §5 is uncovered.
 - **Placeholder scan:** every template task contains complete, literal file content — no "TBD"/"fill in later." The `{curly-brace}` tokens inside templates are intentional fill-in-the-blank fields for the *skill's future users* to complete when they actually emit a handover, not placeholders in *this plan* (the plan itself has zero unresolved placeholders — every file's full content is written out).
-- **Type/name consistency:** `Skill a carregar` values checked against Plan 1's renamed skill set (`product-planning`, `technical-planning`, `execution`) plus the not-yet-built `orchestrator` — consistent throughout. Catalog table in Task 1 matches the per-type objectives used in Tasks 2-7 verbatim.
+- **Type/name consistency:** `Skill to load` values checked against Plan 1's renamed skill set (`product-planning`, `technical-planning`, `execution`) plus the not-yet-built `orchestrator` — consistent throughout. Catalog table in Task 1 matches the per-type objectives used in Tasks 2-7 verbatim.
 
 ## What comes next
 

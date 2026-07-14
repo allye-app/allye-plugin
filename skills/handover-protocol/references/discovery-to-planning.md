@@ -2,7 +2,7 @@
 
 **Emitted by:** `sandbox` (once approved by the user)
 **Received by:** `product-planning`
-**Objetivo:** Transformar a direção aprovada durante o Sandbox em estrutura de entregáveis (squares/quadradinhos → Epic/Feature/Story).
+**Objective:** Turn the direction approved during Sandbox into a deliverable structure (squares/sub-squares → Epic/Feature/Story).
 
 ## Before emitting, confirm
 
@@ -14,31 +14,31 @@
 
 ```markdown
 ## 🔄 Allye Handover — discovery-to-planning
-**Skill a carregar:** product-planning
+**Skill to load:** product-planning
 
-### Objetivo
-{uma frase: qual produto/objetivo está sendo planejado}
+### Objective
+{one sentence: which product/objective is being planned}
 
 ### Discovery Doc
-- Título: {título do doc}
-- Referência no Allye: {doc id ou caminho na árvore}
+- Title: {doc title}
+- Reference in Allye: {doc id or path in the tree}
 
-### Direção aprovada
-{síntese do que foi decidido no Sandbox — o quê e por quê}
+### Approved direction
+{synthesis of what was decided in Sandbox — what and why}
 
-### Caminhos explorados e rejeitados
-- {caminho A} — rejeitado porque {motivo}
-- {caminho B} — rejeitado porque {motivo}
+### Paths explored and rejected
+- {path A} — rejected because {reason}
+- {path B} — rejected because {reason}
 
-### Achados de pesquisa
-{resumo do que deep-search / code-analyzer trouxeram, com fonte — "Nenhuma pesquisa foi feita" se não houve}
+### Research findings
+{summary of what deep-search / code-analyzer brought back, with source — "No research was done" if none}
 
-### Protótipos
-{referência de artifacts gerados, ou "Nenhum protótipo foi feito"}
+### Prototypes
+{reference to generated artifacts, or "No prototype was made"}
 
-### Contexto adicional
-{qualquer coisa mais que o próximo chat precisa saber}
+### Additional context
+{anything else the next chat needs to know}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```

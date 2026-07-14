@@ -41,7 +41,7 @@ Generate a handoff scoped to exactly ONE story and its tasks — never a whole f
 
 \`\`\`
 ## 🔄 Allye Handover — story-execution
-**Skill a carregar:** execution
+**Skill to load:** execution
 
 ### Story
 {STORY-KEY} — {title}, with acceptance criteria copied in full
@@ -49,11 +49,11 @@ Generate a handoff scoped to exactly ONE story and its tasks — never a whole f
 ### Tasks
 {TASK-KEY list with acceptance criteria}
 
-### Decisões travadas aplicáveis
+### Applicable locked decisions
 {locked decisions from planning}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 \`\`\`
 
 ### Step 2: Receive the execution report, dispatch Review
@@ -75,16 +75,16 @@ Review returns its standard ✅/⚠️/❌-per-task output.
 
 \`\`\`
 ## 🔄 Allye Handover — correction
-**Skill a carregar:** execution
+**Skill to load:** execution
 
-### Achados a corrigir (❌ apenas)
+### Findings to fix (❌ only)
 - {TASK-KEY}: "{finding, quoted literally}"
 
-### Rodada de correção
-Esta é a {N}ª tentativa de correção nesta story.
+### Correction round
+This is correction attempt {N} for this story.
 
 ---
-Corrija SÓ o que está listado acima — não refaça a story inteira.
+Fix ONLY what's listed above — don't redo the whole story.
 \`\`\`
 
 **Escalate to the user instead of emitting a 4th correction handoff if the same task fails review 3 times.** Two rounds failing for different specific reasons is normal; three usually means something deeper is being missed.

@@ -2,7 +2,7 @@
 
 **Emitted by:** `product-planning`
 **Received by:** `technical-planning`
-**Objetivo:** Detalhar tecnicamente os squares (Features) e quadradinhos (Stories) aprovados na fase de negócio.
+**Objective:** Technically detail the squares (Features) and sub-squares (Stories) approved in the business phase.
 
 ## Before emitting, confirm
 
@@ -15,28 +15,28 @@
 
 ```markdown
 ## 🔄 Allye Handover — planning-to-technical
-**Skill a carregar:** technical-planning
+**Skill to load:** technical-planning
 
-### Objetivo
-{qual story ou conjunto de stories será detalhado tecnicamente agora}
+### Objective
+{which story or set of stories will be technically detailed now}
 
-### Leitura obrigatória
-- Doc: {título e referência do Discovery Doc, ou "Nenhum doc adicional"}
-- Epic: {KEY} — {título} ({reusado | criado})
-- Feature(s): {KEY} — {título} ({reusado | criado})
-- Story(ies) a planejar agora: {KEY} — {título} ({reusado | criado})
+### Required reading
+- Doc: {title and reference of the Discovery Doc, or "No additional doc"}
+- Epic: {KEY} — {title} ({reused | created})
+- Feature(s): {KEY} — {title} ({reused | created})
+- Story(ies) to plan now: {KEY} — {title} ({reused | created})
 
-### Decisões de negócio travadas
-- {decisão 1} — {motivo}
-- {decisão 2} — {motivo}
-{ou "Nenhuma decisão de negócio travada além das descrições dos itens"}
+### Locked business decisions
+- {decision 1} — {rationale}
+- {decision 2} — {rationale}
+{or "No locked business decision beyond the item descriptions"}
 
-### Protótipos
-{referência, ou "Nenhum protótipo foi feito"}
+### Prototypes
+{reference, or "No prototype was made"}
 
-### Contexto adicional
+### Additional context
 {}
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
