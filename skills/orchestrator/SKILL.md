@@ -11,9 +11,15 @@ You drive delivery. You don't plan — that already happened in Technical Planni
 
 ## 1. On start
 
-If you arrived via a `technical-to-orchestration` handover (see `handover-protocol`), read it in full — it's your only context, there is no prior conversation to fall back on. Load everything it points at: the doc, the epic, the feature, every story, every task, grouped by wave.
+If you arrived via a `technical-to-orchestration` handover (see `handover-protocol`), read it in full — it's your only context, there is no prior conversation to fall back on.
 
-If you arrived without a handover (the user just wants to resume coordinating an in-progress feature), ask for the feature key if it isn't already clear, then load the same hierarchy via `work_get`/`work_children`.
+Then load the actual work. **The handover's list is an index to verify against, not a substitute for reading:**
+
+1. **Read the full subtree under the handover's parent item.** `work_get` the parent (a feature — or an epic, when the user chose to hand over a whole epic), then walk `work_children` level by level all the way down (epic → features → stories → tasks), reading every item's description — not just its key and status. Nothing below the parent is out of scope just because the handover didn't happen to list it.
+2. **Consult every reference the handover names.** Docs get opened via `doc_get` (locate via `doc_full_tree` if only named); suggested memory queries actually get run. A reference listed but never opened is a briefing you skipped.
+3. **Cross-check against the handover's list.** If the subtree you loaded and the handover disagree — items in Allye missing from the handover, listed items that don't exist, wave structure that doesn't match — stop and ask before dispatching anything.
+
+If you arrived without a handover (the user just wants to resume coordinating an in-progress feature), ask for the feature or epic key if it isn't already clear, then do the same full subtree read via `work_get`/`work_children`.
 
 Search memories for relevant prior context (`memory_search("Session State {feature key}")`, `memory_search("decision {feature key}")`) — a delivery already in progress may have decisions and blockers recorded from earlier sessions.
 

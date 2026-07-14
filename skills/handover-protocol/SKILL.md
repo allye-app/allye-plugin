@@ -18,29 +18,31 @@ A handover is how context moves between Allye workflow phases without carrying a
 Every handover starts with the same one-line marker and ends with the same reminder. Everything between them is specific to the handover's type — see §2.
 
 ```markdown
-## 🔄 Allye Handover — {tipo}
-**Skill a carregar:** {skill-slug}
+## 🔄 Allye Handover — {type}
+**Skill to load:** {skill-slug}
 
-...corpo específico do tipo — ver references/{tipo}.md...
+...type-specific body — see references/{type}.md...
 
 ---
-Se algo não estiver claro, PARE e pergunte — não prossiga chutando.
+If anything is unclear, STOP and ask — don't proceed on a guess.
 ```
 
-The bootstrap skill (`using-allye`) scans the first message of every fresh conversation for the `## 🔄 Allye Handover` line. When found, it parses `{tipo}` and `Skill a carregar`, loads that skill directly, and skips its own phase-detection heuristic. See `using-allye`'s "Handover detection" step.
+The bootstrap skill (`using-allye`) scans the first message of every fresh conversation for the `## 🔄 Allye Handover` line. When found, it parses `{type}` and `Skill to load`, loads that skill directly, and skips its own phase-detection heuristic. See `using-allye`'s "Handover detection" step.
+
+**Templates in this skill and in `references/` are written in English — that's the source, not the output.** When actually generating a handover for the user, follow the plugin's language principle same as everywhere else: respond in the user's language. Section headers (`### Objective`, `### Required reading`, etc.) and body prose get written in whatever language the conversation is in — a Portuguese-speaking user gets `### Objetivo`, `### Leitura obrigatória`, and so on. **Only two things stay fixed in every language**, because auto-detection parses them literally: the `## 🔄 Allye Handover — {type}` marker line and the `**Skill to load:**` field name. Never translate those two.
 
 ## 2. The catalog
 
 Six types. Each is a distinct handoff with its own objective and field set — not a generic form filled in differently. Full templates live in `references/`.
 
-| Tipo | Transição | Objetivo | Template |
+| Type | Transition | Objective | Template |
 |---|---|---|---|
-| `discovery-to-planning` | Sandbox → Planning | Transformar a direção aprovada em estrutura de entregáveis | `references/discovery-to-planning.md` |
-| `planning-to-technical` | Planning → Tech Planning | Detalhar tecnicamente os squares aprovados | `references/planning-to-technical.md` |
-| `technical-to-orchestration` | Tech Planning → Orchestrator | Conduzir a entrega da feature planejada | `references/technical-to-orchestration.md` |
-| `story-execution` | Orchestrator → Executor | Implementar exatamente uma story | `references/story-execution.md` |
-| `execution-report` | Executor → Orchestrator | Devolver o resultado da implementação | `references/execution-report.md` |
-| `correction` | Orchestrator → Executor | Corrigir achados específicos do review | `references/correction.md` |
+| `discovery-to-planning` | Sandbox → Planning | Turn the approved direction into a deliverable structure | `references/discovery-to-planning.md` |
+| `planning-to-technical` | Planning → Tech Planning | Technically detail the approved squares | `references/planning-to-technical.md` |
+| `technical-to-orchestration` | Tech Planning → Orchestrator | Drive delivery of the planned scope (feature, or a whole epic) | `references/technical-to-orchestration.md` |
+| `story-execution` | Orchestrator → Executor | Implement exactly one story | `references/story-execution.md` |
+| `execution-report` | Executor → Orchestrator | Return the implementation result | `references/execution-report.md` |
+| `correction` | Orchestrator → Executor | Fix specific review findings | `references/correction.md` |
 
 **Reviewer never receives a handover.** It's invoked<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> with a constructed prompt (story + tasks + files changed), dispatched by the Orchestrator — not by a pasted handover.
 
@@ -55,6 +57,7 @@ Six types. Each is a distinct handoff with its own objective and field set — n
 Before emitting any handover, confirm:
 
 - **Concrete keys, not vague pointers.** "The story we discussed" is not acceptable — write the actual `STORY-KEY`. The receiving chat has zero memory of this conversation.
+- **References carry an explicit read instruction, not just keys.** The handover must tell the receiver to actually fetch and read what it lists — work items via `work_get`/`work_children` (the entire subtree under the parent, when the handover is scoped to a parent item like a feature or epic), docs via `doc_get`. A key list without a "read all of this" instruction invites skimming, and the receiving chat has no other way to know reading is mandatory.
 - **Locked decisions are carried forward, verbatim.** If a decision was locked in this phase, restate it in the handover — don't make the next chat re-derive or, worse, re-litigate it.
 - **Scope matches the type.** `story-execution` carries exactly one story; `correction` carries only the failed findings, not the whole story again. Padding a handover with everything "just in case" defeats the purpose of a lean next chat.
 - **The reminder line is never dropped.** Every handover ends with the "stop and ask" line — it's the single most important sentence in this whole protocol.
