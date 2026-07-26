@@ -1,15 +1,13 @@
 ---
 name: technical-planning
 description: Workflow for breaking a story into tasks through a structured discussion phase. Use when the user has a story and wants to plan the technical implementation.
-version: "1.2"
+version: "1.3"
 category: methodology
 ---
 
 # Technical Planning Workflow
 
-This skill guides you through taking a story and turning it into actionable tasks through a **Discussion Phase** — identifying gray areas, capturing decisions, and creating tasks with verifiable acceptance criteria.
-
-Use this when the user has a story and wants to: plan tasks, discuss approach, evaluate technical options, or break down implementation work.
+Turns a story into actionable tasks through a **Discussion Phase** — surfacing gray areas, capturing decisions, and writing tasks with verifiable acceptance criteria and a runnable verification command.
 
 **Never assume — always ask.** The user knows the direction they want, sometimes only after researching further. Your job is to surface the gray areas and present real options, not to quietly pick one and present it as the plan.
 
@@ -75,9 +73,9 @@ If tasks already exist, review them instead of creating new ones. The user may w
 ## Step 3: Discussion Phase
 
 <EXTREMELY_IMPORTANT>
-Do NOT create tasks before completing the discussion phase.
-The purpose of discussion is to surface ambiguity BEFORE committing to a plan.
-Skipping this leads to rework, wrong assumptions, and wasted effort.
+Complete the discussion phase — surfacing ambiguity before committing to a plan —
+before creating any task. Skipping it leads to rework, wrong assumptions, and
+wasted effort.
 </EXTREMELY_IMPORTANT>
 
 ### 3.1 Identify Gray Areas
@@ -151,6 +149,11 @@ Before moving to task creation, confirm with the user:
 >
 > Are we good to proceed with task creation?"
 
+Also state the story's derived dispatch label: **AFK** if every task got a runnable
+verification command, **HITL** if any task declared `verification: manual`. The
+Orchestrator reads this rather than guessing, so a wrong label here becomes a story
+dispatched to an unattended pane that then sits waiting for a human who is not watching.
+
 ---
 
 ## Step 4: Create Tasks
@@ -160,7 +163,6 @@ Before moving to task creation, confirm with the user:
 Design tasks that are:
 
 - **Atomic** — Each task produces a single, verifiable outcome
-- **Ordered by dependency** — Independent tasks first, dependent tasks after
 - **Concrete** — No vague tasks like "set up the project" or "implement the feature"
 
 **Split by concern when a story spans them.** A story touching frontend, backend, and data modeling is usually 3+ tasks, not one — the Wave mechanic below (4.4) handles the ordering (e.g., data modeling before frontend when the payload shape is a hard dependency). These are illustrative categories, not a fixed taxonomy: decide the actual split with the user, scenario by scenario.
@@ -171,9 +173,25 @@ Design tasks that are:
 ### 4.2 Deep Work Rule
 
 <HARD-GATE>
-Every task MUST have verifiable acceptance criteria in its description.
-A task without acceptance criteria is not a task — it's a wish.
-Do not create tasks that cannot be objectively verified as complete.
+Every task carries verifiable acceptance criteria in its description — a task
+without them is not a task, it's a wish.
+</HARD-GATE>
+
+### 4.2.1 Verification Rule
+
+<HARD-GATE>
+Every task carries a `## Verification` block: either a command that runs as
+written, or `verification: manual` with the procedure. A task with neither
+is not a task — a criterion nobody can check is a criterion nobody will.
+
+Write the command while you still have the design in your head. Deferring it
+to the Executor means it gets written by someone reconstructing your intent
+from a description.
+
+`verification: manual` is a legitimate answer for visual, infrastructure, and
+one-off work — see `verification-loop` §4. It is not a shortcut for "I did not
+want to think of a command": declaring it makes the whole story HITL, which
+costs the Orchestrator its ability to dispatch that story unattended.
 </HARD-GATE>
 
 ### 4.3 Task Description Template
@@ -187,8 +205,13 @@ Do not create tasks that cannot be objectively verified as complete.
 - [ ] {Criterion 2}
 - [ ] {Criterion 3}
 
-## How to Verify
-{How to confirm this task is done — e.g., run tests, check endpoint, verify UI}
+## Verification
+{The exact command, runnable as written. It must be red-capable, deterministic,
+fast, and agent-runnable — see the `verification-loop` skill §1.}
+
+{or, when no such command exists:}
+verification: manual
+{the exact procedure a human follows, and what they should observe}
 
 ## Files Likely Involved
 - {file/path/1}
@@ -249,13 +272,12 @@ work_bulk_create(work_items: [
 
 ## Step 5: Move Story to In Progress
 
-Once tasks are created and the plan is approved:
-
 ```
 work_status_next(id: "{story uuid}")
 ```
 
-This moves the story forward in the board progression (typically from backlog/todo to in_progress).
+Once tasks are created and the plan is approved, this moves the story forward in the
+board progression (typically backlog/todo → in_progress).
 
 ---
 
@@ -283,6 +305,8 @@ Before considering technical planning complete, verify:
 - [ ] Gray areas were identified and discussed with the user
 - [ ] All decisions are classified (locked vs agent-discretion) and saved as memories
 - [ ] Tasks have verifiable acceptance criteria
+- [ ] Every task has a `## Verification` block — a runnable command, or `verification: manual` with a procedure
+- [ ] The story's AFK/HITL label is derived and stated
 - [ ] Dependencies are mapped and wave structure is defined
 - [ ] Tasks are created in Allye with proper parent relationship
 - [ ] Story is moved to in_progress
