@@ -179,7 +179,7 @@ The procedure exists in `orchestrator` §7.1, written by Plan 04. It **moves**; 
 - Consumes: Task 1.
 - Produces: a reference in place of the procedure.
 
-- [ ] **Step 1: Record the marker count and locate the section**
+- [x] **Step 1: Record the marker count and locate the section**
 
 ```bash
 grep -c 'opencode-exclude' skills/orchestrator/SKILL.md
@@ -187,7 +187,7 @@ grep -n '### 7.1 Merge and teardown' skills/orchestrator/SKILL.md
 ```
 Record the count. It must be identical at Step 4.
 
-- [ ] **Step 2: Replace §7.1's body with a reference**
+- [x] **Step 2: Replace §7.1's body with a reference**
 
 `### 7.1` is followed by `## 7.2 Announce where delivery stopped` — note the heading levels differ, `###` then `##`. Keep the `### 7.1` heading and replace everything between it and the `## 7.2` line with:
 
@@ -205,7 +205,7 @@ Two things specific to parallel dispatch, which that skill does not know about:
   never from the sidebar.
 ```
 
-- [ ] **Step 3: Point §7.2 at it too**
+- [x] **Step 3: Point §7.2 at it too**
 
 §7.2 announces where delivery stopped. Append:
 
@@ -215,7 +215,7 @@ explicitly in the announcement: the story is parked, and so is its code. A human
 the board would otherwise assume the branch already landed.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'opencode-exclude' skills/orchestrator/SKILL.md
@@ -226,7 +226,7 @@ grep -n 'one story at a time, never batched\|One story at a time, never batched'
 ```
 Expected: marker count **unchanged from Step 1**; `branch-landing` referenced at least twice; `status --porcelain` now **zero** — the sequence moved, it was not copied; Plan 03's two-axis dispatch still present; the batching rule found.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/orchestrator/
