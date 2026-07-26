@@ -437,27 +437,27 @@ Cosmetic, and correct. These are the plugin's own development artifacts, which i
 - Rename: `docs/allye/` → `docs/allye/`
 - Modify: every file referencing the old path
 
-- [ ] **Step 1: Find every reference**
+- [x] **Step 1: Find every reference**
 
 ```bash
 grep -rn 'docs/allye' . --exclude-dir=.git --exclude-dir=node_modules -l
 ```
 Expected: `CLAUDE.md`, both 2026-07-12 and 2026-07-26 specs, all eleven plan files, and the retrospective.
 
-- [ ] **Step 2: Rename, preserving history**
+- [x] **Step 2: Rename, preserving history**
 
 ```bash
 git mv docs/allye docs/allye
 ```
 
-- [ ] **Step 3: Update every reference**
+- [x] **Step 3: Update every reference**
 
 ```bash
 grep -rl 'docs/allye' . --exclude-dir=.git --exclude-dir=node_modules \
   | xargs sed -i 's|docs/allye|docs/allye|g'
 ```
 
-- [ ] **Step 4: Verify nothing was missed and nothing else changed**
+- [x] **Step 4: Verify nothing was missed and nothing else changed**
 
 ```bash
 grep -rn 'docs/allye' . --exclude-dir=.git --exclude-dir=node_modules || echo "no stale references"
@@ -466,7 +466,7 @@ grep -rc 'adapted from' skills/ agents/ | grep -v ':0'
 ```
 Expected: no stale references; `docs/` contains `allye`; and the `adapted from` attribution comments are **still present and unchanged** — this task renames a directory and touches no credit.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
