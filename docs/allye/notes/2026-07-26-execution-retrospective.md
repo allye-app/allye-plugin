@@ -1,7 +1,7 @@
 # Execution Retrospective
 
-**Status:** closed 2026-07-26 — thirteen findings, all applied or carried into Plan 05.
-**Scope:** what actually broke, surprised, or worked better than expected while building and running the five plans from `2026-07-26-agent-runtime-and-verification-design.md`.
+**Status:** reopened 2026-07-26 after Plans 06–09 — closing at thirteen was premature. Seventeen findings.
+**Scope:** what actually broke, surprised, or worked better than expected while building and running the nine plans from `2026-07-26-agent-runtime-and-verification-design.md`.
 
 Written during execution rather than reconstructed afterwards, because the detail that makes a finding actionable is the first thing lost. "The spawn had a hiccup" is not fixable; `agent_pane_busy` because `fastfetch` held the foreground is.
 
@@ -271,3 +271,73 @@ It is done when everything that names it can resolve it:
 Two of these five were missed for `verification-loop` and `agent-runtime`, and the failure
 mode was not a wrong number — it was a skill referenced by name that a user's database could
 not resolve at the moment it was needed.
+
+---
+
+# Second half — Plans 06 to 09
+
+Closing this document at thirteen findings was itself a finding: four more plans produced four more, and one of them is the most reusable thing in here.
+
+## F14 — Rewriting a section leaves its neighbours contradicting it, and pre-flight does not catch that
+
+**Observed across three consecutive plans**, every one of which had been pre-flighted:
+
+| Plan | What contradicted what |
+|---|---|
+| 06 | `board-progression`'s Common Mistakes table still named a status as a rule — violating the multi-tenancy gate the same plan introduced two sections above. And `orchestrator` §6's decision table still said to move an approved task "the rest of the way to `done`", which the rewritten §7 no longer does. |
+| 08 | Steps 1–3 still prompted for a PAT before the verb dispatch the plan had just added, so `status` aborted under closed stdin. |
+| 09 | `using-allye` still described `/save` as "a 3-step process" after `memory-protocol` gained a fourth. |
+
+**Why pre-flight misses it.** The pre-flight from F11 reads each *assertion* and asks what could make it pass wrongly. That is a good question and it caught real defects. But it only looks at what the plan **names**. A section the plan never mentions cannot fail an assertion the plan never wrote.
+
+**The distinct class:** an edit is not scoped to the lines it changes. It is scoped to **everything that describes those lines** — a count elsewhere, a summary in another file, a table restating the rule. Plan 09's case is the sharpest: `using-allye` is injected into *every session*, so the stale sentence was the most-read wrong thing in the plugin, sitting in a file the plan had no reason to open.
+
+**Fix — a second pre-flight question, asked of the change rather than the assertions:** *what else in this repository describes what I am about to change?* Grep for the rule's distinctive phrasing, the number, the old name — across all of `skills/`, `agents/`, `README.md`, and `CLAUDE.md`, not only the files in the plan's Files list.
+
+All three were caught by executors reporting out of scope. That worked, but it is the expensive path: it costs a full execution and a merge-time fix.
+
+---
+
+## F15 — A verb unusable in exactly the case it exists for
+
+**Observed:** Plan 08 added `install` / `uninstall` / `status`. Steps 1–3, which prompt for a PAT, ran unconditionally before the dispatch — so `./install.sh status`, the verb most likely to be called from a script or CI, aborted before printing anything.
+
+**The root cause was one level down.** Under `set -e`, `read` returns non-zero on EOF, so *any* non-interactive invocation died at that line. It predates the plan — the old `install.sh` had the same `read` in the same place — but it had never mattered, because the old script had no verb anyone would want to call unattended.
+
+**The general shape:** adding an interface can turn a dormant defect into a live one without touching the defective code. The `read` did not change; what changed is that something now needs to run past it.
+
+**Fix, applied:** the prompt is TTY-conditional, and Steps 1–3 are guarded behind the `install` verb.
+
+---
+
+## F16 — An uninstall that restores content but not order
+
+**Observed:** Plan 09's `uninstall hermes` genuinely reverses what `install` turned off — the flags return to `true`, the removed toolsets return to their lists. But restored list entries are **appended at the end** rather than reinserted at their original position.
+
+**Reported by the executor unprompted**, as a caveat to an otherwise clean "yes it reverses". Semantically identical, and for a toolset list order does not appear to matter — but "does not appear to" is doing work in that sentence, and nobody has checked whether any consumer is order-sensitive.
+
+**Left as-is deliberately.** Recording it is the point: a future ordering bug in this area has its explanation already written down.
+
+---
+
+## F17 — The same trap caught two consecutive executors
+
+**Observed:** Plan 08's and Plan 09's executors both ran a compound command containing `cd <worktree>`, leaving their shell's cwd inside the worktree. Both caught it on the next turn, returned, and reported it unprompted. Neither caused damage.
+
+**Two for two is not carelessness.** The brief warned about it explicitly both times, and both executors were otherwise careful enough to self-report. The cause is a property of the tool: **cwd persists across Bash calls**, so a single compound command silently changes the meaning of everything after it — and the failure is invisible until a relative path resolves somewhere unexpected.
+
+**A warning is the wrong instrument for this.** "Do not `cd`" asks someone to remember a rule at the moment they are thinking about something else. The instruction that would actually work names the mechanism and the alternative: *never put `cd` in a compound command; use absolute paths and `git -C <path>`.*
+
+**Fix:** that phrasing belongs in `references/story-execution.md`, alongside the three reporting behaviours Plan 05 moved there — for the same reason. It is currently living in hand-written briefings, which is where things go to be forgotten.
+
+---
+
+## Second-half process observations
+
+- **Pre-flight kept earning its ten minutes.** Plans 06–09 hit zero *assertion* defects mid-run, against two in Plans 01–02 before pre-flight existed. What it does not cover is F14's class, which is a different question asked of a different thing.
+
+- **Every out-of-scope report was worth more than the task that produced it.** Across nine plans: two API defects, an architecture-doc error, a dangling skill reference, a broken `status` verb, and three cross-file contradictions. **None was in any plan.** The instruction that produces them is one sentence, and Plan 05 moved it into the template so it stops depending on whoever writes the briefing.
+
+- **Two designs were corrected by the human asking a question, not by review.** "Pane instead of subagent" reshaped three sections and forced the discovery that Allye is the result bus. "The visualization won't work, will it?" exposed that the Hermes kanban is an orchestration engine and not a board — a mischaracterisation that would otherwise have shipped inside a plan telling someone to disable it as though it were a table.
+
+- **Nine plans, zero exercised.** Everything here was validated by grep assertion and sandboxed installs. No story has been planned, executed, verified, reviewed, and landed using the flow these plans built. That is the largest untested claim in the repository, and it is not a finding — it is the next thing to do.
