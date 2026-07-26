@@ -1,7 +1,7 @@
 ---
 name: execution
 description: Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution. Use when the user wants to write code, implement a task, or develop features.
-version: "1.4"
+version: "1.5"
 category: methodology
 ---
 
@@ -380,3 +380,11 @@ For each task, verify:
 ## What Comes Next
 
 Emit the `execution-report` handover: files changed, tests added, status per acceptance criterion (not a blanket "done"), any new decisions made along the way, and any open questions. The Orchestrator decides from there whether to dispatch Reviewer or, if this is a `correction` round, loop back with more specific findings.
+
+**If you are working in a git worktree**, the Orchestrator that dispatched you owns landing
+the branch — do not merge, do not remove the worktree, do not close your own pane. Name the
+branch in your `execution-report` so it knows what to land.
+
+**If you are working directly in the main checkout** and no Orchestrator is coordinating, the
+branch is yours to finish: load the `branch-landing` skill once the story's tasks are through
+review.

@@ -338,14 +338,14 @@ An Executor working in a worktree finishes its story and has nowhere to look.
 **Files:**
 - Modify: `skills/execution/SKILL.md`
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'branch-landing' skills/execution/SKILL.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Add it to "What Comes Next"**
+- [x] **Step 2: Add it to "What Comes Next"**
 
 Append to the "What Comes Next" section at the end of the file:
 
@@ -359,7 +359,7 @@ branch is yours to finish: load the `branch-landing` skill once the story's task
 review.
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 grep -c 'branch-landing' skills/execution/SKILL.md
@@ -368,7 +368,7 @@ grep -c '## Step 4.5' skills/execution/SKILL.md
 ```
 Expected: the reference present; the prohibition present; Plan 05's Step 4.5 still there.
 
-- [ ] **Step 4: Bump version and commit**
+- [x] **Step 4: Bump version and commit**
 
 ```bash
 git add skills/execution/
