@@ -816,13 +816,13 @@ conversation."
 - Modify: `CLAUDE.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Update the counts and the flow**
+- [x] **Step 1: Update the counts and the flow**
 
 `CLAUDE.md` §"Runtime flow" and §"Guided delivery workflow", and `README.md`'s "What you get", "Agents", and "Skills" sections all state the number of skills and subagents and describe a serial Orchestrator. After Plans 01–04 the counts are **16 skills** (14 original + `verification-loop` + `agent-runtime`) and **five agents** (`code-analyzer`, `deep-search`, `executor`, `reviewer-spec`, `reviewer-standards`).
 
 Describe delivery as parallel-capable, and say plainly that parallelism requires a detected runtime and that everything degrades to the existing modes without one.
 
-- [ ] **Step 2: Verify the counts against the tree**
+- [x] **Step 2: Verify the counts against the tree**
 
 ```bash
 ls -d skills/*/ | wc -l
@@ -831,7 +831,7 @@ grep -on '1[0-9] skills\|[0-9] agents\|[0-9] subagents' README.md CLAUDE.md
 ```
 Expected: the directory counts are 16 and 5, and every count written in prose matches them.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add CLAUDE.md README.md
