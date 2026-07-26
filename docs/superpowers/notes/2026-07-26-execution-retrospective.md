@@ -129,6 +129,38 @@ The executing agent found it, explained precisely why the two steps were incompa
 
 ---
 
+## F10 — The runtime's lifecycle must be bridged into the orchestrator's own notification channel
+
+**Observed:** Bruno asked why I had not been notified that `plan02` finished. I had not, and the reason is that I never asked to be — I had been polling `herdr agent get` by hand after every few actions.
+
+**Why:** a runtime pane is a separate process outside the orchestrating session's harness. Nothing wires its completion back. The harness notifies about background shell commands and about its own dispatched subagents; a pane is neither.
+
+**The mechanism existed and the spec already prescribed it.** §6.4 says of `agent wait`: *"Run it in the background. Do not poll."* Running `herdr agent wait <name> --timeout N` **as a background shell command** is the bridge — when the agent settles, the wait exits, and the harness's own completion notification fires. I wrote the rule and then polled anyway for two full plan executions.
+
+**Cost:** none to correctness, real to attention. Every check was a deliberate action taken at an arbitrary moment, which means the orchestrator is either interrupting itself to poll or leaving a finished agent idle.
+
+**Fix (Plan 04, Task 2, `orchestrator` §4.2):** dispatching to a pane is not complete until the wait is running in the background. Make it the closing step of dispatch rather than a separate thing the Orchestrator remembers to do — a dispatch without a wait registered is a story nobody is listening for. Applied from `plan03` onward.
+
+**The generalization worth keeping:** `wait` in the contract (§6.4) is not "how the orchestrator blocks." It is "how the runtime's lifecycle becomes an event in whatever system the orchestrator actually lives in." Any future runtime satisfies `wait` only if it can be bridged that way.
+
+---
+
+## F11 — Pre-flighting a plan's assertions found three defects before execution
+
+**Observed:** before dispatching Plan 03, I read its assertions against the live tree instead of trusting them. Three were wrong, and none would have been caught by the plan's own steps:
+
+1. **Tasks 1 and 2** counted how often the sibling agent's name appears as a proxy for "the agent was written correctly" — F8's mistake, repeated in a plan written before F8 was recorded.
+2. **Task 3 Step 1's** grep missed `README.md` and `handover-protocol`, which write "Reviewer" capitalized and unbackticked, **and** matched the July spec and plans. The plan then instructed that every match be updated — which would have rewritten historical records to match later reality.
+3. **Task 4** replaced text containing `<!-- opencode-exclude -->` markers without preserving them. The orchestrator carries twelve. Dropping one raises no error; it silently leaks Claude-Code-only instructions into the OpenCode-generated prompt, which is the defect commit `394dc20` already fixed once.
+
+**What made this work:** asking of each assertion, *what would have to be true for this to pass without the change having happened correctly?* Every one of the three had such a case.
+
+**Cost of the pre-flight:** roughly ten minutes. Cost of the third defect reaching production: a cross-platform bug that no assertion in the plan would ever have caught, because none of them looked at the markers.
+
+**Fix:** make the pre-flight a step, not a habit — before dispatching any plan, run its Step 1 assertions against the real tree and read every other assertion for proxy-checking. Both `plan01` and `plan02` proved an executor will catch a *contradiction*; neither would have caught an assertion that passes for the wrong reason.
+
+---
+
 ## Process observations
 
 Not defects — things about *how* this was built that are worth keeping or dropping.
