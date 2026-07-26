@@ -1,3 +1,10 @@
+## [1.2.7](https://github.com/allye-app/allye-plugin/compare/v1.2.6...v1.2.7) (2026-07-23)
+
+
+### Bug Fixes
+
+* work_update accepts work_status/due_date/tags, not parent_key (TEMA-2132) ([4e8f8ac](https://github.com/allye-app/allye-plugin/commit/4e8f8ac2d9d6016465b7ff06bf29be679afde5ef))
+
 ## [1.2.6](https://github.com/allye-app/allye-plugin/compare/v1.2.5...v1.2.6) (2026-07-14)
 
 
