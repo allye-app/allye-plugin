@@ -45,7 +45,7 @@ ls agents/reviewer-standards.md agents/reviewer-spec.md  # expect: both exist  (
 - Consumes: the `Agent runtime: ` line the session hook emits (Plan 01 Task 4). That prefix is the contract.
 - Produces: five primitive names — `detect`, `spawn`, `dispatch`, `wait`, `collect` — referenced by Task 2. Do not rename them there.
 
-- [ ] **Step 1: Write the contract**
+- [x] **Step 1: Write the contract**
 
 Create `skills/agent-runtime/SKILL.md`:
 
@@ -176,7 +176,7 @@ runtime's server.
 - Herdr — `references/herdr.md`
 ```
 
-- [ ] **Step 2: Write the Herdr reference**
+- [x] **Step 2: Write the Herdr reference**
 
 Create `skills/agent-runtime/references/herdr.md`:
 
@@ -337,7 +337,7 @@ Only panes the plugin created, and only after §7.6's merge gates have passed.
   the examples above.
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 sed -n '1,7p' skills/agent-runtime/SKILL.md
@@ -349,7 +349,7 @@ done
 ```
 Expected: frontmatter complete; every primitive appears in the contract and has its own `##` section in the reference.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add skills/agent-runtime/
