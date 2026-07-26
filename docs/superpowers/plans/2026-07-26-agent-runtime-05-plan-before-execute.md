@@ -40,7 +40,7 @@ grep -c 'Dispatch label' skills/handover-protocol/references/story-execution.md 
 - Consumes: the `## Verification` block and the AFK/HITL label from Plan 02; the `plans` memory sector.
 - Produces: an implementation-plan memory, `sector: "plans"`, tagged with the story key. Task 2 mirrors it for the dispatched agent; `reviewer-spec` may read it.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n 'Step 4.5\|Plan the implementation' skills/execution/SKILL.md
@@ -48,7 +48,7 @@ grep -n 'sector: "plans"' skills/execution/SKILL.md
 ```
 Expected: **no output from either.** The skill currently goes from Step 4 (Read First) straight to Step 5 (TDD).
 
-- [ ] **Step 2: Insert the step between reading and writing**
+- [x] **Step 2: Insert the step between reading and writing**
 
 In `skills/execution/SKILL.md`, after Step 4's "Analysis Paralysis Guard" and before "## Step 5: TDD", insert:
 
@@ -118,7 +118,7 @@ and who supplies it follows the story's dispatch label (see `verification-loop` 
   the label could not have anticipated.
 ```
 
-- [ ] **Step 3: Add the checklist items**
+- [x] **Step 3: Add the checklist items**
 
 In the "Workflow Checklist", after the read-first item:
 
@@ -127,7 +127,7 @@ In the "Workflow Checklist", after the read-first item:
 - [ ] Coverage, decisions, and closure all checked against that plan
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -n '## Step 4.5: Plan the Implementation' skills/execution/SKILL.md
@@ -138,7 +138,7 @@ grep -c 'Step 5' skills/execution/SKILL.md
 ```
 Expected: the heading found; the `plans` sector used exactly once; the before-any-code phrasing present; the interfaces bullet present; and Step 5 still there — the new step is inserted, not substituted.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/execution/
