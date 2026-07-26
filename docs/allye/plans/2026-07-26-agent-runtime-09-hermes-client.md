@@ -263,14 +263,14 @@ outlives it. Todos get the same question."
 **Files:**
 - Modify: `docs/install-hermes.md`
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -ci 'kanban\|cron' docs/install-hermes.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Say plainly what the installer turns off, and why**
+- [x] **Step 2: Say plainly what the installer turns off, and why**
 
 Add a section. A user who finds their memory tool gone deserves to know it was deliberate:
 
@@ -301,7 +301,7 @@ reads the same flag. If long conversations start behaving differently after inst
 is the first place to look.
 ```
 
-- [ ] **Step 3: Document autonomy via cron**
+- [x] **Step 3: Document autonomy via cron**
 
 ```markdown
 ## Working while you are away
@@ -322,7 +322,7 @@ answer from there.
 Give it dispatch authority once you have watched what it reports for a week.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'What the installer turns off' docs/install-hermes.md
@@ -332,7 +332,7 @@ grep -c 'Start read-only' docs/install-hermes.md
 ```
 Expected: all four present.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/install-hermes.md
