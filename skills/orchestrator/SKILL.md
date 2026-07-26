@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Drives delivery of a planned feature — manages assignee, dispatches Executor for one story at a time, dispatches Reviewer in parallel, runs the correction loop, and cascades status up the work-item hierarchy. Use when a technical-to-orchestration handover arrives, or when the user wants to coordinate delivery of an already-planned feature (assign work, track status, drive tasks through review).
-version: "1.2"
+version: "1.3"
 category: methodology
 ---
 
@@ -40,12 +40,69 @@ Move claimed items to `in_progress` (`work_status_next`) as work on them actuall
 Before dispatching, do a quick completeness check on the story's tasks: does each one have concrete, verifiable acceptance criteria — something you could actually judge as met or not-met? A task like "data modeling" with no defined schema, or "handle errors" with no defined error cases, is not execution-ready. If a task looks underspecified, say so to the user now and resolve it (or route back to `technical-planning`) before dispatching — don't let an obviously vague task go to Executor and discover that the hard way<!-- opencode-exclude:start -->, in either mode below<!-- opencode-exclude:end -->.
 
 <!-- opencode-exclude:start -->
-**Ask the user: automatic or manual?**
+### 4.1 Resolve the dispatch mode — do not ask when the answer is known
+
+1. **Did the session hook report an agent runtime?** (a line beginning `Agent runtime: `).
+   If yes, load the `agent-runtime` skill and dispatch through it. This is the default —
+   do not offer the other two modes alongside it, and do not ask which to use.
+2. **No runtime?** Then ask: manual handover, or the dispatched `executor` subagent.
+
+The runtime wins when present because a runtime pane is a real agent process the human can
+watch, attach to, and take over, with its own context window. That is strictly more than
+either fallback offers.
+<!-- opencode-exclude:end -->
+
+<!-- opencode-exclude:start -->
+### 4.2 Parallel dispatch — one worktree per story
+
+<HARD-GATE>
+**Parallel work requires worktrees. No exception.** Two concurrent stories never share a
+checkout. Serial work stays in the main checkout — the worktree is the price of
+parallelism, not a ritual.
+</HARD-GATE>
+
+Before parallelising, four things get resolved. Guessing any of them produces a failure
+that surfaces hours later as a merge conflict or a pane waiting on a human who is not there.
+
+1. **Story-level dependencies.** Waves order tasks *within* a story; two stories under one
+   feature can also depend on each other. Only mutually independent stories go out together.
+
+2. **The AFK/HITL label**, which Technical Planning derived (see `verification-loop` §4).
+   **A HITL story is never dispatched to an unattended pane** — it runs serially, with the
+   human present, or it waits.
+
+3. **Sequential shared resources, allocated by the Orchestrator, in the dispatch briefing.**
+   Migration numbers, ports, any self-incrementing id. Never instruct a pane to "check what is
+   free": two panes both checking before either writes is a race, and it has already produced
+   two stories claiming the same migration number.
+
+   Worktrees isolate *files*, not the machine. Databases, dev-server ports, and orphaned
+   processes stay shared.
+
+4. **Concurrency.** Default to **three**. Ask before going higher. The limit is the human's
+   review bandwidth, not the machine's capacity — an unreviewed pane is not throughput.
+
+Creating each worktree:
+
+```bash
+git -C "$REPO" worktree add "$WT_ROOT/{STORY-KEY}/{repo}" -b feature/{story-key}-{slug} "$BASE"
+```
+
+`$BASE` is per-repo and comes from the delivery configuration document (see `setup`), never
+assumed. A story spanning several repos gets one worktree per repo, sharing the branch name.
+
+A fresh worktree inherits neither gitignored files nor installed dependencies. Copy the
+files listed in the delivery configuration, then run the repo's install command, **before**
+dispatching. An executor that fails on a missing `.env` reports a bug that is not one.
+
+The pane's `--cwd` is the directory where the Allye plugin is enabled, **not** the worktree —
+absolute worktree paths go in the briefing instead. A session started with its cwd inside a
+worktree may not resolve plugin skills, and dies on the first `Skill` call.
 <!-- opencode-exclude:end -->
 
 - <!-- opencode-exclude:start -->**Manual** (the original flow — default when unsure): <!-- opencode-exclude:end -->emit a `story-execution` handover (`handover-protocol` → `references/story-execution.md`) scoped to exactly one story and its tasks. The user runs it in a fresh Executor chat.
 <!-- opencode-exclude:start -->
-- **Automatic**: dispatch the `executor` subagent directly via the `Agent` tool, in this same conversation. Fill out the exact same fields `references/story-execution.md` defines — story, tasks with acceptance criteria copied in full, locked decisions, applicable code standards, TDD expectation — and use that filled-out content as the dispatch prompt, instead of a handover the user pastes. **Same information, same template, different transport** — automatic mode is not a lighter briefing than manual, it's the identical one delivered a different way.
+- **Automatic**: dispatch the `executor` subagent directly via the `Agent` tool, in this same conversation. Fill out the exact same fields `references/story-execution.md` defines — story, tasks with acceptance criteria copied in full, locked decisions, applicable code standards, TDD expectation — and use that filled-out content as the dispatch prompt, instead of a handover the user pastes. **Same information, same template, different transport.**
 <!-- opencode-exclude:end -->
 
 <!-- opencode-exclude:start -->Either way, the scope is identical: <!-- opencode-exclude:end -->**exactly one story and its tasks, never a whole feature.** Too much scope in one dispatch means it starts making its own planning decisions, which isn't its job<!-- opencode-exclude:start --> in either mode<!-- opencode-exclude:end -->.
@@ -113,6 +170,35 @@ Apply this at every level, as work actually completes — not once at the tail e
 1. Reviewer returns ✅ on a task (criteria met, tests pass) → **you** move it from `review` to `done` via `work_status_done` (which also records `completed_at`) — the Executor deliberately left it at `review`, and this last move is exclusively yours, made only after Reviewer ✅ → `work_children` on the parent story → all done? → `work_status_done` the story.
 2. Story done → `work_children` on the parent feature → all done? → `work_status_done` the feature.
 3. Feature done → `work_children` on the parent epic → all done? → `work_status_done` the epic.
+
+<!-- opencode-exclude:start -->
+### 7.1 Merge and teardown — one story at a time
+
+Every step is a gate. Do not batch these across stories.
+
+1. Both review axes clear (§6) → tasks to `done`, story to `done`.
+2. **Gate:** `git -C <worktree> status --porcelain` must be empty. Dirty means stop —
+   do not merge, do not remove, escalate to the human.
+3. `git push -u origin feature/{story-key}-{slug}`.
+4. In the main checkout, on `$BASE`: `git merge --no-ff feature/{story-key}-{slug}`.
+5. Conflicts in shared wiring files are expected when parallel stories touch the same
+   composition root. **Resolve by consolidating into one instance, never by picking a side** —
+   picking a side silently deletes the other story's work while leaving its tests green.
+6. Rebuild, typecheck, and run tests **before** committing the merge.
+7. `git worktree remove <path>` — **without** `--force`.
+8. `herdr pane close <pane_id>` — only after step 7.
+
+Three properties make "no work lost" structural rather than careful:
+
+| Step | What it guarantees |
+|---|---|
+| 3, push first | The branch exists on the remote before anything is destroyed. |
+| 7, no `--force` | Git refuses a dirty worktree. That refusal is the last safety net — bypassing it by reflex is how work disappears. |
+| 8, pane last | While the pane lives, the session's reasoning is still inspectable. Close it before a validated merge and the *why* is gone. |
+
+**An abandoned or failed story gets no cleanup.** Worktree, branch, and pane all stay.
+Visible litter costs far less than deleted work.
+<!-- opencode-exclude:end -->
 
 ## 8. Epic completion is manual
 

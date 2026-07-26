@@ -45,7 +45,7 @@ ls agents/reviewer-standards.md agents/reviewer-spec.md  # expect: both exist  (
 - Consumes: the `Agent runtime: ` line the session hook emits (Plan 01 Task 4). That prefix is the contract.
 - Produces: five primitive names — `detect`, `spawn`, `dispatch`, `wait`, `collect` — referenced by Task 2. Do not rename them there.
 
-- [ ] **Step 1: Write the contract**
+- [x] **Step 1: Write the contract**
 
 Create `skills/agent-runtime/SKILL.md`:
 
@@ -176,7 +176,7 @@ runtime's server.
 - Herdr — `references/herdr.md`
 ```
 
-- [ ] **Step 2: Write the Herdr reference**
+- [x] **Step 2: Write the Herdr reference**
 
 Create `skills/agent-runtime/references/herdr.md`:
 
@@ -337,7 +337,7 @@ Only panes the plugin created, and only after §7.6's merge gates have passed.
   the examples above.
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 sed -n '1,7p' skills/agent-runtime/SKILL.md
@@ -349,7 +349,7 @@ done
 ```
 Expected: frontmatter complete; every primitive appears in the contract and has its own `##` section in the reference.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add skills/agent-runtime/
@@ -375,7 +375,7 @@ install falls back to the existing dispatch modes instead of blocking."
 - Consumes: Task 1's primitives; the AFK/HITL label from Plan 02; the two review axes from Plan 03.
 - Produces: the dispatch-mode rule and the worktree lifecycle. Nothing later consumes it.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'agent-runtime' skills/orchestrator/SKILL.md
@@ -383,7 +383,7 @@ grep -c 'worktree' skills/orchestrator/SKILL.md
 ```
 Expected: `0` for both.
 
-- [ ] **Step 2: Replace §4's mode question with mode resolution**
+- [x] **Step 2: Replace §4's mode question with mode resolution**
 
 <HARD-GATE>
 **The text you are replacing is fenced, and your replacement must be too.**
@@ -410,7 +410,7 @@ watch, attach to, and take over, with its own context window. That is strictly m
 either fallback offers.
 ```
 
-- [ ] **Step 3: Add the parallel-dispatch section**
+- [x] **Step 3: Add the parallel-dispatch section**
 
 Insert a new §4.2 after it:
 
@@ -462,7 +462,7 @@ absolute worktree paths go in the briefing instead. A session started with its c
 worktree may not resolve plugin skills, and dies on the first `Skill` call.
 ```
 
-- [ ] **Step 4: Add the merge and teardown section**
+- [x] **Step 4: Add the merge and teardown section**
 
 Insert a new §7.1 immediately after the existing status cascade:
 
@@ -495,11 +495,11 @@ Three properties make "no work lost" structural rather than careful:
 Visible litter costs far less than deleted work.
 ```
 
-- [ ] **Step 5: Apply the authoring doctrine to the whole file**
+- [x] **Step 5: Apply the authoring doctrine to the whole file**
 
 Run the no-op test sentence by sentence; collapse duplicated meaning. Do not touch: the two-correction maximum, the status cascade order, the assignee resolution mechanics, the epic-completion-is-manual rule, or the two-axis combination table from Plan 03.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 grep -c 'agent-runtime' skills/orchestrator/SKILL.md
@@ -516,7 +516,7 @@ Expected: `agent-runtime` present; each of the five distinctive sentences found 
 
 These check the sentences each edit introduces rather than counting how often a word appears. A `worktree` count would pass just as happily if the word were sprinkled through prose that gates nothing.
 
-- [ ] **Step 7: Bump version and commit**
+- [x] **Step 7: Bump version and commit**
 
 ```bash
 git add skills/orchestrator/
@@ -545,7 +545,7 @@ Also applies the skill-authoring doctrine to this file."
 - Consumes: nothing.
 - Produces: a Core Document named `Allye Delivery Configuration`, loaded automatically by `initialize`. Task 2 reads `$BASE` and the copy-list from it.
 
-- [ ] **Step 1: Add the configuration step**
+- [x] **Step 1: Add the configuration step**
 
 Append a new section to `skills/setup/SKILL.md`, after the platform-specific setup:
 
@@ -633,11 +633,11 @@ and Gemini CLI have one agent and no picker — routing a specific persona to th
 does nothing.
 ```
 
-- [ ] **Step 2: Apply the authoring doctrine to the whole file**
+- [x] **Step 2: Apply the authoring doctrine to the whole file**
 
 Do not touch the OAuth-only rule or its `<EXTREMELY_IMPORTANT>` framing — "never ask for a PAT" is exactly the kind of prohibition that carries its own content.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 grep -n 'Allye Delivery Configuration' skills/setup/SKILL.md
@@ -650,7 +650,7 @@ grep -n 'cannot reach Allye' skills/setup/SKILL.md
 
 Expected: every one found. In order they prove the document is named, that setup checks for it before asking anything, that the `name`-not-`title` gotcha is stated, that the routing table and the per-repo base-branch column exist, and that the non-Claude preflight is present. A count of the document's name would prove none of these.
 
-- [ ] **Step 4: Bump version and commit**
+- [x] **Step 4: Bump version and commit**
 
 ```bash
 git add skills/setup/
@@ -678,7 +678,7 @@ would appear to succeed and produce nothing."
 - Consumes: the AFK/HITL label from Plan 02.
 - Produces: handovers that survive being read by a different agent than the one that wrote them.
 
-- [ ] **Step 1: Add the durability rule to the mandatory checklist**
+- [x] **Step 1: Add the durability rule to the mandatory checklist**
 
 In `skills/handover-protocol/SKILL.md` §3, add a bullet:
 
@@ -692,7 +692,7 @@ In `skills/handover-protocol/SKILL.md` §3, add a bullet:
   type shape); include it, trimmed to the decision.
 ```
 
-- [ ] **Step 2: Add the label to the story-execution template**
+- [x] **Step 2: Add the label to the story-execution template**
 
 In `references/story-execution.md`, add to the "Before emitting, confirm" list:
 
@@ -710,11 +710,11 @@ And add a line to the template body, immediately after `### Story`:
 {AFK — every task has a runnable verification command | HITL — {TASK-KEY} declares verification: manual}
 ```
 
-- [ ] **Step 3: Apply the authoring doctrine to `SKILL.md`**
+- [x] **Step 3: Apply the authoring doctrine to `SKILL.md`**
 
 Do not touch the marker line format or the `**Skill to load:**` field name — both are parsed literally and translating or restyling either breaks auto-detection.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'Dispatch label' skills/handover-protocol/references/story-execution.md
@@ -723,7 +723,7 @@ grep -c '🔄 Allye Handover' skills/handover-protocol/SKILL.md
 ```
 Expected: the label present; the durability rule present; the marker still present and unchanged.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/handover-protocol/
@@ -749,7 +749,7 @@ whether a human must be watching instead of guessing."
 - Consumes: Tasks 1–4.
 - Produces: nothing downstream. This is the last task.
 
-- [ ] **Step 1: Add the runtime line to the start-of-conversation steps**
+- [x] **Step 1: Add the runtime line to the start-of-conversation steps**
 
 In §1, after "Step 4: Greet the user", add:
 
@@ -760,7 +760,7 @@ Orchestrator will dispatch through it. Do not load that skill now — it loads w
 about to be dispatched, which is the whole point of it being a separate skill.
 ```
 
-- [ ] **Step 2: Add the two skills to the loading guidance**
+- [x] **Step 2: Add the two skills to the loading guidance**
 
 The decision table in §2 maps *user intent* to a phase skill, and neither new skill is a
 phase — both are reached from other skills. Add a short paragraph beneath the table rather
@@ -773,7 +773,7 @@ Two skills sit outside this table because no user request routes to them directl
 demand, from the skill that needs them.
 ```
 
-- [ ] **Step 3: Apply the authoring doctrine to the whole file**
+- [x] **Step 3: Apply the authoring doctrine to the whole file**
 
 This file is injected into **every** session by the hook, so it is the one place where a
 no-op sentence is paid for by every user on every conversation. Prune hardest here.
@@ -781,7 +781,7 @@ no-op sentence is paid for by every user on every conversation. Prune hardest he
 Do not touch: the handover marker detection, the slug resolution table, the workflow gates,
 the `<SUBAGENT-STOP>` block, or the language rule.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'agent-runtime' skills/using-allye/SKILL.md
@@ -792,7 +792,7 @@ wc -l skills/using-allye/SKILL.md
 ```
 Expected: both new skills named; handover detection and the subagent stop intact; and the file **at most 192 lines** — its length before this task, measured 2026-07-26. A bootstrap that gained two references and got longer has not been pruned, and this file is injected into every session, so its length is paid by every user on every conversation.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/using-allye/
@@ -816,13 +816,13 @@ conversation."
 - Modify: `CLAUDE.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Update the counts and the flow**
+- [x] **Step 1: Update the counts and the flow**
 
 `CLAUDE.md` §"Runtime flow" and §"Guided delivery workflow", and `README.md`'s "What you get", "Agents", and "Skills" sections all state the number of skills and subagents and describe a serial Orchestrator. After Plans 01–04 the counts are **16 skills** (14 original + `verification-loop` + `agent-runtime`) and **five agents** (`code-analyzer`, `deep-search`, `executor`, `reviewer-spec`, `reviewer-standards`).
 
 Describe delivery as parallel-capable, and say plainly that parallelism requires a detected runtime and that everything degrades to the existing modes without one.
 
-- [ ] **Step 2: Verify the counts against the tree**
+- [x] **Step 2: Verify the counts against the tree**
 
 ```bash
 ls -d skills/*/ | wc -l
@@ -831,7 +831,7 @@ grep -on '1[0-9] skills\|[0-9] agents\|[0-9] subagents' README.md CLAUDE.md
 ```
 Expected: the directory counts are 16 and 5, and every count written in prose matches them.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add CLAUDE.md README.md

@@ -1,7 +1,7 @@
 ---
 name: setup
 description: First-time setup for the Allye plugin. Uses OAuth for ALL platforms — no PAT.
-version: "1.0"
+version: "1.1"
 category: bootstrap
 ---
 
@@ -96,6 +96,88 @@ Configure the MCP connection with:
 > **Allye connected via OAuth!**
 >
 > Start a new session to activate the Allye tools.
+
+## Step 3: Delivery configuration
+
+Ask once, here, rather than at every dispatch. Five parallel stories would otherwise mean
+ten identical questions whose answer never varies.
+
+Check whether it already exists before asking anything:
+
+```
+user_config(action: "list")
+```
+
+If a document named `Allye Delivery Configuration` is present, show it and ask whether to
+change it. Otherwise, ask the three questions below — one at a time — and create it.
+
+**Question 1 — which agent runs which phase?** Offer the phases that can differ (planning,
+technical planning, execution, review, correction) and let the user assign an agent kind to
+each. The default is the agent they are running now, for every phase; accepting that default
+is a completely reasonable answer and should take one word.
+
+**Question 2 — what arguments does each agent need?** Model selection is not uniform: what
+is `--model sonnet --permission-mode auto` for one agent is different syntax for the next.
+Store the argument string verbatim; it is passed through unchanged.
+
+**Question 3 — per repo, what is the base branch, and which gitignored files must a fresh
+worktree receive?** A worktree inherits neither, and an executor that fails on a missing
+`.env` reports a bug that is not one.
+
+Create it:
+
+```
+user_config(
+  action: "create",
+  name: "Allye Delivery Configuration",
+  content: "{the document below}"
+)
+```
+
+Note the field is `name`, not `title` — this is the one tool in the suite that differs.
+
+### Document format
+
+```markdown
+# Allye Delivery Configuration
+
+## Phase routing
+
+| Phase | Agent kind | Native args |
+|---|---|---|
+| product-planning | claude | --model sonnet --permission-mode auto |
+| technical-planning | claude | --model sonnet --permission-mode auto |
+| execution | opencode | |
+| review | claude | --model sonnet --permission-mode auto |
+| correction | opencode | |
+
+## Repositories
+
+| Repo | Base branch | Install command | Copy into a fresh worktree |
+|---|---|---|---|
+| allye-plugin | main | | |
+| allye-api | develop | bun install | .env |
+
+## Concurrency
+
+Default parallel stories: 3
+```
+
+An empty cell means "nothing required" — leave it empty rather than writing "none", so the
+table stays scannable.
+
+### Preflight before routing a phase to a non-Claude agent
+
+A dispatched agent that cannot reach Allye cannot read the story, move a status, or save the
+memory the Orchestrator collects its result from — the dispatch will appear to succeed and
+produce nothing. Before recording a non-Claude agent for any phase, confirm that agent has
+Allye configured: the MCP connection, and for OpenCode the `allye-opencode` package. If it
+does not, say so and point at the matching guide in `docs/install-*.md` rather than recording
+a route that will fail on first use.
+
+Platform capability also constrains the map. OpenCode has six agent personas; Cursor, Codex,
+and Gemini CLI have one agent and no picker — routing a specific persona to them silently
+does nothing.
 
 ## Token Refresh
 

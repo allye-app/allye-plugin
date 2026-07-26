@@ -10,6 +10,10 @@
 - **Every** task under that story is listed — all of them, across all waves, not just the first wave — with its acceptance criteria copied in **full** (not summarized, not just linked). The Executor's chat has no other context and will never receive a second handover for the rest of the story.
 - Tasks are grouped by wave so the Executor knows the execution order, but the wave grouping is ordering information only — it never shrinks the scope of the dispatch.
 - Applicable code standards were discovered (`skill_list` to find the relevant skill, then `skill_get(id: ...)` to fetch its actual content) and are named here, not left for the Executor to rediscover.
+- The story's **AFK/HITL label** is stated. It was derived at planning time from whether every
+  task carries a runnable verification command (see `verification-loop` §4). The Orchestrator
+  reads it to decide whether this story can go to an unattended pane — omitting it forces a
+  guess about whether a human needs to be watching.
 
 ## Template
 
@@ -21,6 +25,8 @@
 Implement {STORY-KEY} — {story title}
 
 ### Story
+### Dispatch label
+{AFK — every task has a runnable verification command | HITL — {TASK-KEY} declares verification: manual}
 - Key: {STORY-KEY}
 - Acceptance criteria: {copied from the story description}
 

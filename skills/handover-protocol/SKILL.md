@@ -1,7 +1,7 @@
 ---
 name: handover-protocol
 description: The shared contract for handing off context between Allye workflow phases as copy-pasted chat text. Use when a phase skill is ending and needs to brief a fresh chat for the next phase (Planning, Technical Planning, Orchestrator, Executor), or when a fresh chat opens with a pasted handover and needs to detect which skill to load.
-version: "1.1"
+version: "1.2"
 category: methodology
 ---
 
@@ -61,6 +61,13 @@ Before emitting any handover, confirm:
 - **Locked decisions are carried forward, verbatim.** If a decision was locked in this phase, restate it in the handover — don't make the next chat re-derive or, worse, re-litigate it.
 - **Scope matches the type.** `story-execution` carries exactly one story; `correction` carries only the failed findings, not the whole story again. Padding a handover with everything "just in case" defeats the purpose of a lean next chat.
 - **The reminder line is never dropped.** Every handover ends with the "stop and ask" line — it's the single most important sentence in this whole protocol.
+<!-- adapted from mattpocock/skills triage AGENT-BRIEF (MIT) — durability of handoff artifacts -->
+- **Name interfaces and contracts, not file paths and line numbers.** Write "the `SkillConfig`
+  type gains an optional `schedule` field", never "open `src/types/skill.ts` and edit line 42."
+  A handover can be read hours later, by a different agent, in a worktree where the tree has
+  already moved — a line number is wrong by then and a contract is not. The one exception is a
+  snippet that encodes a decision more precisely than prose can (a schema, a state machine, a
+  type shape); include it, trimmed to the decision.
 
 ## 4. Auto-detection (implemented in `using-allye`)
 
