@@ -246,6 +246,51 @@ write_bootstrap_hook() {  # $1 = adapter json (claude)
   printf '%s\n' "$content" | jq '.' > "$path"
 }
 
+# ─── Skills-to-disk (agents that read skills from a directory, not MCP) ────
+# A skill goes to either the API (seeded in Steps 1-3, for agents that fetch
+# over MCP) or disk, never both for the same agent — a stale on-disk copy
+# shadowing a fresh seeded one would fail silently.
+
+install_skills_to_disk() {  # $1 = agent id
+  local id="$1" aj skills_path export_format count i skill slug source_file src dest_dir dest marker
+
+  aj=$(allye_agent_json "$id")
+  skills_path=$(expand_home "$(echo "$aj" | jq -r '.skills.path')")
+  export_format=$(echo "$aj" | jq -r '.skills.export_format')
+  marker="<!-- $(allye_marker_string) -->"
+
+  mkdir -p "$skills_path"
+
+  count=$(jq '.skills | length' "$SEED_FILE")
+  for i in $(seq 0 $((count - 1))); do
+    skill=$(jq -c ".skills[$i]" "$SEED_FILE")
+    slug=$(echo "$skill" | jq -r '.slug')
+    source_file=$(echo "$skill" | jq -r '.source_file')
+    src="$SCRIPT_DIR/$source_file"
+
+    if [ ! -f "$src" ]; then
+      print_warning "Skipping $slug — source file not found: $source_file"
+      continue
+    fi
+
+    case "$export_format" in
+      claude)
+        dest_dir="$skills_path/$slug"
+        dest="$dest_dir/SKILL.md"
+        mkdir -p "$dest_dir"
+        awk -v marker="$marker" '
+          { print }
+          /^---$/ { seen++; if (seen == 2) print marker }
+        ' "$src" > "$dest"
+        ;;
+      *)
+        print_error "Unknown skills export_format: $export_format"
+        return 1
+        ;;
+    esac
+  done
+}
+
 # ─── Verbs ──────────────────────────────────────────────────────────────────
 
 allye_install_one() {  # $1 = adapter json

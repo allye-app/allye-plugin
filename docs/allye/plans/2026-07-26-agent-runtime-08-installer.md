@@ -257,7 +257,7 @@ and be unrecoverable."
 - Consumes: `skills.source == "disk"` and `skills.path` from the adapter.
 - Produces: `install_skills_to_disk <agent-id>`, called by `allye_install`.
 
-- [ ] **Step 1: Add the function**
+- [x] **Step 1: Add the function**
 
 For an adapter with `skills.source == "disk"`, export each seeded skill in `skills.export_format` and write it to `<skills.path>/<name>/SKILL.md`.
 
@@ -271,7 +271,7 @@ The adapter's `skills.source` is what decides. Do not "helpfully" do both.
 
 Every written `SKILL.md` carries the version marker as an HTML comment after the frontmatter, so `status` and `uninstall` can identify what this installer put there.
 
-- [ ] **Step 2: Confirm the format actually transfers**
+- [x] **Step 2: Confirm the format actually transfers**
 
 Hermes reads `SKILL.md` with YAML frontmatter following the agentskills.io standard; the adapter says `export_format: "claude"` on the expectation that it transfers unchanged. **Verify rather than assume**: install one skill, then read it back.
 
@@ -283,7 +283,7 @@ head -12 "$ALLYE_TEST_HOME/.hermes/skills/allye/using-allye/SKILL.md"
 
 Expected: our four frontmatter keys present and parseable. If Hermes requires anything ours lacks, add it in the writer and record what was needed in your report — that is a finding worth having, and it is the argument for a `hermes` export format upstream in `allye-mcp`.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 jq -r '.skills[].slug' seed/seed-skills.json | sort > /tmp/seeded.txt
@@ -293,7 +293,7 @@ grep -c 'ALLYE_INSTALLER_VERSION' "$ALLYE_TEST_HOME/.hermes/skills/allye/using-a
 ```
 Expected: the sixteen seeded skills present on disk, no more and no fewer; the marker present.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add install/lib.sh
