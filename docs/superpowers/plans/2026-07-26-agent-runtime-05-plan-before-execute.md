@@ -344,7 +344,7 @@ Two things, one file pair, because both are about what a handover carries.
 - Consumes: Task 3's `Interfaces` block.
 - Produces: the final shape of the `story-execution` handover.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n -i 'delivery constraints' skills/handover-protocol/SKILL.md
@@ -353,7 +353,7 @@ grep -c 'opencode-exclude' skills/handover-protocol/SKILL.md
 ```
 Expected: no output from the first two; record the third — it must not drop.
 
-- [ ] **Step 2: Reference feature constraints instead of recopying them**
+- [x] **Step 2: Reference feature constraints instead of recopying them**
 
 `Applicable code standards` appears **twice** in this file — once in the "Before emitting, confirm" list and once as a template heading. Both go; leaving the first turns it into an instruction to fill a field that no longer exists.
 
@@ -375,7 +375,7 @@ The bullet that replaces the old code-standards one:
   copy looks authoritative.
 ```
 
-- [ ] **Step 3: Add the three briefing behaviours to the closing reminder**
+- [x] **Step 3: Add the three briefing behaviours to the closing reminder**
 
 The template currently closes with a "stop and ask" line. Replace that closing block with:
 
@@ -399,7 +399,7 @@ hides a decision that was never made.
 report. If two rules genuinely disagreed and you chose one, say which and why.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'opencode-exclude' skills/handover-protocol/SKILL.md
@@ -411,7 +411,7 @@ grep -c '🔄 Allye Handover' skills/handover-protocol/references/story-executio
 ```
 Expected: the marker count unchanged from Step 1; all four new passages found; the handover marker still present and unmodified.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/handover-protocol/
