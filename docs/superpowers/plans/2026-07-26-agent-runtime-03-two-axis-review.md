@@ -265,7 +265,7 @@ but wrong' visible instead of averaged away."
 - Consumes: Tasks 1 and 2.
 - Produces: a `review` skill describing both axes, for the interactive case where a human runs review by hand.
 
-- [ ] **Step 1: Find every reference to the old agent**
+- [x] **Step 1: Find every reference to the old agent**
 
 The obvious pattern misses half of them: `README.md` and `handover-protocol` write "Reviewer" capitalized and without backticks. Search case-insensitively, and scope to living files:
 
@@ -281,13 +281,13 @@ Expected: hits in `skills/orchestrator/SKILL.md`, `skills/review/SKILL.md`, `ski
 The current spec (`2026-07-26-*`) already describes the split — it is the document that decided it.
 </HARD-GATE>
 
-- [ ] **Step 2: Delete the old agent**
+- [x] **Step 2: Delete the old agent**
 
 ```bash
 git rm agents/reviewer.md
 ```
 
-- [ ] **Step 3: Rewrite the review skill's checks into two axes**
+- [x] **Step 3: Rewrite the review skill's checks into two axes**
 
 In `skills/review/SKILL.md`, replace section 2's single flat list of checks. Section 2.2 "Code Quality" and 2.3 "Decision Compliance" and 2.4 "Test Quality" become two clearly separated subsections:
 
@@ -329,15 +329,15 @@ Two reports, never merged, never reranked. The decision that combines them belon
 the Orchestrator — see `orchestrator` §6.
 ```
 
-- [ ] **Step 4: Apply the authoring doctrine to the whole file**
+- [x] **Step 4: Apply the authoring doctrine to the whole file**
 
 Run the no-op test sentence by sentence and delete whole sentences that fail; collapse duplicated meaning; confirm every step ends on a checkable criterion. Do not touch tool names, the `work_statuses()` / `work_update` backward-move mechanic, or the ✅/⚠️/❌ symbols.
 
-- [ ] **Step 5: Update the stale references**
+- [x] **Step 5: Update the stale references**
 
 In `CLAUDE.md` and `README.md`, replace every mention of four subagents with five, and every mention of `reviewer` with the two axis agents. Specifically, `CLAUDE.md`'s runtime-flow section 3 lists the shipped subagents; `README.md`'s "What you get" and "Agents" sections both give counts.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 test ! -f agents/reviewer.md && echo "old agent removed"
@@ -347,7 +347,7 @@ grep -c 'Axis 1\|Axis 2' skills/review/SKILL.md
 ```
 Expected: `agents/` lists `code-analyzer.md`, `deep-search.md`, `executor.md`, `reviewer-spec.md`, `reviewer-standards.md`; no stale path references; both axes present in the skill.
 
-- [ ] **Step 7: Bump version and commit**
+- [x] **Step 7: Bump version and commit**
 
 ```bash
 git add -A skills/review/ agents/ CLAUDE.md README.md
