@@ -545,7 +545,7 @@ Also applies the skill-authoring doctrine to this file."
 - Consumes: nothing.
 - Produces: a Core Document named `Allye Delivery Configuration`, loaded automatically by `initialize`. Task 2 reads `$BASE` and the copy-list from it.
 
-- [ ] **Step 1: Add the configuration step**
+- [x] **Step 1: Add the configuration step**
 
 Append a new section to `skills/setup/SKILL.md`, after the platform-specific setup:
 
@@ -633,11 +633,11 @@ and Gemini CLI have one agent and no picker — routing a specific persona to th
 does nothing.
 ```
 
-- [ ] **Step 2: Apply the authoring doctrine to the whole file**
+- [x] **Step 2: Apply the authoring doctrine to the whole file**
 
 Do not touch the OAuth-only rule or its `<EXTREMELY_IMPORTANT>` framing — "never ask for a PAT" is exactly the kind of prohibition that carries its own content.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 grep -n 'Allye Delivery Configuration' skills/setup/SKILL.md
@@ -650,7 +650,7 @@ grep -n 'cannot reach Allye' skills/setup/SKILL.md
 
 Expected: every one found. In order they prove the document is named, that setup checks for it before asking anything, that the `name`-not-`title` gotcha is stated, that the routing table and the per-repo base-branch column exist, and that the non-Claude preflight is present. A count of the document's name would prove none of these.
 
-- [ ] **Step 4: Bump version and commit**
+- [x] **Step 4: Bump version and commit**
 
 ```bash
 git add skills/setup/
