@@ -276,7 +276,7 @@ grep -rn -i 'reviewer' skills/ agents/ CLAUDE.md README.md packages/allye-openco
 Expected: hits in `skills/orchestrator/SKILL.md`, `skills/review/SKILL.md`, `skills/handover-protocol/SKILL.md`, `agents/reviewer.md`, `CLAUDE.md`, and `README.md` (lines 29, 63, 199, 218, 233, 238, 256 — six prose mentions plus a table row). Record them; every one is updated in this task or Task 4.
 
 <HARD-GATE>
-**Do not search or edit under `docs/`.** `docs/superpowers/specs/2026-07-12-*` and `docs/superpowers/plans/2026-07-12-*` mention the single reviewer because that is what was decided and shipped in July. They are the record of a decision, not a description of the current tree. Rewriting a delivered spec so it matches later reality destroys the only account of why the thing was built the way it was.
+**Do not search or edit under `docs/`.** `docs/allye/specs/2026-07-12-*` and `docs/allye/plans/2026-07-12-*` mention the single reviewer because that is what was decided and shipped in July. They are the record of a decision, not a description of the current tree. Rewriting a delivered spec so it matches later reality destroys the only account of why the thing was built the way it was.
 
 The current spec (`2026-07-26-*`) already describes the split — it is the document that decided it.
 </HARD-GATE>

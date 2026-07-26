@@ -1,7 +1,7 @@
 ---
 name: technical-planning
 description: Workflow for breaking a story into tasks through a structured discussion phase. Use when the user has a story and wants to plan the technical implementation.
-version: "1.3"
+version: "1.4"
 category: methodology
 ---
 
@@ -194,6 +194,23 @@ want to think of a command": declaring it makes the whole story HITL, which
 costs the Orchestrator its ability to dispatch that story unattended.
 </HARD-GATE>
 
+### 4.2.2 No Placeholders
+
+<HARD-GATE>
+A task description contains what someone needs to do the work, not a promise to supply it
+later. These are defects in a task, not shorthand:
+
+- "TBD", "TODO", "details to follow"
+- "Add appropriate error handling" — which errors, handled how?
+- "Handle edge cases" — which ones? An edge case nobody named is an edge case nobody covers.
+- "Similar to {other task}" — say it again here. Tasks are read in isolation and out of order.
+- A criterion naming a type, function, or file that no task defines and no `Interfaces`
+  block produces.
+
+Each of these reads as complete and defers the actual decision to whoever implements — who
+has less context than you do right now, and no way to ask you.
+</HARD-GATE>
+
 ### 4.3 Task Description Template
 
 ```markdown
@@ -220,9 +237,20 @@ verification: manual
 ## Dependencies
 - {Depends on TASK-XX} or "None — can be done independently"
 
+## Interfaces
+**Consumes:** {names, types, and signatures this task calls that another task in this story
+produces — or "Nothing from other tasks"}
+**Produces:** {names, types, and signatures other tasks will call. Exact, not descriptive:
+`createSession(userId: string): Session`, not "a session creator".}
+
 ## Decisions Applied
 - {Reference locked/agent-discretion decisions from discussion phase}
 ```
+
+The `Interfaces` block exists because whoever implements a task sees **only that task**.
+Dependencies tell them what must finish first; interfaces tell them what to call when it
+has. Writing "a session creator" instead of the signature moves the naming decision to
+whoever implements second, and they will name it something else.
 
 ### 4.4 Analyze Dependencies
 
@@ -306,6 +334,8 @@ Before considering technical planning complete, verify:
 - [ ] All decisions are classified (locked vs agent-discretion) and saved as memories
 - [ ] Tasks have verifiable acceptance criteria
 - [ ] Every task has a `## Verification` block — a runnable command, or `verification: manual` with a procedure
+- [ ] Every task's `Interfaces` block names exact signatures, not descriptions
+- [ ] No task description contains a placeholder or an unnamed edge case
 - [ ] The story's AFK/HITL label is derived and stated
 - [ ] Dependencies are mapped and wave structure is defined
 - [ ] Tasks are created in Allye with proper parent relationship

@@ -1,7 +1,7 @@
 # Execution Retrospective — running log
 
-**Status:** open, appended as things happen. Closes as Plan 05 when Plans 02–04 are done.
-**Scope:** what actually broke, surprised, or worked better than expected while building and running the four plans from `2026-07-26-agent-runtime-and-verification-design.md`.
+**Status:** closed 2026-07-26 — thirteen findings, all applied or carried into Plan 05.
+**Scope:** what actually broke, surprised, or worked better than expected while building and running the five plans from `2026-07-26-agent-runtime-and-verification-design.md`.
 
 Written during execution rather than reconstructed afterwards, because the detail that makes a finding actionable is the first thing lost. "The spawn had a hiccup" is not fixable; `agent_pane_busy` because `fastfetch` held the foreground is.
 
@@ -236,3 +236,38 @@ Not defects — things about *how* this was built that are worth keeping or drop
 - **The briefing template did more work than any skill.** Three separate behaviours came from paragraphs written by hand into the dispatch briefings, not from any skill or handover template: stopping on a contradictory step rather than improvising; reporting out-of-scope findings without fixing them (which surfaced F13, the two defects in spec §12, and the `delivery` scope error); and refusing to say "no conflicts" to be agreeable, which produced the two honest doctrine conflicts in the first workstream. **All three belong in `references/story-execution.md`, and only the first is currently scoped for Plan 05.** The other two are the strongest candidates for whatever comes after it.
 
 - **Every executor's most useful output was the thing it was told not to fix.** Four dispatches, four out-of-scope sections, and between them: two API defects, one architecture-doc error, and one dangling skill reference. None was in any plan. The instruction that produced them costs one sentence.
+
+---
+
+## The application gate
+
+This document records fixes. Recording is not applying, and the two feel identical while
+writing — F12 exists because five fixes sat here fully specified and entirely undone.
+
+**Before dispatching any plan:**
+
+```bash
+grep -n 'Fix (Plan N' docs/allye/notes/*-retrospective.md
+```
+
+Every result naming that plan is confirmed landed, or the plan is not ready.
+
+**Before closing any retrospective:** every `Fix (...)` is either applied, or restated as an
+open item with a named owner and destination. A finding with no destination is an
+observation, and observations belong under Process, not under a numbered finding.
+
+## A new skill is not done when its file exists
+
+It is done when everything that names it can resolve it:
+
+- [ ] `skills/<name>/SKILL.md` exists with all four frontmatter keys
+- [ ] Added to `seed/seed-skills.json`, with `supported_agents` reflecting where it is
+      actually reachable — not every skill is reachable on every platform
+- [ ] Referenced from whatever loads it, by the exact name the seed uses
+- [ ] Counts updated in `README.md` and `CLAUDE.md`
+- [ ] If it is deliberately **not** seeded, that is stated where the count is, the way
+      `setup` is
+
+Two of these five were missed for `verification-loop` and `agent-runtime`, and the failure
+mode was not a wrong number — it was a skill referenced by name that a user's database could
+not resolve at the moment it was needed.

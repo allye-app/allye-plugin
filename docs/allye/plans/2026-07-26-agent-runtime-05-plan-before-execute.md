@@ -40,7 +40,7 @@ grep -c 'Dispatch label' skills/handover-protocol/references/story-execution.md 
 - Consumes: the `## Verification` block and the AFK/HITL label from Plan 02; the `plans` memory sector.
 - Produces: an implementation-plan memory, `sector: "plans"`, tagged with the story key. Task 2 mirrors it for the dispatched agent; `reviewer-spec` may read it.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n 'Step 4.5\|Plan the implementation' skills/execution/SKILL.md
@@ -48,7 +48,7 @@ grep -n 'sector: "plans"' skills/execution/SKILL.md
 ```
 Expected: **no output from either.** The skill currently goes from Step 4 (Read First) straight to Step 5 (TDD).
 
-- [ ] **Step 2: Insert the step between reading and writing**
+- [x] **Step 2: Insert the step between reading and writing**
 
 In `skills/execution/SKILL.md`, after Step 4's "Analysis Paralysis Guard" and before "## Step 5: TDD", insert:
 
@@ -118,7 +118,7 @@ and who supplies it follows the story's dispatch label (see `verification-loop` 
   the label could not have anticipated.
 ```
 
-- [ ] **Step 3: Add the checklist items**
+- [x] **Step 3: Add the checklist items**
 
 In the "Workflow Checklist", after the read-first item:
 
@@ -127,7 +127,7 @@ In the "Workflow Checklist", after the read-first item:
 - [ ] Coverage, decisions, and closure all checked against that plan
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -n '## Step 4.5: Plan the Implementation' skills/execution/SKILL.md
@@ -138,7 +138,7 @@ grep -c 'Step 5' skills/execution/SKILL.md
 ```
 Expected: the heading found; the `plans` sector used exactly once; the before-any-code phrasing present; the interfaces bullet present; and Step 5 still there — the new step is inserted, not substituted.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/execution/
@@ -167,14 +167,14 @@ The dispatched agent cannot ask. That makes the HITL branch different and the th
 - Consumes: Task 1's three checks, by name.
 - Produces: a `❌ blocked` report shape that names the failed check.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'Implementation Plan\|plan the implementation' agents/executor.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Add the discipline bullet**
+- [x] **Step 2: Add the discipline bullet**
 
 In the "Discipline" list, **before** the read-first bullet — it comes first in time and the list is read in order:
 
@@ -182,7 +182,7 @@ In the "Discipline" list, **before** the read-first bullet — it comes first in
 - **Plan before you write, and validate the plan.** After reading and before any code: state per task the approach, the files, the interfaces the task produces, and which step makes each acceptance criterion's `## Verification` command go green. Save it with `memory_save`, `sector: "plans"`, tagged with the story key. Then run three checks — **coverage** (every criterion has a step), **decisions** (every locked decision respected), **closure** (nothing depended on that the plan never defines). See the `execution` skill's Step 4.5 for the full shape.
 ```
 
-- [ ] **Step 3: Extend the halt-and-report contract**
+- [x] **Step 3: Extend the halt-and-report contract**
 
 Add a paragraph inside the existing HARD-GATE:
 
@@ -195,7 +195,7 @@ You cannot ask, so the plan check is where your inability to ask costs least. A 
 here is a paragraph; the same gap found in Step 5 is a branch.
 ```
 
-- [ ] **Step 4: Handle the HITL branch, which you cannot serve**
+- [x] **Step 4: Handle the HITL branch, which you cannot serve**
 
 Add to the same gate:
 
@@ -208,7 +208,7 @@ validated by a human." The plan is still useful; the missing validation is not s
 can supply.
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 grep -c 'sector: "plans"' agents/executor.md
@@ -218,7 +218,7 @@ grep -n 'a paragraph; the same gap found in Step 5 is a branch' agents/executor.
 ```
 Expected: all four found.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add agents/executor.md
@@ -245,7 +245,7 @@ judgement."
 - Consumes: nothing.
 - Produces: an `## Interfaces` section in every task description, which Task 1's plan step reads and Task 4's handover carries.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n '## Interfaces' skills/technical-planning/SKILL.md
@@ -253,7 +253,7 @@ grep -n -i 'placeholder' skills/technical-planning/SKILL.md
 ```
 Expected: **no output from either.**
 
-- [ ] **Step 2: Add `Interfaces` to the task template**
+- [x] **Step 2: Add `Interfaces` to the task template**
 
 In section 4.3 "Task Description Template", after the `## Dependencies` block:
 
@@ -274,7 +274,7 @@ has. Writing "a session creator" instead of the signature moves the naming decis
 whoever implements second, and they will name it something else.
 ```
 
-- [ ] **Step 3: Add the no-placeholders gate**
+- [x] **Step 3: Add the no-placeholders gate**
 
 After the existing Verification Rule gate in 4.2.1:
 
@@ -297,14 +297,14 @@ has less context than you do right now, and no way to ask you.
 </HARD-GATE>
 ```
 
-- [ ] **Step 4: Add the checklist items**
+- [x] **Step 4: Add the checklist items**
 
 ```markdown
 - [ ] Every task's `Interfaces` block names exact signatures, not descriptions
 - [ ] No task description contains a placeholder or an unnamed edge case
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 grep -c '## Interfaces' skills/technical-planning/SKILL.md
@@ -315,7 +315,7 @@ grep -c 'Verification Rule' skills/technical-planning/SKILL.md
 ```
 Expected: all found, and Plan 02's Verification Rule still present — this task adds a sibling gate, it does not replace one.
 
-- [ ] **Step 6: Bump version and commit**
+- [x] **Step 6: Bump version and commit**
 
 ```bash
 git add skills/technical-planning/
@@ -344,7 +344,7 @@ Two things, one file pair, because both are about what a handover carries.
 - Consumes: Task 3's `Interfaces` block.
 - Produces: the final shape of the `story-execution` handover.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n -i 'delivery constraints' skills/handover-protocol/SKILL.md
@@ -353,7 +353,7 @@ grep -c 'opencode-exclude' skills/handover-protocol/SKILL.md
 ```
 Expected: no output from the first two; record the third — it must not drop.
 
-- [ ] **Step 2: Reference feature constraints instead of recopying them**
+- [x] **Step 2: Reference feature constraints instead of recopying them**
 
 `Applicable code standards` appears **twice** in this file — once in the "Before emitting, confirm" list and once as a template heading. Both go; leaving the first turns it into an instruction to fill a field that no longer exists.
 
@@ -375,7 +375,7 @@ The bullet that replaces the old code-standards one:
   copy looks authoritative.
 ```
 
-- [ ] **Step 3: Add the three briefing behaviours to the closing reminder**
+- [x] **Step 3: Add the three briefing behaviours to the closing reminder**
 
 The template currently closes with a "stop and ask" line. Replace that closing block with:
 
@@ -399,7 +399,7 @@ hides a decision that was never made.
 report. If two rules genuinely disagreed and you chose one, say which and why.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'opencode-exclude' skills/handover-protocol/SKILL.md
@@ -411,7 +411,7 @@ grep -c '🔄 Allye Handover' skills/handover-protocol/references/story-executio
 ```
 Expected: the marker count unchanged from Step 1; all four new passages found; the handover marker still present and unmodified.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/handover-protocol/
@@ -429,48 +429,48 @@ defects without fixing them, and never report clean to be agreeable."
 
 ---
 
-### Task 5: Rename `docs/superpowers/` to `docs/allye/`
+### Task 5: Rename `docs/allye/` to `docs/allye/`
 
 Cosmetic, and correct. These are the plugin's own development artifacts, which is a separate thing from what the plugin instructs a user's agent to do — only the second ever mattered for self-sufficiency, and it was never in question.
 
 **Files:**
-- Rename: `docs/superpowers/` → `docs/allye/`
+- Rename: `docs/allye/` → `docs/allye/`
 - Modify: every file referencing the old path
 
-- [ ] **Step 1: Find every reference**
+- [x] **Step 1: Find every reference**
 
 ```bash
-grep -rn 'docs/superpowers' . --exclude-dir=.git --exclude-dir=node_modules -l
+grep -rn 'docs/allye' . --exclude-dir=.git --exclude-dir=node_modules -l
 ```
 Expected: `CLAUDE.md`, both 2026-07-12 and 2026-07-26 specs, all eleven plan files, and the retrospective.
 
-- [ ] **Step 2: Rename, preserving history**
+- [x] **Step 2: Rename, preserving history**
 
 ```bash
-git mv docs/superpowers docs/allye
+git mv docs/allye docs/allye
 ```
 
-- [ ] **Step 3: Update every reference**
+- [x] **Step 3: Update every reference**
 
 ```bash
-grep -rl 'docs/superpowers' . --exclude-dir=.git --exclude-dir=node_modules \
-  | xargs sed -i 's|docs/superpowers|docs/allye|g'
+grep -rl 'docs/allye' . --exclude-dir=.git --exclude-dir=node_modules \
+  | xargs sed -i 's|docs/allye|docs/allye|g'
 ```
 
-- [ ] **Step 4: Verify nothing was missed and nothing else changed**
+- [x] **Step 4: Verify nothing was missed and nothing else changed**
 
 ```bash
-grep -rn 'docs/superpowers' . --exclude-dir=.git --exclude-dir=node_modules || echo "no stale references"
+grep -rn 'docs/allye' . --exclude-dir=.git --exclude-dir=node_modules || echo "no stale references"
 ls docs/
 grep -rc 'adapted from' skills/ agents/ | grep -v ':0'
 ```
 Expected: no stale references; `docs/` contains `allye`; and the `adapted from` attribution comments are **still present and unchanged** — this task renames a directory and touches no credit.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "refactor: rename docs/superpowers to docs/allye
+git commit -m "refactor: rename docs/allye to docs/allye
 
 These are the plugin's own development artifacts, and the directory name
 was the last place an external suite appeared in this repository's
@@ -491,7 +491,7 @@ F12 recorded five fixes targeting Plan 04 and none had been applied — caught o
 **Files:**
 - Modify: `docs/allye/notes/2026-07-26-execution-retrospective.md` (note the post-Task-5 path)
 
-- [ ] **Step 1: Verify every fix targeting a plan actually landed**
+- [x] **Step 1: Verify every fix targeting a plan actually landed**
 
 ```bash
 grep -n 'Fix (Plan' docs/allye/notes/2026-07-26-execution-retrospective.md
@@ -499,7 +499,7 @@ grep -n 'Fix (Plan' docs/allye/notes/2026-07-26-execution-retrospective.md
 
 For each result, open the named plan and confirm the change is present. Record the outcome per finding — **applied** or **not applied, and why**. A finding whose plan already executed and which was never applied is not closed; it becomes an item below.
 
-- [ ] **Step 2: Add the standing gate**
+- [x] **Step 2: Add the standing gate**
 
 Append to the retrospective:
 
@@ -524,7 +524,7 @@ open item with a named owner and destination. A finding with no destination is a
 observation, and observations belong under Process, not under a numbered finding.
 ```
 
-- [ ] **Step 3: Add the new-skill completeness checklist**
+- [x] **Step 3: Add the new-skill completeness checklist**
 
 F13 found a skill that existed as a file but could not be resolved by name. Append:
 
@@ -546,7 +546,7 @@ mode was not a wrong number — it was a skill referenced by name that a user's 
 not resolve at the moment it was needed.
 ```
 
-- [ ] **Step 4: Mark the document closed**
+- [x] **Step 4: Mark the document closed**
 
 Change the status line at the top:
 
@@ -555,7 +555,7 @@ Change the status line at the top:
 **Scope:** what actually broke, surprised, or worked better than expected while building and running the five plans from `2026-07-26-agent-runtime-and-verification-design.md`.
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 grep -n 'Status:' docs/allye/notes/2026-07-26-execution-retrospective.md
@@ -565,7 +565,7 @@ grep -c '^## F' docs/allye/notes/2026-07-26-execution-retrospective.md
 ```
 Expected: status reads closed; both appended sections present; thirteen findings.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/allye/notes/

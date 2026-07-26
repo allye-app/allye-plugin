@@ -523,7 +523,7 @@ Four things the external plan format provided that Allye's task structure does n
 
 ### 16.6 Deferred
 
-**Renaming `docs/superpowers/` is deferred to Plan 05.** The directory is the plugin's own development artifacts, not anything the plugin instructs users' agents to do — the two are separate and only the second matters for self-sufficiency. Renaming now would collide with Plan 02, which is currently executing and writing checkbox progress into files under that path.
+**Renaming `docs/allye/` is deferred to Plan 05.** The directory is the plugin's own development artifacts, not anything the plugin instructs users' agents to do — the two are separate and only the second matters for self-sufficiency. Renaming now would collide with Plan 02, which is currently executing and writing checkbox progress into files under that path.
 
 ### 16.7 Scope
 

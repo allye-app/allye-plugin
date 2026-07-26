@@ -1,7 +1,7 @@
 ---
 name: handover-protocol
 description: The shared contract for handing off context between Allye workflow phases as copy-pasted chat text. Use when a phase skill is ending and needs to brief a fresh chat for the next phase (Planning, Technical Planning, Orchestrator, Executor), or when a fresh chat opens with a pasted handover and needs to detect which skill to load.
-version: "1.2"
+version: "1.3"
 category: methodology
 ---
 

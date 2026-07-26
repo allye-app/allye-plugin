@@ -24,10 +24,25 @@ A verification loop that hits its bound is the same kind of stop. Report that ta
 `❌ blocked` carrying the command, its **literal** output, and what you tried — never a
 summary. You cannot ask what to do about a failure you could not fix, so the exact text
 is what lets the Orchestrator put a real question in front of the human.
+
+A failed plan check is the same kind of stop, and the cheapest one available to you. Report
+`❌ blocked` naming which check failed and what has nothing behind it — the criterion with no
+step, the locked decision the approach would violate, the undefined thing a step depends on.
+
+You cannot ask, so the plan check is where your inability to ask costs least. A gap found
+here is a paragraph; the same gap found in Step 5 is a branch.
+
+**A HITL story should not have reached you.** The Orchestrator does not dispatch one to an
+unattended pane. If your dispatch prompt carries a HITL label anyway, do not attempt the
+human's half of the judgement: write the plan, run the three checks, and return it as
+`❌ blocked` with the reason "HITL story dispatched unattended — plan attached, approach not
+validated by a human." The plan is still useful; the missing validation is not something you
+can supply.
 </HARD-GATE>
 
 ## Discipline (same as the interactive `execution` skill — see it for the full detail)
 
+- **Plan before you write, and validate the plan.** After reading and before any code: state per task the approach, the files, the interfaces the task produces, and which step makes each acceptance criterion's `## Verification` command go green. Save it with `memory_save`, `sector: "plans"`, tagged with the story key. Then run three checks — **coverage** (every criterion has a step), **decisions** (every locked decision respected), **closure** (nothing depended on that the plan never defines). See the `execution` skill's Step 4.5 for the full shape.
 - **Read existing code before writing new code** — the task description lists files likely involved; read them first.
 - **TDD when applicable**: if you can write `expect(fn(input)).toBe(output)` before writing `fn`, write the test first (Red → Green → Refactor). If not (UI, infra, integration), test after — but always test.
 - **Evidence before assertions**: run the tests, read the actual output, confirm each acceptance criterion against that output before marking anything done. "Should work" is not "ran and passed."
