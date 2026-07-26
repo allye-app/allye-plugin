@@ -40,7 +40,19 @@ Tell the user:
 Installing Allye disables two Hermes features, because Allye provides both and two
 sources of truth is worse than either alone.
 
-**`memory`** — Hermes stores memories in `~/.hermes/memories/` on this machine. Allye's
+**`memory`** — Hermes stores memories in `~/.hermes/memories/` on this machine.
+
+*How it is turned off, precisely:* the installer sets `memory.memory_enabled` and
+`memory.user_profile_enabled` to `false`, which disables the memory **store**. The tool itself
+stays registered — it lives inside the `hermes-cli` preset as a tool name, not as a separable
+toolset, and removing it would mean materialising an explicit toolset list per platform and
+thereby freezing a default you never chose. Called without a store it returns
+`{"error":"Memory is not available…","success":false}`, so an agent that reaches for it is told
+plainly and falls back to Allye's. That is a better failure than the tool silently not existing.
+
+The `toolsets_remove` entry in the adapter only bites if your `platform_toolsets` lists
+individual toolsets rather than presets — which is what `hermes tools` writes. On a preset-based
+config it is a no-op, and the flags do the work. Allye's
 `intelligence` has seven sectors, conflict resolution, team scope, and semantic search, and
 it is reachable from every agent on every machine. A memory only Hermes can see is worse
 than none: it gives the feeling of continuity without the thing.
