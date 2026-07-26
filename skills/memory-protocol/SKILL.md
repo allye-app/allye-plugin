@@ -1,7 +1,7 @@
 ---
 name: memory-protocol
 description: Complete memory protocol for AI agents using Allye. Defines when and how to search, save, and link memories for cross-session continuity.
-version: "2.2"
+version: "2.3"
 category: methodology
 ---
 
@@ -98,14 +98,14 @@ Save decisions and blockers immediately — not batched at session end. **Locked
 ### Session state — handled by the /save protocol
 
 <EXTREMELY_IMPORTANT>
-Before the conversation ends (or whenever /save is invoked), run the full /save protocol in §4. Session state is not a single ad hoc save — it's the first of three coordinated steps that also promote durable knowledge from the session into team sectors.
+Before the conversation ends (or whenever /save is invoked), run the full /save protocol in §4. Session state is not a single ad hoc save — it's the first of four coordinated steps that also promote durable knowledge from the session into team sectors.
 </EXTREMELY_IMPORTANT>
 
 ---
 
 ## 4. The /save protocol
 
-`/save` is a 3-step protocol that turns a session's raw activity into (a) a personal continuity snapshot and (b) correctly-scoped, durable team knowledge. Run all three steps, in order, every time /save is invoked or a conversation is about to end.
+`/save` is a 4-step protocol that turns a session's raw activity into (a) a personal continuity snapshot and (b) correctly-scoped, durable team knowledge. Run all four steps, in order, every time /save is invoked or a conversation is about to end.
 
 ### Step 1 — Consolidate the session (sector: `sessions`, personal)
 
@@ -149,6 +149,36 @@ Both the Step 1 consolidation and every Step 2 promotion resolve to one of the f
 | `noop` | Content is already fully covered; nothing was written | Stop. Use the returned existing memory as the source of truth instead of rewording and retrying |
 
 Rewording the same content to force past a `noop` means the content wasn't new — trust the resolver.
+
+### Step 4 — Promote surviving todos (`productivity`, personal)
+
+Some agents keep a scratch task list for the turn — read the file, run the test, commit.
+It is the right tool for that and it dies with the session, which is also right.
+
+Ask the same question Step 2 asks of the session: **would this still matter tomorrow?**
+
+**Promote when the item is:**
+- A follow-up nobody has scheduled — "the migration needs a rollback path before it ships"
+- A discovery that costs time every time it is rediscovered — "the app build fails without an
+  explicit install because the runtime is at a non-default path"
+- Work the session surfaced but deliberately did not do
+
+**Do NOT promote:**
+- Any step of the work just completed. "Run the tests" is not a TODO, it is a thing that happened.
+- Anything already captured as a work item — `productivity` is personal follow-up, not a
+  second work tracker. If it belongs to a story, it belongs in the story.
+
+```
+todo_create(
+  title: "{the follow-up, stated as an outcome}",
+  content: "## What\n{what needs doing}\n\n## Why it surfaced\n{the session context that produced it}",
+  priority: "{low|medium|high|urgent}"
+)
+```
+
+Zero promotions is the normal outcome. A session whose every scratch item was a step of the
+work it just finished has nothing to promote, and forcing one turns a personal list of real
+commitments into a log of completed steps — which is what makes such lists get ignored.
 
 ---
 

@@ -66,7 +66,7 @@ Read **§20 of the spec** before Task 1.
 - Consumes: Plan 08's adapter schema and `write_mcp_yaml_block`.
 - Produces: a `config` block on the Hermes adapter that later agents can copy the shape of.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 jq -r '.agents[] | select(.id=="hermes") | keys | join(" ")' install/adapters.json
@@ -74,7 +74,7 @@ grep -c 'memory_enabled' install/lib.sh
 ```
 Expected: the Hermes entry has no `config` key, and `memory_enabled` appears zero times.
 
-- [ ] **Step 2: Add a `config` block to the Hermes adapter**
+- [x] **Step 2: Add a `config` block to the Hermes adapter**
 
 Extend the Hermes entry with the settings the installer must merge:
 
@@ -91,7 +91,7 @@ Extend the Hermes entry with the settings the installer must merge:
 
 `set` writes scalar keys. `toolsets_remove` and `toolsets_add` operate on every platform's list in `platform_toolsets`, since the choice of engine is not per-platform: a Telegram session and a CLI session must agree on where memories live.
 
-- [ ] **Step 3: Implement the merge**
+- [x] **Step 3: Implement the merge**
 
 Add `apply_agent_config <agent-id>` to `install/lib.sh`, called from `allye_install` after the MCP block is written.
 
@@ -103,7 +103,7 @@ If a platform's list does not exist, **leave it absent** — an absent list mean
 
 Record what was changed so `uninstall` can reverse it: write the previous value beside each change under an `allye_previous` key in the config, or a sibling file. An uninstall that cannot restore what it turned off is not an uninstall.
 
-- [ ] **Step 4: Verify against the sandbox, with a pre-existing config**
+- [x] **Step 4: Verify against the sandbox, with a pre-existing config**
 
 Seed a config that already has user content, so the merge is genuinely tested:
 
@@ -145,7 +145,7 @@ grep -c 'mcp-allye' "$ALLYE_TEST_HOME/.hermes/config.yaml"                   # 2
 
 `todo` surviving is the point of this plan's §20.4 and the easiest thing to remove by accident while removing its neighbours.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add install/adapters.json install/lib.sh
@@ -176,7 +176,7 @@ The pattern already exists. `memory-protocol` §4 consolidates a session and the
 - Consumes: nothing new.
 - Produces: a fourth step in the /save protocol.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'todo' skills/memory-protocol/SKILL.md
@@ -185,7 +185,7 @@ grep -n '3-step protocol' skills/memory-protocol/SKILL.md
 ```
 Expected: `todo` absent; **Step 3 is titled "React to the outcome"** — Plan 01's doctrine pass shortened it, so do not search for older wording; and §4's opening calls it a "3-step protocol", which Step 3 of this task corrects.
 
-- [ ] **Step 2: Add Step 4 to the /save protocol**
+- [x] **Step 2: Add Step 4 to the /save protocol**
 
 After Step 3:
 
@@ -221,7 +221,7 @@ work it just finished has nothing to promote, and forcing one turns a personal l
 commitments into a log of completed steps — which is what makes such lists get ignored.
 ```
 
-- [ ] **Step 3: Reference it from the protocol's opening**
+- [x] **Step 3: Reference it from the protocol's opening**
 
 Two places say three, and both are one edit each:
 
@@ -230,7 +230,7 @@ Two places say three, and both are one edit each:
 
 A protocol that announces three steps and then lists four is the kind of small wrongness that makes a reader stop trusting the rest of the file.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'Step 4 — Promote surviving todos' skills/memory-protocol/SKILL.md
@@ -242,7 +242,7 @@ grep -c '^### Step ' skills/memory-protocol/SKILL.md
 ```
 Expected: the step present; `todo_create` used once; **zero** surviving three-step phrasings and at least one four-step; Step 1's `sessions` consolidation untouched; and exactly **four** `### Step` headings.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/memory-protocol/
@@ -263,14 +263,14 @@ outlives it. Todos get the same question."
 **Files:**
 - Modify: `docs/install-hermes.md`
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -ci 'kanban\|cron' docs/install-hermes.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Say plainly what the installer turns off, and why**
+- [x] **Step 2: Say plainly what the installer turns off, and why**
 
 Add a section. A user who finds their memory tool gone deserves to know it was deliberate:
 
@@ -301,7 +301,7 @@ reads the same flag. If long conversations start behaving differently after inst
 is the first place to look.
 ```
 
-- [ ] **Step 3: Document autonomy via cron**
+- [x] **Step 3: Document autonomy via cron**
 
 ```markdown
 ## Working while you are away
@@ -322,7 +322,7 @@ answer from there.
 Give it dispatch authority once you have watched what it reports for a week.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'What the installer turns off' docs/install-hermes.md
@@ -332,7 +332,7 @@ grep -c 'Start read-only' docs/install-hermes.md
 ```
 Expected: all four present.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/install-hermes.md
