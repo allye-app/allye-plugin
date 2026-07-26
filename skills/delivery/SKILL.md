@@ -1,7 +1,7 @@
 ---
 name: delivery
 description: Workflow for finalizing a story after all tasks pass review. Verifies completeness, closes the story, updates documentation, and cleans up. Use when all tasks are done and reviewed.
-version: "1.2"
+version: "1.3"
 category: methodology
 ---
 
@@ -32,6 +32,13 @@ work_children(id: "{story uuid}")
 <HARD-GATE>
 Close the story only once every task is completed, verified, and in "done" status.
 If any task is incomplete, route back to Technical Development or Technical Review instead of closing.
+
+"Done" means the **done category**, not the last status an agent could reach. On a pipeline
+with stages after review, a task parked at a gate the team satisfies by hand is not done — it
+is waiting, and the story waits with it.
+
+If tasks are parked, close-out is not blocked by an oversight. It is **not yet due**. Say which
+gate they are waiting at and stop; do not close the story to tidy the board.
 </HARD-GATE>
 
 ### Verification checklist

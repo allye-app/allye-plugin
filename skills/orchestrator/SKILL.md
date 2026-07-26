@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Drives delivery of a planned feature — manages assignee, dispatches Executor for one story at a time, dispatches Reviewer in parallel, runs the correction loop, and cascades status up the work-item hierarchy. Use when a technical-to-orchestration handover arrives, or when the user wants to coordinate delivery of an already-planned feature (assign work, track status, drive tasks through review).
-version: "1.3"
+version: "1.4"
 category: methodology
 ---
 
@@ -165,11 +165,43 @@ being missed, and it's worth a human look before burning another round.
 
 ## 7. Status cascade — continuous, not just at the end
 
-Apply this at every level, as work actually completes — not once at the tail end of the whole feature:
+Both review axes clear (§6) → the task is ready to leave the review gate. **Where it goes next
+depends on the team's pipeline, not on a status this skill can name.**
 
-1. Reviewer returns ✅ on a task (criteria met, tests pass) → **you** move it from `review` to `done` via `work_status_done` (which also records `completed_at`) — the Executor deliberately left it at `review`, and this last move is exclusively yours, made only after Reviewer ✅ → `work_children` on the parent story → all done? → `work_status_done` the story.
-2. Story done → `work_children` on the parent feature → all done? → `work_status_done` the feature.
-3. Feature done → `work_children` on the parent epic → all done? → `work_status_done` the epic.
+1. **Advance one status.** `work_status_next(id)`. Then **read the item back** — `work_get` —
+   and see where you actually landed. Do not predict: `work_statuses()` does not return
+   position or pipeline, and `board_columns()` does not map statuses to columns, so the next
+   status is not computable from the MCP surface (see `board-progression` §1).
+
+2. **Did you land on a done-category status?** Then the task is finished; go to step 5.
+
+3. **Otherwise, consult the pipeline handoff table** in the `Allye Delivery Configuration`
+   Core Document (`user_config`, loaded by `initialize`).
+
+   - **`agent`** — satisfy it, then return to step 1. Satisfying means running the command the
+     table names and reading its output, under the bound in `verification-loop` §3. Red at the
+     bound is a correction round, not a pass.
+   - **`ci`** — you do not act. Report that the task is waiting on the named external signal
+     and move to the next story; revisit when the signal arrives.
+   - **`human`**, or **any status not in the table** — stop. Name the status, say who owns it,
+     and leave the task exactly where it is.
+
+4. **A status you do not recognise and the table does not cover** is a stop, and also a
+   question: ask the user once who satisfies it, record the answer in the delivery
+   configuration, and continue. Never ask twice.
+
+5. **Cascade upward, and only upward.** `work_children` the parent; if **every** child is in
+   the done category, advance the parent the same way — one step, read back, consult the table.
+   A parent stops for the same reasons a child does.
+
+<HARD-GATE>
+**Never call `work_status_done` to leave a pipeline you cannot finish.** From four statuses
+away it records "done" for work that never passed the gates between — which is exactly how a
+story came to be closed with seven of its fifteen tasks still at the review gate.
+
+Use it only when the item's next status **is** the done status. When you cannot finish, stopping
+is the correct outcome, not a failure to report.
+</HARD-GATE>
 
 <!-- opencode-exclude:start -->
 ### 7.1 Merge and teardown — one story at a time
@@ -199,6 +231,16 @@ Three properties make "no work lost" structural rather than careful:
 **An abandoned or failed story gets no cleanup.** Worktree, branch, and pane all stay.
 Visible litter costs far less than deleted work.
 <!-- opencode-exclude:end -->
+
+## 7.2 Announce where delivery stopped
+
+When a story's tasks are all parked at the same gate, say so once, plainly: which gate, who
+owns it, and what unblocks it. Repeat it in the session-state memory (§10) so a resumed
+Orchestrator does not rediscover the boundary by trying to cross it.
+
+A story left open at a gate is **not** an incomplete delivery. It is delivery reporting its
+true position. The failure mode this replaces — closing the story to make the board look
+finished — cost a real board seven tasks' worth of untracked work.
 
 ## 8. Epic completion is manual
 

@@ -1,7 +1,7 @@
 ---
 name: board-progression
 description: Rules for moving work items between statuses in Allye boards. Covers work_status_next, work_status_done, and status categories.
-version: "1.1"
+version: "1.2"
 category: methodology
 ---
 
@@ -22,22 +22,51 @@ The MCP client can only **confirm** 4 status categories — `work_statuses()` (`
 | `done` | Completed and verified |
 | `cancelled` | Will not be done |
 
-That's the only taxonomy the MCP client source guarantees. Specific status **names** (e.g. "Backlog", "Todo", "In Progress", "Testing", "Review", "Deploying", "Done") are team-configurable `WorkflowStatus` records mapped onto those 4 categories via board columns — not enumerable or guaranteed from the client code alone, and a given team's board may use different names or skip some of them.
+That's the only taxonomy the MCP client source guarantees. Specific status **names** are team-configurable `WorkflowStatus` records mapped onto those 4 categories via board columns — not enumerable or guaranteed from the client code alone, and a given team's board may use different names or skip some of them.
 
-The finer-grained progression below is a common, practical convention — not something the client confirms, but the default working model most teams end up configuring something like:
+### The team's pipeline is data. Read it.
 
-| Status name (convention) | Meaning |
-|----------|---------|
-| `backlog` | Not yet planned — sitting in the backlog |
-| `todo` | Planned and ready to start |
-| `in_progress` | Actively being worked on |
-| `testing` | Implementation done, being tested |
-| `review` | Code review in progress |
-| `deploying` | Being deployed to an environment |
-| `done` | Completed and verified |
-| `cancelled` | Will not be done |
+Allye is multi-tenant. Four presets ship — Solo, Startup, Standard, Enterprise — and every
+team customises from there, so **there is no status list to memorise and no ordering to
+assume.** A skill that names a status has guessed about somebody else's board.
 
-Each team can customize their board with different columns and map statuses to columns as they see fit. Before relying on any specific status name, check `work_statuses()` (categories + actual names for the team) and `board_columns()` (which columns exist on the board in question).
+Only three things are stable enough to build a rule on:
+
+| Stable | Why |
+|---|---|
+| The four categories: `proposed`, `in_progress`, `done`, `cancelled` | A schema enum. Every status maps to exactly one. |
+| The three pipelines: `product`, `engineering`, `shared` | A schema enum. `product` carries epics and features; `engineering` carries stories and below; `shared` holds the terminal states. |
+| The board's own ordering | Whatever it is, it is what `work_status_next` walks. |
+
+Discover the rest:
+
+```
+work_statuses()    → every status the team has, grouped by category, in position order
+board_columns()    → the columns of a specific board
+```
+
+**Two things `work_statuses()` does not tell you today**, and planning around them is the
+difference between a working transition and a surprised one:
+
+- **`position`, `pipeline`, and `description` are not returned.** They exist on the record —
+  the seed writes all three — but the MCP formatter emits only name, key, id, and colour.
+- **`board_columns()` returns names and ids only** — no status-to-column mapping and no
+  ordering. The visible subset a given board shows cannot be reconstructed from it.
+
+Together these mean **you cannot reliably predict the next status.** So do not:
+
+<HARD-GATE>
+Move one status at a time, then **read back** the status you actually landed on. Never
+assume a transition took you where you expected, and never chain several moves on a
+prediction. One extra read per transition costs nothing next to a cascade that silently
+skipped four gates.
+</HARD-GATE>
+
+For reference only, these are the eighteen statuses the presets seed — **an example of one
+tenant's configuration, not a list to code against**: `idea`, `researching`, `designing`,
+`specifying`, `backlog`, `todo`, `in_progress`, `code_review`, `security_scan`, `qa_testing`,
+`doc_review`, `deploy_staging`, `qa_staging`, `deploy_preprod`, `qa_preprod`, `deploy_prod`,
+`done`, `cancelled`.
 
 ---
 
@@ -67,7 +96,7 @@ Each team can customize their board with different columns and map statuses to c
 work_status_next(id: "{work item uuid}")
 ```
 
-Use it for **forward progression**, one status at a time, as each step's work actually finishes — the concrete sequence per item type is in §5.
+Use it for **forward progression**, one status at a time, as each step's work actually finishes — how progression differs by pipeline and item type is in §5.
 
 ### When NOT to use
 
@@ -106,6 +135,32 @@ Verify all acceptance criteria before marking an item as done.
 
 ---
 
+## 3.1 Where an agent's authority ends
+
+> **An agent drives everything that is verification. It stops at the first gate that changes
+> the world outside the repository.**
+
+Deploying does that. Verifying does not. The rule survives renaming because it describes what
+a gate *is*, not what it is called — which is the only kind of rule that works when every
+team configures its own statuses.
+
+In practice, on the seeded presets: reviewing, scanning, testing, and updating docs are all
+verification and all satisfiable by an agent. Every deploy stage, and any validation
+performed in a deployed environment, is not.
+
+<HARD-GATE>
+`work_status_done` is **not** the exit from a pipeline an agent cannot finish. Calling it
+from four statuses away records "done" for work that never passed the gates in between.
+
+Use it only when the item's next status **is** the done status. Otherwise stop at the last
+gate you satisfied and say plainly which gate is next and who owns it.
+</HARD-GATE>
+
+An unrecognised status is treated as a stop, not a pass. Ask once who satisfies it, record
+the answer in the team's delivery configuration, and never ask again.
+
+---
+
 ## 4. Checking Available Statuses
 
 Before moving items, understand what statuses exist:
@@ -130,52 +185,20 @@ Returns the board's columns for the given `board_id` — each rendered as `- {co
 
 ## 5. Progression Patterns by Item Type
 
-### Epic
+Progression differs by pipeline, not only by type. **Epics and features live on the `product`
+pipeline; stories, bugs, hotfixes, tasks, spikes, and subtasks live on `engineering`.** A
+cascade from task to epic therefore crosses pipelines, and the statuses available on each side
+are different sets.
 
-Epics typically move through few statuses:
-```
-backlog → in_progress → done
-```
-- Move to `in_progress` when the first feature starts
-- Move to `done` when ALL features are complete
+What holds regardless of the team's configuration:
 
-### Feature
-
-Features follow the epic pattern:
-```
-backlog → in_progress → done
-```
-- Move to `in_progress` when the first story starts
-- Move to `done` when ALL stories are complete
-
-### Story
-
-Stories follow the full progression:
-```
-backlog → todo → in_progress → review → done
-```
-- `todo`: planned and ready to start (tasks created)
-- `in_progress`: at least one task is being worked on
-- `review`: all tasks done, story-level review in progress
-- `done`: review passed, delivered
-
-### Task
-
-Tasks are the most granular:
-```
-todo → in_progress → review → done
-```
-- `in_progress`: actively being implemented
-- `review`: acceptance criteria met, tests pass — the Executor advances the task here (`work_status_next`) and no further; the task now awaits the Reviewer
-- `done`: Reviewer returned ✅ — the **Orchestrator** makes this final move (`work_status_done`), never the Executor. If the Reviewer returns ❌, the task simply stays at `review` while a correction round runs (no backward move exists or is needed)
-
-### Bug
-
-Bugs follow a similar path to tasks:
-```
-todo → in_progress → testing → done
-```
-- `testing`: fix implemented, verifying it resolves the issue
+- **Parents move because children moved.** A story advances when its tasks do; a feature when
+  its stories do; an epic when its features do. Never the other way round.
+- **A parent never reaches the done category while any child is outside it.** This is the one
+  rule that failed in practice: a story closed with seven of fifteen tasks still mid-pipeline,
+  because closing it was the only exit the flow offered. Stopping is the exit.
+- **The Executor advances a task only to the first review gate.** The move past that is the
+  Orchestrator's, after review clears — see `orchestrator` §6.
 
 ---
 

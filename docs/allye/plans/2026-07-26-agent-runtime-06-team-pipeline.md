@@ -57,7 +57,7 @@ Treat that list as **the seeded example, not the universe.** Read spec §17 befo
 - Consumes: nothing.
 - Produces: the discovery procedure and the authority rule, both referenced by name from Task 3.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n 'testing.*review\|Status name (convention)' skills/board-progression/SKILL.md
@@ -65,7 +65,7 @@ grep -c 'discover' skills/board-progression/SKILL.md
 ```
 Expected: the convention table found — it currently orders `testing` before `review`, which matches no preset — and `discover` appearing zero times.
 
-- [ ] **Step 2: Replace the convention table with a discovery procedure**
+- [x] **Step 2: Replace the convention table with a discovery procedure**
 
 In `skills/board-progression/SKILL.md` §1, the table headed "Status name (convention)" and the paragraph introducing it are replaced by:
 
@@ -115,7 +115,7 @@ tenant's configuration, not a list to code against**: `idea`, `researching`, `de
 `done`, `cancelled`.
 ```
 
-- [ ] **Step 3: Add the authority rule**
+- [x] **Step 3: Add the authority rule**
 
 Add a new section after §3 ("How `work_status_done` Works"):
 
@@ -145,7 +145,7 @@ An unrecognised status is treated as a stop, not a pass. Ask once who satisfies 
 the answer in the team's delivery configuration, and never ask again.
 ```
 
-- [ ] **Step 4: Fix the per-type progression section**
+- [x] **Step 4: Fix the per-type progression section**
 
 §5 gives progressions per item type using invented status names. Replace its four blocks with:
 
@@ -166,11 +166,11 @@ What holds regardless of the team's configuration:
   Orchestrator's, after review clears — see `orchestrator` §6.
 ```
 
-- [ ] **Step 5: Apply the authoring doctrine and bump the version**
+- [x] **Step 5: Apply the authoring doctrine and bump the version**
 
 Run the no-op test sentence by sentence; collapse duplicated meaning. Preserve the four category names, the `work_status_next` resolution logic, and the `work_status_done` mechanics — those are behaviour of the real API.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 grep -c 'Status name (convention)' skills/board-progression/SKILL.md
@@ -182,7 +182,7 @@ grep -c 'proposed' skills/board-progression/SKILL.md
 ```
 Expected: the old convention table gone; all four new passages present; the four categories still documented. The seeded status names may appear **only** in the labelled example paragraph — check that by eye, since a grep cannot tell an example from a rule.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add skills/board-progression/
@@ -211,14 +211,14 @@ predicted — move one step and read back what you landed on."
 - Consumes: nothing.
 - Produces: a `## Pipeline handoff` section in the `Allye Delivery Configuration` Core Document. Task 3 reads it.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'Pipeline handoff' skills/setup/SKILL.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Add the fourth setup question**
+- [x] **Step 2: Add the fourth setup question**
 
 In the delivery-configuration section, after the third question:
 
@@ -241,7 +241,7 @@ usually `agent` or `ci`; anything that deploys, or that validates in a deployed 
 `human` unless the team says otherwise.
 ```
 
-- [ ] **Step 3: Extend the document format**
+- [x] **Step 3: Extend the document format**
 
 Add to the document template in the same section:
 
@@ -261,7 +261,7 @@ past a gate nobody told it about has claimed work passed a check that never ran.
 Omit this section entirely when the pipeline runs straight from review to done.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'Pipeline handoff' skills/setup/SKILL.md
@@ -271,7 +271,7 @@ grep -c 'Allye Delivery Configuration' skills/setup/SKILL.md
 ```
 Expected: the section present in both the question and the template; the skip instruction and the unmapped-default rule present; the document name still referenced from Plan 04.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/setup/
@@ -296,7 +296,7 @@ a gate nobody described has claimed work passed a check that never ran."
 - Consumes: Task 1's authority rule; Task 2's pipeline table; the story verification loop from Plan 02.
 - Produces: the advancement procedure. Task 4 relies on it stopping rather than closing.
 
-- [ ] **Step 1: Establish the failing assertion and record the marker count**
+- [x] **Step 1: Establish the failing assertion and record the marker count**
 
 ```bash
 grep -c 'opencode-exclude' skills/orchestrator/SKILL.md
@@ -305,7 +305,7 @@ grep -c 'Pipeline handoff\|pipeline' skills/orchestrator/SKILL.md
 ```
 Expected: sixteen markers — record the exact number; the `work_status_done` calls in §6 and §7; and `pipeline` appearing zero times.
 
-- [ ] **Step 2: Replace §7's cascade with pipeline-aware advancement**
+- [x] **Step 2: Replace §7's cascade with pipeline-aware advancement**
 
 §7 currently moves an approved task to `done` and cascades. Replace its numbered list with:
 
@@ -349,7 +349,7 @@ is the correct outcome, not a failure to report.
 </HARD-GATE>
 ```
 
-- [ ] **Step 3: Add the stop announcement to §8**
+- [x] **Step 3: Add the stop announcement to §8**
 
 §8 covers epic completion. Add before it:
 
@@ -365,7 +365,7 @@ true position. The failure mode this replaces — closing the story to make the 
 finished — cost a real board seven tasks' worth of untracked work.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'opencode-exclude' skills/orchestrator/SKILL.md
@@ -377,7 +377,7 @@ grep -c 'reviewer-standards' skills/orchestrator/SKILL.md
 ```
 Expected: marker count **unchanged from Step 1**; all four new passages found; Plan 03's two-axis dispatch still present.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/orchestrator/
@@ -401,7 +401,7 @@ fifteen tasks still in review."
 **Files:**
 - Modify: `skills/delivery/SKILL.md`
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n 'work_status_done' skills/delivery/SKILL.md
@@ -409,7 +409,7 @@ grep -c 'pipeline' skills/delivery/SKILL.md
 ```
 Expected: the close-out calls present; `pipeline` absent.
 
-- [ ] **Step 2: Extend the verification gate**
+- [x] **Step 2: Extend the verification gate**
 
 §1's HARD-GATE requires every task done before closing. Add to it:
 
@@ -422,7 +422,7 @@ If tasks are parked, close-out is not blocked by an oversight. It is **not yet d
 gate they are waiting at and stop; do not close the story to tidy the board.
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 grep -n 'not yet due' skills/delivery/SKILL.md
@@ -430,7 +430,7 @@ grep -n 'done category' skills/delivery/SKILL.md
 ```
 Expected: both found.
 
-- [ ] **Step 4: Bump version and commit**
+- [x] **Step 4: Bump version and commit**
 
 ```bash
 git add skills/delivery/
@@ -451,7 +451,7 @@ Two of these live in other repositories and cannot be fixed here. Recording them
 **Files:**
 - Modify: `skills/tools-quickref/SKILL.md`
 
-- [ ] **Step 1: Add three gotchas**
+- [x] **Step 1: Add three gotchas**
 
 To the "Gotchas" list, keeping the existing style:
 
@@ -470,7 +470,7 @@ To the "Gotchas" list, keeping the existing style:
   must be team-scoped.
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 grep -c 'work_statuses. omits' skills/tools-quickref/SKILL.md
@@ -480,7 +480,7 @@ grep -c 'sprint_id' skills/tools-quickref/SKILL.md
 ```
 Expected: the three new gotchas present, and `sprint_id` still at **3** — the two legitimate sprint tool rows plus Plan 01's `memory_save` gotcha.
 
-- [ ] **Step 3: Bump version and commit**
+- [x] **Step 3: Bump version and commit**
 
 ```bash
 git add skills/tools-quickref/
