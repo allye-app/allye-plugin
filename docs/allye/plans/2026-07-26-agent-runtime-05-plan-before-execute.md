@@ -491,7 +491,7 @@ F12 recorded five fixes targeting Plan 04 and none had been applied — caught o
 **Files:**
 - Modify: `docs/allye/notes/2026-07-26-execution-retrospective.md` (note the post-Task-5 path)
 
-- [ ] **Step 1: Verify every fix targeting a plan actually landed**
+- [x] **Step 1: Verify every fix targeting a plan actually landed**
 
 ```bash
 grep -n 'Fix (Plan' docs/allye/notes/2026-07-26-execution-retrospective.md
@@ -499,7 +499,7 @@ grep -n 'Fix (Plan' docs/allye/notes/2026-07-26-execution-retrospective.md
 
 For each result, open the named plan and confirm the change is present. Record the outcome per finding — **applied** or **not applied, and why**. A finding whose plan already executed and which was never applied is not closed; it becomes an item below.
 
-- [ ] **Step 2: Add the standing gate**
+- [x] **Step 2: Add the standing gate**
 
 Append to the retrospective:
 
@@ -524,7 +524,7 @@ open item with a named owner and destination. A finding with no destination is a
 observation, and observations belong under Process, not under a numbered finding.
 ```
 
-- [ ] **Step 3: Add the new-skill completeness checklist**
+- [x] **Step 3: Add the new-skill completeness checklist**
 
 F13 found a skill that existed as a file but could not be resolved by name. Append:
 
@@ -546,7 +546,7 @@ mode was not a wrong number — it was a skill referenced by name that a user's 
 not resolve at the moment it was needed.
 ```
 
-- [ ] **Step 4: Mark the document closed**
+- [x] **Step 4: Mark the document closed**
 
 Change the status line at the top:
 
@@ -555,7 +555,7 @@ Change the status line at the top:
 **Scope:** what actually broke, surprised, or worked better than expected while building and running the five plans from `2026-07-26-agent-runtime-and-verification-design.md`.
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 grep -n 'Status:' docs/allye/notes/2026-07-26-execution-retrospective.md
@@ -565,7 +565,7 @@ grep -c '^## F' docs/allye/notes/2026-07-26-execution-retrospective.md
 ```
 Expected: status reads closed; both appended sections present; thirteen findings.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/allye/notes/
