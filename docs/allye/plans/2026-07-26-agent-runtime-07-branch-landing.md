@@ -43,7 +43,7 @@ Read **§18 of the spec** before Task 1. It records why this exists and what mak
 - Consumes: the story's pipeline position, per `board-progression` §3.1.
 - Produces: a skill reachable by name from `delivery`, `orchestrator`, and `execution`. The three locks and the teardown order are referenced by section from Task 2 — do not renumber them there.
 
-- [ ] **Step 1: Write the skill**
+- [x] **Step 1: Write the skill**
 
 Create `skills/branch-landing/SKILL.md`:
 
@@ -138,7 +138,7 @@ Once the work has landed, the branch may be the only durable trace outside the d
 A memory that says a story was delivered, without saying where the code went, is a memory that sends the next reader searching.
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 sed -n '1,7p' skills/branch-landing/SKILL.md
@@ -150,7 +150,7 @@ grep -cE '`code_review`|`qa_testing`|`deploy_' skills/branch-landing/SKILL.md
 ```
 Expected: four frontmatter keys; the story gate present; the locks section present; the force-push and abandoned-work rules present; and **zero** hard-coded status keys — the multi-tenancy gate applies here too.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skills/branch-landing/
