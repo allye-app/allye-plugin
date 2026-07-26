@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown (skill/agent content), Bash (code-analyzer's clone/delete).
 
-**Source spec:** `docs/superpowers/specs/2026-07-12-guided-delivery-workflow-design.md` §6.1 (Sandbox), §4.2 (reusable subagents), §7 (adaptation sources).
+**Source spec:** `docs/allye/specs/2026-07-12-guided-delivery-workflow-design.md` §6.1 (Sandbox), §4.2 (reusable subagents), §7 (adaptation sources).
 
 **Depends on:** Plan 1 (restructure) and Plan 2 (Handover Catalog) — both merged. This plan's Discovery Doc handover references Plan 2's `discovery-to-planning` template.
 
@@ -354,7 +354,7 @@ Expected: both print `1`.
 - [ ] **Step 4: Confirm no stray references broke elsewhere**
 
 ```bash
-grep -rln "deep-search\|code-analyzer" --include="*.md" . | grep -v "node_modules\|\.git/\|docs/superpowers"
+grep -rln "deep-search\|code-analyzer" --include="*.md" . | grep -v "node_modules\|\.git/\|docs/allye"
 ```
 Expected: only `agents/deep-search.md`, `agents/code-analyzer.md`, and `skills/sandbox/SKILL.md` (the files this plan created/edited) — nothing unexpected.
 

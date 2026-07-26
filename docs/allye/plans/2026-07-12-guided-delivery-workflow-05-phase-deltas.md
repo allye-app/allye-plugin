@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown only.
 
-**Source spec:** `docs/superpowers/specs/2026-07-12-guided-delivery-workflow-design.md` §6.2 (Planning), §6.3 (Technical Planning), §6.5 (Executor), §7 (adaptation sources — spec-kit story templates, BMAD `create-epics-and-stories`, superpowers `writing-plans`/`verification-before-completion`).
+**Source spec:** `docs/allye/specs/2026-07-12-guided-delivery-workflow-design.md` §6.2 (Planning), §6.3 (Technical Planning), §6.5 (Executor), §7 (adaptation sources — spec-kit story templates, BMAD `create-epics-and-stories`, superpowers `writing-plans`/`verification-before-completion`).
 
 **Depends on:** Plan 1 (renamed skill files this plan edits), Plan 2 (handover types this plan's exit sections reference: `planning-to-technical`, `technical-to-orchestration`, `execution-report`), Plan 3 (`deep-search`/`code-analyzer` agents this plan's Technical Planning delta dispatches), Plan 4 (`orchestrator` skill this plan's Technical Planning and Execution exits hand off to).
 

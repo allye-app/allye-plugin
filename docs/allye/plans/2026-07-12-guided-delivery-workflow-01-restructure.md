@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bash, `git`, `jq` (JSON validation), `bun` (OpenCode package, best-effort if installed).
 
-**Source spec:** `docs/superpowers/specs/2026-07-12-guided-delivery-workflow-design.md` §9 (Repository restructure & change map).
+**Source spec:** `docs/allye/specs/2026-07-12-guided-delivery-workflow-design.md` §9 (Repository restructure & change map).
 
 ## Global Constraints
 
@@ -419,7 +419,7 @@ Replace:
 ```
 With:
 ```markdown
-3. Planning, development, and delivery run as skills loaded directly into the main conversation thread (not dispatched subagents) — `agents/reviewer.md` is the only Claude Code subagent shipped today, because code review is the one role that doesn't need to pause and ask the human mid-task. (A guided, multi-phase workflow — sandbox/discovery, orchestrated delivery — is being layered on top of this; see `docs/superpowers/specs/2026-07-12-guided-delivery-workflow-design.md` for the design in progress.)
+3. Planning, development, and delivery run as skills loaded directly into the main conversation thread (not dispatched subagents) — `agents/reviewer.md` is the only Claude Code subagent shipped today, because code review is the one role that doesn't need to pause and ask the human mid-task. (A guided, multi-phase workflow — sandbox/discovery, orchestrated delivery — is being layered on top of this; see `docs/allye/specs/2026-07-12-guided-delivery-workflow-design.md` for the design in progress.)
 ```
 
 - [ ] **Step 2: Update `README.md`'s skills table (currently lines 249-257)**
@@ -474,7 +474,7 @@ Run:
 ```bash
 grep -rn "allye-product-planning\|allye-technical-planning\|allye-technical-development\|allye-technical-review\|allye-technical-delivery\|allye-memory-protocol\|allye-tdd-workflow\|allye-board-progression\|allye-tools-quickref\|allye-setup\|allye-planner\|allye-builder\|allye-deliverer" \
   --include="*.md" --include="*.ts" --include="*.json" --include="*.sh" . \
-  | grep -v "node_modules\|\.git/\|docs/superpowers/specs\|docs/superpowers/plans\|CHANGELOG.md"
+  | grep -v "node_modules\|\.git/\|docs/allye/specs\|docs/allye/plans\|CHANGELOG.md"
 ```
 Expected output: **only** lines from `seed/seed-skills.json` where the match is inside a `"slug": "allye-..."` value (unchanged by design, per Global Constraints) and manifest files (`manifests/{codex,cursor,gemini}/*`, unchanged by design — they route by API slug). Anything else is a bug to fix before proceeding.
 
@@ -482,7 +482,7 @@ Also run (catches stale *path* references, not just slug names — found necessa
 ```bash
 grep -rn "skills/workflows\|skills/methodology\|skills/reference/fenix\|skills/bootstrap" \
   --include="*.md" --include="*.ts" --include="*.json" --include="*.sh" . \
-  | grep -v "node_modules\|\.git/\|docs/superpowers/specs\|docs/superpowers/plans\|CHANGELOG.md"
+  | grep -v "node_modules\|\.git/\|docs/allye/specs\|docs/allye/plans\|CHANGELOG.md"
 ```
 Expected output: none.
 

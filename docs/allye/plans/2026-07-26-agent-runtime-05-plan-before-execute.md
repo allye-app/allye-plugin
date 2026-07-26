@@ -429,38 +429,38 @@ defects without fixing them, and never report clean to be agreeable."
 
 ---
 
-### Task 5: Rename `docs/superpowers/` to `docs/allye/`
+### Task 5: Rename `docs/allye/` to `docs/allye/`
 
 Cosmetic, and correct. These are the plugin's own development artifacts, which is a separate thing from what the plugin instructs a user's agent to do — only the second ever mattered for self-sufficiency, and it was never in question.
 
 **Files:**
-- Rename: `docs/superpowers/` → `docs/allye/`
+- Rename: `docs/allye/` → `docs/allye/`
 - Modify: every file referencing the old path
 
 - [ ] **Step 1: Find every reference**
 
 ```bash
-grep -rn 'docs/superpowers' . --exclude-dir=.git --exclude-dir=node_modules -l
+grep -rn 'docs/allye' . --exclude-dir=.git --exclude-dir=node_modules -l
 ```
 Expected: `CLAUDE.md`, both 2026-07-12 and 2026-07-26 specs, all eleven plan files, and the retrospective.
 
 - [ ] **Step 2: Rename, preserving history**
 
 ```bash
-git mv docs/superpowers docs/allye
+git mv docs/allye docs/allye
 ```
 
 - [ ] **Step 3: Update every reference**
 
 ```bash
-grep -rl 'docs/superpowers' . --exclude-dir=.git --exclude-dir=node_modules \
-  | xargs sed -i 's|docs/superpowers|docs/allye|g'
+grep -rl 'docs/allye' . --exclude-dir=.git --exclude-dir=node_modules \
+  | xargs sed -i 's|docs/allye|docs/allye|g'
 ```
 
 - [ ] **Step 4: Verify nothing was missed and nothing else changed**
 
 ```bash
-grep -rn 'docs/superpowers' . --exclude-dir=.git --exclude-dir=node_modules || echo "no stale references"
+grep -rn 'docs/allye' . --exclude-dir=.git --exclude-dir=node_modules || echo "no stale references"
 ls docs/
 grep -rc 'adapted from' skills/ agents/ | grep -v ':0'
 ```
@@ -470,7 +470,7 @@ Expected: no stale references; `docs/` contains `allye`; and the `adapted from` 
 
 ```bash
 git add -A
-git commit -m "refactor: rename docs/superpowers to docs/allye
+git commit -m "refactor: rename docs/allye to docs/allye
 
 These are the plugin's own development artifacts, and the directory name
 was the last place an external suite appeared in this repository's

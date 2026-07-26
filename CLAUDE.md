@@ -45,7 +45,7 @@ Six phases, connected by handovers instead of one continuous conversation — ea
 
 **The Handover Catalog** (`skills/handover-protocol/`) is the shared contract: a handover is chat text only (never saved as a memory or file), always starting with a `## 🔄 Allye Handover — {type}` marker `using-allye` auto-detects. Six named types, each with its own objective and field set (not one generic template) — see `skills/handover-protocol/references/*.md`: `discovery-to-planning`, `planning-to-technical`, `technical-to-orchestration`, `story-execution`, `execution-report`, `correction`.
 
-Design spec: `docs/superpowers/specs/2026-07-12-guided-delivery-workflow-design.md`. Extended by `docs/superpowers/specs/2026-07-26-agent-runtime-and-verification-design.md`, which adds story-parallel delivery over an agent-runtime contract, the verification loop, and phase-to-agent routing; its execution notes live in `docs/superpowers/notes/2026-07-26-execution-retrospective.md`. Implementation plans (all executed): `docs/superpowers/plans/2026-07-12-guided-delivery-workflow-0{1..6}-*.md`.
+Design spec: `docs/allye/specs/2026-07-12-guided-delivery-workflow-design.md`. Extended by `docs/allye/specs/2026-07-26-agent-runtime-and-verification-design.md`, which adds story-parallel delivery over an agent-runtime contract, the verification loop, and phase-to-agent routing; its execution notes live in `docs/allye/notes/2026-07-26-execution-retrospective.md`. Implementation plans (all executed): `docs/allye/plans/2026-07-12-guided-delivery-workflow-0{1..6}-*.md`.
 
 ### Multi-tenant OAuth
 
