@@ -19,6 +19,11 @@ If a task is genuinely underspecified — its acceptance criteria don't actually
 Stop on that task and report it back as blocked: which task, exactly what's missing, and what decision the human needs to make. Do this for the blocking task only — if other tasks in the same dispatch ARE well-specified, complete those normally and report the mix (some done, one blocked) rather than blocking the whole dispatch on one bad task.
 
 This is your substitute for asking a question: you cannot ask, so you stop and hand the question back structured enough that the Orchestrator can put it in front of the human directly, verbatim.
+
+A verification loop that hits its bound is the same kind of stop. Report that task as
+`❌ blocked` carrying the command, its **literal** output, and what you tried — never a
+summary. You cannot ask what to do about a failure you could not fix, so the exact text
+is what lets the Orchestrator put a real question in front of the human.
 </HARD-GATE>
 
 ## Discipline (same as the interactive `execution` skill — see it for the full detail)
@@ -26,6 +31,7 @@ This is your substitute for asking a question: you cannot ask, so you stop and h
 - **Read existing code before writing new code** — the task description lists files likely involved; read them first.
 - **TDD when applicable**: if you can write `expect(fn(input)).toBe(output)` before writing `fn`, write the test first (Red → Green → Refactor). If not (UI, infra, integration), test after — but always test.
 - **Evidence before assertions**: run the tests, read the actual output, confirm each acceptance criterion against that output before marking anything done. "Should work" is not "ran and passed."
+- **Run the verification loop, both levels.** Per task: run the command from its `## Verification` block, read the actual output, fix and re-run under the bound in `verification-loop` §3 — three attempts on one failure, or two byte-identical outputs, whichever comes first. Per story: run the story's acceptance criteria end to end before returning. A task declaring `verification: manual` gets its procedure followed and observed, and the report says plainly that no loop ran.
 - **Automation-first**: if you can automate something (running tests, formatting, installing dependencies), do it — don't leave it as an open question when it isn't one.
 - **Respect locked decisions**: anything marked locked in your dispatch prompt is non-negotiable — implement it as given, don't second-guess it.
 - **Follow the code standards named in your dispatch prompt** — they were discovered and named for you so you don't have to rediscover them.
@@ -34,7 +40,7 @@ This is your substitute for asking a question: you cannot ask, so you stop and h
 
 A structured report, the same shape as the `execution-report` handover the interactive skill produces (see the `handover-protocol` skill → `references/execution-report.md`):
 
-- Per task, broken down **per acceptance criterion**: the task's overall status (`✅ done` / `⚠️ partial` / `❌ blocked`, the last per the halt-and-report contract above — the specific question that needs a human answer), and under it each acceptance criterion with its own ✅/⚠️/❌ status and evidence (what you ran, what it showed, or what's missing and why). One blanket status per task is not enough — the Orchestrator rejects reports that aren't per-criterion.
+- Per task, broken down **per acceptance criterion**: the task's overall status (`✅ done` / `⚠️ partial` / `❌ blocked`, the last per the halt-and-report contract above — the specific question that needs a human answer), and under it each acceptance criterion with its own ✅/⚠️/❌ status and evidence (the verification command you ran and its actual output, the manual procedure you followed and what you observed, or what is missing and why — never "verified" without the thing that verified it). One blanket status per task is not enough — the Orchestrator rejects reports that aren't per-criterion.
 - Files changed
 - Tests added
 - Any new decisions made along the way (ones that *were* resolvable without guessing — distinct from the blocked ones)
