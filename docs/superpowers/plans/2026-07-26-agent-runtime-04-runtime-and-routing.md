@@ -749,7 +749,7 @@ whether a human must be watching instead of guessing."
 - Consumes: Tasks 1–4.
 - Produces: nothing downstream. This is the last task.
 
-- [ ] **Step 1: Add the runtime line to the start-of-conversation steps**
+- [x] **Step 1: Add the runtime line to the start-of-conversation steps**
 
 In §1, after "Step 4: Greet the user", add:
 
@@ -760,7 +760,7 @@ Orchestrator will dispatch through it. Do not load that skill now — it loads w
 about to be dispatched, which is the whole point of it being a separate skill.
 ```
 
-- [ ] **Step 2: Add the two skills to the loading guidance**
+- [x] **Step 2: Add the two skills to the loading guidance**
 
 The decision table in §2 maps *user intent* to a phase skill, and neither new skill is a
 phase — both are reached from other skills. Add a short paragraph beneath the table rather
@@ -773,7 +773,7 @@ Two skills sit outside this table because no user request routes to them directl
 demand, from the skill that needs them.
 ```
 
-- [ ] **Step 3: Apply the authoring doctrine to the whole file**
+- [x] **Step 3: Apply the authoring doctrine to the whole file**
 
 This file is injected into **every** session by the hook, so it is the one place where a
 no-op sentence is paid for by every user on every conversation. Prune hardest here.
@@ -781,7 +781,7 @@ no-op sentence is paid for by every user on every conversation. Prune hardest he
 Do not touch: the handover marker detection, the slug resolution table, the workflow gates,
 the `<SUBAGENT-STOP>` block, or the language rule.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'agent-runtime' skills/using-allye/SKILL.md
@@ -792,7 +792,7 @@ wc -l skills/using-allye/SKILL.md
 ```
 Expected: both new skills named; handover detection and the subagent stop intact; and the file **at most 192 lines** — its length before this task, measured 2026-07-26. A bootstrap that gained two references and got longer has not been pruned, and this file is injected into every session, so its length is paid by every user on every conversation.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/using-allye/
