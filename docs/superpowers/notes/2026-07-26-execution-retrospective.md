@@ -95,9 +95,27 @@ The executing agent found it, explained precisely why the two steps were incompa
 
 **Observed:** both dispatches used the conservative rule from spec §13 — pane cwd at the plugin-enabled root, absolute worktree paths in the briefing. It works, and it costs a `<HARD-GATE>` paragraph in every briefing explaining why the cwd is not where the code is.
 
-**Still unknown:** whether Claude Code 2.1.220's project-scope plugin sharing across worktrees removes the need. Two dispatches gave no evidence either way, because neither tested the other configuration.
+**RESOLVED 2026-07-26 by experiment. The constraint holds, and for a worse reason than anyone had written down.**
 
-**Fix:** a five-minute experiment, worth running before Plan 04 since Plan 04 is what codifies the rule. Spawn a pane with `--cwd` inside a worktree, ask the agent to invoke `Skill("allye:tools-quickref")`, and observe. If it resolves, the constraint is stale and every briefing gets shorter.
+A throwaway pane, `--cwd` at `/home/bfernandes/dev/allye/.worktrees/f7-probe` — a worktree sitting **inside** the plugin-enabled directory — on Claude Code 2.1.220:
+
+| Probe | Result |
+|---|---|
+| `Skill("allye:tools-quickref")` | `Unknown skill: allye:tools-quickref` |
+| `mcp__plugin_allye_allye__*` tools | absent from the tool list *and* the deferred-tool index |
+| `allye:*` in the available-skills listing | absent |
+| `using-allye` in SessionStart context | absent |
+| `Agent runtime:` line | absent |
+
+**The plugin is not failing on first use — it is entirely absent from the session.** Being a descendant of the enabled directory buys nothing: Claude Code resolves the project root through git, and a worktree is its own git root, so the ancestor's `.claude/` is never consulted. That explains a constraint that had been recorded as a symptom without a mechanism.
+
+**The finding nobody was looking for:** `hooks/session-start.sh` is a plugin hook, so it never fires either. The runtime-detection line from spec §5.1 is not merely unread in a worktree-cwd session — **the whole mechanism does not exist there.** Any future attempt to relax this rule has to verify the hook fires, not just that a skill loads. Checking only the skill would have produced a confident false positive.
+
+**Also settled:** v2.1.200's "project-scope plugins shared across worktrees" applies to **Claude-managed** worktrees under `.claude/worktrees/`, not to anything `git worktree add` produces. That was the hypothesis recorded in the spec; it is now evidence.
+
+**Cost/benefit:** twenty minutes, one throwaway pane, torn down completely. The rule it validates was already being followed — what changed is that it is now permanent and explained, instead of provisional and superstitious. A rule nobody can justify is a rule someone eventually removes.
+
+**One honest limit of the experiment:** it tested a worktree *inside* the enabled directory, which is the configuration this design actually uses. It says nothing about a worktree elsewhere on disk — but since the inside case already fails, the outside case cannot do better.
 
 ---
 

@@ -419,7 +419,22 @@ Both were surfaced while designing and are fixed as part of implementation, not 
 
 ## 13. Open items requiring empirical verification
 
-1. **Can a pane's `--cwd` be the worktree, or must it be the plugin-enabled root?** The recorded constraint is that a cwd inside a worktree makes `Skill("allye:execution")` fail with "Unknown skill". Claude Code 2.1.220 is above both v2.1.200 (project-scope plugins shared across worktrees) and v2.1.211 (shared permission approvals), which may have made this stale — but the documentation likely refers to Claude-managed worktrees under `.claude/worktrees/`, not to hand-made ones. **Until tested, the spec keeps the conservative rule:** cwd at the plugin-enabled root, absolute worktree paths in the briefing. Cost of being wrong in this direction is verbosity; the other direction kills the session.
+1. ~~**Can a pane's `--cwd` be the worktree, or must it be the plugin-enabled root?**~~ **RESOLVED 2026-07-26 by experiment. The constraint holds, and the reason is worse than recorded.**
+
+   A throwaway pane was started with `--cwd` at `/home/bfernandes/dev/allye/.worktrees/f7-probe` — a hand-made worktree sitting **inside** `/home/bfernandes/dev/allye`, whose `.claude/settings.local.json` declares `enabledPlugins: {"allye@allye-marketplace": true}`. Claude Code 2.1.220. Findings:
+
+   - `Skill("allye:tools-quickref")` → `Unknown skill: allye:tools-quickref`
+   - **No `mcp__plugin_allye_allye__*` tools at all** — absent from the tool list and from the deferred-tool index
+   - **No `allye:*` entry in the available-skills listing**
+   - **No `using-allye` bootstrap in the SessionStart context**, and no `Agent runtime:` line
+
+   The plugin is not erroring on first use — **it is entirely absent from the session.** Being a descendant of the plugin-enabled directory is not sufficient: Claude Code resolves the project root through git, and a worktree is its own git root, so the ancestor's `.claude/` is never consulted.
+
+   This also settles the doc question the original note raised: v2.1.200's project-scope plugin sharing applies to **Claude-managed** worktrees under `.claude/worktrees/`, not to any directory produced by `git worktree add`.
+
+   **Consequence beyond the rule itself:** `hooks/session-start.sh` is a plugin hook, so in a worktree-cwd session it never runs. The runtime-detection line from §5.1 is silently absent, not merely unread — the entire mechanism does not exist there. Any future attempt to relax this rule must check that the hook fires, not only that a skill loads.
+
+   **The conservative rule is therefore permanent, not provisional:** pane `--cwd` at the plugin-enabled root, absolute worktree paths carried in the briefing.
 
 2. **Does the `SessionStart` `additionalContext` injection survive for all install scopes?** A reported Claude Code issue describes plugin `SessionStart` `additionalContext` not surfacing. Allye's hook demonstrably works today, so this is a regression watch rather than a blocker.
 
