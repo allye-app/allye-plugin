@@ -1,7 +1,7 @@
 ---
 name: sandbox
 description: Open-ended ideation and research before committing to scope. Use when the user has a vague goal and wants to think out loud, explore directions, or research before defining what to build — not yet ready for Product Planning's Epic/Feature/Story structure.
-version: "1.2"
+version: "1.3"
 category: methodology
 ---
 

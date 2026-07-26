@@ -1,13 +1,13 @@
 ---
 name: board-progression
 description: Rules for moving work items between statuses in Allye boards. Covers work_status_next, work_status_done, and status categories.
-version: "1.0"
+version: "1.1"
 category: methodology
 ---
 
 # Board Progression
 
-This skill defines how to correctly move work items between statuses using Allye boards. Understanding board progression prevents incorrect status transitions and ensures accurate project tracking.
+How to move work items between statuses on Allye boards, correctly.
 
 ---
 
@@ -22,9 +22,9 @@ The MCP client can only **confirm** 4 status categories — `work_statuses()` (`
 | `done` | Completed and verified |
 | `cancelled` | Will not be done |
 
-That's the only taxonomy the MCP client source guarantees. Specific status **names** (e.g. "Backlog", "Todo", "In Progress", "Testing", "Review", "Deploying", "Done") are team-configurable `WorkflowStatus` records mapped onto those 4 categories via board columns — they are not enumerable or guaranteed from the client code alone, and a given team's board may use different names or skip some of them.
+That's the only taxonomy the MCP client source guarantees. Specific status **names** (e.g. "Backlog", "Todo", "In Progress", "Testing", "Review", "Deploying", "Done") are team-configurable `WorkflowStatus` records mapped onto those 4 categories via board columns — not enumerable or guaranteed from the client code alone, and a given team's board may use different names or skip some of them.
 
-With that caveat, the finer-grained progression below is a common, practical convention (not something the client confirms) that this skill assumes as its default working model, because most teams do configure something like it:
+The finer-grained progression below is a common, practical convention — not something the client confirms, but the default working model most teams end up configuring something like:
 
 | Status name (convention) | Meaning |
 |----------|---------|
@@ -67,12 +67,7 @@ Each team can customize their board with different columns and map statuses to c
 work_status_next(id: "{work item uuid}")
 ```
 
-Use this for **forward progression** through the workflow:
-- Backlog → Todo (item is planned)
-- Todo → In Progress (work starts)
-- In Progress → Testing (implementation done)
-- Testing → Review (tests pass)
-- Review → Done (review approved)
+Use it for **forward progression**, one status at a time, as each step's work actually finishes — the concrete sequence per item type is in §5.
 
 ### When NOT to use
 
