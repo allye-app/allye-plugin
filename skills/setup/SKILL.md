@@ -1,7 +1,7 @@
 ---
 name: setup
 description: First-time setup for the Allye plugin. Uses OAuth for ALL platforms — no PAT.
-version: "1.1"
+version: "1.2"
 category: bootstrap
 ---
 
@@ -109,7 +109,7 @@ user_config(action: "list")
 ```
 
 If a document named `Allye Delivery Configuration` is present, show it and ask whether to
-change it. Otherwise, ask the three questions below — one at a time — and create it.
+change it. Otherwise, ask the questions below — one at a time — and create it.
 
 **Question 1 — which agent runs which phase?** Offer the phases that can differ (planning,
 technical planning, execution, review, correction) and let the user assign an agent kind to
@@ -123,6 +123,23 @@ Store the argument string verbatim; it is passed through unchanged.
 **Question 3 — per repo, what is the base branch, and which gitignored files must a fresh
 worktree receive?** A worktree inherits neither, and an executor that fails on a missing
 `.env` reports a bug that is not one.
+
+**Question 4 — who satisfies each stage after review?** Only ask this when the team's pipeline
+has stages between the review gate and done: run `work_statuses()` and look. A Solo or Startup
+board goes straight from review to done and needs nothing here — **skip the question entirely
+rather than asking it and recording an empty table.**
+
+Where there are stages, offer three answers per stage:
+
+- **`agent`** — the Orchestrator satisfies it and advances. Needs a command, the same way a task
+  needs one (`verification-loop` §1): red-capable, deterministic, fast, agent-runnable.
+- **`ci`** — an external system satisfies it. Record how to read the result; the Orchestrator
+  waits rather than acting.
+- **`human`** — the Orchestrator stops and hands over.
+
+Lead with a recommendation so accepting takes one word: scans and automated test suites are
+usually `agent` or `ci`; anything that deploys, or that validates in a deployed environment, is
+`human` unless the team says otherwise.
 
 Create it:
 
@@ -161,6 +178,20 @@ Note the field is `name`, not `title` — this is the one tool in the suite that
 ## Concurrency
 
 Default parallel stories: 3
+
+## Pipeline handoff
+
+| Status | Satisfied by | Command or signal |
+|---|---|---|
+| security_scan | agent | just security-scan |
+| qa_testing | agent | just test:e2e |
+| deploy_staging | ci | GitHub Actions `deploy-staging` |
+| deploy_prod | human | |
+
+An unmapped status means **`human`**. Stopping is the safe default: an agent that advances
+past a gate nobody told it about has claimed work passed a check that never ran.
+
+Omit this section entirely when the pipeline runs straight from review to done.
 ```
 
 An empty cell means "nothing required" — leave it empty rather than writing "none", so the

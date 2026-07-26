@@ -211,14 +211,14 @@ predicted — move one step and read back what you landed on."
 - Consumes: nothing.
 - Produces: a `## Pipeline handoff` section in the `Allye Delivery Configuration` Core Document. Task 3 reads it.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'Pipeline handoff' skills/setup/SKILL.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Add the fourth setup question**
+- [x] **Step 2: Add the fourth setup question**
 
 In the delivery-configuration section, after the third question:
 
@@ -241,7 +241,7 @@ usually `agent` or `ci`; anything that deploys, or that validates in a deployed 
 `human` unless the team says otherwise.
 ```
 
-- [ ] **Step 3: Extend the document format**
+- [x] **Step 3: Extend the document format**
 
 Add to the document template in the same section:
 
@@ -261,7 +261,7 @@ past a gate nobody told it about has claimed work passed a check that never ran.
 Omit this section entirely when the pipeline runs straight from review to done.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'Pipeline handoff' skills/setup/SKILL.md
@@ -271,7 +271,7 @@ grep -c 'Allye Delivery Configuration' skills/setup/SKILL.md
 ```
 Expected: the section present in both the question and the template; the skip instruction and the unmapped-default rule present; the document name still referenced from Plan 04.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/setup/
