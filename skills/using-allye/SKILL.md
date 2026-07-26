@@ -1,7 +1,7 @@
 ---
 name: using-allye
 description: Bootstrap meta-skill for AI agents using the Allye platform. Teaches when and how to use Allye MCP tools with structured workflows. Injected at session start.
-version: "1.3"
+version: "1.4"
 category: bootstrap
 ---
 
@@ -11,11 +11,7 @@ You have access to the **Allye platform** — a project management and knowledge
 
 This skill teaches you **when and how** to use those tools effectively. It does NOT replace the tools — it gives you methodology and workflow discipline on top of them.
 
-**What you must do:**
-1. Search for relevant memories at the start of every conversation
-2. Detect which workflow phase applies to the user's request
-3. Load the appropriate skill for that phase
-4. Save memories before the conversation ends
+**What you must do:** search memories at the start of every conversation, detect which workflow phase applies, load the matching skill for that phase, and save memories before the conversation ends.
 
 ---
 
@@ -45,7 +41,6 @@ Note: `AskUserQuestion` inside skill-loaded contexts has known reliability issue
 <EXTREMELY_IMPORTANT>
 At the START of every conversation, you MUST search for relevant memories before doing anything else.
 At the END of every conversation, you MUST run the `memory-protocol` skill's /save process.
-This is not optional. Memories are how context survives between conversations.
 </EXTREMELY_IMPORTANT>
 
 ### On conversation start
@@ -61,6 +56,8 @@ This is not optional. Memories are how context survives between conversations.
 3. `"{work item key}"` — find context for the specific item being discussed (e.g., "PROJ-123")
 
 **Step 4: Greet the user** — Summarize what you know (from init + memories) before proceeding. If no memories are found, proceed normally with the context from init.
+
+**Step 5: Note the runtime, if one was reported.** The session hook may have injected a line beginning `Agent runtime: `. If it did, the `agent-runtime` skill is available and the Orchestrator will dispatch through it. Do not load that skill now — it loads when work is about to be dispatched, which is the whole point of it being a separate skill.
 
 ### On conversation end (and saving in general)
 
@@ -100,6 +97,8 @@ If no handover marker is present, fall through to the decision table below as be
 | Implement code, write tests, develop features | Technical Development | `allye-technical-development` |
 | Review code, check implementation quality | Technical Review | `allye-technical-review` |
 | Finalize delivery, close story, update docs | Technical Delivery | `allye-technical-delivery` |
+
+Two skills sit outside this table because no user request routes to them directly: `verification-loop` is loaded by `execution` when a task is being verified, and `agent-runtime` by `orchestrator` when parallel work is being dispatched. Both load on demand, from the skill that needs them.
 
 ### How to detect the phase
 
