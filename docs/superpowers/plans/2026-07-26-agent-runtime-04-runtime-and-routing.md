@@ -375,7 +375,7 @@ install falls back to the existing dispatch modes instead of blocking."
 - Consumes: Task 1's primitives; the AFK/HITL label from Plan 02; the two review axes from Plan 03.
 - Produces: the dispatch-mode rule and the worktree lifecycle. Nothing later consumes it.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'agent-runtime' skills/orchestrator/SKILL.md
@@ -383,7 +383,7 @@ grep -c 'worktree' skills/orchestrator/SKILL.md
 ```
 Expected: `0` for both.
 
-- [ ] **Step 2: Replace §4's mode question with mode resolution**
+- [x] **Step 2: Replace §4's mode question with mode resolution**
 
 <HARD-GATE>
 **The text you are replacing is fenced, and your replacement must be too.**
@@ -410,7 +410,7 @@ watch, attach to, and take over, with its own context window. That is strictly m
 either fallback offers.
 ```
 
-- [ ] **Step 3: Add the parallel-dispatch section**
+- [x] **Step 3: Add the parallel-dispatch section**
 
 Insert a new §4.2 after it:
 
@@ -462,7 +462,7 @@ absolute worktree paths go in the briefing instead. A session started with its c
 worktree may not resolve plugin skills, and dies on the first `Skill` call.
 ```
 
-- [ ] **Step 4: Add the merge and teardown section**
+- [x] **Step 4: Add the merge and teardown section**
 
 Insert a new §7.1 immediately after the existing status cascade:
 
@@ -495,11 +495,11 @@ Three properties make "no work lost" structural rather than careful:
 Visible litter costs far less than deleted work.
 ```
 
-- [ ] **Step 5: Apply the authoring doctrine to the whole file**
+- [x] **Step 5: Apply the authoring doctrine to the whole file**
 
 Run the no-op test sentence by sentence; collapse duplicated meaning. Do not touch: the two-correction maximum, the status cascade order, the assignee resolution mechanics, the epic-completion-is-manual rule, or the two-axis combination table from Plan 03.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 grep -c 'agent-runtime' skills/orchestrator/SKILL.md
@@ -516,7 +516,7 @@ Expected: `agent-runtime` present; each of the five distinctive sentences found 
 
 These check the sentences each edit introduces rather than counting how often a word appears. A `worktree` count would pass just as happily if the word were sprinkled through prose that gates nothing.
 
-- [ ] **Step 7: Bump version and commit**
+- [x] **Step 7: Bump version and commit**
 
 ```bash
 git add skills/orchestrator/
