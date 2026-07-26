@@ -530,3 +530,86 @@ Four things the external plan format provided that Allye's task structure does n
 All of §16 is **Plan 05**, written after Plans 03 and 04 land. Sequencing it last is deliberate: §16.4's validation is bound to the AFK/HITL label, which Plan 02 produces and Plan 04 consumes, so building it before either would be building against a contract that does not exist yet.
 
 ---
+
+## 17. Amendment — the pipeline is the team's, not ours
+
+**Added 2026-07-26, after Plan 05 landed, from reading a real board.**
+
+### 17.1 What the board showed
+
+The BeachApp `Tech Board` had a story (`BEAC-1927`) marked **Done with seven of its fifteen tasks still in Code Review** — those seven being the entire contents of the Code Review column. `QA Testing` and `Deploy` held zero items and always had.
+
+This looked like indiscipline. It is not. It is the flow reaching the end of what it models, and closing the story being the only exit the model offered.
+
+### 17.2 The four presets, and where our flow stops
+
+`allye-api/prisma/seed-workflow.ts:30-51` defines four cumulative workflow presets:
+
+| Preset | Statuses | Count |
+|---|---|---|
+| Solo | idea, todo, in_progress, done, cancelled | 5 |
+| Startup | + researching, designing, backlog, code_review | 9 |
+| Standard | + specifying, qa_testing, deploy_staging, qa_staging, deploy_prod | 14 |
+| Enterprise | + security_scan, doc_review, deploy_preprod, qa_preprod | 18 |
+
+Our flow ends at "Reviewer approves → Orchestrator moves to done." That is exactly right on Solo and Startup, where `done` follows review. On Enterprise it skips **seven** statuses, which is precisely what happened to `BEAC-1927`.
+
+`board-progression` compounded it by documenting a fixed eight-status convention matching **none** of the four presets, with `testing` ordered before `review` — inverted relative to all of them.
+
+### 17.3 The rule: authority ends where verification ends
+
+Allye is multi-tenant. Presets are a starting point; every team configures its own statuses. **Any rule naming a status is wrong by construction.** Only three things are stable enough to build on: the `TeamStatusCategory` enum (proposed, in_progress, done, cancelled), the `StatusPipeline` enum (product, engineering, shared), and the board's own ordering.
+
+> **The Orchestrator drives everything that is verification. It stops at the first gate that changes the world outside the repository.**
+
+Deploying does that. Verifying does not. The rule holds under renaming because it speaks to the *nature* of the gate.
+
+Two statuses that look like human gates are ours:
+
+- **`qa_testing`** is the story-level verification loop from §8, run as a gate at that status rather than only inside execution.
+- **`security_scan`** is, in the seed's own words, *"automated SAST/DAST scan, reviewing findings"* — tooling plus triage, which is the same shape as a verification command and answers to the same four criteria (red-capable, deterministic, fast, agent-runnable). It is **not** a third review axis; `reviewer-standards` already reads code for security. This runs a scanner.
+
+`doc_review` is likewise ours — `delivery` already updates documentation.
+
+### 17.4 The zero-configuration default
+
+After both review axes clear, the Orchestrator advances through statuses it can satisfy and stops at the first it cannot, **naming it**. It never calls `work_status_done` to skip.
+
+| Preset | First unsatisfiable gate | Result with no configuration |
+|---|---|---|
+| Solo | none — `done` follows | full cascade, unchanged |
+| Startup | none — `done` follows | full cascade, unchanged |
+| Standard | `deploy_staging` | stops, announces, story stays open |
+| Enterprise | `deploy_staging` | stops, announces, story stays open |
+
+A story does not close while its tasks are open. That is the correct behaviour and exactly what failed on `BEAC-1927`.
+
+**For a status it does not recognize, it asks once and records the answer** in the delivery configuration — consistent with the plugin's standing rule to ask rather than guess, and with configuration living in a Core Document rather than being re-elicited.
+
+### 17.5 Configuration for teams that want more
+
+The `Allye Delivery Configuration` Core Document (§16.5, created by `setup`) gains a pipeline section:
+
+```markdown
+## Pipeline handoff
+| Status | Satisfied by |
+|---|---|
+| security_scan | agent |
+| qa_testing | agent |
+| deploy_staging | ci |
+| deploy_prod | human |
+```
+
+`agent` — the Orchestrator satisfies it and advances. `ci` — it waits for an external signal, and the delivery config names how to read it. `human` — it stops. **An unmapped status is `human`**, because stopping is the safe default.
+
+### 17.6 Two gaps in `allye-mcp`, and one defect in `allye-api`
+
+**MCP:** `work_statuses` (`allye_mcp/application/tools/work_items.py:590-597`) emits only `name`, `key`, `id`, and `color`. It **drops `position`, `pipeline`, and `description`**, all of which the seed writes to `WorkflowStatus`. Those are exactly the three fields pipeline discovery needs. `board_columns` likewise returns names and ids with no status mapping and no ordering, so the board's visible subset cannot be reconstructed.
+
+Until both are fixed the Orchestrator **reads the resulting status after moving rather than predicting the next one** — correct, and one extra call per transition.
+
+**API defect:** `ALLOWED_STATUSES_BY_PIPELINE` in `src/modules/work-items/constants/workflow.constants.ts` names eleven status keys that do not exist in the seed (`proposal`, `approved`, `review`, `archived`, `in_development`, `testing`, `qa`, `staging`, `deployed`, `blocked`, `on_hold`) and omits every real engineering status after `code_review`. `getAllowedStatusKeys` is imported at `work-items.service.ts:54` and **never called**, so no pipeline validation runs at all. Harmless today; enabling that validation without first fixing the constants would reject every real status.
+
+### 17.7 Scope
+
+All of §17 is **Plan 06**.
