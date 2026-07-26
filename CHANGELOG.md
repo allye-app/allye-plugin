@@ -1,3 +1,48 @@
+# [1.3.0](https://github.com/allye-app/allye-plugin/compare/v1.2.7...v1.3.0) (2026-07-26)
+
+
+### Bug Fixes
+
+* **install:** status and uninstall no longer require a terminal ([916fcb4](https://github.com/allye-app/allye-plugin/commit/916fcb46284798836a144db318c1c50604a7dd9a))
+* memory_save never accepted work_item_id or sprint_id ([b89975f](https://github.com/allye-app/allye-plugin/commit/b89975f63f0422aa4a13183aae04257dbcd62c81))
+* seed the two new skills and cite the current spec ([786a030](https://github.com/allye-app/allye-plugin/commit/786a0305d5694c0e983b8c2c26bcf219f0a2e555))
+* two self-inconsistencies plan 06 left in neighbouring sections ([edfd501](https://github.com/allye-app/allye-plugin/commit/edfd5012855021454b1291df1a8af340e79f7b0f))
+* **using-allye:** the /save protocol is four steps, not three ([3c71d23](https://github.com/allye-app/allye-plugin/commit/3c71d23af3377fd330fe38849b834fe44ea76d7c))
+
+
+### Features
+
+* **agents:** add the spec-axis reviewer ([c6a71a5](https://github.com/allye-app/allye-plugin/commit/c6a71a5314942b0543dbd33c300b075589163cc8))
+* **agents:** add the standards-axis reviewer ([a84dfcd](https://github.com/allye-app/allye-plugin/commit/a84dfcde508ed9bcf73034ce9555ad30e1a4c1c7))
+* **delivery:** a parked story is waiting, not incomplete ([3fff977](https://github.com/allye-app/allye-plugin/commit/3fff977bacdff522946a5b96d51b68e6b5277b11))
+* **delivery:** ask where the code went ([0e5ceb4](https://github.com/allye-app/allye-plugin/commit/0e5ceb4500e1b150a5c7d631189869ded52f0953))
+* **execution:** plan the implementation before writing any code ([8c28b9e](https://github.com/allye-app/allye-plugin/commit/8c28b9eea5c79bcc2dea7344140635dc1fdfcb34))
+* **execution:** run the task and story verification loops ([0bc1570](https://github.com/allye-app/allye-plugin/commit/0bc15703bf0fb83a26b6efdeabdd731e15f735b6))
+* **execution:** say who lands the branch ([5a36ea0](https://github.com/allye-app/allye-plugin/commit/5a36ea015f7bdb9ae072dd777052cab73e61ea25))
+* **executor:** plan and validate before writing, and report the gap ([07c5366](https://github.com/allye-app/allye-plugin/commit/07c53663a185c1c1c74cc503a6303c30b4560baf))
+* **executor:** run the verification loops and report literal output ([79747cf](https://github.com/allye-app/allye-plugin/commit/79747cf0dd68d9cb7cba0c6d5bdc5a9e12239a57))
+* **handover-protocol:** durability rule and the dispatch label ([7772357](https://github.com/allye-app/allye-plugin/commit/7772357b40202b5154b00676dd1ba18ade34b9fa))
+* **handover-protocol:** reference constraints, and three reporting rules ([bfd30dd](https://github.com/allye-app/allye-plugin/commit/bfd30dd492c31bbf0c56c3557775af6b3c391b86))
+* **hooks:** detect an agent runtime at session start ([a72fa8f](https://github.com/allye-app/allye-plugin/commit/a72fa8fe0dbd105959cb46fefd4fed395e5be6ee))
+* **install:** describe every supported agent as data ([83384e3](https://github.com/allye-app/allye-plugin/commit/83384e329c507d9848378da73c26a09534b8e22c))
+* **install:** support Hermes Agent as the sixth agent ([96ce710](https://github.com/allye-app/allye-plugin/commit/96ce710ed882cc338861cc93abee1be8d603b9c4))
+* **install:** three verbs over the adapter table ([5a20394](https://github.com/allye-app/allye-plugin/commit/5a20394e41c223bdd4e6bdda105260e910283e62))
+* **install:** turn off Hermes's competing memory and kanban ([644af13](https://github.com/allye-app/allye-plugin/commit/644af136e29b7e7d65ec405bed020035fa219c8f))
+* **install:** write skills to disk for agents that read them there ([b21218e](https://github.com/allye-app/allye-plugin/commit/b21218e4ea56405fc16ce88aada7e05372b534cd))
+* **memory-protocol:** promote surviving todos, do not mirror them ([8c8f02d](https://github.com/allye-app/allye-plugin/commit/8c8f02d5fa37533f6b55adb5aae382caf763643b))
+* **orchestrator:** dispatch both review axes and combine verdicts ([260fee5](https://github.com/allye-app/allye-plugin/commit/260fee5e0544f6a44cd92c79bbb3f5b954de6594))
+* **orchestrator:** dispatch through a runtime and own worktrees ([5d185da](https://github.com/allye-app/allye-plugin/commit/5d185daeaae346c6416c7f9ca9df74d5a055a40c))
+* **orchestrator:** walk the team's pipeline instead of assuming one ([4d480bf](https://github.com/allye-app/allye-plugin/commit/4d480bfbe6ef84e15e869530055b71f895a70a7a))
+* register branch-landing in the seed, the bootstrap and the counts ([76dcc22](https://github.com/allye-app/allye-plugin/commit/76dcc224bdba2f629a8a3d12f073d6733f9830a5))
+* **setup:** create the delivery configuration Core Document ([853e6f7](https://github.com/allye-app/allye-plugin/commit/853e6f7a812ad3876deeeddb2947893ec37f7748))
+* **setup:** record who satisfies each post-review pipeline stage ([34f2374](https://github.com/allye-app/allye-plugin/commit/34f2374ab4d72853253e8f28c054d2b74c69eb75))
+* **skills:** add branch-landing ([57106ba](https://github.com/allye-app/allye-plugin/commit/57106ba94ab516b234cd79a77cbd83ce8b87df26))
+* **skills:** add the agent-runtime contract and Herdr reference ([0dddec0](https://github.com/allye-app/allye-plugin/commit/0dddec0b54a17d6a98af85ec0f6c95d2b9a5cd88))
+* **skills:** add the verification-loop skill ([5ba73a7](https://github.com/allye-app/allye-plugin/commit/5ba73a76d23dc442e8c129ffa72f8c01b32dc641))
+* **technical-planning:** Interfaces block and a no-placeholders gate ([cb8d0c0](https://github.com/allye-app/allye-plugin/commit/cb8d0c0265ed6715716e26a196c5032a3e47a72d))
+* **technical-planning:** require a verification command per task ([55931ef](https://github.com/allye-app/allye-plugin/commit/55931ef242ffd369471bf65da11d2706b4f343e2))
+* **using-allye:** surface the runtime and the two on-demand skills ([815200f](https://github.com/allye-app/allye-plugin/commit/815200f2e65d594112b283b8c1c24c0bfe5e1fb8))
+
 ## [1.2.7](https://github.com/allye-app/allye-plugin/compare/v1.2.6...v1.2.7) (2026-07-23)
 
 
