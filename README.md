@@ -61,7 +61,8 @@ After installing, you get:
 - **OAuth authentication** — browser-based login, no tokens to manage
 - **Bootstrap hook** — injects workflow methodology at session start
 - **5 dispatched subagents** — reviewer-standards, reviewer-spec, deep-search, code-analyzer, executor, delegated via the Agent tool for phases that don't need to pause and ask you anything (executor only runs this way if you opt into automatic mode — manual is the default)
-- **14 skills** — Sandbox, Planning, Technical Planning, Orchestrator, and Delivery run as skills loaded directly into your conversation, loaded on-demand by the bootstrap, so they can ask you questions when something's ambiguous
+- **16 skills** — Sandbox, Planning, Technical Planning, Orchestrator, and Delivery run as skills loaded directly into your conversation, loaded on-demand by the bootstrap, so they can ask you questions when something's ambiguous
+- **Parallel delivery, when a runtime is detected** — the Orchestrator can drive several independent stories at once, each in its own git worktree and its own watchable agent process; without a detected runtime, delivery degrades to the existing manual and automatic-subagent modes
 
 #### Multiple Allye accounts (multi-tenant)
 
@@ -230,7 +231,7 @@ Understand business context → discover team templates → define hierarchy (Ep
 Get story → **discussion phase** (identify gray areas, present options with trade-offs, capture locked decisions) → create tasks with dependency waves.
 
 ### Orchestrator
-Coordinates delivery of an already-planned feature: manages assignee and status, dispatches **Executor** one story at a time (manual handover, or automatic subagent dispatch — your choice per story), dispatches **Reviewer-Standards** and **Reviewer-Spec** in parallel once a report comes back, runs the correction loop, and cascades status up the work-item hierarchy.
+Coordinates delivery of an already-planned feature: manages assignee and status, dispatches **Executor**, dispatches **Reviewer-Standards** and **Reviewer-Spec** in parallel once a report comes back, runs the correction loop, and cascades status up the work-item hierarchy. With a detected agent runtime (Herdr), it can dispatch several independent stories at once, each in its own git worktree and its own watchable agent process; without one, it falls back to one story at a time (manual handover, or automatic subagent dispatch — your choice per story).
 
 ### Executor
 Implements exactly one story's tasks with TDD (Red → Green → Refactor). Runs either as an interactive skill (manual mode, can ask you questions) or as a dispatched subagent (automatic mode — halts and reports back instead of guessing when a task is underspecified).
@@ -245,7 +246,7 @@ Once an epic's whole status cascade completes, the Orchestrator offers — never
 
 ## Skills
 
-Skills are the knowledge base that powers the agents. 13 workflow skills are published in the **Allye marketplace** — available to all users without setup (`setup` itself is Claude Code's local install-time skill and isn't marketplace-published).
+Skills are the knowledge base that powers the agents. 15 workflow skills are published in the **Allye marketplace** — available to all users without setup (`setup` itself is Claude Code's local install-time skill and isn't marketplace-published).
 
 | Skill | What it teaches |
 |-------|----------------|
@@ -262,6 +263,8 @@ Skills are the knowledge base that powers the agents. 13 workflow skills are pub
 | `tdd-workflow` | Red-Green-Refactor cycle with detection heuristic |
 | `board-progression` | Status transitions and board mechanics |
 | `tools-quickref` | Complete reference for all 12 MCP tools and 68+ actions |
+| `verification-loop` | Deriving the AFK/HITL label from whether every task has a runnable verification command |
+| `agent-runtime` | The five-primitive contract for driving an external agent runtime (Herdr), for parallel dispatch |
 
 ### Custom team skills
 
