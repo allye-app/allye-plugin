@@ -446,3 +446,66 @@ Facts this design was verified against, so a future reader knows what was true:
 - Claude Code 2.1.220
 - allye-plugin v1.2.6 (one unreleased commit on `main`)
 - `allye-mcp` source read directly from `/home/bfernandes/dev/allye/allye-mcp`
+
+## 16. Amendment — Allye self-sufficiency and implementation planning
+
+**Added 2026-07-26, after Plan 01 landed and while Plan 02 was executing.** Recorded as an amendment rather than folded into the sections above, so the reasoning that produced it stays legible.
+
+### 16.1 The policy
+
+**Allye is self-sufficient. No external plugin is ever required, for the user or for the plugin's own development.**
+
+At runtime this has always been true — the `2026-07-12` spec §7 established adaptation-with-credit and forbade runtime dependencies, and the adapted text is inline. What was *not* true is that the plugin offered no equivalent of the process skills its own development leaned on. Building this spec required `brainstorming` and `writing-plans` from an external suite, because Allye has no counterpart. That gap is what this amendment closes.
+
+**Attribution comments stay.** MIT and Apache-2.0 both require retaining attribution in derivative work. Removing `<!-- adapted from superpowers:brainstorming (MIT) -->` while keeping the adapted text is a licence violation, not independence. Self-sufficiency means never *needing* the other suite installed; it does not mean erasing that ideas came from it. The two are unrelated, and only one of them is achievable by deleting a comment.
+
+### 16.2 The gap that matters: planning happens, then implementation starts
+
+Technical Planning decides **what** to build and records it as tasks. Nothing decides **how**, by the party that will build it, before code exists.
+
+`skills/execution/SKILL.md` goes from Step 4 (read the existing code) straight to Step 5 (TDD, write). `agents/executor.md` does the same. An Executor that misreads a task discovers it mid-implementation, with code already written.
+
+The Orchestrator's pre-flight completeness check (§4 of `orchestrator`) exists to catch underspecified tasks before dispatch, and its own text concedes it catches "the obvious cases, not all." **An implementation plan produced before writing moves that discovery earlier** — to the point where the cost of being wrong is a paragraph rather than a branch.
+
+### 16.3 Step 4.5 — Plan the implementation
+
+A new step in both `skills/execution/SKILL.md` and `agents/executor.md`, between reading and writing. Per task: the approach, the files to touch, the interfaces the task produces, and how its `## Verification` command will be satisfied.
+
+Saved as a memory in the **`plans`** sector, which exists for exactly this and makes the plan outlive the session — a resumed Executor and the spec-axis Reviewer can both read what was intended, not only what was done.
+
+### 16.4 Validation
+
+Three checks are mechanical and run **always**, in both interactive and dispatched mode:
+
+1. Every acceptance criterion has a step that covers it.
+2. Every locked decision is respected by the plan.
+3. No step depends on something the plan never defines.
+
+**A failure here is `❌ blocked` before any code is written**, carrying which criterion or decision has no plan behind it. This is the same halt-and-report contract the Executor already has, fired earlier and therefore cheaper.
+
+The fourth question — *is the approach right* — needs judgement, and its answer is bound to the dispatch label already derived in §8.4:
+
+- **AFK story** → self-validation only. The three mechanical checks, then implement. Preserving unattended dispatch is the entire reason §7 exists; a mandatory human gate per story would make three parallel stories mean six interruptions.
+- **HITL story** → the plan goes to the human before implementation begins.
+- **Either label**, when the plan surfaces a decision the planning phase never covered → stop and surface it, regardless of label. A decision discovered while planning is exactly the case the label could not have anticipated.
+
+### 16.5 Closing the remaining gaps in the existing structure
+
+Four things the external plan format provided that Allye's task structure does not. Each is filled **inside the structure that already exists**, never as a parallel artifact — a second home for the same truth is the duplication failure mode the doctrine names, and a plan document that drifts from its work items is worse than no plan document.
+
+| Gap | Where it lands |
+|---|---|
+| `Interfaces` — what a task consumes from and produces for its neighbours | a section in the task description template, `technical-planning` §4.3 |
+| Global constraints stated once | a feature-level doc in Allye, referenced by every `story-execution` handover instead of recopied into each |
+| No-placeholders discipline | a gate in `technical-planning`, sibling to the acceptance-criteria gate |
+| Step-level detail | stays in the task's `## What`, proven by the `## Verification` command from §8 |
+
+### 16.6 Deferred
+
+**Renaming `docs/superpowers/` is deferred to Plan 05.** The directory is the plugin's own development artifacts, not anything the plugin instructs users' agents to do — the two are separate and only the second matters for self-sufficiency. Renaming now would collide with Plan 02, which is currently executing and writing checkbox progress into files under that path.
+
+### 16.7 Scope
+
+All of §16 is **Plan 05**, written after Plans 03 and 04 land. Sequencing it last is deliberate: §16.4's validation is bound to the AFK/HITL label, which Plan 02 produces and Plan 04 consumes, so building it before either would be building against a contract that does not exist yet.
+
+---
