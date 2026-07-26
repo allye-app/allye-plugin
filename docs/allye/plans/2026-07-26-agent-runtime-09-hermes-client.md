@@ -176,7 +176,7 @@ The pattern already exists. `memory-protocol` §4 consolidates a session and the
 - Consumes: nothing new.
 - Produces: a fourth step in the /save protocol.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'todo' skills/memory-protocol/SKILL.md
@@ -185,7 +185,7 @@ grep -n '3-step protocol' skills/memory-protocol/SKILL.md
 ```
 Expected: `todo` absent; **Step 3 is titled "React to the outcome"** — Plan 01's doctrine pass shortened it, so do not search for older wording; and §4's opening calls it a "3-step protocol", which Step 3 of this task corrects.
 
-- [ ] **Step 2: Add Step 4 to the /save protocol**
+- [x] **Step 2: Add Step 4 to the /save protocol**
 
 After Step 3:
 
@@ -221,7 +221,7 @@ work it just finished has nothing to promote, and forcing one turns a personal l
 commitments into a log of completed steps — which is what makes such lists get ignored.
 ```
 
-- [ ] **Step 3: Reference it from the protocol's opening**
+- [x] **Step 3: Reference it from the protocol's opening**
 
 Two places say three, and both are one edit each:
 
@@ -230,7 +230,7 @@ Two places say three, and both are one edit each:
 
 A protocol that announces three steps and then lists four is the kind of small wrongness that makes a reader stop trusting the rest of the file.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'Step 4 — Promote surviving todos' skills/memory-protocol/SKILL.md
@@ -242,7 +242,7 @@ grep -c '^### Step ' skills/memory-protocol/SKILL.md
 ```
 Expected: the step present; `todo_create` used once; **zero** surviving three-step phrasings and at least one four-step; Step 1's `sessions` consolidation untouched; and exactly **four** `### Step` headings.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/memory-protocol/
