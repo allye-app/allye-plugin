@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (`packages/allye-opencode`), Markdown (`manifests/`). **Verification uses `node` + `npx tsc`, not `bun`** — `bun` is confirmed unavailable in this environment (Plan 1 Task 8), but `scripts/generate-prompts.ts` uses only Node-compatible APIs (`fs`, `path`, `url` — no `Bun.*` calls) and runs correctly under plain `node`; `npx tsc --noEmit` was verified to pass cleanly against the current `main` once `skills-content.ts` is generated. This is real compiler verification, not just grep.
 
-**Source spec:** `docs/superpowers/specs/2026-07-12-guided-delivery-workflow-design.md` §9.3 (change map: `allye-plan.ts`, `allye-build.ts`/`allye-review.ts`/`allye-deliver.ts`, `allye.ts`, `manifests/{codex,cursor,gemini}`).
+**Source spec:** `docs/allye/specs/2026-07-12-guided-delivery-workflow-design.md` §9.3 (change map: `allye-plan.ts`, `allye-build.ts`/`allye-review.ts`/`allye-deliver.ts`, `allye.ts`, `manifests/{codex,cursor,gemini}`).
 
 **Depends on:** Plans 1-5, all merged. This plan's new `ORCHESTRATOR`/`SANDBOX`/`HANDOVER_PROTOCOL` content sources from the skills Plans 2-4 created.
 

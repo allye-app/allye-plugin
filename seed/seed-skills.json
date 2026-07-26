@@ -196,6 +196,47 @@
         "codex",
         "gemini"
       ]
+    },
+    {
+      "name": "verification-loop",
+      "slug": "verification-loop",
+      "description": "Bounded test-fix-test loop that proves a task or story actually works. Use when implementing a task, before reporting anything as done, or when a verification command fails and needs another pass.",
+      "category": "testing",
+      "scope": "team",
+      "source_file": "skills/verification-loop/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
+    },
+    {
+      "name": "agent-runtime",
+      "slug": "agent-runtime",
+      "description": "Contract for driving an external agent runtime — spawning real agent processes in panes, dispatching work to them, and collecting results. Use when the session hook reported a runtime and work is about to be dispatched in parallel.",
+      "category": "other",
+      "scope": "team",
+      "source_file": "skills/agent-runtime/SKILL.md",
+      "supported_agents": [
+        "claude"
+      ]
+    },
+    {
+      "name": "branch-landing",
+      "slug": "branch-landing",
+      "description": "Decide and execute what happens to a branch once its work is done — merge, open a pull request, or leave it — then tear down the worktree and pane without losing anything. Use when a story's implementation is complete, or when another skill needs the teardown sequence.",
+      "category": "devops",
+      "scope": "team",
+      "source_file": "skills/branch-landing/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     }
   ]
 }

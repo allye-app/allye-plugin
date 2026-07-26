@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown only (no code in this plan).
 
-**Source spec:** `docs/superpowers/specs/2026-07-12-guided-delivery-workflow-design.md` §5 (The Handover Catalog), §7 (Adaptation sources — humanlayer `create_handoff`/`resume_handoff`, compound-engineering artifact contracts).
+**Source spec:** `docs/allye/specs/2026-07-12-guided-delivery-workflow-design.md` §5 (The Handover Catalog), §7 (Adaptation sources — humanlayer `create_handoff`/`resume_handoff`, compound-engineering artifact contracts).
 
 **Depends on:** Plan 1 (foundational restructure) — merged. This plan targets the renamed skill names (`product-planning`, `technical-planning`, `execution`) that Plan 1 produced.
 

@@ -1,15 +1,14 @@
 ---
 name: execution
 description: Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution. Use when the user wants to write code, implement a task, or develop features.
-version: "1.1"
+version: "1.5"
 category: methodology
 ---
 
 # Technical Development Workflow
 
-This skill guides you through implementing a task with discipline: read existing code first, write tests, implement, refactor, and track progress in Allye.
-
-Use this when the user wants to: write code, implement a task, fix a bug, add functionality, or develop features.
+Implements one task with discipline: read the existing code first, drive it with TDD,
+verify it actually works, and track progress in Allye.
 
 **Scope, if you arrived via a `story-execution` or `correction` handover (see `handover-protocol`):** read only the one story and its tasks named in the handover — nothing else. A `correction` handover carries only the failed findings, not the whole story again; fix exactly what it lists.
 
@@ -119,6 +118,70 @@ Do not read endlessly in search of additional context. Reading is preparation, n
 
 ---
 
+## Step 4.5: Plan the Implementation
+
+You have read the code and written none. This is where you state *how* you will build it,
+and check that statement against what was asked for — while being wrong still costs a
+paragraph rather than a branch.
+
+### Write the plan
+
+Per task in this story:
+
+- **Approach** — the shape of the change, in a sentence or two.
+- **Files** — what you will create or modify. Names, never line numbers; the tree moves.
+- **Interfaces produced** — the names, types, and signatures other tasks in this story will
+  call. Whoever implements a neighbouring task sees only their own task description, so
+  this is the only place they learn what to call.
+- **How each criterion goes green** — for every acceptance criterion, which step makes its
+  `## Verification` command pass. A criterion with no step against it is the finding this
+  whole exercise exists to produce.
+
+Save it:
+
+```
+memory_save(
+  title: "Implementation Plan — {STORY-KEY} {story title}",
+  content: "## Per task\n{approach, files, interfaces produced, criterion → step}\n\n## Order\n{which task first, and why}\n\n## Open questions\n{anything planning did not settle, or 'None'}",
+  tags: ["plan", "implementation", "{story-key}"],
+  sector: "plans"
+)
+```
+
+It outlives the session. A resumed Executor reads what was intended rather than inferring
+it from half-written code, and `reviewer-spec` can compare the implementation against the
+plan and not only against the criteria.
+
+### Validate it
+
+<HARD-GATE>
+Three checks, run every time, before writing any code:
+
+1. **Coverage** — every acceptance criterion, in every task, has a step that produces it.
+2. **Decisions** — every locked decision from planning is respected. A locked decision was
+   chosen by the human. A plan that quietly departs from one is a defect whether or not the
+   resulting code works.
+3. **Closure** — no step depends on something the plan never defines. If a type, function,
+   file, or value appears as a dependency and never as an output, the plan has a hole in it.
+
+A failure is reported as `❌ blocked` **before any code exists**, naming which criterion or
+decision has nothing behind it. This is the same halt-and-report contract you already carry,
+fired at the cheapest possible moment.
+</HARD-GATE>
+
+### Whether the approach is right
+
+The three checks above are mechanical. Whether the approach is a *good* one is judgement,
+and who supplies it follows the story's dispatch label (see `verification-loop` §4):
+
+- **AFK** — self-validation is enough. Run the three checks and proceed.
+- **HITL** — put the plan in front of the user and wait before writing anything.
+- **Either label**, if planning surfaced a decision the discussion phase never covered —
+  stop and raise it regardless. A decision discovered while planning is precisely the case
+  the label could not have anticipated.
+
+---
+
 ## Step 5: TDD — Test-Driven Development
 
 <!-- full discipline lives in the tdd-workflow skill, aligned with superpowers:test-driven-development (MIT) -->
@@ -169,6 +232,21 @@ With green tests as your safety net, improve the code:
 - Extract functions if needed
 
 Run tests after every change. If a test fails, you broke something — fix it before continuing.
+
+### Verification Phase — run the task's loop
+
+TDD proved each behaviour as you built it. This proves the **task's acceptance
+criteria**, which is a different claim.
+
+Run the command from the task's `## Verification` block. Read its actual output.
+If it is red, fix and run it again, under the bound in `verification-loop` §3:
+three attempts on one failure, or two byte-identical outputs, whichever comes
+first. On hitting the bound, stop and carry the command and its literal output
+into your report — do not summarise the output.
+
+If the task declares `verification: manual`, follow its procedure and record what
+you observed. You have not run a loop; say so plainly in the report rather than
+implying one passed.
 
 ### Repeat
 
@@ -226,6 +304,10 @@ Examples of things that need human action:
 <!-- adapted from superpowers:verification-before-completion (MIT) — evidence before assertions -->
 **Evidence before assertions.** Don't advance a task because it looks right — run the tests, read the actual output, and confirm each acceptance criterion against that output before proceeding. "Should work" is not the same as "ran and passed."
 
+The task's verification command is what supplies that evidence. Advancing a task to
+`review` without having run it green — or without having recorded a `verification:
+manual` observation — is the assertion this rule exists to forbid.
+
 Once all acceptance criteria are verifiably met and tests pass:
 
 ```
@@ -245,8 +327,7 @@ memory_save(
   title: "Implementation — {TASK-KEY} {short description}",
   content: "## What was done\n{summary of changes}\n\n## Key decisions during implementation\n{any new decisions made}\n\n## Files changed\n- {file 1}\n- {file 2}\n\n## Gotchas\n{anything surprising or non-obvious encountered}\n\n## Tests\n{what was tested, any notable test patterns}",
   tags: ["development", "implementation", "{story-key}", "{task-key}"],
-  work_item_id: "{task uuid}",
-  sprint_id: "{sprint uuid if applicable}"
+  sector: "knowledge"
 )
 ```
 
@@ -260,7 +341,16 @@ After completing a task, pick the next one from the **handover's own wave-ordere
 
 - If there are more tasks in the current wave (per the handover's list) → pick one
 - If the current wave is done → move to the next wave (per the handover's list)
-- If every task in the story has reached `review` (implementation complete, awaiting Reviewer) → emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator
+- If every task in the story has reached `review` (implementation complete, awaiting Reviewer) → **run the story loop, then** emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator.
+
+  The story loop runs the story's own acceptance criteria end to end, under the same
+  bound as the task loop. Every task green does not mean the story works — nothing
+  else checks this, which is exactly why it runs here.
+
+  A red story loop is reported as red **even when every task is green**. That
+  combination is a finding, not a contradiction to resolve: it usually means the task
+  breakdown missed an integration, and the Orchestrator needs to see it rather than
+  receive a clean report.
 
 Use `work_children(id: "{story uuid}")` only to **verify/check the status** of tasks already in the handover's list (e.g. confirming a dependency reached `review`) — never to discover new tasks to work on. If `work_children` reveals a task under this story that is **not** in the handover's task list, do not execute it — it wasn't in scope when the handover was dispatched. Instead, note it as an open question ("Open questions") in the `execution-report` handover so the Orchestrator can decide whether to bring it into scope.
 
@@ -275,9 +365,13 @@ For each task, verify:
 - [ ] Dependencies are complete
 - [ ] Task moved to in_progress
 - [ ] Existing code was read before writing new code
+- [ ] An implementation plan was written and saved to the `plans` sector before any code
+- [ ] Coverage, decisions, and closure all checked against that plan
 - [ ] TDD cycle completed (or tests written after for non-TDD-suitable tasks)
 - [ ] All acceptance criteria are met
 - [ ] Tests pass
+- [ ] The task's verification command ran green, or its manual procedure was observed and recorded
+- [ ] The story loop ran green before the report was emitted
 - [ ] Task moved to review (never directly to done — that's the Orchestrator's move after Reviewer ✅)
 - [ ] Implementation memory saved (if non-trivial)
 
@@ -286,3 +380,11 @@ For each task, verify:
 ## What Comes Next
 
 Emit the `execution-report` handover: files changed, tests added, status per acceptance criterion (not a blanket "done"), any new decisions made along the way, and any open questions. The Orchestrator decides from there whether to dispatch Reviewer or, if this is a `correction` round, loop back with more specific findings.
+
+**If you are working in a git worktree**, the Orchestrator that dispatched you owns landing
+the branch — do not merge, do not remove the worktree, do not close your own pane. Name the
+branch in your `execution-report` so it knows what to land.
+
+**If you are working directly in the main checkout** and no Orchestrator is coordinating, the
+branch is yours to finish: load the `branch-landing` skill once the story's tasks are through
+review.

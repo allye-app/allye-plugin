@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown only.
 
-**Source spec:** `docs/superpowers/specs/2026-07-12-guided-delivery-workflow-design.md` §6.4 (Orchestrator), §6.6 (Status cascade + delivery close-out), §10 (resolved decisions: manual epic close-out, 3-strike correction threshold), §7 (adaptation sources — compound-engineering `lfg`, BMAD `correct-course`).
+**Source spec:** `docs/allye/specs/2026-07-12-guided-delivery-workflow-design.md` §6.4 (Orchestrator), §6.6 (Status cascade + delivery close-out), §10 (resolved decisions: manual epic close-out, 3-strike correction threshold), §7 (adaptation sources — compound-engineering `lfg`, BMAD `correct-course`).
 
 **Depends on:** Plan 1 (restructure — `execution`, `review`, `delivery` skill names; `reviewer` agent), Plan 2 (Handover Catalog — `technical-to-orchestration`, `story-execution`, `execution-report`, `correction` templates), Plan 3 (Sandbox — establishes the using-allye routing-table edit pattern this plan follows for its own row).
 

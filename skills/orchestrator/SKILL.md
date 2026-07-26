@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Drives delivery of a planned feature — manages assignee, dispatches Executor for one story at a time, dispatches Reviewer in parallel, runs the correction loop, and cascades status up the work-item hierarchy. Use when a technical-to-orchestration handover arrives, or when the user wants to coordinate delivery of an already-planned feature (assign work, track status, drive tasks through review).
-version: "1.1"
+version: "1.5"
 category: methodology
 ---
 
@@ -40,12 +40,69 @@ Move claimed items to `in_progress` (`work_status_next`) as work on them actuall
 Before dispatching, do a quick completeness check on the story's tasks: does each one have concrete, verifiable acceptance criteria — something you could actually judge as met or not-met? A task like "data modeling" with no defined schema, or "handle errors" with no defined error cases, is not execution-ready. If a task looks underspecified, say so to the user now and resolve it (or route back to `technical-planning`) before dispatching — don't let an obviously vague task go to Executor and discover that the hard way<!-- opencode-exclude:start -->, in either mode below<!-- opencode-exclude:end -->.
 
 <!-- opencode-exclude:start -->
-**Ask the user: automatic or manual?**
+### 4.1 Resolve the dispatch mode — do not ask when the answer is known
+
+1. **Did the session hook report an agent runtime?** (a line beginning `Agent runtime: `).
+   If yes, load the `agent-runtime` skill and dispatch through it. This is the default —
+   do not offer the other two modes alongside it, and do not ask which to use.
+2. **No runtime?** Then ask: manual handover, or the dispatched `executor` subagent.
+
+The runtime wins when present because a runtime pane is a real agent process the human can
+watch, attach to, and take over, with its own context window. That is strictly more than
+either fallback offers.
+<!-- opencode-exclude:end -->
+
+<!-- opencode-exclude:start -->
+### 4.2 Parallel dispatch — one worktree per story
+
+<HARD-GATE>
+**Parallel work requires worktrees. No exception.** Two concurrent stories never share a
+checkout. Serial work stays in the main checkout — the worktree is the price of
+parallelism, not a ritual.
+</HARD-GATE>
+
+Before parallelising, four things get resolved. Guessing any of them produces a failure
+that surfaces hours later as a merge conflict or a pane waiting on a human who is not there.
+
+1. **Story-level dependencies.** Waves order tasks *within* a story; two stories under one
+   feature can also depend on each other. Only mutually independent stories go out together.
+
+2. **The AFK/HITL label**, which Technical Planning derived (see `verification-loop` §4).
+   **A HITL story is never dispatched to an unattended pane** — it runs serially, with the
+   human present, or it waits.
+
+3. **Sequential shared resources, allocated by the Orchestrator, in the dispatch briefing.**
+   Migration numbers, ports, any self-incrementing id. Never instruct a pane to "check what is
+   free": two panes both checking before either writes is a race, and it has already produced
+   two stories claiming the same migration number.
+
+   Worktrees isolate *files*, not the machine. Databases, dev-server ports, and orphaned
+   processes stay shared.
+
+4. **Concurrency.** Default to **three**. Ask before going higher. The limit is the human's
+   review bandwidth, not the machine's capacity — an unreviewed pane is not throughput.
+
+Creating each worktree:
+
+```bash
+git -C "$REPO" worktree add "$WT_ROOT/{STORY-KEY}/{repo}" -b feature/{story-key}-{slug} "$BASE"
+```
+
+`$BASE` is per-repo and comes from the delivery configuration document (see `setup`), never
+assumed. A story spanning several repos gets one worktree per repo, sharing the branch name.
+
+A fresh worktree inherits neither gitignored files nor installed dependencies. Copy the
+files listed in the delivery configuration, then run the repo's install command, **before**
+dispatching. An executor that fails on a missing `.env` reports a bug that is not one.
+
+The pane's `--cwd` is the directory where the Allye plugin is enabled, **not** the worktree —
+absolute worktree paths go in the briefing instead. A session started with its cwd inside a
+worktree may not resolve plugin skills, and dies on the first `Skill` call.
 <!-- opencode-exclude:end -->
 
 - <!-- opencode-exclude:start -->**Manual** (the original flow — default when unsure): <!-- opencode-exclude:end -->emit a `story-execution` handover (`handover-protocol` → `references/story-execution.md`) scoped to exactly one story and its tasks. The user runs it in a fresh Executor chat.
 <!-- opencode-exclude:start -->
-- **Automatic**: dispatch the `executor` subagent directly via the `Agent` tool, in this same conversation. Fill out the exact same fields `references/story-execution.md` defines — story, tasks with acceptance criteria copied in full, locked decisions, applicable code standards, TDD expectation — and use that filled-out content as the dispatch prompt, instead of a handover the user pastes. **Same information, same template, different transport** — automatic mode is not a lighter briefing than manual, it's the identical one delivered a different way.
+- **Automatic**: dispatch the `executor` subagent directly via the `Agent` tool, in this same conversation. Fill out the exact same fields `references/story-execution.md` defines — story, tasks with acceptance criteria copied in full, locked decisions, applicable code standards, TDD expectation — and use that filled-out content as the dispatch prompt, instead of a handover the user pastes. **Same information, same template, different transport.**
 <!-- opencode-exclude:end -->
 
 <!-- opencode-exclude:start -->Either way, the scope is identical: <!-- opencode-exclude:end -->**exactly one story and its tasks, never a whole feature.** Too much scope in one dispatch means it starts making its own planning decisions, which isn't its job<!-- opencode-exclude:start --> in either mode<!-- opencode-exclude:end -->.
@@ -63,28 +120,118 @@ Before dispatching, do a quick completeness check on the story's tasks: does eac
 <!-- adapted from EveryInc/compound-engineering-plugin lfg (MIT) — verify the previous step's artifact before proceeding -->
 When the execution report comes back<!-- opencode-exclude:start --> (handover, in manual mode; direct return value, in automatic mode)<!-- opencode-exclude:end -->, don't take "done" at face value — check the report actually contains what it should before acting on it: files changed listed, tasks reported per acceptance criterion, not just a blanket "finished." An incomplete report is itself a signal to ask for more detail, not something to wave through.
 
-Once the report is genuinely complete, dispatch the `reviewer` subagent<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> — in parallel, automatically, no need to ask the user first<!-- opencode-exclude:start -->, regardless of which mode Executor ran in<!-- opencode-exclude:end -->. Review never needs to pause and ask anyone anything, which is what makes it always dispatch-appropriate. Pass it: the active team (id and name), the story key, the task keys, and the files changed from the execution report.
+Once the report is genuinely complete, dispatch **both** `reviewer-standards` and
+`reviewer-spec`<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> — in parallel, in the same turn, automatically, without asking the user
+first. Review never needs to pause and ask anyone anything, which is what makes it always
+dispatch-appropriate.
+
+Pass each the same fields: the active team (id and name), the story key, the task keys,
+and the files changed from the execution report. `reviewer-spec` additionally gets the
+per-criterion verification evidence the report carried — it reviews against that evidence,
+so a report that omits it produces a review that cannot confirm anything.
 
 ## 6. React to review
 
-Reviewer returns its standard ✅/⚠️/❌-per-task output (unchanged from the `review` skill — no new format to learn).
+Two reports arrive, one per axis. **Record both verbatim.** Never merge them, never
+rerank findings across them, never resolve a disagreement between them — each axis
+reviewed something the other deliberately ignored, so a disagreement is not a conflict
+to settle.
 
-- **All ✅** → move each approved task the rest of the way to `done` yourself — the Executor only advanced it as far as `review` — then proceed to the status cascade (§7).
-- **⚠️ warnings only, no ❌** → a warning isn't a blocker: proceed to the status cascade (§7) the same as All ✅. Don't silently discard the warnings and don't force an unnecessary correction round either — record them as a note (in the task's context, or as a memory) so they're not lost.
-- **Any ❌** → the failed task simply stays at `review` while the correction round runs. No backward move is needed (or possible — `work_status_next` only moves forward, per `allye-board-progression`): the task never reached `done`, because reaching `done` requires your move after Reviewer ✅. Send corrections back<!-- opencode-exclude:start -->, in whichever mode the story is running,<!-- opencode-exclude:end --> using `references/correction.md`'s exact fields<!-- opencode-exclude:start --> either way<!-- opencode-exclude:end --> (only the failed findings, the correction-round count, the story reference — never a full re-brief of the story): emit it as a `correction` handover<!-- opencode-exclude:start --> for manual mode, or use the same filled-out fields as the dispatch prompt for a re-dispatch of the `executor` subagent for automatic mode<!-- opencode-exclude:end -->. Loop back to §5 once the next execution report arrives.
+The *findings* stay separate. The *decision* is single, and combines them:
+
+| Standards | Spec | Outcome |
+|---|---|---|
+| ✅ | ✅ | Advance the task through the team's pipeline per §7 — one status at a time, stopping at the first gate you cannot satisfy |
+| ⚠️ only | ✅ | Advance as above; record the warnings as a note so they are not lost |
+| ✅ | ⚠️ only | Advance as above; record the warnings as a note |
+| ❌ | any | Correction round |
+| any | ❌ | Correction round |
+
+A ❌ on either axis triggers a correction round on its own. **One axis passing never offsets the other failing** — that offsetting is exactly the masking the split exists to
+prevent. The failed task simply stays at `review` while the correction round runs: no
+backward move is needed (or possible — `work_status_next` only moves forward, per
+`allye-board-progression`), because reaching `done` requires your move after both axes
+pass. Loop back to §5 once the next execution report arrives.
 
 <!-- adapted from bmad-code-org/BMAD-METHOD correct-course (MIT) — structured change-impact analysis for corrections that ripple beyond one task -->
 **Before emitting a routine correction, check whether the finding is actually local.** Most ❌ findings are narrow — a missed edge case, a broken test. But if a finding suggests something baked into the technical plan itself was wrong (a data model assumption, an architecture choice that doesn't hold), don't just patch around it silently in a correction handover — that ripples into other tasks and stories that assumed the same thing. Surface it to the user explicitly before continuing; a silent local patch over a wrong foundational assumption just relocates the bug.
 
-**Decided (spec review, 2026-07-12): at most 2 correction handovers are ever emitted for the same task.** Track how many correction handovers this task has already received. If a task that has already received 2 correction handovers comes back ❌ again — i.e., this is the 3rd review failure on that task — do not emit a 3rd correction handover: stop and escalate to the user instead. Two correction rounds failing for different specific reasons is normal; a third failure usually means something deeper is being missed, and it's worth a human look before burning another round.
+The correction handover carries only the failing axis's ❌ findings, quoted literally, using `references/correction.md`'s exact fields (only the failed findings, the correction-round count, the story reference — never a full re-brief of the story)<!-- opencode-exclude:start -->: emit it as a `correction` handover for manual mode, or use the same filled-out fields as the dispatch prompt for a re-dispatch of the `executor` subagent for automatic mode<!-- opencode-exclude:end -->.
+
+**Decided (spec review, 2026-07-12): at most 2 correction handovers are ever emitted for the same task.** The existing two-correction maximum counts rounds **per task**, regardless of which axis produced them: a task corrected once for standards and once for spec has used
+both rounds, and a third failure escalates to the human. Two correction rounds failing for
+different specific reasons is normal; a third failure usually means something deeper is
+being missed, and it's worth a human look before burning another round.
 
 ## 7. Status cascade — continuous, not just at the end
 
-Apply this at every level, as work actually completes — not once at the tail end of the whole feature:
+Both review axes clear (§6) → the task is ready to leave the review gate. **Where it goes next
+depends on the team's pipeline, not on a status this skill can name.**
 
-1. Reviewer returns ✅ on a task (criteria met, tests pass) → **you** move it from `review` to `done` via `work_status_done` (which also records `completed_at`) — the Executor deliberately left it at `review`, and this last move is exclusively yours, made only after Reviewer ✅ → `work_children` on the parent story → all done? → `work_status_done` the story.
-2. Story done → `work_children` on the parent feature → all done? → `work_status_done` the feature.
-3. Feature done → `work_children` on the parent epic → all done? → `work_status_done` the epic.
+1. **Advance one status.** `work_status_next(id)`. Then **read the item back** — `work_get` —
+   and see where you actually landed. Do not predict: `work_statuses()` does not return
+   position or pipeline, and `board_columns()` does not map statuses to columns, so the next
+   status is not computable from the MCP surface (see `board-progression` §1).
+
+2. **Did you land on a done-category status?** Then the task is finished; go to step 5.
+
+3. **Otherwise, consult the pipeline handoff table** in the `Allye Delivery Configuration`
+   Core Document (`user_config`, loaded by `initialize`).
+
+   - **`agent`** — satisfy it, then return to step 1. Satisfying means running the command the
+     table names and reading its output, under the bound in `verification-loop` §3. Red at the
+     bound is a correction round, not a pass.
+   - **`ci`** — you do not act. Report that the task is waiting on the named external signal
+     and move to the next story; revisit when the signal arrives.
+   - **`human`**, or **any status not in the table** — stop. Name the status, say who owns it,
+     and leave the task exactly where it is.
+
+4. **A status you do not recognise and the table does not cover** is a stop, and also a
+   question: ask the user once who satisfies it, record the answer in the delivery
+   configuration, and continue. Never ask twice.
+
+5. **Cascade upward, and only upward.** `work_children` the parent; if **every** child is in
+   the done category, advance the parent the same way — one step, read back, consult the table.
+   A parent stops for the same reasons a child does.
+
+<HARD-GATE>
+**Never call `work_status_done` to leave a pipeline you cannot finish.** From four statuses
+away it records "done" for work that never passed the gates between — which is exactly how a
+story came to be closed with seven of its fifteen tasks still at the review gate.
+
+Use it only when the item's next status **is** the done status. When you cannot finish, stopping
+is the correct outcome, not a failure to report.
+</HARD-GATE>
+
+<!-- opencode-exclude:start -->
+### 7.1 Merge and teardown — one story at a time
+
+Load the `branch-landing` skill and follow it. It holds the integration decision, the
+seven-step sequence, and the three locks that keep the sequence from losing work.
+
+Two things specific to parallel dispatch, which that skill does not know about:
+
+- **One story at a time, never batched.** Several stories finishing together is exactly when
+  batching is tempting and exactly when a conflict in shared wiring is most likely. Land them
+  in sequence, rebuilding between.
+- **The pane you close is the one you created for that story.** With several open, closing the
+  wrong one destroys a running agent's session. Take the pane id from your own dispatch record,
+  never from the sidebar.
+<!-- opencode-exclude:end -->
+
+## 7.2 Announce where delivery stopped
+
+When a story's tasks are all parked at the same gate, say so once, plainly: which gate, who
+owns it, and what unblocks it. Repeat it in the session-state memory (§10) so a resumed
+Orchestrator does not rediscover the boundary by trying to cross it.
+
+A story left open at a gate is **not** an incomplete delivery. It is delivery reporting its
+true position. The failure mode this replaces — closing the story to make the board look
+finished — cost a real board seven tasks' worth of untracked work.
+
+When delivery stops at a gate, the branch stops with it — see `branch-landing` §1. Say that
+explicitly in the announcement: the story is parked, and so is its code. A human reading only
+the board would otherwise assume the branch already landed.
 
 ## 8. Epic completion is manual
 

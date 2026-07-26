@@ -1,7 +1,7 @@
 ---
 name: product-planning
 description: Workflow for translating business requirements into epics, features, and stories in Allye. Use when the user wants to plan a product, define scope, or create work item hierarchies.
-version: "1.1"
+version: "1.3"
 category: methodology
 ---
 
@@ -38,8 +38,7 @@ Before creating anything, have a conversation with the user to understand:
 5. **Are there constraints?** — Timeline, tech stack, dependencies, compliance
 
 <EXTREMELY_IMPORTANT>
-Do NOT jump to creating work items before you understand the business context.
-Ask questions. Clarify ambiguities. The quality of planning depends on the quality of understanding.
+Reach full understanding of the business context before creating any work item — ask questions and clarify ambiguities. The quality of planning depends on the quality of understanding.
 </EXTREMELY_IMPORTANT>
 
 <!-- adapted from bmad-code-org/BMAD-METHOD create-epics-and-stories (MIT) -->
@@ -121,19 +120,12 @@ Wait for the user to approve, modify, or add to this structure before proceeding
 
 ## Step 4: Check Board and Statuses
 
-Before creating items, understand the available statuses:
-
 ```
 work_statuses()
 board_columns()
 ```
 
-This ensures you know:
-- What status categories exist (backlog, todo, in_progress, etc.)
-- Which board columns are available
-- The correct status to assign to new items
-
-New items should typically be created in **backlog** or **todo** status.
+This surfaces the available status categories and board columns, so you know the correct status for new items — typically **backlog** or **todo**.
 
 ---
 
@@ -238,7 +230,7 @@ memory_save(
   title: "Planning — {Epic name} scope and decisions",
   content: "## Scope\n{what was included/excluded and why}\n\n## Key decisions\n- {decision 1}: {rationale}\n- {decision 2}: {rationale}\n\n## Hierarchy\n{the approved structure}\n\n## Open questions\n{anything deferred}",
   tags: ["planning", "decision", "{epic-key}"],
-  work_item_id: "{epic uuid}"
+  sector: "decisions"
 )
 ```
 
