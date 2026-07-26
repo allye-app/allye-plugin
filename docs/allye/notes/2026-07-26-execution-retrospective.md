@@ -1,4 +1,4 @@
-# Execution Retrospective — running log
+# Execution Retrospective
 
 **Status:** closed 2026-07-26 — thirteen findings, all applied or carried into Plan 05.
 **Scope:** what actually broke, surprised, or worked better than expected while building and running the five plans from `2026-07-26-agent-runtime-and-verification-design.md`.
