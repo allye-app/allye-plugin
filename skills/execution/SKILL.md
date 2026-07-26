@@ -1,7 +1,7 @@
 ---
 name: execution
 description: Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution. Use when the user wants to write code, implement a task, or develop features.
-version: "1.3"
+version: "1.4"
 category: methodology
 ---
 
@@ -115,6 +115,70 @@ If you have read 5+ files *beyond those named/implied by the task* without writi
 
 Do not read endlessly in search of additional context. Reading is preparation, not implementation.
 </HARD-GATE>
+
+---
+
+## Step 4.5: Plan the Implementation
+
+You have read the code and written none. This is where you state *how* you will build it,
+and check that statement against what was asked for — while being wrong still costs a
+paragraph rather than a branch.
+
+### Write the plan
+
+Per task in this story:
+
+- **Approach** — the shape of the change, in a sentence or two.
+- **Files** — what you will create or modify. Names, never line numbers; the tree moves.
+- **Interfaces produced** — the names, types, and signatures other tasks in this story will
+  call. Whoever implements a neighbouring task sees only their own task description, so
+  this is the only place they learn what to call.
+- **How each criterion goes green** — for every acceptance criterion, which step makes its
+  `## Verification` command pass. A criterion with no step against it is the finding this
+  whole exercise exists to produce.
+
+Save it:
+
+```
+memory_save(
+  title: "Implementation Plan — {STORY-KEY} {story title}",
+  content: "## Per task\n{approach, files, interfaces produced, criterion → step}\n\n## Order\n{which task first, and why}\n\n## Open questions\n{anything planning did not settle, or 'None'}",
+  tags: ["plan", "implementation", "{story-key}"],
+  sector: "plans"
+)
+```
+
+It outlives the session. A resumed Executor reads what was intended rather than inferring
+it from half-written code, and `reviewer-spec` can compare the implementation against the
+plan and not only against the criteria.
+
+### Validate it
+
+<HARD-GATE>
+Three checks, run every time, before writing any code:
+
+1. **Coverage** — every acceptance criterion, in every task, has a step that produces it.
+2. **Decisions** — every locked decision from planning is respected. A locked decision was
+   chosen by the human. A plan that quietly departs from one is a defect whether or not the
+   resulting code works.
+3. **Closure** — no step depends on something the plan never defines. If a type, function,
+   file, or value appears as a dependency and never as an output, the plan has a hole in it.
+
+A failure is reported as `❌ blocked` **before any code exists**, naming which criterion or
+decision has nothing behind it. This is the same halt-and-report contract you already carry,
+fired at the cheapest possible moment.
+</HARD-GATE>
+
+### Whether the approach is right
+
+The three checks above are mechanical. Whether the approach is a *good* one is judgement,
+and who supplies it follows the story's dispatch label (see `verification-loop` §4):
+
+- **AFK** — self-validation is enough. Run the three checks and proceed.
+- **HITL** — put the plan in front of the user and wait before writing anything.
+- **Either label**, if planning surfaced a decision the discussion phase never covered —
+  stop and raise it regardless. A decision discovered while planning is precisely the case
+  the label could not have anticipated.
 
 ---
 
@@ -301,6 +365,8 @@ For each task, verify:
 - [ ] Dependencies are complete
 - [ ] Task moved to in_progress
 - [ ] Existing code was read before writing new code
+- [ ] An implementation plan was written and saved to the `plans` sector before any code
+- [ ] Coverage, decisions, and closure all checked against that plan
 - [ ] TDD cycle completed (or tests written after for non-TDD-suitable tasks)
 - [ ] All acceptance criteria are met
 - [ ] Tests pass
