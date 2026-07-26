@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Drives delivery of a planned feature — manages assignee, dispatches Executor for one story at a time, dispatches Reviewer in parallel, runs the correction loop, and cascades status up the work-item hierarchy. Use when a technical-to-orchestration handover arrives, or when the user wants to coordinate delivery of an already-planned feature (assign work, track status, drive tasks through review).
-version: "1.1"
+version: "1.2"
 category: methodology
 ---
 
@@ -63,20 +63,48 @@ Before dispatching, do a quick completeness check on the story's tasks: does eac
 <!-- adapted from EveryInc/compound-engineering-plugin lfg (MIT) — verify the previous step's artifact before proceeding -->
 When the execution report comes back<!-- opencode-exclude:start --> (handover, in manual mode; direct return value, in automatic mode)<!-- opencode-exclude:end -->, don't take "done" at face value — check the report actually contains what it should before acting on it: files changed listed, tasks reported per acceptance criterion, not just a blanket "finished." An incomplete report is itself a signal to ask for more detail, not something to wave through.
 
-Once the report is genuinely complete, dispatch the `reviewer` subagent<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> — in parallel, automatically, no need to ask the user first<!-- opencode-exclude:start -->, regardless of which mode Executor ran in<!-- opencode-exclude:end -->. Review never needs to pause and ask anyone anything, which is what makes it always dispatch-appropriate. Pass it: the active team (id and name), the story key, the task keys, and the files changed from the execution report.
+Once the report is genuinely complete, dispatch **both** `reviewer-standards` and
+`reviewer-spec`<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> — in parallel, in the same turn, automatically, without asking the user
+first. Review never needs to pause and ask anyone anything, which is what makes it always
+dispatch-appropriate.
+
+Pass each the same fields: the active team (id and name), the story key, the task keys,
+and the files changed from the execution report. `reviewer-spec` additionally gets the
+per-criterion verification evidence the report carried — it reviews against that evidence,
+so a report that omits it produces a review that cannot confirm anything.
 
 ## 6. React to review
 
-Reviewer returns its standard ✅/⚠️/❌-per-task output (unchanged from the `review` skill — no new format to learn).
+Two reports arrive, one per axis. **Record both verbatim.** Never merge them, never
+rerank findings across them, never resolve a disagreement between them — each axis
+reviewed something the other deliberately ignored, so a disagreement is not a conflict
+to settle.
 
-- **All ✅** → move each approved task the rest of the way to `done` yourself — the Executor only advanced it as far as `review` — then proceed to the status cascade (§7).
-- **⚠️ warnings only, no ❌** → a warning isn't a blocker: proceed to the status cascade (§7) the same as All ✅. Don't silently discard the warnings and don't force an unnecessary correction round either — record them as a note (in the task's context, or as a memory) so they're not lost.
-- **Any ❌** → the failed task simply stays at `review` while the correction round runs. No backward move is needed (or possible — `work_status_next` only moves forward, per `allye-board-progression`): the task never reached `done`, because reaching `done` requires your move after Reviewer ✅. Send corrections back<!-- opencode-exclude:start -->, in whichever mode the story is running,<!-- opencode-exclude:end --> using `references/correction.md`'s exact fields<!-- opencode-exclude:start --> either way<!-- opencode-exclude:end --> (only the failed findings, the correction-round count, the story reference — never a full re-brief of the story): emit it as a `correction` handover<!-- opencode-exclude:start --> for manual mode, or use the same filled-out fields as the dispatch prompt for a re-dispatch of the `executor` subagent for automatic mode<!-- opencode-exclude:end -->. Loop back to §5 once the next execution report arrives.
+The *findings* stay separate. The *decision* is single, and combines them:
+
+| Standards | Spec | Outcome |
+|---|---|---|
+| ✅ | ✅ | Move each approved task the rest of the way to `done`, then cascade (§7) |
+| ⚠️ only | ✅ | Cascade as above; record the warnings as a note so they are not lost |
+| ✅ | ⚠️ only | Cascade as above; record the warnings as a note |
+| ❌ | any | Correction round |
+| any | ❌ | Correction round |
+
+A ❌ on either axis triggers a correction round on its own. **One axis passing never offsets the other failing** — that offsetting is exactly the masking the split exists to
+prevent. The failed task simply stays at `review` while the correction round runs: no
+backward move is needed (or possible — `work_status_next` only moves forward, per
+`allye-board-progression`), because reaching `done` requires your move after both axes
+pass. Loop back to §5 once the next execution report arrives.
 
 <!-- adapted from bmad-code-org/BMAD-METHOD correct-course (MIT) — structured change-impact analysis for corrections that ripple beyond one task -->
 **Before emitting a routine correction, check whether the finding is actually local.** Most ❌ findings are narrow — a missed edge case, a broken test. But if a finding suggests something baked into the technical plan itself was wrong (a data model assumption, an architecture choice that doesn't hold), don't just patch around it silently in a correction handover — that ripples into other tasks and stories that assumed the same thing. Surface it to the user explicitly before continuing; a silent local patch over a wrong foundational assumption just relocates the bug.
 
-**Decided (spec review, 2026-07-12): at most 2 correction handovers are ever emitted for the same task.** Track how many correction handovers this task has already received. If a task that has already received 2 correction handovers comes back ❌ again — i.e., this is the 3rd review failure on that task — do not emit a 3rd correction handover: stop and escalate to the user instead. Two correction rounds failing for different specific reasons is normal; a third failure usually means something deeper is being missed, and it's worth a human look before burning another round.
+The correction handover carries only the failing axis's ❌ findings, quoted literally, using `references/correction.md`'s exact fields (only the failed findings, the correction-round count, the story reference — never a full re-brief of the story)<!-- opencode-exclude:start -->: emit it as a `correction` handover for manual mode, or use the same filled-out fields as the dispatch prompt for a re-dispatch of the `executor` subagent for automatic mode<!-- opencode-exclude:end -->.
+
+**Decided (spec review, 2026-07-12): at most 2 correction handovers are ever emitted for the same task.** The existing two-correction maximum counts rounds **per task**, regardless of which axis produced them: a task corrected once for standards and once for spec has used
+both rounds, and a third failure escalates to the human. Two correction rounds failing for
+different specific reasons is normal; a third failure usually means something deeper is
+being missed, and it's worth a human look before burning another round.
 
 ## 7. Status cascade — continuous, not just at the end
 
