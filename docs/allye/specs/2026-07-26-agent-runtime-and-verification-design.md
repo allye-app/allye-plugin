@@ -661,3 +661,63 @@ Extraction is justified by three callers and by discipline that is not obvious: 
 
 All of §18 is **Plan 07**.
 
+## 19. Amendment — one installer, adapters as data
+
+**Added 2026-07-26, after installing Allye into a sixth agent by hand.**
+
+### 19.1 What installing actually requires today
+
+Three pieces exist and none knows about the others:
+
+| Piece | Does | Covers |
+|---|---|---|
+| `install.sh`, 419 lines | MCP connection per agent | 5 agents, one copied bash block each |
+| `manifests/` | agent-native instruction files | 5 agents, five different formats |
+| `docs/install-*.md` | paste-into-your-agent guides | 4 agents |
+
+None of them writes skills to disk. `install.sh` seeds them to the Allye API, which serves the agents that fetch over MCP — and serves nothing to an agent that reads skills from a directory.
+
+### 19.2 What Hermes exposed
+
+Hermes Agent (Nous Research, Python, MIT) reads skills from `~/.hermes/skills/<category>/<name>/SKILL.md` **on disk**. It is a sixth agent the plugin does not support, and adding it under the current shape means a sixth copied bash block plus a second, unrelated mechanism for skills.
+
+Verified against a live install:
+
+- **MCP works.** OAuth 2.1 with dynamic client registration and PKCE completed; the gateway registered all 16 tools (12 Allye actions plus 4 MCP protocol utilities) and served them successfully to a Telegram session, which called `work_items` and got real data back.
+- **`hermes -z` never sees them**, and not for any of the reasons first suspected. `_should_background_mcp_startup()` in `hermes_cli/main.py:14610` returns true only for `args.command in {None, "chat", "rl"}`; one-shot is not in that set, so discovery never starts. The `mcp_discovery_timeout` comment explains why nobody noticed: *"a server that misses this window is still picked up on the next turn… correctness never depends on it."* One-shot has no next turn.
+- **Skills and bootstrap are absent.** `skill_export` offers `cursor`, `claude`, `copilot`, `windsurf`, `opencode`, `codex`, `gemini` — no `hermes`. Its `SKILL.md` format follows the agentskills.io standard, so `claude` should transfer, but that must be verified rather than assumed. Nothing injects `using-allye` either.
+- **The `team_switch` gotcha bit immediately** — the Telegram session's first `work_items` call failed with "Team selection required", exactly as `tools-quickref` now documents. An agent without the skills does not know to pass `team_id`.
+
+All three gaps are one problem: nothing installs Allye into Hermes.
+
+### 19.3 The shape, borrowed from a working implementation
+
+Herdr solves the same problem for fourteen agents with three verbs and a per-agent adapter:
+
+```
+herdr integration install <id>     herdr integration status
+herdr integration uninstall <id>   → claude: current (v7) (<path>)
+                                   → omp:    not installed (<path>)
+```
+
+The mechanism that makes `status` possible is small and worth copying exactly: **a version marker inside the installed file.** Its Hermes plugin opens with `# HERDR_INTEGRATION_VERSION=3` on line 4, so status is a read, not a registry.
+
+Allye adopts the same shape: `install`, `uninstall`, `status`, and an adapter per agent describing where each artifact goes.
+
+### 19.4 What an adapter holds, and what stays code
+
+An adapter is **data**: the detection test, the MCP config path and format, whether the agent reads skills from disk and where, the bootstrap mechanism if any, and the current version.
+
+What stays code is the small set of **format writers** — writing TOML differs from writing JSON differs from appending to a shell profile, and pretending otherwise would produce a worse script than the one being replaced. The reduction is real but bounded: adding a seventh agent becomes one adapter entry plus, at most, reusing an existing writer.
+
+### 19.5 Skills reach an agent by the path it actually uses
+
+- **Fetches over MCP** (Claude Code, Cursor, Codex, Gemini) — seed to the Allye API, unchanged.
+- **Reads from disk** (Hermes) — export and write to its skills directory.
+
+Not both for the same agent. Two copies of the same skill that can drift is the duplication failure mode, and a stale on-disk copy shadowing a fresh seeded one fails silently.
+
+### 19.6 Scope
+
+All of §19 is **Plan 08**, and it includes Hermes as the sixth supported agent rather than deferring it — the adapter shape is only proven by adding one.
+
