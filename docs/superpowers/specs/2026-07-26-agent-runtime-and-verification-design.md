@@ -209,10 +209,12 @@ Before parallelising, the Orchestrator checks **story-level dependencies**, not 
 ### 7.2 Creation
 
 ```bash
-git -C "$REPO" worktree add "$WT_ROOT/{STORY-KEY}/{repo}" -b feature/{story-key}-{slug} develop
+git -C "$REPO" worktree add "$WT_ROOT/{STORY-KEY}/{repo}" -b feature/{story-key}-{slug} "$BASE"
 ```
 
 A story can span multiple repos — one worktree per repo, same branch name.
+
+**`$BASE` is per-repo and must be resolved, never assumed.** Repos with a git-flow layout branch from `develop` (`rallye-api`, `rallye-app`); repos releasing straight from trunk branch from `main` (`allye-plugin`, which runs semantic-release on push to `main`). Resolve it once per repo — `git symbolic-ref refs/remotes/origin/HEAD` gives the default branch, and the presence of a `develop` branch overrides it — and record the answer in the dispatch briefing so the executor never has to guess. The same value is the merge target in §7.6 step 4.
 
 Two things a fresh worktree does not inherit, both of which break execution silently:
 
@@ -249,7 +251,7 @@ Sequential, one story at a time, every step a gate:
 2. GATE:  git -C <worktree> status --porcelain   MUST be empty
           dirty → STOP. Do not merge, do not remove. Escalate to the human.
 3. git push -u origin feature/{story-key}-{slug}      ← backup that outlives everything
-4. In the MAIN checkout:  git merge --no-ff feature/...
+4. In the MAIN checkout, on $BASE:  git merge --no-ff feature/{story-key}-{slug}
 5. Conflicts in shared wiring files are expected.
    Resolve by CONSOLIDATING into one instance — never by picking a side.
 6. Rebuild + typecheck + tests BEFORE committing the merge
