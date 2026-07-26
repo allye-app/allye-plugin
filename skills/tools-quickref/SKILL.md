@@ -1,7 +1,7 @@
 ---
 name: tools-quickref
 description: Complete quick reference for all Allye MCP tools and their actions with parameters, plus the concrete gotchas that cause silent failures or confusing errors. Use when you need to know how to call a specific Allye tool, or you hit an unexpected error/behavior from one.
-version: "2.1"
+version: "2.2"
 category: reference
 ---
 
@@ -22,6 +22,7 @@ category: reference
 - **`work_bulk_create` caps at 50 items per call**, and each item takes `parent_temp_id` (reference another item in the same batch) **or** `parent_key` (reference an existing item) — never both on the same item.
 - **`doc_create` needs `doc_emoji`** for every type except `folder` — check `doc_full_tree` for placement before creating, always; don't guess a parent location.
 - **`memory_save` never silently fails or duplicates.** Every save resolves to one of four outcomes (`created`/`updated`/`superseded`/`noop` — see §intelligence). Treat `noop` as "already known," not an error to reword-and-retry past.
+- **`memory_save` does not link a memory to a work item.** There is no `work_item_id` or `sprint_id` parameter — not on the MCP tool (`IntelligenceRequest`), not in its domain layer, and not on the backend's `SaveMemoryDto`. Passing them is silently discarded, not an error. To make a memory findable from a work item, put the key in `tags` and in the `title`.
 - **Memory `sector` determines scope automatically — you never set scope directly** (mapping in §intelligence). Passing it wrong is the #1 way a memory ends up invisible to the rest of the team.
 - **The memory relocation flow is one-time per user, ever** — always check `alreadyPrompted` on `memory_relocation_candidates` before offering it; offering it twice is exactly the nagging behavior the guard exists to prevent.
 - **`initialize` returns `profile.user.id`** — the reliable way to know "who's currently logged in" when deciding self-assignment vs. assigning to someone else.

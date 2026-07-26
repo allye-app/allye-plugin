@@ -108,21 +108,19 @@ Five skills document `memory_save(..., work_item_id: "...", sprint_id: "...")`. 
 - Consumes: the seven files landed by Task 1 (two of them — `delivery`, `product-planning` — are edited again here)
 - Produces: `memory_save` call sites documenting only the four accepted parameters. Later plans rewriting `technical-planning`, `execution`, and `review` inherit these corrected call sites.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 cd /home/bfernandes/dev/allye/allye-plugin
-echo "--- work_item_id (no legitimate use anywhere):"
-grep -rn 'work_item_id' skills/
-echo "--- sprint_id outside the two sprint tool rows:"
-grep -rn 'sprint_id' skills/ | grep -v 'sprint_get\|sprint_work_items'
+echo "--- parameter-assignment form (this is the defect):"
+grep -rnE '^[[:space:]]*(work_item_id|sprint_id):' skills/
 ```
 
-Expected: **both non-empty** — this is the defect. Record the exact line numbers; you will assert both return nothing at Step 4.
+Expected: **non-empty** — one hit per `memory_save` call site carrying either parameter. Record the line numbers; Step 4 asserts this returns nothing.
 
-Note the second grep's exclusion. `sprint_id` is a **legitimate** required parameter of the `sprint_get` and `sprint_work_items` actions, documented in `skills/tools-quickref/SKILL.md:81-82`. Those two rows are correct and must survive. Do not exclude the whole `tools-quickref` file from the assertion — that would hide a genuine `memory_save` defect in it.
+The pattern matches the assignment form only. Prose that *mentions* `work_item_id` — such as the gotcha entry Step 3 adds — is not an instance of the defect and must not be caught here, and `sprint_id` as a legitimate parameter of `sprint_get` and `sprint_work_items` appears in a table cell, never as an indented assignment.
 
-- [ ] **Step 2: Remove the two parameters from every `memory_save` block**
+- [x] **Step 2: Remove the two parameters from every `memory_save` block**
 
 In each of the five files, delete the `work_item_id:` and `sprint_id:` argument lines from every `memory_save(...)` example. Delete the whole line, including its trailing comma handling — the preceding line must not be left with a dangling comma.
 
@@ -160,7 +158,7 @@ Apply the correct sector per call site, following `skills/memory-protocol/SKILL.
 | `delivery` | "Delivered — …" | `knowledge` |
 | `product-planning` | "Planning — … scope and decisions" | `decisions` |
 
-- [ ] **Step 3: Add a gotcha entry to the quickref so this cannot silently return**
+- [x] **Step 3: Add a gotcha entry to the quickref so this cannot silently return**
 
 In `skills/tools-quickref/SKILL.md`, add to the "Gotchas" list, keeping the existing style:
 
@@ -168,13 +166,17 @@ In `skills/tools-quickref/SKILL.md`, add to the "Gotchas" list, keeping the exis
 - **`memory_save` does not link a memory to a work item.** There is no `work_item_id` or `sprint_id` parameter — not on the MCP tool (`IntelligenceRequest`), not in its domain layer, and not on the backend's `SaveMemoryDto`. Passing them is silently discarded, not an error. To make a memory findable from a work item, put the key in `tags` and in the `title`.
 ```
 
-- [ ] **Step 4: Verify the parameters are gone and no `memory_save` lost its sector**
+- [x] **Step 4: Verify the parameters are gone and no `memory_save` lost its sector**
 
 ```bash
-grep -rn 'work_item_id' skills/
-grep -rn 'sprint_id' skills/ | grep -v 'sprint_get\|sprint_work_items'
+grep -rnE '^[[:space:]]*(work_item_id|sprint_id):' skills/
 ```
-Expected: **no output from either**. The two legitimate `sprint_id` rows in `tools-quickref` (`sprint_get`, `sprint_work_items`) must still be present — confirm with `grep -c 'sprint_id' skills/tools-quickref/SKILL.md`, which should print `2`.
+Expected: **no output.** Then confirm the two legitimate `sprint_id` table rows and the new gotcha entry all survived:
+
+```bash
+grep -c 'sprint_id' skills/tools-quickref/SKILL.md
+```
+Expected: `3` — the `sprint_get` row, the `sprint_work_items` row, and the gotcha entry. A count of `2` means the gotcha entry from Step 3 is missing.
 
 ```bash
 grep -rn -A 6 'memory_save(' skills/ | grep -c 'sector:'
@@ -182,11 +184,11 @@ grep -rc 'memory_save(' skills/*/SKILL.md | grep -v ':0'
 ```
 Expected: the count of `sector:` occurrences is greater than or equal to the count of `memory_save(` call sites. A call site without a sector silently defaults to `knowledge`, which is rarely correct.
 
-- [ ] **Step 5: Bump the versions of every skill touched**
+- [x] **Step 5: Bump the versions of every skill touched**
 
 Increment the `version` frontmatter minor value on all six modified files (`technical-planning`, `execution`, `review`, `delivery`, `product-planning`, `tools-quickref`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add skills/

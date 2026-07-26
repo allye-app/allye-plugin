@@ -1,7 +1,7 @@
 ---
 name: product-planning
 description: Workflow for translating business requirements into epics, features, and stories in Allye. Use when the user wants to plan a product, define scope, or create work item hierarchies.
-version: "1.2"
+version: "1.3"
 category: methodology
 ---
 
@@ -230,7 +230,7 @@ memory_save(
   title: "Planning — {Epic name} scope and decisions",
   content: "## Scope\n{what was included/excluded and why}\n\n## Key decisions\n- {decision 1}: {rationale}\n- {decision 2}: {rationale}\n\n## Hierarchy\n{the approved structure}\n\n## Open questions\n{anything deferred}",
   tags: ["planning", "decision", "{epic-key}"],
-  work_item_id: "{epic uuid}"
+  sector: "decisions"
 )
 ```
 

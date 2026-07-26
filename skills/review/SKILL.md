@@ -1,7 +1,7 @@
 ---
 name: review
 description: Workflow for reviewing implemented code with decision context from planning. Use when the user wants to review code quality, validate implementation, or check tasks before delivery.
-version: "1.0"
+version: "1.1"
 category: methodology
 ---
 
@@ -99,7 +99,7 @@ memory_save(
   title: "Review — {STORY-KEY} approved",
   content: "## Review Summary\nAll tasks reviewed and approved.\n\n## Tasks Reviewed\n- {TASK-1}: ✅ Criteria met, tests pass\n- {TASK-2}: ✅ Criteria met, tests pass\n\n## Notes\n{any observations for future reference}",
   tags: ["review", "approved", "{story-key}"],
-  work_item_id: "{story uuid}"
+  sector: "knowledge"
 )
 ```
 
@@ -130,7 +130,7 @@ memory_save(
   title: "Review — {STORY-KEY} changes requested",
   content: "## Findings\n{detailed findings per task}\n\n## Required Changes\n- {change 1}\n- {change 2}\n\n## Approved Tasks\n- {list of tasks that passed}",
   tags: ["review", "changes-requested", "{story-key}"],
-  work_item_id: "{story uuid}"
+  sector: "knowledge"
 )
 ```
 

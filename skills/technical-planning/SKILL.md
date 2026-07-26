@@ -1,7 +1,7 @@
 ---
 name: technical-planning
 description: Workflow for breaking a story into tasks through a structured discussion phase. Use when the user has a story and wants to plan the technical implementation.
-version: "1.1"
+version: "1.2"
 category: methodology
 ---
 
@@ -136,7 +136,7 @@ memory_save(
   title: "Decision — {short description}",
   content: "## Decision\n{what was decided}\n\n## Classification\n{locked | agent-discretion}\n\n## Why\n{rationale}\n\n## Context\nStory: {story key}\nGray area: {what was ambiguous}",
   tags: ["decision", "{story-key}", "{topic}"],
-  work_item_id: "{story uuid}"
+  sector: "decisions"
 )
 ```
 
@@ -268,8 +268,7 @@ memory_save(
   title: "Technical Plan — {STORY-KEY} {story title}",
   content: "## Story\n{story key and title}\n\n## Decisions\n{list of locked and agent-discretion decisions}\n\n## Task Breakdown\n{wave structure with task keys}\n\n## Execution Order\n{which tasks first, which depend on what}\n\n## Risks\n{identified risks or uncertainties}",
   tags: ["planning", "technical-plan", "{story-key}"],
-  work_item_id: "{story uuid}",
-  sprint_id: "{sprint uuid if applicable}"
+  sector: "plans"
 )
 ```
 

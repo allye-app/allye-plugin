@@ -1,7 +1,7 @@
 ---
 name: delivery
 description: Workflow for finalizing a story after all tasks pass review. Verifies completeness, closes the story, updates documentation, and cleans up. Use when all tasks are done and reviewed.
-version: "1.1"
+version: "1.2"
 category: methodology
 ---
 
@@ -135,8 +135,7 @@ memory_save(
   title: "Delivered — {STORY-KEY} {story title}",
   content: "## What was delivered\n{summary of the feature/change}\n\n## Tasks completed\n- {TASK-1}: {title}\n- {TASK-2}: {title}\n- {TASK-3}: {title}\n\n## Key decisions\n{important decisions from planning and implementation}\n\n## Documentation\n{what was documented, or 'No documentation needed'}\n\n## Lessons learned\n{anything worth remembering for similar work in the future}",
   tags: ["delivery", "completed", "{story-key}", "{feature-key}"],
-  work_item_id: "{story uuid}",
-  sprint_id: "{sprint uuid if applicable}"
+  sector: "knowledge"
 )
 ```
 
