@@ -24,8 +24,10 @@
 
 Plans 01, 02, and 03 complete and merged into this plan's base branch.
 
+Note the shape of the first check. `work_item_id` **does** still appear in `skills/tools-quickref/SKILL.md`, in the gotcha entry Plan 01 added explaining that the parameter does not exist. That is the documentation of the fix, not the defect. Assert on the parameter-assignment form, which matches a call site and never prose.
+
 ```bash
-grep -rn 'work_item_id' skills/                       # expect: no output      (Plan 01)
+grep -rnE '^[[:space:]]*(work_item_id|sprint_id):' skills/   # expect: no output   (Plan 01)
 grep -c 'Agent runtime:' hooks/session-start.sh       # expect: at least 1     (Plan 01)
 ls skills/verification-loop/SKILL.md                  # expect: exists         (Plan 02)
 ls agents/reviewer-standards.md agents/reviewer-spec.md  # expect: both exist  (Plan 03)
@@ -86,6 +88,13 @@ Produce an isolated execution location and return a **stable identifier** for it
 location must be a shell at an interactive prompt with nothing running in the foreground,
 and creating it must not steal the human's focus.
 
+<HARD-GATE>
+**Wait for the shell; do not merely inspect it.** A pane created a moment ago is often
+still running the shell's startup — a banner, a version manager, a greeting. Dispatching
+into it fails. Poll for a bare shell with a bound, and treat a pane still busy after the
+bound as a problem to report rather than one to keep waiting on.
+</HARD-GATE>
+
 ### 3. dispatch
 
 Deliver the briefing and **confirm it was accepted**.
@@ -110,6 +119,16 @@ all.
 Runtime state is **evidence**. The verdict comes from `collect`.
 </HARD-GATE>
 
+**`wait` is not how the Orchestrator blocks — it is how the runtime's lifecycle becomes an
+event in whatever system the Orchestrator actually lives in.** Run it as a background job
+of the host harness so its completion arrives as a notification. Polling the agent's state
+by hand works and is wrong: it makes every check an arbitrary interruption, and a finished
+agent sits unnoticed until the next one. **A dispatch without a wait registered is a story
+nobody is listening for**, so registering it is the closing step of `dispatch`, not a
+separate thing to remember.
+
+A future runtime satisfies this primitive only if its wait can be bridged that way.
+
 ### 5. collect
 
 Read the result **from Allye**:
@@ -119,9 +138,18 @@ Read the result **from Allye**:
 - `memory_search("Implementation {TASK-KEY}")` — what was done and why
 
 The terminal is for human observation and for diagnosing a stuck agent. It is never the
-source of the result. Full-screen agents render on the terminal's alternate screen, and
-those rows never reach scrollback — asking for more lines cannot recover what was never
-kept. A long report read off a terminal is unreliable by construction.
+source of the result, for three reasons that hold regardless of what the terminal can show:
+
+- A record in Allye is structured and machine-readable; a transcript is prose to be parsed.
+- The Orchestrator can read it from a pane it never created, and after that pane is closed.
+- It works identically for every runtime, including those with no output-read primitive at
+  all — which is most of the category.
+
+There is also a documented failure mode where full-screen agents render on the terminal's
+alternate screen and those rows never reach scrollback, making a long report unrecoverable.
+**Treat that as a caveat, not the reason.** It did not reproduce in testing on 2026-07-26,
+and a design justified by a failure that does not reproduce is one experiment away from
+being abandoned for the wrong reason.
 
 An agent that has settled but left no trace in Allye has produced an **incomplete report**.
 Treat it the way §5 of `orchestrator` already treats one: ask for more, do not wave it
@@ -192,12 +220,19 @@ herdr pane split --current --direction right --cwd "$CWD" --no-focus
 # new pane id: .result.pane.pane_id
 ```
 
-`--no-focus` keeps the human where they were. Confirm the new pane holds a bare shell before
-starting an agent in it:
+`--no-focus` keeps the human where they were. **Wait** for the pane to reach a bare shell —
+a pane created a second ago is usually still running the shell's startup, and `agent start`
+fails with `agent_pane_busy`:
 
 ```bash
-herdr pane process-info --pane "{pane_id}"
+for _ in $(seq 1 10); do
+  FG=$(herdr pane process-info --pane "$PANE" | jq -r '.result.process_info.foreground_processes[0].name')
+  case "$FG" in zsh|bash|sh|fish) break;; esac
+  sleep 3
+done
 ```
+
+Bounded, not infinite. A pane still busy after thirty seconds is a problem to report.
 
 ## dispatch
 
@@ -207,7 +242,9 @@ herdr agent prompt {name} "$(cat {briefing file})"
 herdr agent get {name} | jq -r '.result.agent.agent_status'
 ```
 
-The third command is mandatory, not diagnostic. If it does not read `working`:
+The third command is mandatory, not diagnostic — and **expect to need the fourth.**
+Prompting an idle agent left the text unsubmitted in every observed dispatch, so treat this
+as a two-step operation rather than a rare branch. When the status does not read `working`:
 
 ```bash
 herdr agent send-keys {name} enter
@@ -226,14 +263,19 @@ five seconds of prompting a non-working agent.
 herdr agent wait {name} --timeout 3600000
 ```
 
-Run it in the background. Do not poll `agent get` in a loop — the wait is server-side and
-event-driven.
+**Run it as a background job of your own harness**, so its exit arrives as a notification
+rather than something you have to remember to check. That bridge is the point of the
+primitive — see the contract's §4. Do not poll `agent get` in a loop: the wait is
+server-side and event-driven, and polling turns every check into an arbitrary interruption
+while leaving a finished agent unnoticed between them.
 
 Across all panes at once:
 
 ```bash
 herdr agent list | jq -r '.result.agents[] | "\(.pane_id)\t\(.agent)\t\(.agent_status)\t\(.cwd)"'
 ```
+
+`herdr agent read` returns **plain text, not JSON** — piping it to `jq` fails.
 
 To understand why a pane was classified as it was:
 
@@ -253,6 +295,25 @@ Sources are `visible`, `recent`, `recent-unwrapped`, and `detection`. Prefer
 `recent-unwrapped` for transcripts. If raising `--lines` reveals nothing more, the agent is
 rendering on the alternate screen and the rows are gone — this is expected, and is why the
 result channel is Allye.
+
+## answering a blocked agent
+
+A `blocked` state means Herdr recognized an approval or question UI. Read the pane before
+answering — the question may be one whose options are all wrong:
+
+```bash
+herdr agent read {name} --source recent-unwrapped --lines 120
+```
+
+If a selection UI is open and your answer is not one of its options, **dismiss it first**.
+Sending a prompt into an open menu risks the text being read as menu navigation:
+
+```bash
+herdr agent send-keys {name} esc
+```
+
+Then dispatch normally, including the submit confirmation — a freshly dismissed menu leaves
+the agent idle, which is exactly the state where a prompt lands unsubmitted.
 
 ## teardown
 
@@ -323,6 +384,16 @@ grep -c 'worktree' skills/orchestrator/SKILL.md
 Expected: `0` for both.
 
 - [ ] **Step 2: Replace §4's mode question with mode resolution**
+
+<HARD-GATE>
+**The text you are replacing is fenced, and your replacement must be too.**
+
+`skills/orchestrator/SKILL.md` carries twelve `<!-- opencode-exclude:start --> / <!-- opencode-exclude:end -->` pairs. The mode question at §4 sits inside one, and each Manual/Automatic bullet carries its own. They strip Claude-Code-only text from the prompt generated for OpenCode.
+
+This is not cosmetic. **OpenCode has no `Agent` tool, no automatic-Executor mode, and no runtime integration** — its adapter lives in `packages/allye-opencode` and this spec does not extend it. An unfenced replacement would instruct an OpenCode agent to dispatch through mechanisms it does not have.
+
+Fence accordingly: **the entire dispatch-mode resolution below is Claude-Code-only.** What OpenCode must keep seeing is the manual `story-execution` handover path and nothing else. Read the surrounding lines before editing so you fence at the right boundaries, and run `grep -c 'opencode-exclude' skills/orchestrator/SKILL.md` before and after — the count must not drop. If a marker genuinely goes because the text it fenced also went, say so in your report rather than letting it be a side effect.
+</HARD-GATE>
 
 §4 currently asks the user automatic-or-manual. Replace that question with:
 
@@ -432,11 +503,18 @@ Run the no-op test sentence by sentence; collapse duplicated meaning. Do not tou
 
 ```bash
 grep -c 'agent-runtime' skills/orchestrator/SKILL.md
-grep -c 'worktree' skills/orchestrator/SKILL.md
+grep -n 'Parallel work requires worktrees' skills/orchestrator/SKILL.md
+grep -n 'allocated by the Orchestrator, in the dispatch briefing' skills/orchestrator/SKILL.md
+grep -n 'Default to \*\*three\*\*' skills/orchestrator/SKILL.md
+grep -n 'status --porcelain' skills/orchestrator/SKILL.md
+grep -n 'without\*\* `--force`' skills/orchestrator/SKILL.md
 grep -c 'reviewer-standards' skills/orchestrator/SKILL.md
-grep -n 'force' skills/orchestrator/SKILL.md
+grep -c 'opencode-exclude' skills/orchestrator/SKILL.md
 ```
-Expected: `agent-runtime` at least twice; `worktree` at least eight times; Plan 03's `reviewer-standards` still present; and every mention of `force` is the prohibition, never an instruction.
+
+Expected: `agent-runtime` present; each of the five distinctive sentences found exactly once — the worktree gate, the upfront-allocation rule, the concurrency default, the clean-tree gate, and the no-`--force` rule; Plan 03's `reviewer-standards` still present; and `opencode-exclude` **unchanged from what you measured before editing**.
+
+These check the sentences each edit introduces rather than counting how often a word appears. A `worktree` count would pass just as happily if the word were sprinkled through prose that gates nothing.
 
 - [ ] **Step 7: Bump version and commit**
 
@@ -562,11 +640,15 @@ Do not touch the OAuth-only rule or its `<EXTREMELY_IMPORTANT>` framing — "nev
 - [ ] **Step 3: Verify**
 
 ```bash
-grep -c 'Allye Delivery Configuration' skills/setup/SKILL.md
-grep -c 'user_config' skills/setup/SKILL.md
-grep -n 'name.*not.*title' skills/setup/SKILL.md
+grep -n 'Allye Delivery Configuration' skills/setup/SKILL.md
+grep -n 'action: "list"' skills/setup/SKILL.md
+grep -n 'the field is `name`, not `title`' skills/setup/SKILL.md
+grep -n 'Phase routing' skills/setup/SKILL.md
+grep -n 'Base branch' skills/setup/SKILL.md
+grep -n 'cannot reach Allye' skills/setup/SKILL.md
 ```
-Expected: the document name appears at least three times; `user_config` at least twice; the `name`-not-`title` gotcha is stated.
+
+Expected: every one found. In order they prove the document is named, that setup checks for it before asking anything, that the `name`-not-`title` gotcha is stated, that the routing table and the per-repo base-branch column exist, and that the non-Claude preflight is present. A count of the document's name would prove none of these.
 
 - [ ] **Step 4: Bump version and commit**
 
@@ -708,7 +790,7 @@ grep -c '🔄 Allye Handover' skills/using-allye/SKILL.md
 grep -c 'SUBAGENT-STOP' skills/using-allye/SKILL.md
 wc -l skills/using-allye/SKILL.md
 ```
-Expected: both new skills named; handover detection and the subagent stop intact; and the file **no longer** than it was before this task — a bootstrap that grew while gaining two references has not been pruned.
+Expected: both new skills named; handover detection and the subagent stop intact; and the file **at most 192 lines** — its length before this task, measured 2026-07-26. A bootstrap that gained two references and got longer has not been pruned, and this file is injected into every session, so its length is paid by every user on every conversation.
 
 - [ ] **Step 5: Bump version and commit**
 
