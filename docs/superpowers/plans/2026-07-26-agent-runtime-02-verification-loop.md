@@ -39,7 +39,7 @@ Expected: no output. If this returns results, Plan 01 has not landed — stop.
 - Consumes: nothing
 - Produces: a skill reachable by name from `execution` and `agents/executor.md`. The four criteria (`red-capable`, `deterministic`, `fast`, `agent-runnable`) and the two stop conditions (three attempts on one failure; two byte-identical outputs) are referenced by name in Tasks 3 and 4 — do not reword them there.
 
-- [ ] **Step 1: Write the skill**
+- [x] **Step 1: Write the skill**
 
 Create `skills/verification-loop/SKILL.md`:
 
@@ -139,7 +139,7 @@ Distinct disciplines, easily confused into one:
 Where TDD applies, the loop confirms the assembled whole. Where it does not — the "test after, but always test" branch of the detection heuristic in `tdd-workflow` — the loop is the only mechanism that observes the criterion at all, and that is where it earns the most.
 ```
 
-- [ ] **Step 2: Verify the frontmatter and the named constants**
+- [x] **Step 2: Verify the frontmatter and the named constants**
 
 ```bash
 sed -n '1,7p' skills/verification-loop/SKILL.md
@@ -147,7 +147,7 @@ grep -c 'red-capable\|deterministic\|agent-runnable' skills/verification-loop/SK
 ```
 Expected: all four frontmatter keys present; the criteria appear in the file. Tasks 3 and 4 reference these names literally.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skills/verification-loop/
