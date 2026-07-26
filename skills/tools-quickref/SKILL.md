@@ -1,7 +1,7 @@
 ---
 name: tools-quickref
 description: Complete quick reference for all Allye MCP tools and their actions with parameters, plus the concrete gotchas that cause silent failures or confusing errors. Use when you need to know how to call a specific Allye tool, or you hit an unexpected error/behavior from one.
-version: "2.2"
+version: "2.3"
 category: reference
 ---
 
@@ -26,6 +26,18 @@ category: reference
 - **Memory `sector` determines scope automatically — you never set scope directly** (mapping in §intelligence). Passing it wrong is the #1 way a memory ends up invisible to the rest of the team.
 - **The memory relocation flow is one-time per user, ever** — always check `alreadyPrompted` on `memory_relocation_candidates` before offering it; offering it twice is exactly the nagging behavior the guard exists to prevent.
 - **`initialize` returns `profile.user.id`** — the reliable way to know "who's currently logged in" when deciding self-assignment vs. assigning to someone else.
+- **`work_statuses` omits `position`, `pipeline`, and `description`.** All three exist on the
+  record — `allye-api/prisma/seed-workflow.ts` writes them — but the MCP formatter
+  (`allye_mcp/application/tools/work_items.py:590-597`) emits only name, key, id, and colour.
+  You therefore cannot compute a status's place in the pipeline, nor tell a `product` status
+  from an `engineering` one, from this call.
+- **`board_columns` gives no status mapping and no ordering.** Names and ids only. Since
+  `work_status_next` walks the board's visible ordered statuses, the transition it will make
+  cannot be predicted from the MCP surface. **Move one status, then read the item back.**
+- **`team_switch` does not stick for every tool.** It reports that subsequent calls will use
+  the chosen team, but `work_children` still errors with "Team selection required", and
+  `work_list` returns items across teams. Pass `team_id` explicitly on any call whose result
+  must be team-scoped.
 
 For the full memory methodology (when to search, when to save, sector selection, the `/save` protocol, graph traversal), see the `allye-memory-protocol` skill — this file only covers the action-level API surface.
 

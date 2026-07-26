@@ -451,7 +451,7 @@ Two of these live in other repositories and cannot be fixed here. Recording them
 **Files:**
 - Modify: `skills/tools-quickref/SKILL.md`
 
-- [ ] **Step 1: Add three gotchas**
+- [x] **Step 1: Add three gotchas**
 
 To the "Gotchas" list, keeping the existing style:
 
@@ -470,7 +470,7 @@ To the "Gotchas" list, keeping the existing style:
   must be team-scoped.
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 grep -c 'work_statuses. omits' skills/tools-quickref/SKILL.md
@@ -480,7 +480,7 @@ grep -c 'sprint_id' skills/tools-quickref/SKILL.md
 ```
 Expected: the three new gotchas present, and `sprint_id` still at **3** — the two legitimate sprint tool rows plus Plan 01's `memory_save` gotcha.
 
-- [ ] **Step 3: Bump version and commit**
+- [x] **Step 3: Bump version and commit**
 
 ```bash
 git add skills/tools-quickref/
