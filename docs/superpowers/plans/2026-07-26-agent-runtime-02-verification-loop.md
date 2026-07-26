@@ -39,7 +39,7 @@ Expected: no output. If this returns results, Plan 01 has not landed — stop.
 - Consumes: nothing
 - Produces: a skill reachable by name from `execution` and `agents/executor.md`. The four criteria (`red-capable`, `deterministic`, `fast`, `agent-runnable`) and the two stop conditions (three attempts on one failure; two byte-identical outputs) are referenced by name in Tasks 3 and 4 — do not reword them there.
 
-- [ ] **Step 1: Write the skill**
+- [x] **Step 1: Write the skill**
 
 Create `skills/verification-loop/SKILL.md`:
 
@@ -139,7 +139,7 @@ Distinct disciplines, easily confused into one:
 Where TDD applies, the loop confirms the assembled whole. Where it does not — the "test after, but always test" branch of the detection heuristic in `tdd-workflow` — the loop is the only mechanism that observes the criterion at all, and that is where it earns the most.
 ```
 
-- [ ] **Step 2: Verify the frontmatter and the named constants**
+- [x] **Step 2: Verify the frontmatter and the named constants**
 
 ```bash
 sed -n '1,7p' skills/verification-loop/SKILL.md
@@ -147,7 +147,7 @@ grep -c 'red-capable\|deterministic\|agent-runnable' skills/verification-loop/SK
 ```
 Expected: all four frontmatter keys present; the criteria appear in the file. Tasks 3 and 4 reference these names literally.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skills/verification-loop/
@@ -170,7 +170,7 @@ label rather than leaving it to the Orchestrator to guess."
 - Consumes: `skills/verification-loop/SKILL.md` from Task 1, referenced by name.
 - Produces: every task description carries either a `## Verification` block with a runnable command, or `verification: manual` with a procedure. Tasks 3 and 4 read that block.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n 'How to Verify' skills/technical-planning/SKILL.md
@@ -178,7 +178,7 @@ grep -c 'verification-loop' skills/technical-planning/SKILL.md
 ```
 Expected: the `## How to Verify` line exists in the task template (prose, no command required), and `verification-loop` appears **zero** times. That is the gap.
 
-- [ ] **Step 2: Replace the template's verification section**
+- [x] **Step 2: Replace the template's verification section**
 
 In `skills/technical-planning/SKILL.md`, section 4.3 "Task Description Template", replace this line:
 
@@ -199,7 +199,7 @@ verification: manual
 {the exact procedure a human follows, and what they should observe}
 ```
 
-- [ ] **Step 3: Add the gate**
+- [x] **Step 3: Add the gate**
 
 Immediately after the existing "Deep Work Rule" HARD-GATE in section 4.2, add:
 
@@ -222,7 +222,7 @@ costs the Orchestrator its ability to dispatch that story unattended.
 </HARD-GATE>
 ```
 
-- [ ] **Step 4: Add the derived label to the story summary**
+- [x] **Step 4: Add the derived label to the story summary**
 
 In section 3.5 "Confirm All Gray Areas Are Resolved", the confirmation summary already lists decisions. Append one line to what gets confirmed with the user:
 
@@ -233,7 +233,7 @@ Orchestrator reads this rather than guessing, so a wrong label here becomes a st
 dispatched to an unattended pane that then sits waiting for a human who is not watching.
 ```
 
-- [ ] **Step 5: Add the checklist item**
+- [x] **Step 5: Add the checklist item**
 
 In the "Workflow Checklist" near the end of the file, add after the acceptance-criteria item:
 
@@ -242,13 +242,13 @@ In the "Workflow Checklist" near the end of the file, add after the acceptance-c
 - [ ] The story's AFK/HITL label is derived and stated
 ```
 
-- [ ] **Step 6: Apply the authoring doctrine to the whole file**
+- [x] **Step 6: Apply the authoring doctrine to the whole file**
 
 This file was excluded from the earlier doctrine pass because this plan rewrites it. Apply it now: run the no-op test sentence by sentence and delete whole sentences that fail; collapse any meaning stated in more than one place; confirm each step ends on a criterion an agent can check.
 
 Do not touch: any MCP tool name, action name, or parameter; the Epic/Feature/Story vocabulary; the wave mechanic; the locked-vs-agent-discretion classification.
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 ```bash
 grep -c 'How to Verify' skills/technical-planning/SKILL.md
@@ -257,7 +257,7 @@ grep -c 'verification: manual' skills/technical-planning/SKILL.md
 ```
 Expected: `0` for the old heading; at least `2` for `verification-loop`; at least `2` for `verification: manual`.
 
-- [ ] **Step 8: Bump version and commit**
+- [x] **Step 8: Bump version and commit**
 
 ```bash
 git add skills/technical-planning/
@@ -284,14 +284,14 @@ doctrine pass deliberately skipped."
 - Consumes: the `## Verification` block from Task 2; the four criteria and the bound from Task 1.
 - Produces: an `execution-report` whose per-criterion status is backed by observed command output. Task 4 mirrors this for the non-interactive executor.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'verification-loop' skills/execution/SKILL.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Add the task loop to Step 5**
+- [x] **Step 2: Add the task loop to Step 5**
 
 In `skills/execution/SKILL.md`, after the "Refactor Phase" subsection and before "Repeat", insert:
 
@@ -312,7 +312,7 @@ you observed. You have not run a loop; say so plainly in the report rather than
 implying one passed.
 ```
 
-- [ ] **Step 3: Add the story loop before the report**
+- [x] **Step 3: Add the story loop before the report**
 
 Replace Step 9's final bullet. Current text:
 
@@ -335,7 +335,7 @@ with:
   receive a clean report.
 ```
 
-- [ ] **Step 4: Strengthen Step 7's evidence rule**
+- [x] **Step 4: Strengthen Step 7's evidence rule**
 
 Step 7 currently opens with an "Evidence before assertions" paragraph. Append to it:
 
@@ -345,7 +345,7 @@ The task's verification command is what supplies that evidence. Advancing a task
 manual` observation — is the assertion this rule exists to forbid.
 ```
 
-- [ ] **Step 5: Add the checklist items**
+- [x] **Step 5: Add the checklist items**
 
 In the "Workflow Checklist", replace `- [ ] Tests pass` with:
 
@@ -355,20 +355,25 @@ In the "Workflow Checklist", replace `- [ ] Tests pass` with:
 - [ ] The story loop ran green before the report was emitted
 ```
 
-- [ ] **Step 6: Apply the authoring doctrine to the whole file**
+- [x] **Step 6: Apply the authoring doctrine to the whole file**
 
 Same instruction as Task 2 Step 6. Do not touch tool names, the TDD detection heuristic, the read-first rule, the analysis-paralysis guard's numbers, or the `review`-not-`done` status rule.
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 ```bash
 grep -c 'verification-loop' skills/execution/SKILL.md
+grep -c 'Verification Phase' skills/execution/SKILL.md
 grep -c 'story loop' skills/execution/SKILL.md
 grep -n 'work_status_done' skills/execution/SKILL.md
 ```
-Expected: at least `2` for `verification-loop`; at least `2` for `story loop`; and `work_status_done` still appears only in its existing prohibition ("Do NOT call `work_status_done` here"), never as an instruction.
+Expected: `verification-loop` exactly `1` — the task-loop paragraph names the skill once, and
+the story-loop paragraph deliberately refers back to it rather than repeating the name.
+`Verification Phase` exactly `1`, proving the task loop landed. `story loop` at least `2`,
+proving the story loop landed. And `work_status_done` still appears only in its existing
+prohibition ("Do NOT call `work_status_done` here"), never as an instruction.
 
-- [ ] **Step 8: Bump version and commit**
+- [x] **Step 8: Bump version and commit**
 
 ```bash
 git add skills/execution/
@@ -395,14 +400,14 @@ Also applies the skill-authoring doctrine to this file."
 - Consumes: Task 1's criteria and bound; Task 3's loop placement.
 - Produces: a report whose `❌ blocked` entries carry a command and its literal output.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'verification-loop' agents/executor.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Add the loops to the Discipline section**
+- [x] **Step 2: Add the loops to the Discipline section**
 
 In `agents/executor.md`, in the "Discipline" list, after the "Evidence before assertions" bullet, add:
 
@@ -410,7 +415,7 @@ In `agents/executor.md`, in the "Discipline" list, after the "Evidence before as
 - **Run the verification loop, both levels.** Per task: run the command from its `## Verification` block, read the actual output, fix and re-run under the bound in `verification-loop` §3 — three attempts on one failure, or two byte-identical outputs, whichever comes first. Per story: run the story's acceptance criteria end to end before returning. A task declaring `verification: manual` gets its procedure followed and observed, and the report says plainly that no loop ran.
 ```
 
-- [ ] **Step 3: Extend the halt-and-report contract**
+- [x] **Step 3: Extend the halt-and-report contract**
 
 The HARD-GATE currently covers underspecified tasks. Add a second paragraph inside it:
 
@@ -421,7 +426,7 @@ summary. You cannot ask what to do about a failure you could not fix, so the exa
 is what lets the Orchestrator put a real question in front of the human.
 ```
 
-- [ ] **Step 4: Require evidence in the returned report**
+- [x] **Step 4: Require evidence in the returned report**
 
 In "What you return", replace the per-criterion evidence phrase `(what you ran, what it showed, or what's missing and why)` with:
 
@@ -429,7 +434,7 @@ In "What you return", replace the per-criterion evidence phrase `(what you ran, 
 (the verification command you ran and its actual output, the manual procedure you followed and what you observed, or what is missing and why — never "verified" without the thing that verified it)
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 grep -c 'verification-loop' agents/executor.md
@@ -437,7 +442,7 @@ grep -c 'literal' agents/executor.md
 ```
 Expected: at least `1` each.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add agents/executor.md

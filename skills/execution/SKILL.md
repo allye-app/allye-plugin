@@ -1,15 +1,14 @@
 ---
 name: execution
 description: Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution. Use when the user wants to write code, implement a task, or develop features.
-version: "1.2"
+version: "1.3"
 category: methodology
 ---
 
 # Technical Development Workflow
 
-This skill guides you through implementing a task with discipline: read existing code first, write tests, implement, refactor, and track progress in Allye.
-
-Use this when the user wants to: write code, implement a task, fix a bug, add functionality, or develop features.
+Implements one task with discipline: read the existing code first, drive it with TDD,
+verify it actually works, and track progress in Allye.
 
 **Scope, if you arrived via a `story-execution` or `correction` handover (see `handover-protocol`):** read only the one story and its tasks named in the handover — nothing else. A `correction` handover carries only the failed findings, not the whole story again; fix exactly what it lists.
 
@@ -170,6 +169,21 @@ With green tests as your safety net, improve the code:
 
 Run tests after every change. If a test fails, you broke something — fix it before continuing.
 
+### Verification Phase — run the task's loop
+
+TDD proved each behaviour as you built it. This proves the **task's acceptance
+criteria**, which is a different claim.
+
+Run the command from the task's `## Verification` block. Read its actual output.
+If it is red, fix and run it again, under the bound in `verification-loop` §3:
+three attempts on one failure, or two byte-identical outputs, whichever comes
+first. On hitting the bound, stop and carry the command and its literal output
+into your report — do not summarise the output.
+
+If the task declares `verification: manual`, follow its procedure and record what
+you observed. You have not run a loop; say so plainly in the report rather than
+implying one passed.
+
 ### Repeat
 
 Write the next test for the next behavior. Continue the cycle until all acceptance criteria are met.
@@ -226,6 +240,10 @@ Examples of things that need human action:
 <!-- adapted from superpowers:verification-before-completion (MIT) — evidence before assertions -->
 **Evidence before assertions.** Don't advance a task because it looks right — run the tests, read the actual output, and confirm each acceptance criterion against that output before proceeding. "Should work" is not the same as "ran and passed."
 
+The task's verification command is what supplies that evidence. Advancing a task to
+`review` without having run it green — or without having recorded a `verification:
+manual` observation — is the assertion this rule exists to forbid.
+
 Once all acceptance criteria are verifiably met and tests pass:
 
 ```
@@ -259,7 +277,16 @@ After completing a task, pick the next one from the **handover's own wave-ordere
 
 - If there are more tasks in the current wave (per the handover's list) → pick one
 - If the current wave is done → move to the next wave (per the handover's list)
-- If every task in the story has reached `review` (implementation complete, awaiting Reviewer) → emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator
+- If every task in the story has reached `review` (implementation complete, awaiting Reviewer) → **run the story loop, then** emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator.
+
+  The story loop runs the story's own acceptance criteria end to end, under the same
+  bound as the task loop. Every task green does not mean the story works — nothing
+  else checks this, which is exactly why it runs here.
+
+  A red story loop is reported as red **even when every task is green**. That
+  combination is a finding, not a contradiction to resolve: it usually means the task
+  breakdown missed an integration, and the Orchestrator needs to see it rather than
+  receive a clean report.
 
 Use `work_children(id: "{story uuid}")` only to **verify/check the status** of tasks already in the handover's list (e.g. confirming a dependency reached `review`) — never to discover new tasks to work on. If `work_children` reveals a task under this story that is **not** in the handover's task list, do not execute it — it wasn't in scope when the handover was dispatched. Instead, note it as an open question ("Open questions") in the `execution-report` handover so the Orchestrator can decide whether to bring it into scope.
 
@@ -277,6 +304,8 @@ For each task, verify:
 - [ ] TDD cycle completed (or tests written after for non-TDD-suitable tasks)
 - [ ] All acceptance criteria are met
 - [ ] Tests pass
+- [ ] The task's verification command ran green, or its manual procedure was observed and recorded
+- [ ] The story loop ran green before the report was emitted
 - [ ] Task moved to review (never directly to done — that's the Orchestrator's move after Reviewer ✅)
 - [ ] Implementation memory saved (if non-trivial)
 
