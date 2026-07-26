@@ -254,7 +254,7 @@ sidebar, because closing the wrong pane kills a running agent."
 - Consumes: Task 1.
 - Produces: nothing downstream.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -ci 'branch' skills/delivery/SKILL.md
@@ -262,7 +262,7 @@ grep -c 'branch-landing' skills/delivery/SKILL.md
 ```
 Expected: **zero from both.** That is the gap.
 
-- [ ] **Step 2: Add the landing step between closing and documenting**
+- [x] **Step 2: Add the landing step between closing and documenting**
 
 After "## Step 2: Close the Story" and before "## Step 3: Update Documentation", insert:
 
@@ -287,7 +287,7 @@ see Step 1. The branch stays where it is.
 </HARD-GATE>
 ```
 
-- [ ] **Step 3: Carry the reference into the memory**
+- [x] **Step 3: Carry the reference into the memory**
 
 Step 5's `memory_save` content template gains a line:
 
@@ -296,7 +296,7 @@ Step 5's `memory_save` content template gains a line:
 {branch name, and the merge commit or PR reference, and the base it landed on — or "not yet landed: {reason}"}
 ```
 
-- [ ] **Step 4: Add the checklist item**
+- [x] **Step 4: Add the checklist item**
 
 In the "Workflow Checklist", after the story-closed item:
 
@@ -304,7 +304,7 @@ In the "Workflow Checklist", after the story-closed item:
 - [ ] The code landed, or the reason it has not is recorded
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 grep -c 'branch-landing' skills/delivery/SKILL.md
@@ -314,7 +314,7 @@ grep -c 'work_status_done' skills/delivery/SKILL.md
 ```
 Expected: the skill referenced; the step and the memory line present; and the existing `work_status_done` usage untouched.
 
-- [ ] **Step 6: Bump version and commit**
+- [x] **Step 6: Bump version and commit**
 
 ```bash
 git add skills/delivery/
