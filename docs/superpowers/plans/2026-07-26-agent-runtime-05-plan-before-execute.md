@@ -167,14 +167,14 @@ The dispatched agent cannot ask. That makes the HITL branch different and the th
 - Consumes: Task 1's three checks, by name.
 - Produces: a `❌ blocked` report shape that names the failed check.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'Implementation Plan\|plan the implementation' agents/executor.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Add the discipline bullet**
+- [x] **Step 2: Add the discipline bullet**
 
 In the "Discipline" list, **before** the read-first bullet — it comes first in time and the list is read in order:
 
@@ -182,7 +182,7 @@ In the "Discipline" list, **before** the read-first bullet — it comes first in
 - **Plan before you write, and validate the plan.** After reading and before any code: state per task the approach, the files, the interfaces the task produces, and which step makes each acceptance criterion's `## Verification` command go green. Save it with `memory_save`, `sector: "plans"`, tagged with the story key. Then run three checks — **coverage** (every criterion has a step), **decisions** (every locked decision respected), **closure** (nothing depended on that the plan never defines). See the `execution` skill's Step 4.5 for the full shape.
 ```
 
-- [ ] **Step 3: Extend the halt-and-report contract**
+- [x] **Step 3: Extend the halt-and-report contract**
 
 Add a paragraph inside the existing HARD-GATE:
 
@@ -195,7 +195,7 @@ You cannot ask, so the plan check is where your inability to ask costs least. A 
 here is a paragraph; the same gap found in Step 5 is a branch.
 ```
 
-- [ ] **Step 4: Handle the HITL branch, which you cannot serve**
+- [x] **Step 4: Handle the HITL branch, which you cannot serve**
 
 Add to the same gate:
 
@@ -208,7 +208,7 @@ validated by a human." The plan is still useful; the missing validation is not s
 can supply.
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 grep -c 'sector: "plans"' agents/executor.md
@@ -218,7 +218,7 @@ grep -n 'a paragraph; the same gap found in Step 5 is a branch' agents/executor.
 ```
 Expected: all four found.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add agents/executor.md
