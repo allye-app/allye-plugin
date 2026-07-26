@@ -139,6 +139,113 @@ yaml_remove_line() {  # $1 = path, $2 = exact line
   grep -vxF "$line" "$path" > "$path.allye.tmp" 2>/dev/null && mv "$path.allye.tmp" "$path"
 }
 
+# Set (or insert) a 2-space-indented scalar child of $2 ("<key>:") to $4,
+# replacing an existing "  <key>: ..." line anywhere in the file or
+# appending one as the last child of the section if none exists yet.
+yaml_set_scalar() {  # $1 = path, $2 = section header ("memory:"), $3 = key, $4 = value
+  local path="$1" section="$2" key="$3" value="$4"
+  yaml_ensure_top_key "$path" "$section"
+  if grep -q "^  ${key}:" "$path" 2>/dev/null; then
+    awk -v key="$key" -v value="$value" '
+      $0 ~ "^  " key ":" { print "  " key ": " value; next }
+      { print }
+    ' "$path" > "$path.allye.tmp" && mv "$path.allye.tmp" "$path"
+  else
+    yaml_append_in_section "$path" "$section" "  ${key}: ${value}"
+  fi
+}
+
+yaml_get_scalar() {  # $1 = path, $2 = key -> prints the value of "  <key>: ..." or nothing
+  local path="$1" key="$2"
+  [ -f "$path" ] || return 0
+  awk -v key="$key" '
+    $0 ~ "^  " key ":" {
+      line = $0
+      sub("^  " key ":[ \t]*", "", line)
+      print line
+      exit
+    }
+  ' "$path"
+}
+
+# List the direct 2-space-indented child keys of $2 (e.g. the platform names
+# under "platform_toolsets:"), one per line.
+list_yaml_child_keys() {  # $1 = path, $2 = parent header line
+  local path="$1" parent="$2"
+  [ -f "$path" ] || return 0
+  awk -v parent="$parent" '
+    function indent_of(s) { match(s, /^[ \t]*/); return RLENGTH }
+    BEGIN { in_section = 0; pi = -1 }
+    {
+      if (!in_section && $0 == parent) { in_section = 1; pi = indent_of($0); next }
+      if (in_section) {
+        if ($0 ~ /^[ \t]*$/) next
+        ci = indent_of($0)
+        if (ci <= pi) { in_section = 0; next }
+        if (ci == pi + 2 && $0 ~ /:[ \t]*$/) {
+          line = $0
+          sub(/^[ \t]+/, "", line)
+          sub(/:[ \t]*$/, "", line)
+          print line
+        }
+      }
+    }
+  ' "$path"
+}
+
+yaml_list_contains() {  # $1 = path, $2 = header line (e.g. "  cli:"), $3 = item
+  local path="$1" header="$2" item="$3"
+  [ -f "$path" ] || return 1
+  awk -v header="$header" -v item="$item" '
+    function indent_of(s) { match(s, /^[ \t]*/); return RLENGTH }
+    BEGIN { in_section = 0; hi = -1; found = 0 }
+    {
+      if (!in_section && $0 == header) { in_section = 1; hi = indent_of($0); next }
+      if (in_section) {
+        if ($0 ~ /^[ \t]*$/) next
+        ci = indent_of($0)
+        if (ci <= hi) { in_section = 0; next }
+        line = $0
+        sub(/^[ \t]+-[ \t]+/, "", line)
+        if (line == item) { found = 1 }
+      }
+    }
+    END { exit (found ? 0 : 1) }
+  ' "$path"
+}
+
+yaml_list_remove_item() {  # $1 = path, $2 = header line, $3 = item
+  local path="$1" header="$2" item="$3"
+  [ -f "$path" ] || return 0
+  awk -v header="$header" -v item="$item" '
+    function indent_of(s) { match(s, /^[ \t]*/); return RLENGTH }
+    BEGIN { in_section = 0; hi = -1 }
+    {
+      if (!in_section && $0 == header) { in_section = 1; hi = indent_of($0); print; next }
+      if (in_section) {
+        if ($0 ~ /^[ \t]*$/) { print; next }
+        ci = indent_of($0)
+        if (ci <= hi) { in_section = 0; print; next }
+        line = $0
+        sub(/^[ \t]+-[ \t]+/, "", line)
+        if (line == item) next
+        print
+        next
+      }
+      print
+    }
+  ' "$path" > "$path.allye.tmp" && mv "$path.allye.tmp" "$path"
+}
+
+yaml_list_add_item() {  # $1 = path, $2 = header line, $3 = item
+  local path="$1" header="$2" item="$3" lead
+  if yaml_list_contains "$path" "$header" "$item"; then
+    return 0
+  fi
+  lead="${header%%[^ ]*}"
+  yaml_append_in_section "$path" "$header" "${lead}  - ${item}"
+}
+
 # ─── Format writers ─────────────────────────────────────────────────────────
 # Each reads the existing file, merges in our key/block, and writes back.
 # Running install twice must produce a byte-identical file.
@@ -216,6 +323,151 @@ write_mcp_yaml_block() {  # $1 = adapter json
   yaml_ensure_top_key "$path" "${top_key}:"
   yaml_append_in_section "$path" "${top_key}:" "$block
     # $marker_str"
+}
+
+# ─── Agent config (Hermes: disable competing engines) ──────────────────────
+# An adapter's optional "config" block turns off toolsets the agent has that
+# Allye replaces. Every change is merged, never replacing a list the user
+# built themselves, and every change is recorded under an "allye_previous:"
+# key in the same file so uninstall can put it back.
+
+apply_agent_config() {  # $1 = agent id
+  local id="$1" aj config path
+  aj=$(allye_agent_json "$id")
+  config=$(echo "$aj" | jq -c '.config // empty')
+  [ -n "$config" ] || return 0
+
+  path=$(expand_home "$(echo "$aj" | jq -r '.mcp.path')")
+  mkdir -p "$(dirname "$path")"
+  touch "$path"
+
+  apply_config_set "$path" "$config"
+  apply_config_toolsets "$path" "$config"
+}
+
+apply_config_set() {  # $1 = path, $2 = config json
+  local path="$1" config="$2" entry dotted top nested value prev
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    dotted=$(echo "$entry" | jq -r '.key')
+    value=$(echo "$entry" | jq -r '.value')
+    top=$(echo "$dotted" | cut -d. -f1)
+    nested=$(echo "$dotted" | cut -d. -f2-)
+
+    if [ -z "$(yaml_get_scalar "$path" "$dotted")" ]; then
+      prev=$(yaml_get_scalar "$path" "$nested")
+      [ -n "$prev" ] || prev="__absent__"
+      yaml_set_scalar "$path" "allye_previous:" "$dotted" "$prev"
+    fi
+
+    yaml_set_scalar "$path" "${top}:" "$nested" "$value"
+  done < <(echo "$config" | jq -c '.set // {} | to_entries[]')
+}
+
+apply_config_toolsets() {  # $1 = path, $2 = config json
+  local path="$1" config="$2" platforms plat header item removed_items existing recorded
+
+  platforms=$(list_yaml_child_keys "$path" "platform_toolsets:")
+  [ -n "$platforms" ] || return 0
+
+  while IFS= read -r plat; do
+    [ -n "$plat" ] || continue
+    header="  ${plat}:"
+
+    recorded=$(yaml_get_scalar "$path" "toolsets_removed.${plat}")
+    if [ -z "$recorded" ]; then
+      removed_items=""
+      while IFS= read -r item; do
+        [ -n "$item" ] || continue
+        if yaml_list_contains "$path" "$header" "$item"; then
+          yaml_list_remove_item "$path" "$header" "$item"
+          removed_items="${removed_items:+${removed_items},}${item}"
+        fi
+      done < <(echo "$config" | jq -r '.toolsets_remove // [] | .[]')
+      yaml_set_scalar "$path" "allye_previous:" "toolsets_removed.${plat}" "\"${removed_items}\""
+    fi
+
+    recorded=$(yaml_get_scalar "$path" "toolsets_added.${plat}")
+    if [ -z "$recorded" ]; then
+      existing="existing"
+      while IFS= read -r item; do
+        [ -n "$item" ] || continue
+        if yaml_list_contains "$path" "$header" "$item"; then
+          :
+        else
+          yaml_list_add_item "$path" "$header" "$item"
+          existing="new"
+        fi
+      done < <(echo "$config" | jq -r '.toolsets_add // [] | .[]')
+      yaml_set_scalar "$path" "allye_previous:" "toolsets_added.${plat}" "\"${existing}\""
+    fi
+  done <<< "$platforms"
+}
+
+revert_agent_config() {  # $1 = agent id
+  local id="$1" aj config path
+  aj=$(allye_agent_json "$id")
+  config=$(echo "$aj" | jq -c '.config // empty')
+  [ -n "$config" ] || return 0
+
+  path=$(expand_home "$(echo "$aj" | jq -r '.mcp.path')")
+  [ -f "$path" ] || return 0
+
+  revert_config_toolsets "$path" "$config"
+  revert_config_set "$path" "$config"
+
+  yaml_remove_block "$path" "allye_previous:"
+}
+
+revert_config_set() {  # $1 = path, $2 = config json
+  local path="$1" config="$2" entry dotted top nested prev value
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    dotted=$(echo "$entry" | jq -r '.key')
+    value=$(echo "$entry" | jq -r '.value')
+    top=$(echo "$dotted" | cut -d. -f1)
+    nested=$(echo "$dotted" | cut -d. -f2-)
+
+    prev=$(yaml_get_scalar "$path" "$dotted")
+    [ -n "$prev" ] || continue
+
+    if [ "$prev" = "__absent__" ]; then
+      yaml_remove_line "$path" "  ${nested}: ${value}"
+    else
+      yaml_set_scalar "$path" "${top}:" "$nested" "$prev"
+    fi
+  done < <(echo "$config" | jq -c '.set // {} | to_entries[]')
+}
+
+revert_config_toolsets() {  # $1 = path, $2 = config json
+  local path="$1" config="$2" platforms plat header removed_csv added_flag item
+
+  platforms=$(list_yaml_child_keys "$path" "platform_toolsets:")
+  [ -n "$platforms" ] || return 0
+
+  while IFS= read -r plat; do
+    [ -n "$plat" ] || continue
+    header="  ${plat}:"
+
+    removed_csv=$(yaml_get_scalar "$path" "toolsets_removed.${plat}")
+    removed_csv="${removed_csv%\"}"; removed_csv="${removed_csv#\"}"
+    if [ -n "$removed_csv" ]; then
+      IFS=',' read -ra removed_items <<< "$removed_csv"
+      for item in "${removed_items[@]}"; do
+        [ -n "$item" ] || continue
+        yaml_list_add_item "$path" "$header" "$item"
+      done
+    fi
+
+    added_flag=$(yaml_get_scalar "$path" "toolsets_added.${plat}")
+    added_flag="${added_flag%\"}"; added_flag="${added_flag#\"}"
+    if [ "$added_flag" = "new" ]; then
+      while IFS= read -r item; do
+        [ -n "$item" ] || continue
+        yaml_list_remove_item "$path" "$header" "$item"
+      done < <(echo "$config" | jq -r '.toolsets_add // [] | .[]')
+    fi
+  done <<< "$platforms"
 }
 
 # ─── Bootstrap writers ──────────────────────────────────────────────────────
@@ -345,6 +597,8 @@ allye_install_one() {  # $1 = adapter json
     *) print_error "Unknown mcp format for $id: $fmt"; return 1 ;;
   esac
 
+  apply_agent_config "$id"
+
   interactive=$(echo "$aj" | jq -r '.mcp.interactive_auth // false')
   if [ "$interactive" = "true" ]; then
     print_warning "$label MCP needs an interactive login. Run this in a terminal:"
@@ -405,6 +659,8 @@ allye_uninstall() {  # $1 = agent id
     print_error "Unknown agent: $id"
     return 1
   fi
+
+  revert_agent_config "$id"
 
   path=$(expand_home "$(echo "$aj" | jq -r '.mcp.path')")
   fmt=$(echo "$aj" | jq -r '.mcp.format')

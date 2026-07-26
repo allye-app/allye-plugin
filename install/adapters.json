@@ -89,6 +89,14 @@
         "kind": "plugin",
         "path": "~/.hermes/plugins/allye-bootstrap",
         "enable_key": "plugins.enabled"
+      },
+      "config": {
+        "set": {
+          "memory.memory_enabled": false,
+          "memory.user_profile_enabled": false
+        },
+        "toolsets_remove": ["memory", "kanban"],
+        "toolsets_add": ["mcp-allye"]
       }
     }
   ]

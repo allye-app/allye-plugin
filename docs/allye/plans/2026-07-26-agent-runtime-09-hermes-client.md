@@ -66,7 +66,7 @@ Read **§20 of the spec** before Task 1.
 - Consumes: Plan 08's adapter schema and `write_mcp_yaml_block`.
 - Produces: a `config` block on the Hermes adapter that later agents can copy the shape of.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 jq -r '.agents[] | select(.id=="hermes") | keys | join(" ")' install/adapters.json
@@ -74,7 +74,7 @@ grep -c 'memory_enabled' install/lib.sh
 ```
 Expected: the Hermes entry has no `config` key, and `memory_enabled` appears zero times.
 
-- [ ] **Step 2: Add a `config` block to the Hermes adapter**
+- [x] **Step 2: Add a `config` block to the Hermes adapter**
 
 Extend the Hermes entry with the settings the installer must merge:
 
@@ -91,7 +91,7 @@ Extend the Hermes entry with the settings the installer must merge:
 
 `set` writes scalar keys. `toolsets_remove` and `toolsets_add` operate on every platform's list in `platform_toolsets`, since the choice of engine is not per-platform: a Telegram session and a CLI session must agree on where memories live.
 
-- [ ] **Step 3: Implement the merge**
+- [x] **Step 3: Implement the merge**
 
 Add `apply_agent_config <agent-id>` to `install/lib.sh`, called from `allye_install` after the MCP block is written.
 
@@ -103,7 +103,7 @@ If a platform's list does not exist, **leave it absent** — an absent list mean
 
 Record what was changed so `uninstall` can reverse it: write the previous value beside each change under an `allye_previous` key in the config, or a sibling file. An uninstall that cannot restore what it turned off is not an uninstall.
 
-- [ ] **Step 4: Verify against the sandbox, with a pre-existing config**
+- [x] **Step 4: Verify against the sandbox, with a pre-existing config**
 
 Seed a config that already has user content, so the merge is genuinely tested:
 
@@ -145,7 +145,7 @@ grep -c 'mcp-allye' "$ALLYE_TEST_HOME/.hermes/config.yaml"                   # 2
 
 `todo` surviving is the point of this plan's §20.4 and the easiest thing to remove by accident while removing its neighbours.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add install/adapters.json install/lib.sh
