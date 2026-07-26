@@ -82,14 +82,16 @@ done
 
 Expected: all four keys present for all seven skills. A missing `version` or `category` is a regression against a fix already made in commit `9b53e33`.
 
-- [ ] **Step 5: Remove the worktree and close its pane**
+- [ ] **Step 5: Confirm the source worktree and pane are already gone**
+
+The `pocock-doctrine` worktree was removed and its pane closed on 2026-07-26, before this plan began executing — worktree first, pane last, per the teardown rule in spec §7.6. The branch was deliberately kept as the record.
 
 ```bash
-git worktree remove /home/bfernandes/dev/allye/.worktrees/pocock-doctrine
-herdr pane close "$(cat /tmp/claude-1000/-home-bfernandes-dev-allye/cb42891a-7e9b-48f1-b1f6-c77b29f4559c/scratchpad/pocock-pane.txt)"
+git worktree list
+git branch --list 'refactor/pocock-skill-doctrine'
 ```
 
-Note the order — worktree first, pane last, per the teardown rule in the spec §7.6. Run `worktree remove` **without** `--force`: if git refuses, the worktree has uncommitted work and that refusal is the safety net, not an obstacle. The branch stays local as a record.
+Expected: `git worktree list` shows no `pocock-doctrine` entry, and the branch **is** listed. If the worktree still exists, remove it with `git worktree remove <path>` — **without** `--force`. A git refusal there means uncommitted work is present, and that refusal is the safety net, not an obstacle.
 
 ---
 
