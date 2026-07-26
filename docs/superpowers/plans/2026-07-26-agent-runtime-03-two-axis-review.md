@@ -372,14 +372,14 @@ Also applies the skill-authoring doctrine to the review skill."
 - Consumes: Tasks 1–3.
 - Produces: the combination rule. Plan 04 modifies this same file for dispatch-mode resolution and must preserve this section.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'reviewer-standards\|reviewer-spec' skills/orchestrator/SKILL.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Replace section 5's dispatch instruction**
+- [x] **Step 2: Replace section 5's dispatch instruction**
 
 <HARD-GATE>
 **Preserve every `<!-- opencode-exclude:start -->` / `<!-- opencode-exclude:end -->` marker.** `skills/orchestrator/SKILL.md` carries twelve of them and `skills/handover-protocol/SKILL.md` three. They fence off Claude-Code-only text so it is stripped from the prompt generated for OpenCode, which has no `Agent` tool and no automatic-Executor mode.
@@ -403,7 +403,7 @@ per-criterion verification evidence the report carried — it reviews against th
 so a report that omits it produces a review that cannot confirm anything.
 ```
 
-- [ ] **Step 3: Replace section 6 with the combination rule**
+- [x] **Step 3: Replace section 6 with the combination rule**
 
 Section 6 currently reacts to one reviewer's output. Replace its opening with:
 
@@ -435,7 +435,7 @@ produced them: a task corrected once for standards and once for spec has used bo
 rounds, and a third failure escalates to the human.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'reviewer-standards' skills/orchestrator/SKILL.md
@@ -450,11 +450,11 @@ Expected, in order: both agent names present; the offsetting rule found; the per
 
 Note what these assert and what they do not. They check the distinctive sentences each edit introduces, not a count of how often an agent name appears — a name count would pass just as happily if you mentioned `reviewer-spec` twice in a comment and never wired it up.
 
-- [ ] **Step 5: Update the handover protocol's note**
+- [x] **Step 5: Update the handover protocol's note**
 
 `skills/handover-protocol/SKILL.md` §2 states "Reviewer never receives a handover." Update the name to plural — both axis agents are dispatched with a constructed prompt, neither receives a handover.
 
-- [ ] **Step 6: Bump version and commit**
+- [x] **Step 6: Bump version and commit**
 
 ```bash
 git add skills/orchestrator/ skills/handover-protocol/
