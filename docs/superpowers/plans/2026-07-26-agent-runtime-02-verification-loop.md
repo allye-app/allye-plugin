@@ -284,14 +284,14 @@ doctrine pass deliberately skipped."
 - Consumes: the `## Verification` block from Task 2; the four criteria and the bound from Task 1.
 - Produces: an `execution-report` whose per-criterion status is backed by observed command output. Task 4 mirrors this for the non-interactive executor.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'verification-loop' skills/execution/SKILL.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Add the task loop to Step 5**
+- [x] **Step 2: Add the task loop to Step 5**
 
 In `skills/execution/SKILL.md`, after the "Refactor Phase" subsection and before "Repeat", insert:
 
@@ -312,7 +312,7 @@ you observed. You have not run a loop; say so plainly in the report rather than
 implying one passed.
 ```
 
-- [ ] **Step 3: Add the story loop before the report**
+- [x] **Step 3: Add the story loop before the report**
 
 Replace Step 9's final bullet. Current text:
 
@@ -335,7 +335,7 @@ with:
   receive a clean report.
 ```
 
-- [ ] **Step 4: Strengthen Step 7's evidence rule**
+- [x] **Step 4: Strengthen Step 7's evidence rule**
 
 Step 7 currently opens with an "Evidence before assertions" paragraph. Append to it:
 
@@ -345,7 +345,7 @@ The task's verification command is what supplies that evidence. Advancing a task
 manual` observation — is the assertion this rule exists to forbid.
 ```
 
-- [ ] **Step 5: Add the checklist items**
+- [x] **Step 5: Add the checklist items**
 
 In the "Workflow Checklist", replace `- [ ] Tests pass` with:
 
@@ -355,18 +355,23 @@ In the "Workflow Checklist", replace `- [ ] Tests pass` with:
 - [ ] The story loop ran green before the report was emitted
 ```
 
-- [ ] **Step 6: Apply the authoring doctrine to the whole file**
+- [x] **Step 6: Apply the authoring doctrine to the whole file**
 
 Same instruction as Task 2 Step 6. Do not touch tool names, the TDD detection heuristic, the read-first rule, the analysis-paralysis guard's numbers, or the `review`-not-`done` status rule.
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 ```bash
 grep -c 'verification-loop' skills/execution/SKILL.md
+grep -c 'Verification Phase' skills/execution/SKILL.md
 grep -c 'story loop' skills/execution/SKILL.md
 grep -n 'work_status_done' skills/execution/SKILL.md
 ```
-Expected: at least `2` for `verification-loop`; at least `2` for `story loop`; and `work_status_done` still appears only in its existing prohibition ("Do NOT call `work_status_done` here"), never as an instruction.
+Expected: `verification-loop` exactly `1` — the task-loop paragraph names the skill once, and
+the story-loop paragraph deliberately refers back to it rather than repeating the name.
+`Verification Phase` exactly `1`, proving the task loop landed. `story loop` at least `2`,
+proving the story loop landed. And `work_status_done` still appears only in its existing
+prohibition ("Do NOT call `work_status_done` here"), never as an instruction.
 
 - [ ] **Step 8: Bump version and commit**
 
