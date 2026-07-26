@@ -161,7 +161,13 @@ work_children(id: "{story uuid}")          → real task statuses
 memory_search("Implementation {TASK-KEY}") → implementation notes
 ```
 
-The terminal is a human observation and diagnostic channel (`herdr agent read {name} --source recent-unwrapped`), never the source of truth. Full-screen agents such as Claude Code render on the terminal's alternate screen; those rows never enter the host scrollback, so a larger `--lines` cannot recover them. Reading a long report off a pane is unreliable by construction.
+The terminal is a human observation and diagnostic channel (`herdr agent read {name} --source recent-unwrapped`), never the source of truth. Three reasons, none of which depend on what a terminal can show:
+
+- A record in Allye is structured and machine-readable; a transcript is prose to be parsed.
+- The Orchestrator can read it from a pane it never created, and after that pane is closed.
+- It works identically for every runtime, including those with no output-read primitive at all — which is most of the category (§6.8).
+
+Herdr's own documentation warns that full-screen agents render on the alternate screen, whose rows never enter host scrollback, making a long report unrecoverable. **That is a caveat, not the reason.** It did not reproduce in testing on 2026-07-26 — full reports were read back cleanly at 200+ lines. A design justified by a failure mode that does not reproduce is one experiment away from being abandoned for the wrong reason, which is why the three points above carry it instead.
 
 If the agent is `idle` but the expected trace is absent from Allye, that is an **incomplete report** — which the Orchestrator already knows how to handle, since it verifies report completeness before acting on it.
 
