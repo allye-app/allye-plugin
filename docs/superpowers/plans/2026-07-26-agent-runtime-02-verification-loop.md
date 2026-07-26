@@ -373,7 +373,7 @@ the story-loop paragraph deliberately refers back to it rather than repeating th
 proving the story loop landed. And `work_status_done` still appears only in its existing
 prohibition ("Do NOT call `work_status_done` here"), never as an instruction.
 
-- [ ] **Step 8: Bump version and commit**
+- [x] **Step 8: Bump version and commit**
 
 ```bash
 git add skills/execution/
@@ -400,14 +400,14 @@ Also applies the skill-authoring doctrine to this file."
 - Consumes: Task 1's criteria and bound; Task 3's loop placement.
 - Produces: a report whose `❌ blocked` entries carry a command and its literal output.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'verification-loop' agents/executor.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Add the loops to the Discipline section**
+- [x] **Step 2: Add the loops to the Discipline section**
 
 In `agents/executor.md`, in the "Discipline" list, after the "Evidence before assertions" bullet, add:
 
@@ -415,7 +415,7 @@ In `agents/executor.md`, in the "Discipline" list, after the "Evidence before as
 - **Run the verification loop, both levels.** Per task: run the command from its `## Verification` block, read the actual output, fix and re-run under the bound in `verification-loop` §3 — three attempts on one failure, or two byte-identical outputs, whichever comes first. Per story: run the story's acceptance criteria end to end before returning. A task declaring `verification: manual` gets its procedure followed and observed, and the report says plainly that no loop ran.
 ```
 
-- [ ] **Step 3: Extend the halt-and-report contract**
+- [x] **Step 3: Extend the halt-and-report contract**
 
 The HARD-GATE currently covers underspecified tasks. Add a second paragraph inside it:
 
@@ -426,7 +426,7 @@ summary. You cannot ask what to do about a failure you could not fix, so the exa
 is what lets the Orchestrator put a real question in front of the human.
 ```
 
-- [ ] **Step 4: Require evidence in the returned report**
+- [x] **Step 4: Require evidence in the returned report**
 
 In "What you return", replace the per-criterion evidence phrase `(what you ran, what it showed, or what's missing and why)` with:
 
@@ -434,7 +434,7 @@ In "What you return", replace the per-criterion evidence phrase `(what you ran, 
 (the verification command you ran and its actual output, the manual procedure you followed and what you observed, or what is missing and why — never "verified" without the thing that verified it)
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 grep -c 'verification-loop' agents/executor.md
@@ -442,7 +442,7 @@ grep -c 'literal' agents/executor.md
 ```
 Expected: at least `1` each.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add agents/executor.md
