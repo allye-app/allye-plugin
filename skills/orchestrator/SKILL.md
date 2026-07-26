@@ -141,9 +141,9 @@ The *findings* stay separate. The *decision* is single, and combines them:
 
 | Standards | Spec | Outcome |
 |---|---|---|
-| ✅ | ✅ | Move each approved task the rest of the way to `done`, then cascade (§7) |
-| ⚠️ only | ✅ | Cascade as above; record the warnings as a note so they are not lost |
-| ✅ | ⚠️ only | Cascade as above; record the warnings as a note |
+| ✅ | ✅ | Advance the task through the team's pipeline per §7 — one status at a time, stopping at the first gate you cannot satisfy |
+| ⚠️ only | ✅ | Advance as above; record the warnings as a note so they are not lost |
+| ✅ | ⚠️ only | Advance as above; record the warnings as a note |
 | ❌ | any | Correction round |
 | any | ❌ | Correction round |
 

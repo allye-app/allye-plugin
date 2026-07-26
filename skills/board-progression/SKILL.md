@@ -207,7 +207,7 @@ What holds regardless of the team's configuration:
 | Mistake | Why it's wrong | Do this instead |
 |---------|---------------|-----------------|
 | Moving story to done before all tasks are done | Misrepresents progress | Check `work_children` first — all tasks must be done |
-| Marking a task done as soon as its own tests pass | Done requires Reviewer approval, not just green tests | `work_status_next` to `review`; the Orchestrator moves it to done after Reviewer ✅ |
+| Marking a task done as soon as its own tests pass | Done requires review approval, not just green tests | `work_status_next` once, to the first review gate, and stop; the Orchestrator carries it from there — see §3.1 |
 | Skipping statuses with repeated `work_status_next` | Loses tracking fidelity | Only advance when the work for that status is actually complete |
 | Moving to in_progress without planning | No tasks = no accountability | Run Technical Planning first, create tasks, then advance |
 | Forgetting to check board structure | Different teams may have different progressions | Always check `board_columns` if unsure about available statuses |
