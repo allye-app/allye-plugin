@@ -74,7 +74,7 @@ Read **§19 of the spec** before Task 1.
 - Consumes: nothing.
 - Produces: the adapter schema every later task reads. Field names are the contract — Tasks 2–5 use them literally.
 
-- [ ] **Step 1: Write the table**
+- [x] **Step 1: Write the table**
 
 Create `install/adapters.json`. One object per agent; the six existing agents' paths come from reading `install.sh`, not from memory.
 
@@ -114,7 +114,7 @@ Field meanings, which Tasks 2–5 depend on:
 | `skills.source` | `mcp` — the agent fetches them; seed to the API. `disk` — write files to `skills.path`. |
 | `bootstrap.kind` | `hook`, `plugin`, or absent. |
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 jq -e '.agents | length == 6' install/adapters.json
@@ -124,7 +124,7 @@ jq -e '[.agents[] | select(has("detect") and has("mcp") and has("skills"))] | le
 ```
 Expected: six agents — `claude codex cursor gemini hermes opencode`; exactly one reading skills from disk; every entry carrying the three required keys.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add install/adapters.json
