@@ -135,9 +135,10 @@ terminal, so a report you did not save is a report that did not arrive.
 
 ```bash
 sed -n '1,6p' agents/reviewer-standards.md
-grep -c 'reviewer-spec' agents/reviewer-standards.md
+grep -c 'Never comment on whether the task did the right thing' agents/reviewer-standards.md
+grep -c 'Feature Envy' agents/reviewer-standards.md
 ```
-Expected: frontmatter has `name`, `description`, `tools`; `reviewer-spec` is named at least twice, since the boundary is stated more than once by design.
+Expected: frontmatter carries `name`, `description`, `tools`; the boundary sentence present exactly once; the smell table present. These check the two things that make this agent an axis rather than a generic reviewer — its refusal to answer the other axis, and the baseline it applies when a repo documents nothing.
 
 - [ ] **Step 3: Commit**
 
@@ -235,9 +236,10 @@ key and `review-spec`. The Orchestrator reads results from Allye, not from your 
 
 ```bash
 sed -n '1,6p' agents/reviewer-spec.md
-grep -c 'reviewer-standards' agents/reviewer-spec.md
+grep -c 'Never comment on code style' agents/reviewer-spec.md
+grep -c 'Any deviation is a defect' agents/reviewer-spec.md
 ```
-Expected: frontmatter complete; the sibling axis named at least twice.
+Expected: frontmatter complete; the boundary sentence present exactly once; the locked-decision rule present. Again the assertion checks the sentences that define the axis, not how often the sibling is named.
 
 - [ ] **Step 3: Commit**
 
@@ -265,10 +267,19 @@ but wrong' visible instead of averaged away."
 
 - [ ] **Step 1: Find every reference to the old agent**
 
+The obvious pattern misses half of them: `README.md` and `handover-protocol` write "Reviewer" capitalized and without backticks. Search case-insensitively, and scope to living files:
+
 ```bash
-grep -rn 'agents/reviewer\.md\|`reviewer`\|reviewer subagent' skills/ agents/ docs/ CLAUDE.md README.md packages/allye-opencode/src/ manifests/ 2>/dev/null
+grep -rn -i 'reviewer' skills/ agents/ CLAUDE.md README.md packages/allye-opencode/src/ manifests/ 2>/dev/null
 ```
-Expected: hits in `CLAUDE.md`, `README.md`, `skills/orchestrator/SKILL.md`, and `skills/handover-protocol/SKILL.md`. Record them — every one must be updated in this task or Task 4.
+
+Expected: hits in `skills/orchestrator/SKILL.md`, `skills/review/SKILL.md`, `skills/handover-protocol/SKILL.md`, `agents/reviewer.md`, `CLAUDE.md`, and `README.md` (lines 29, 63, 199, 218, 233, 238, 256 — six prose mentions plus a table row). Record them; every one is updated in this task or Task 4.
+
+<HARD-GATE>
+**Do not search or edit under `docs/`.** `docs/superpowers/specs/2026-07-12-*` and `docs/superpowers/plans/2026-07-12-*` mention the single reviewer because that is what was decided and shipped in July. They are the record of a decision, not a description of the current tree. Rewriting a delivered spec so it matches later reality destroys the only account of why the thing was built the way it was.
+
+The current spec (`2026-07-26-*`) already describes the split — it is the document that decided it.
+</HARD-GATE>
 
 - [ ] **Step 2: Delete the old agent**
 
@@ -370,6 +381,14 @@ Expected: `0`.
 
 - [ ] **Step 2: Replace section 5's dispatch instruction**
 
+<HARD-GATE>
+**Preserve every `<!-- opencode-exclude:start -->` / `<!-- opencode-exclude:end -->` marker.** `skills/orchestrator/SKILL.md` carries twelve of them and `skills/handover-protocol/SKILL.md` three. They fence off Claude-Code-only text so it is stripped from the prompt generated for OpenCode, which has no `Agent` tool and no automatic-Executor mode.
+
+The text you are replacing contains them. Dropping a marker does not raise an error — it silently leaks Claude-specific instructions into another platform's prompt, which is the exact defect commit `394dc20` was written to fix.
+
+Before editing, read the surrounding lines and note which spans are fenced. After editing, run `grep -c 'opencode-exclude' skills/orchestrator/SKILL.md` and confirm the count has not dropped. If your replacement genuinely removes the Claude-only phrasing a marker was fencing, the marker can go with it — but that is a decision to state in your report, never a side effect.
+</HARD-GATE>
+
 In `skills/orchestrator/SKILL.md` §5, the sentence currently dispatching `reviewer` becomes:
 
 ```markdown
@@ -421,10 +440,15 @@ rounds, and a third failure escalates to the human.
 ```bash
 grep -c 'reviewer-standards' skills/orchestrator/SKILL.md
 grep -c 'reviewer-spec' skills/orchestrator/SKILL.md
-grep -n 'never offsets\|per task' skills/orchestrator/SKILL.md
-grep -c '`reviewer`' skills/orchestrator/SKILL.md
+grep -n 'never offsets' skills/orchestrator/SKILL.md
+grep -n 'regardless of which axis' skills/orchestrator/SKILL.md
+grep -rn -i 'the `reviewer` subagent\|dispatch the reviewer\b' skills/orchestrator/SKILL.md
+grep -c 'opencode-exclude' skills/orchestrator/SKILL.md
 ```
-Expected: both agents named at least twice; the offsetting rule and the per-task counting rule present; **zero** remaining references to the bare `reviewer` agent.
+
+Expected, in order: both agent names present; the offsetting rule found; the per-task counting rule found; **no output** from the old-agent search; and the `opencode-exclude` count **unchanged from before your edit** (it was 12 at the time this plan was written — record what you actually measured first).
+
+Note what these assert and what they do not. They check the distinctive sentences each edit introduces, not a count of how often an agent name appears — a name count would pass just as happily if you mentioned `reviewer-spec` twice in a comment and never wired it up.
 
 - [ ] **Step 5: Update the handover protocol's note**
 
