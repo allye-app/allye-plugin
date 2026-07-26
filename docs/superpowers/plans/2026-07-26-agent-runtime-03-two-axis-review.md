@@ -43,7 +43,7 @@ ls skills/verification-loop/SKILL.md       # expect: exists (Plan 02)
 - Consumes: a dispatch prompt carrying team context, the story key, the task keys, and the files-changed list — the same fields `agents/reviewer.md` receives today.
 - Produces: findings in `✅ / ⚠️ / ❌` per task. Task 4 reads this shape. Do not change the symbols.
 
-- [ ] **Step 1: Write the agent**
+- [x] **Step 1: Write the agent**
 
 Create `agents/reviewer-standards.md`:
 
@@ -131,7 +131,7 @@ key and `review-standards`. The Orchestrator reads results from Allye, not from 
 terminal, so a report you did not save is a report that did not arrive.
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 sed -n '1,6p' agents/reviewer-standards.md
@@ -140,7 +140,7 @@ grep -c 'Feature Envy' agents/reviewer-standards.md
 ```
 Expected: frontmatter carries `name`, `description`, `tools`; the boundary sentence present exactly once; the smell table present. These check the two things that make this agent an axis rather than a generic reviewer — its refusal to answer the other axis, and the baseline it applies when a repo documents nothing.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/reviewer-standards.md
@@ -163,7 +163,7 @@ the code implements the right thing; that is reviewer-spec's axis."
 - Consumes: the same dispatch prompt as Task 1, plus the per-criterion verification evidence produced by Plan 02.
 - Produces: findings in the same `✅ / ⚠️ / ❌` shape. Task 4 reads both.
 
-- [ ] **Step 1: Write the agent**
+- [x] **Step 1: Write the agent**
 
 Create `agents/reviewer-spec.md`:
 
@@ -232,7 +232,7 @@ Save your findings with `memory_save`, `sector: "knowledge"`, tags including the
 key and `review-spec`. The Orchestrator reads results from Allye, not from your terminal.
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 sed -n '1,6p' agents/reviewer-spec.md
@@ -241,7 +241,7 @@ grep -c 'Any deviation is a defect' agents/reviewer-spec.md
 ```
 Expected: frontmatter complete; the boundary sentence present exactly once; the locked-decision rule present. Again the assertion checks the sentences that define the axis, not how often the sibling is named.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/reviewer-spec.md
