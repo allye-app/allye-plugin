@@ -678,7 +678,7 @@ would appear to succeed and produce nothing."
 - Consumes: the AFK/HITL label from Plan 02.
 - Produces: handovers that survive being read by a different agent than the one that wrote them.
 
-- [ ] **Step 1: Add the durability rule to the mandatory checklist**
+- [x] **Step 1: Add the durability rule to the mandatory checklist**
 
 In `skills/handover-protocol/SKILL.md` §3, add a bullet:
 
@@ -692,7 +692,7 @@ In `skills/handover-protocol/SKILL.md` §3, add a bullet:
   type shape); include it, trimmed to the decision.
 ```
 
-- [ ] **Step 2: Add the label to the story-execution template**
+- [x] **Step 2: Add the label to the story-execution template**
 
 In `references/story-execution.md`, add to the "Before emitting, confirm" list:
 
@@ -710,11 +710,11 @@ And add a line to the template body, immediately after `### Story`:
 {AFK — every task has a runnable verification command | HITL — {TASK-KEY} declares verification: manual}
 ```
 
-- [ ] **Step 3: Apply the authoring doctrine to `SKILL.md`**
+- [x] **Step 3: Apply the authoring doctrine to `SKILL.md`**
 
 Do not touch the marker line format or the `**Skill to load:**` field name — both are parsed literally and translating or restyling either breaks auto-detection.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'Dispatch label' skills/handover-protocol/references/story-execution.md
@@ -723,7 +723,7 @@ grep -c '🔄 Allye Handover' skills/handover-protocol/SKILL.md
 ```
 Expected: the label present; the durability rule present; the marker still present and unchanged.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/handover-protocol/
