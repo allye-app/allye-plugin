@@ -263,7 +263,7 @@ The hook injects one line of context when a runtime is present, and nothing at a
 - Consumes: nothing
 - Produces: a line of the exact form `Agent runtime: herdr <version> (pane <pane_id>, workspace <workspace_id>)` appended to the hook's `additionalContext`. Plan 4 (`agent-runtime`) reads this line to decide whether to load `skills/agent-runtime/`. The prefix `Agent runtime: ` is the contract — do not change it without updating Plan 4.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `hooks/test-session-start.sh`:
 
@@ -313,12 +313,12 @@ Then make it executable:
 chmod +x hooks/test-session-start.sh
 ```
 
-- [ ] **Step 2: Run the test to see the current state**
+- [x] **Step 2: Run the test to see the current state**
 
 Run: `bash hooks/test-session-start.sh`
 Expected: all three PASS. The hook does not emit a runtime line today, so the two negative assertions already hold, and the JSON assertion guards against breaking the existing behaviour in Step 3. **This is the regression net, not a red test** — the positive case cannot be asserted portably, because it requires a live Herdr server. Verify it manually in Step 5.
 
-- [ ] **Step 3: Add the probe to `hooks/session-start.sh`**
+- [x] **Step 3: Add the probe to `hooks/session-start.sh`**
 
 Insert immediately before the final `jq -n` block, after `SKILL_CONTENT` is assigned:
 
@@ -351,12 +351,12 @@ fi
 
 Two details that matter. `detect_runtime` returns non-zero on every failure path so the `if` guard suppresses the line entirely — no empty section, no stray separator. And the `compatible: yes` check means a protocol-mismatched server is treated as *runtime absent*, never as *runtime broken*, so a stale Herdr install cannot block delivery.
 
-- [ ] **Step 4: Run the test to verify nothing regressed**
+- [x] **Step 4: Run the test to verify nothing regressed**
 
 Run: `bash hooks/test-session-start.sh`
 Expected: all three still PASS. In particular the JSON assertion must still hold — a runtime line containing an unescaped quote or newline would break `jq -n`.
 
-- [ ] **Step 5: Verify the positive case manually against the live server**
+- [x] **Step 5: Verify the positive case manually against the live server**
 
 ```bash
 echo '{"source":"startup"}' | bash hooks/session-start.sh | jq -r '.hookSpecificOutput.additionalContext' | tail -5
@@ -364,7 +364,7 @@ echo '{"source":"startup"}' | bash hooks/session-start.sh | jq -r '.hookSpecific
 
 Expected, when run inside a Herdr pane: the last lines show `Agent runtime: herdr 0.7.5 (pane wN:pM, workspace wN)` followed by the load instruction. Outside a pane, no such line appears.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add hooks/session-start.sh hooks/test-session-start.sh
