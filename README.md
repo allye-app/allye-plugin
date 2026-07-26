@@ -26,7 +26,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 
 | | Feature | Description |
 |---|---------|-------------|
-| **Workflow** | Guided delivery | Sandbox → Product Planning → Technical Planning → Orchestrator → Executor → Reviewer, connected by handovers between fresh, lean-context chats |
+| **Workflow** | Guided delivery | Sandbox → Product Planning → Technical Planning → Orchestrator → Executor → Reviewer (Standards + Spec axes), connected by handovers between fresh, lean-context chats |
 | **Planning** | Discussion phase | Gray areas identified, options presented with trade-offs, decisions captured |
 | **Memory** | Cross-session continuity | Agent searches past context at start, saves session state at end |
 | **TDD** | Test-driven development | Red-Green-Refactor with automatic detection of when TDD applies |
@@ -60,7 +60,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 After installing, you get:
 - **OAuth authentication** — browser-based login, no tokens to manage
 - **Bootstrap hook** — injects workflow methodology at session start
-- **4 dispatched subagents** — reviewer, deep-search, code-analyzer, executor, delegated via the Agent tool for phases that don't need to pause and ask you anything (executor only runs this way if you opt into automatic mode — manual is the default)
+- **5 dispatched subagents** — reviewer-standards, reviewer-spec, deep-search, code-analyzer, executor, delegated via the Agent tool for phases that don't need to pause and ask you anything (executor only runs this way if you opt into automatic mode — manual is the default)
 - **14 skills** — Sandbox, Planning, Technical Planning, Orchestrator, and Delivery run as skills loaded directly into your conversation, loaded on-demand by the bootstrap, so they can ask you questions when something's ambiguous
 
 #### Multiple Allye accounts (multi-tenant)
@@ -196,7 +196,7 @@ cd allye-plugin && git pull && ./install.sh
 
 How multi-phase workflow support is implemented differs by platform, because not every platform lets a dispatched agent pause mid-task to ask you a question:
 
-- **Claude Code** ships four dispatched subagents — **Reviewer**, **Deep Search**, **Code Analyzer**, and **Executor** — for phases that never need to interrupt you (Executor only runs this way if the Orchestrator's automatic mode is chosen for a story; its default is manual). Sandbox, Product Planning, Technical Planning, Orchestrator, and manual-mode Executor run as skills loaded directly into your conversation instead, precisely so they *can* stop and ask when something's ambiguous.
+- **Claude Code** ships five dispatched subagents — **Reviewer-Standards**, **Reviewer-Spec**, **Deep Search**, **Code Analyzer**, and **Executor** — for phases that never need to interrupt you (Executor only runs this way if the Orchestrator's automatic mode is chosen for a story; its default is manual). Sandbox, Product Planning, Technical Planning, Orchestrator, and manual-mode Executor run as skills loaded directly into your conversation instead, precisely so they *can* stop and ask when something's ambiguous.
 - **OpenCode** ships 6 agent-picker personas (Ctrl+T to switch) — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver — OpenCode's agent model supports switching personas interactively within a session, so all 6 can be full agents. The automatic-Executor dispatch mode is Claude-Code-only for now; OpenCode always runs Executor (Allye Build) as an interactive agent.
 - **Cursor, Codex, Gemini CLI** — a single agent handles all phases with the same workflow knowledge (no multi-agent picker on these platforms).
 
@@ -215,7 +215,7 @@ Every phase, on every platform:
 Each phase runs in its own fresh, lean-context chat. When one finishes, it emits a **handover** — a block of chat text you review and paste as the first message of the next chat, which auto-detects it and loads the right skill.
 
 ```
-Sandbox → Product Planning → Technical Planning → Orchestrator ⇄ Executor → Reviewer
+Sandbox → Product Planning → Technical Planning → Orchestrator ⇄ Executor → Reviewer (Standards + Spec)
                                                         ↑                       |
                                                         └──── next story ───────┘
 ```
@@ -230,13 +230,13 @@ Understand business context → discover team templates → define hierarchy (Ep
 Get story → **discussion phase** (identify gray areas, present options with trade-offs, capture locked decisions) → create tasks with dependency waves.
 
 ### Orchestrator
-Coordinates delivery of an already-planned feature: manages assignee and status, dispatches **Executor** one story at a time (manual handover, or automatic subagent dispatch — your choice per story), dispatches **Reviewer** in parallel once a report comes back, runs the correction loop, and cascades status up the work-item hierarchy.
+Coordinates delivery of an already-planned feature: manages assignee and status, dispatches **Executor** one story at a time (manual handover, or automatic subagent dispatch — your choice per story), dispatches **Reviewer-Standards** and **Reviewer-Spec** in parallel once a report comes back, runs the correction loop, and cascades status up the work-item hierarchy.
 
 ### Executor
 Implements exactly one story's tasks with TDD (Red → Green → Refactor). Runs either as an interactive skill (manual mode, can ask you questions) or as a dispatched subagent (automatic mode — halts and reports back instead of guessing when a task is underspecified).
 
-### Reviewer
-Reviews each task against acceptance criteria — code quality, security, test coverage — always dispatched automatically in parallel, since review never needs to pause and ask anyone anything.
+### Reviewer — two axes
+Two independent passes, dispatched together and never merged: **reviewer-standards** checks how the code is written (conventions, security, test quality), **reviewer-spec** checks whether it's what was asked for (acceptance criteria against the verification evidence, locked decisions, unrequested scope). Always dispatched automatically in parallel, since review never needs to pause and ask anyone anything. A ❌ on either axis triggers a correction round — one axis passing never offsets the other failing.
 
 ### Delivery
 Once an epic's whole status cascade completes, the Orchestrator offers — never forces — a close-out: verify all tasks done, update documentation, clean up TODOs, save a delivery memory. A deliberate step, not an automatic one.
@@ -253,7 +253,7 @@ Skills are the knowledge base that powers the agents. 13 workflow skills are pub
 | `sandbox` | Explore ideas, research a direction, exit with a Discovery Doc — no work items created |
 | `product-planning` | Business requirements → Epics → Features → Stories |
 | `technical-planning` | Story → Discussion Phase → Tasks with acceptance criteria |
-| `orchestrator` | Coordinate delivery — assignee, dispatch Executor/Reviewer, correction loop, status cascade |
+| `orchestrator` | Coordinate delivery — assignee, dispatch Executor/Reviewer (both axes), correction loop, status cascade |
 | `execution` | Task → TDD → Implementation with wave execution |
 | `review` | Code review with decision context from planning |
 | `delivery` | Verify → Close story → Update docs → Save memory |
