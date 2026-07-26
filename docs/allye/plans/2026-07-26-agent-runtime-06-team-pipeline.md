@@ -296,7 +296,7 @@ a gate nobody described has claimed work passed a check that never ran."
 - Consumes: Task 1's authority rule; Task 2's pipeline table; the story verification loop from Plan 02.
 - Produces: the advancement procedure. Task 4 relies on it stopping rather than closing.
 
-- [ ] **Step 1: Establish the failing assertion and record the marker count**
+- [x] **Step 1: Establish the failing assertion and record the marker count**
 
 ```bash
 grep -c 'opencode-exclude' skills/orchestrator/SKILL.md
@@ -305,7 +305,7 @@ grep -c 'Pipeline handoff\|pipeline' skills/orchestrator/SKILL.md
 ```
 Expected: sixteen markers — record the exact number; the `work_status_done` calls in §6 and §7; and `pipeline` appearing zero times.
 
-- [ ] **Step 2: Replace §7's cascade with pipeline-aware advancement**
+- [x] **Step 2: Replace §7's cascade with pipeline-aware advancement**
 
 §7 currently moves an approved task to `done` and cascades. Replace its numbered list with:
 
@@ -349,7 +349,7 @@ is the correct outcome, not a failure to report.
 </HARD-GATE>
 ```
 
-- [ ] **Step 3: Add the stop announcement to §8**
+- [x] **Step 3: Add the stop announcement to §8**
 
 §8 covers epic completion. Add before it:
 
@@ -365,7 +365,7 @@ true position. The failure mode this replaces — closing the story to make the 
 finished — cost a real board seven tasks' worth of untracked work.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'opencode-exclude' skills/orchestrator/SKILL.md
@@ -377,7 +377,7 @@ grep -c 'reviewer-standards' skills/orchestrator/SKILL.md
 ```
 Expected: marker count **unchanged from Step 1**; all four new passages found; Plan 03's two-axis dispatch still present.
 
-- [ ] **Step 5: Bump version and commit**
+- [x] **Step 5: Bump version and commit**
 
 ```bash
 git add skills/orchestrator/
