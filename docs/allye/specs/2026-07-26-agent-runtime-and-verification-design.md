@@ -721,3 +721,59 @@ Not both for the same agent. Two copies of the same skill that can drift is the 
 
 All of §19 is **Plan 08**, and it includes Hermes as the sixth supported agent rather than deferring it — the adapter shape is only proven by adding one.
 
+## 20. Amendment — Hermes as an Allye client, not a second brain
+
+**Added 2026-07-26, after installing Hermes and finding what it already has.**
+
+### 20.1 Three overlaps, one of them much larger than it looked
+
+| Hermes has | Stores in | Allye equivalent |
+|---|---|---|
+| `memory` toolset | `~/.hermes/memories/` — empty; nothing saved yet | `intelligence`: 7 sectors, conflict resolution, team scope, semantic search |
+| `kanban` | `~/.hermes/kanban.db` — 118 KB, `auto_decompose: true` | `work_items`: Epic→Feature→Story→Task on the team's pipeline |
+| `todo` | session state | `productivity`: durable personal TODOs |
+
+**The kanban was mischaracterised on first look and the correction matters.** Its own help calls it a *"durable SQLite-backed task board shared across Hermes profiles"* whose tasks are *"claimed atomically, can depend on other tasks, and are executed by a named profile in an isolated workspace"* — with forty-odd subcommands including `dispatch`, `daemon`, `claim`, `heartbeat`, `block`, `decompose`, and a `swarm` mode described as *"parallel workers → verifier → synthesizer"*, across 3,235 lines.
+
+That is not a board. **It is an orchestration engine**, and a close analogue of what §7 and §10 of this document build: dispatch, isolated workspaces per unit of work, dependencies, and a verifier stage.
+
+### 20.2 Which engine drives
+
+**Allye drives; the Hermes kanban is disabled.** Decided knowing both work.
+
+Allye wins on three counts that are not preferences: it knows Epic→Feature→Story→Task with acceptance criteria and locked decisions; it respects each team's configured pipeline (§17); and it is multi-tenant, where Hermes's board is one SQLite file on one machine.
+
+**Autonomy is not the cost it looks like.** `hermes cron` can wake the Allye Orchestrator on a schedule, which produces the same unattended progress as Hermes's own daemon — with one source of truth instead of two.
+
+### 20.3 Disable, do not override
+
+Hermes's plugin API supports `register_tool(..., override=True)` to replace a built-in, gated behind `plugins.entries.<id>.allow_tool_override: true`. It was the obvious route and it is the wrong one here.
+
+Overriding would only be needed to keep Hermes's *internal* memory machinery — `nudge_interval: 10`, `flush_min_turns: 6` — writing into Allye. The `memory-protocol` skill is already explicit about when to save, so the nudge buys nothing, and taking it would cost a trust gate that exists to stop a plugin silently replacing something privileged.
+
+**Disabling the toolset is enough**: the agent is left with `mcp__allye__intelligence` and skills that say to use it. `override` stays available if the nudge later proves to matter.
+
+**One thing to watch after disabling memory.** It is woven into the turn loop, and `conversation_compression.py:160` reads `_memory_enabled`. Registering the tool requires `memory_enabled` **or** `user_profile_enabled` (`agent_init.py:1618`), so both go — and context compression may behave differently. That is an observation to make, not a reason to skip the change.
+
+### 20.4 `todo` stays, and is promoted rather than mirrored
+
+The two are different granularities, and making them "the same" would degrade both. Hermes's `todo` is turn-scratch — *read the file, run the test, commit*. Allye's `productivity` is durable and personal — *"Integração com meio de pagamento"*, *"Finalizar a TUI"*. Point step-planning at the durable list and it fills with a hundred entries reading "run the test"; point durable work at scratch and it vanishes at session end.
+
+The relation is not equivalence, it is **candidacy** — and this document already has the pattern. `memory-protocol` §4 Step 2 consolidates a session and then mines it: *"is any of this still true and useful outside this conversation?"*
+
+Session todos get the same treatment. A step dies with the session; a discovery like *"the rallye-app build fails without `bun install` because Bun is at a non-default path"* is promoted to `productivity`.
+
+### 20.5 A plugin, not a fork
+
+Forking was considered and rejected on the numbers: **1,813,134 lines of Python across 5,071 files**, in a repository merging hundreds of PRs per fortnight — v0.18.1 alone was ~667 commits across ~990 files.
+
+The plugin API covers what the fork would buy: `register_tool` with override, ten lifecycle hooks, `register_cli_command`, `register_skill`, `inject_message`, and `dispatch_tool`. Roughly two hundred lines that survive every upstream release.
+
+There is also a policy reason. Since the `2026-07-12` spec §7, Allye adapts with credit and never requires another install. Forking an agent so it can run Allye inverts that: Allye stops being a layer over agents and becomes a distribution of one — and the next question is whether Claude Code and Codex get forked too.
+
+Forking stays right if the agent loop itself ever needs changing, or if a branded Allye client becomes the goal. Neither applies, and the plugin work is contained in a fork anyway, so nothing is wasted by starting here.
+
+### 20.6 Scope
+
+All of §20 is **Plan 09**.
+
