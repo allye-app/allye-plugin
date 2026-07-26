@@ -613,3 +613,51 @@ Until both are fixed the Orchestrator **reads the resulting status after moving 
 ### 17.7 Scope
 
 All of §17 is **Plan 06**.
+
+## 18. Amendment — landing the work
+
+**Added 2026-07-26, after Plan 06 landed, from watching executors reach outside the suite.**
+
+### 18.1 The evidence
+
+Two dispatched executors, independently and unprompted, invoked an external suite's branch-finishing skill on completing their work. Neither was told to. Both were right that something was needed — Allye offers nothing for it.
+
+Meanwhile the merge-and-teardown flow was performed **by hand six times** during this project, guided by §7.6 of this document. A procedure executed six times from prose is a procedure the plugin should own.
+
+### 18.2 The gap, measured
+
+| Skill | branch | worktree | merge | PR |
+|---|:--:|:--:|:--:|:--:|
+| `delivery` | 0 | 0 | 0 | 0 |
+| `execution` | 1 | 0 | 0 | 0 |
+| `orchestrator` | 3 | 15 | 7 | 0 |
+
+Three things follow. **`delivery` closes a story without ever asking whether the code landed** — it verifies tasks, closes the item, updates docs, saves a memory, and never mentions the branch holding the work. **The serial path has no guidance at all**: `orchestrator` §7.1 covers teardown only for parallel dispatch, so a story delivered without a runtime is on its own. And **pull requests are unmodelled everywhere**, though many teams integrate no other way.
+
+### 18.3 The Allye-native part
+
+A generic branch-finishing skill asks how to integrate. The version that belongs here asks something a generic one cannot:
+
+> **A branch does not land ahead of its story.**
+
+If the story is parked at a pipeline gate (§17), the branch waits with it. Landing code whose story never passed QA is the same defect as closing the story to tidy the board, one layer down — and §17 exists because that defect was found on a real board.
+
+This is the connection that makes the skill Allye's: the work item is the authority on whether the work is done, and the branch follows it rather than leading it.
+
+### 18.4 What the skill holds
+
+- **The integration decision, asked rather than assumed** — merge locally, push and open a PR, or leave the branch alone. Teams differ, and the plugin has no basis to guess.
+- **The three locks** already proven in §7.6: push before removal, `worktree remove` without `--force`, pane closed last. Each exists because it prevents a specific way work disappears.
+- **The teardown order**, and the rule that only what the agent created gets destroyed.
+- **The prohibitions**: never merge to the base branch unasked, never force-push, never delete a branch.
+
+### 18.5 Where it lives
+
+A skill of its own, `branch-landing`, reached by the three callers that need it — `delivery` at story close-out, `orchestrator` at parallel teardown, `execution` when the Executor holds a worktree. `orchestrator` §7.1's procedure **moves** there rather than being duplicated, leaving a reference behind.
+
+Extraction is justified by three callers and by discipline that is not obvious: every one of the three locks looks skippable until the moment it is not.
+
+### 18.6 Scope
+
+All of §18 is **Plan 07**.
+
