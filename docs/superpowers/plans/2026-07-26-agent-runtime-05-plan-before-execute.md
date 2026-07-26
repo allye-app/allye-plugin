@@ -245,7 +245,7 @@ judgement."
 - Consumes: nothing.
 - Produces: an `## Interfaces` section in every task description, which Task 1's plan step reads and Task 4's handover carries.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n '## Interfaces' skills/technical-planning/SKILL.md
@@ -253,7 +253,7 @@ grep -n -i 'placeholder' skills/technical-planning/SKILL.md
 ```
 Expected: **no output from either.**
 
-- [ ] **Step 2: Add `Interfaces` to the task template**
+- [x] **Step 2: Add `Interfaces` to the task template**
 
 In section 4.3 "Task Description Template", after the `## Dependencies` block:
 
@@ -274,7 +274,7 @@ has. Writing "a session creator" instead of the signature moves the naming decis
 whoever implements second, and they will name it something else.
 ```
 
-- [ ] **Step 3: Add the no-placeholders gate**
+- [x] **Step 3: Add the no-placeholders gate**
 
 After the existing Verification Rule gate in 4.2.1:
 
@@ -297,14 +297,14 @@ has less context than you do right now, and no way to ask you.
 </HARD-GATE>
 ```
 
-- [ ] **Step 4: Add the checklist items**
+- [x] **Step 4: Add the checklist items**
 
 ```markdown
 - [ ] Every task's `Interfaces` block names exact signatures, not descriptions
 - [ ] No task description contains a placeholder or an unnamed edge case
 ```
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```bash
 grep -c '## Interfaces' skills/technical-planning/SKILL.md
@@ -315,7 +315,7 @@ grep -c 'Verification Rule' skills/technical-planning/SKILL.md
 ```
 Expected: all found, and Plan 02's Verification Rule still present — this task adds a sibling gate, it does not replace one.
 
-- [ ] **Step 6: Bump version and commit**
+- [x] **Step 6: Bump version and commit**
 
 ```bash
 git add skills/technical-planning/
