@@ -101,6 +101,34 @@ The executing agent found it, explained precisely why the two steps were incompa
 
 ---
 
+## F8 — Counts in assertions must be derived, never chosen defensively
+
+**Observed:** Plan 02, Task 3 Step 7 asserted that `verification-loop` appears **at least twice** in `skills/execution/SKILL.md`. The plan's own verbatim insertions produce exactly **one**. The executor inserted the text correctly, hit the assertion, and stopped.
+
+**Why the number was wrong:** I picked "2" as a safety margin, not by counting what the prescribed text produces. A count nobody computed will eventually disagree with the text it is meant to check.
+
+**Why the offered fixes were all wrong:** the executor proposed adding a second reference, and it would have been factually accurate — the story loop does share the task loop's bound. But the existing phrasing, "under the same bound as the task loop," is *better writing* than repeating the skill name in an adjacent paragraph. Padding prose to satisfy an assertion inverts which one serves the other, and here it would have introduced exactly the duplication the doctrine this plan applies names as a failure mode.
+
+**The deeper error, shared with F3:** the assertion used a skill name as a **proxy** for "the edit happened." It should check the distinctive text each insertion actually introduces — `Verification Phase` for the task loop, `story loop` for the story loop. Then it proves the thing it claims to prove, and no count needs guessing.
+
+**Fix, applied:** Step 7 now asserts exact counts derived from the prescribed text, and checks insertion-specific phrases rather than a reference tally.
+
+**Generalization:** F3 and F8 are the same mistake in two costumes — an assertion checking something *adjacent* to what it means. Before executing a plan, read each assertion and ask what would have to be true for it to pass *without* the change having happened correctly. If there is such a case, the assertion is checking a proxy.
+
+---
+
+## F9 — The plugin has no plan-then-validate step before implementation
+
+**Observed:** raised by Bruno rather than by an execution failure. `skills/execution/SKILL.md` goes from Step 4 (read the existing code) directly to Step 5 (TDD, write). Nothing between them produces a statement of *how* the work will be done, and nothing checks it before code exists.
+
+**Why it matters:** the Executor's halt-and-report contract fires when a task turns out underspecified — but it fires **mid-implementation**, with code already written. The Orchestrator's pre-flight completeness check exists to catch this earlier and its own text concedes it catches "the obvious cases, not all."
+
+**Also the honest origin:** building this spec needed `brainstorming` and `writing-plans` from an external suite, because Allye has no counterpart. The plugin has never had a runtime dependency on that suite, but its own development leaned on it, which is its own kind of gap.
+
+**Fix:** recorded as spec §16 and scoped to Plan 05 — a plan-then-validate step between reading and writing, with three mechanical checks that always run and approach review bound to the AFK/HITL label. Sequenced after Plans 03 and 04 because the label those plans produce and consume is what the validation binds to.
+
+---
+
 ## Process observations
 
 Not defects — things about *how* this was built that are worth keeping or dropping.
