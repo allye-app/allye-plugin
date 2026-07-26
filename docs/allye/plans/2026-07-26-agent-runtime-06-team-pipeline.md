@@ -57,7 +57,7 @@ Treat that list as **the seeded example, not the universe.** Read spec §17 befo
 - Consumes: nothing.
 - Produces: the discovery procedure and the authority rule, both referenced by name from Task 3.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n 'testing.*review\|Status name (convention)' skills/board-progression/SKILL.md
@@ -65,7 +65,7 @@ grep -c 'discover' skills/board-progression/SKILL.md
 ```
 Expected: the convention table found — it currently orders `testing` before `review`, which matches no preset — and `discover` appearing zero times.
 
-- [ ] **Step 2: Replace the convention table with a discovery procedure**
+- [x] **Step 2: Replace the convention table with a discovery procedure**
 
 In `skills/board-progression/SKILL.md` §1, the table headed "Status name (convention)" and the paragraph introducing it are replaced by:
 
@@ -115,7 +115,7 @@ tenant's configuration, not a list to code against**: `idea`, `researching`, `de
 `done`, `cancelled`.
 ```
 
-- [ ] **Step 3: Add the authority rule**
+- [x] **Step 3: Add the authority rule**
 
 Add a new section after §3 ("How `work_status_done` Works"):
 
@@ -145,7 +145,7 @@ An unrecognised status is treated as a stop, not a pass. Ask once who satisfies 
 the answer in the team's delivery configuration, and never ask again.
 ```
 
-- [ ] **Step 4: Fix the per-type progression section**
+- [x] **Step 4: Fix the per-type progression section**
 
 §5 gives progressions per item type using invented status names. Replace its four blocks with:
 
@@ -166,11 +166,11 @@ What holds regardless of the team's configuration:
   Orchestrator's, after review clears — see `orchestrator` §6.
 ```
 
-- [ ] **Step 5: Apply the authoring doctrine and bump the version**
+- [x] **Step 5: Apply the authoring doctrine and bump the version**
 
 Run the no-op test sentence by sentence; collapse duplicated meaning. Preserve the four category names, the `work_status_next` resolution logic, and the `work_status_done` mechanics — those are behaviour of the real API.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 grep -c 'Status name (convention)' skills/board-progression/SKILL.md
@@ -182,7 +182,7 @@ grep -c 'proposed' skills/board-progression/SKILL.md
 ```
 Expected: the old convention table gone; all four new passages present; the four categories still documented. The seeded status names may appear **only** in the labelled example paragraph — check that by eye, since a grep cannot tell an example from a rule.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add skills/board-progression/
