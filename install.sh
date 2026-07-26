@@ -200,220 +200,34 @@ else
   print_warning "Skill seeding skipped (no PAT). Re-run with ALLYE_PAT set to seed skills."
 fi
 
-# ─── Step 4: Detect and Configure Agents (OAuth-based MCP) ────────────────────
+# ─── Step 4: install / uninstall / status ─────────────────────────────────────
+
+source "$SCRIPT_DIR/install/lib.sh"
 
 echo ""
-print_step "Detecting installed AI agents..."
 
-AGENTS_CONFIGURED=0
-
-# Claude Code
-if command -v claude &>/dev/null; then
-  print_success "Claude Code detected"
-
-  CLAUDE_SETTINGS_DIR="$HOME/.claude"
-  CLAUDE_SETTINGS="$CLAUDE_SETTINGS_DIR/settings.json"
-
-  mkdir -p "$CLAUDE_SETTINGS_DIR"
-
-  # Read existing settings or create empty object
-  if [ -f "$CLAUDE_SETTINGS" ]; then
-    SETTINGS=$(cat "$CLAUDE_SETTINGS")
-  else
-    SETTINGS='{}'
-  fi
-
-  # Add SessionStart hook
-  HOOK_CMD="\"$SCRIPT_DIR/manifests/claude/hooks/session-start.sh\""
-
-  SETTINGS=$(echo "$SETTINGS" | jq \
-    --arg cmd "$HOOK_CMD" \
-    '
-    .hooks.SessionStart = (.hooks.SessionStart // []) |
-    if (.hooks.SessionStart | any(.hooks[]?.command == $cmd)) then
-      .
-    else
-      .hooks.SessionStart += [
-        {
-          "matcher": "startup|resume",
-          "hooks": [
-            {
-              "type": "command",
-              "command": $cmd,
-              "timeout": 15
-            }
-          ]
-        }
-      ]
-    end
-    ')
-
-  # ALLYE_PAT in settings env is used only by the session-start hook's
-  # skill-fetch API call — never for MCP auth (that's OAuth).
-  if [ -n "$PAT" ]; then
-    SETTINGS=$(echo "$SETTINGS" | jq \
-      --arg pat "$PAT" \
-      '.env = (.env // {}) | .env.ALLYE_PAT = $pat')
-  fi
-
-  echo "$SETTINGS" | jq '.' > "$CLAUDE_SETTINGS"
-  print_success "Claude Code hook configured"
-
-  # Add Allye MCP server to ~/.claude.json (OAuth — no PAT headers)
-  CLAUDE_JSON="$HOME/.claude.json"
-  if [ -f "$CLAUDE_JSON" ]; then
-    CLAUDE_CFG=$(cat "$CLAUDE_JSON")
-  else
-    CLAUDE_CFG='{}'
-  fi
-
-  CLAUDE_CFG=$(echo "$CLAUDE_CFG" | jq \
-    --arg url "$MCP_URL" \
-    '.mcpServers["allye-mcp"] = {
-      "type": "http",
-      "url": $url
-    }')
-
-  echo "$CLAUDE_CFG" | jq '.' > "$CLAUDE_JSON"
-  print_success "Allye MCP server configured (OAuth — browser login on first use)"
-  AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
-else
-  print_warning "Claude Code not found — skipping"
-fi
-
-# Cursor
-if command -v cursor &>/dev/null || [ -d "$HOME/.cursor" ]; then
-  print_success "Cursor detected"
-
-  # Configure MCP server (OAuth — no PAT headers)
-  CURSOR_MCP_DIR="$HOME/.cursor"
-  CURSOR_MCP="$CURSOR_MCP_DIR/mcp.json"
-  mkdir -p "$CURSOR_MCP_DIR"
-
-  if [ -f "$CURSOR_MCP" ]; then
-    CURSOR_CFG=$(cat "$CURSOR_MCP")
-  else
-    CURSOR_CFG='{}'
-  fi
-
-  CURSOR_CFG=$(echo "$CURSOR_CFG" | jq \
-    --arg url "$MCP_URL" \
-    '.mcpServers["allye-mcp"] = {
-      "url": $url
-    }')
-
-  echo "$CURSOR_CFG" | jq '.' > "$CURSOR_MCP"
-  print_success "Cursor MCP server configured (OAuth — browser login on first use)"
-  AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
-fi
-
-# OpenCode
-if command -v opencode &>/dev/null; then
-  print_success "OpenCode detected"
-
-  # Configure MCP server in global config (OAuth — no PAT headers)
-  OPENCODE_DIR="$HOME/.config/opencode"
-  OPENCODE_CFG_FILE="$OPENCODE_DIR/opencode.json"
-  mkdir -p "$OPENCODE_DIR"
-
-  if [ -f "$OPENCODE_CFG_FILE" ]; then
-    OC_CFG=$(cat "$OPENCODE_CFG_FILE")
-  else
-    OC_CFG='{"$schema": "https://opencode.ai/config.json"}'
-  fi
-
-  OC_CFG=$(echo "$OC_CFG" | jq \
-    --arg url "$MCP_URL" \
-    '.mcp["allye-mcp"] = {
-      "type": "remote",
-      "url": $url,
-      "enabled": true
-    }')
-
-  # Add allye-opencode plugin to plugin array
-  OC_CFG=$(echo "$OC_CFG" | jq '
-    .plugin = (.plugin // []) |
-    if (.plugin | index("allye-opencode")) then . else .plugin += ["allye-opencode"] end
-  ')
-
-  echo "$OC_CFG" | jq '.' > "$OPENCODE_CFG_FILE"
-  print_success "OpenCode MCP server + plugin configured (OAuth — browser login on first use)"
-  AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
-fi
-
-# Codex
-if command -v codex &>/dev/null; then
-  print_success "Codex detected"
-
-  # Configure MCP server in config.toml (OAuth — no PAT headers)
-  CODEX_DIR="$HOME/.codex"
-  CODEX_CFG="$CODEX_DIR/config.toml"
-  mkdir -p "$CODEX_DIR"
-
-  if [ -f "$CODEX_CFG" ] && grep -q "allye-mcp" "$CODEX_CFG" 2>/dev/null; then
-    # Migrate existing entry to OAuth: strip legacy PAT headers and old endpoint
-    sed -i '/http_headers.*Authorization.*Bearer/d' "$CODEX_CFG"
-    sed -i '/bearer_token_env_var/d' "$CODEX_CFG"
-    sed -i "s|mcp.allye.app/jsonrpc|mcp.allye.app/mcp|g" "$CODEX_CFG"
-    print_success "Codex MCP server updated (migrated to OAuth)"
-  else
-    cat >> "$CODEX_CFG" << TOML
-
-[mcp_servers.allye-mcp]
-url = "$MCP_URL"
-enabled = true
-TOML
-    print_success "Codex MCP server configured (OAuth — browser login on first use)"
-  fi
-  AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
-fi
-
-# Gemini CLI
-if command -v gemini &>/dev/null; then
-  print_success "Gemini CLI detected"
-
-  # Configure MCP server in global settings (OAuth — no PAT headers)
-  GEMINI_DIR="$HOME/.gemini"
-  GEMINI_SETTINGS="$GEMINI_DIR/settings.json"
-  mkdir -p "$GEMINI_DIR"
-
-  if [ -f "$GEMINI_SETTINGS" ]; then
-    GEMINI_CFG=$(cat "$GEMINI_SETTINGS")
-  else
-    GEMINI_CFG='{}'
-  fi
-
-  GEMINI_CFG=$(echo "$GEMINI_CFG" | jq \
-    --arg url "$MCP_URL" \
-    '.mcpServers["allye-mcp"] = {
-      "httpUrl": $url
-    }')
-
-  echo "$GEMINI_CFG" | jq '.' > "$GEMINI_SETTINGS"
-  print_success "Gemini CLI MCP server configured (OAuth — browser login on first use)"
-  AGENTS_CONFIGURED=$((AGENTS_CONFIGURED + 1))
-fi
+case "${1:-install}" in
+  install)   allye_install "${2:-}" ;;
+  uninstall) allye_uninstall "${2:?agent id required}" ;;
+  status)    allye_status ;;
+  *) echo "usage: ./install.sh [install [<agent>] | uninstall <agent> | status]" >&2; exit 2 ;;
+esac
 
 # ─── Done ──────────────────────────────────────────────────────────────────────
 
-echo ""
-echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║       Installation complete!         ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
-echo ""
-if [ -n "$PAT" ]; then
-  echo "  Skills seeded: $((SEEDED + UPDATED))/$SKILL_COUNT"
-else
-  echo "  Skills seeded: skipped (no PAT)"
-fi
-echo "  Agents configured: $AGENTS_CONFIGURED"
-echo ""
-
-if [ "$AGENTS_CONFIGURED" -gt 0 ]; then
+if [ "${1:-install}" = "install" ]; then
+  echo ""
+  echo -e "${GREEN}╔══════════════════════════════════════╗${NC}"
+  echo -e "${GREEN}║       Installation complete!         ║${NC}"
+  echo -e "${GREEN}╚══════════════════════════════════════╝${NC}"
+  echo ""
+  if [ -n "$PAT" ]; then
+    echo "  Skills seeded: $((SEEDED + UPDATED))/$SKILL_COUNT"
+  else
+    echo "  Skills seeded: skipped (no PAT)"
+  fi
+  echo ""
   echo "Start a new session in your AI agent to use the Allye plugin."
   echo "On first Allye tool use, your browser will open for OAuth login."
-else
-  echo "No supported agents were detected."
-  echo "Install Claude Code, OpenCode, Cursor, Codex, or Gemini CLI and run this again."
+  echo ""
 fi
-echo ""

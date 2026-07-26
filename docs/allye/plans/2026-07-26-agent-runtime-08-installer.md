@@ -148,7 +148,7 @@ reusing an existing format writer."
 - Consumes: Task 1's schema.
 - Produces: `allye_install <id>`, `allye_uninstall <id>`, `allye_status`, and the writers Task 3 and Task 4 call.
 
-- [ ] **Step 1: Write the shared library**
+- [x] **Step 1: Write the shared library**
 
 `install/lib.sh` holds detection, the version marker, the format writers, and the three verbs. Structure it so `install.sh` becomes argument parsing plus a dispatch.
 
@@ -190,7 +190,7 @@ Running `install` twice must produce exactly the same file as running it once. A
 - `allye_install [id]` — with no id, every detected agent. With an id, that one, and it says so plainly if that agent is not detected rather than installing into nothing.
 - `allye_uninstall <id>` — removes only what this installer wrote, identified by the marker. **Never removes a config file**; it removes the key or block it added.
 
-- [ ] **Step 2: Rewrite `install.sh` as a dispatcher**
+- [x] **Step 2: Rewrite `install.sh` as a dispatcher**
 
 Keep Steps 1–3 (PAT, validation, seeding) as they are — they work. Replace Step 4's five per-agent blocks with:
 
@@ -207,7 +207,7 @@ esac
 
 Bare `./install.sh` still installs everything detected — the existing behaviour and the one most people will run.
 
-- [ ] **Step 3: Verify idempotency, which is the property most likely to break**
+- [x] **Step 3: Verify idempotency, which is the property most likely to break**
 
 ```bash
 export ALLYE_TEST_HOME=/tmp/allye-install-test
@@ -231,7 +231,7 @@ HOME="$ALLYE_TEST_HOME" ./install.sh install claude >/dev/null
 jq -e '.mcpServers.userOwn and .mcpServers.allye' "$ALLYE_TEST_HOME/.claude.json" && echo "MERGED — user key survived"
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add install/lib.sh install.sh
