@@ -217,7 +217,7 @@ gotchas so it cannot silently return."
 - Consumes: nothing
 - Produces: nothing consumed by later tasks. Documentation only.
 
-- [ ] **Step 1: Locate the inaccurate sentence**
+- [x] **Step 1: Locate the inaccurate sentence**
 
 ```bash
 grep -n 'delivery' CLAUDE.md
@@ -225,20 +225,20 @@ grep -n 'delivery' CLAUDE.md
 
 Expected: a line in the "Guided delivery workflow" section reading `Epic close-out (\`skills/delivery/\`) is always a deliberate, manual step — the Orchestrator announces completion and asks, never auto-runs it.`
 
-- [ ] **Step 2: Replace it with the accurate description**
+- [x] **Step 2: Replace it with the accurate description**
 
 ```markdown
 Story close-out (`skills/delivery/`) verifies every task is done, closes the story, and closes the parent feature when all its stories are complete. Epic close-out is the Orchestrator's (`skills/orchestrator/` §8) and is always a deliberate, manual step — it announces completion and asks, never auto-runs `delivery`.
 ```
 
-- [ ] **Step 3: Verify the claim against the skill**
+- [x] **Step 3: Verify the claim against the skill**
 
 ```bash
 grep -in 'epic' skills/delivery/SKILL.md
 ```
 Expected: **no output**, or only a "What Comes Next" mention that routes elsewhere — confirming `delivery` genuinely does not close epics.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add CLAUDE.md
