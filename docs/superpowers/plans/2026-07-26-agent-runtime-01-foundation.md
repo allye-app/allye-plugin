@@ -32,7 +32,7 @@ The branch `refactor/pocock-skill-doctrine` holds seven commits rewriting seven 
 - Consumes: nothing
 - Produces: the seven rewritten skill files, which Task 2 then edits. No symbol or signature changes — this is prose only.
 
-- [ ] **Step 1: Confirm the branch is clean and contains only the expected files**
+- [x] **Step 1: Confirm the branch is clean and contains only the expected files**
 
 ```bash
 cd /home/bfernandes/dev/allye/allye-plugin
@@ -42,7 +42,7 @@ git diff --stat main..refactor/pocock-skill-doctrine
 
 Expected: the `status --porcelain` output is **empty**, and the diffstat lists **exactly seven files**, all under `skills/`. If any other path appears, stop — that is a collision with a later plan and must be resolved before merging.
 
-- [ ] **Step 2: Verify no MCP tool or parameter name was altered**
+- [x] **Step 2: Verify no MCP tool or parameter name was altered**
 
 ```bash
 git diff main..refactor/pocock-skill-doctrine -- skills/ \
@@ -52,7 +52,7 @@ git diff main..refactor/pocock-skill-doctrine -- skills/ \
 
 Expected: every removed line (`-`) that mentions a tool name has a matching added line (`+`) with the **same** tool name, or is a genuine deduplication where the same call already appears elsewhere in the file. A tool name that appears only on a `-` line and nowhere on a `+` line means a call was dropped — investigate before merging.
 
-- [ ] **Step 3: Merge the branch**
+- [x] **Step 3: Merge the branch**
 
 ```bash
 git merge --no-ff refactor/pocock-skill-doctrine -m "refactor(skills): apply skill-authoring doctrine to seven skills
@@ -71,7 +71,7 @@ legitimately-flat peer-set case the doctrine carves out."
 
 Expected: a clean merge with no conflicts, since no other branch has touched these seven files.
 
-- [ ] **Step 4: Verify the frontmatter contract survived**
+- [x] **Step 4: Verify the frontmatter contract survived**
 
 ```bash
 for f in memory-protocol tdd-workflow board-progression tools-quickref product-planning sandbox delivery; do
@@ -82,7 +82,7 @@ done
 
 Expected: all four keys present for all seven skills. A missing `version` or `category` is a regression against a fix already made in commit `9b53e33`.
 
-- [ ] **Step 5: Confirm the source worktree and pane are already gone**
+- [x] **Step 5: Confirm the source worktree and pane are already gone**
 
 The `pocock-doctrine` worktree was removed and its pane closed on 2026-07-26, before this plan began executing — worktree first, pane last, per the teardown rule in spec §7.6. The branch was deliberately kept as the record.
 
@@ -108,21 +108,19 @@ Five skills document `memory_save(..., work_item_id: "...", sprint_id: "...")`. 
 - Consumes: the seven files landed by Task 1 (two of them — `delivery`, `product-planning` — are edited again here)
 - Produces: `memory_save` call sites documenting only the four accepted parameters. Later plans rewriting `technical-planning`, `execution`, and `review` inherit these corrected call sites.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 cd /home/bfernandes/dev/allye/allye-plugin
-echo "--- work_item_id (no legitimate use anywhere):"
-grep -rn 'work_item_id' skills/
-echo "--- sprint_id outside the two sprint tool rows:"
-grep -rn 'sprint_id' skills/ | grep -v 'sprint_get\|sprint_work_items'
+echo "--- parameter-assignment form (this is the defect):"
+grep -rnE '^[[:space:]]*(work_item_id|sprint_id):' skills/
 ```
 
-Expected: **both non-empty** — this is the defect. Record the exact line numbers; you will assert both return nothing at Step 4.
+Expected: **non-empty** — one hit per `memory_save` call site carrying either parameter. Record the line numbers; Step 4 asserts this returns nothing.
 
-Note the second grep's exclusion. `sprint_id` is a **legitimate** required parameter of the `sprint_get` and `sprint_work_items` actions, documented in `skills/tools-quickref/SKILL.md:81-82`. Those two rows are correct and must survive. Do not exclude the whole `tools-quickref` file from the assertion — that would hide a genuine `memory_save` defect in it.
+The pattern matches the assignment form only. Prose that *mentions* `work_item_id` — such as the gotcha entry Step 3 adds — is not an instance of the defect and must not be caught here, and `sprint_id` as a legitimate parameter of `sprint_get` and `sprint_work_items` appears in a table cell, never as an indented assignment.
 
-- [ ] **Step 2: Remove the two parameters from every `memory_save` block**
+- [x] **Step 2: Remove the two parameters from every `memory_save` block**
 
 In each of the five files, delete the `work_item_id:` and `sprint_id:` argument lines from every `memory_save(...)` example. Delete the whole line, including its trailing comma handling — the preceding line must not be left with a dangling comma.
 
@@ -160,7 +158,7 @@ Apply the correct sector per call site, following `skills/memory-protocol/SKILL.
 | `delivery` | "Delivered — …" | `knowledge` |
 | `product-planning` | "Planning — … scope and decisions" | `decisions` |
 
-- [ ] **Step 3: Add a gotcha entry to the quickref so this cannot silently return**
+- [x] **Step 3: Add a gotcha entry to the quickref so this cannot silently return**
 
 In `skills/tools-quickref/SKILL.md`, add to the "Gotchas" list, keeping the existing style:
 
@@ -168,13 +166,17 @@ In `skills/tools-quickref/SKILL.md`, add to the "Gotchas" list, keeping the exis
 - **`memory_save` does not link a memory to a work item.** There is no `work_item_id` or `sprint_id` parameter — not on the MCP tool (`IntelligenceRequest`), not in its domain layer, and not on the backend's `SaveMemoryDto`. Passing them is silently discarded, not an error. To make a memory findable from a work item, put the key in `tags` and in the `title`.
 ```
 
-- [ ] **Step 4: Verify the parameters are gone and no `memory_save` lost its sector**
+- [x] **Step 4: Verify the parameters are gone and no `memory_save` lost its sector**
 
 ```bash
-grep -rn 'work_item_id' skills/
-grep -rn 'sprint_id' skills/ | grep -v 'sprint_get\|sprint_work_items'
+grep -rnE '^[[:space:]]*(work_item_id|sprint_id):' skills/
 ```
-Expected: **no output from either**. The two legitimate `sprint_id` rows in `tools-quickref` (`sprint_get`, `sprint_work_items`) must still be present — confirm with `grep -c 'sprint_id' skills/tools-quickref/SKILL.md`, which should print `2`.
+Expected: **no output.** Then confirm the two legitimate `sprint_id` table rows and the new gotcha entry all survived:
+
+```bash
+grep -c 'sprint_id' skills/tools-quickref/SKILL.md
+```
+Expected: `3` — the `sprint_get` row, the `sprint_work_items` row, and the gotcha entry. A count of `2` means the gotcha entry from Step 3 is missing.
 
 ```bash
 grep -rn -A 6 'memory_save(' skills/ | grep -c 'sector:'
@@ -182,11 +184,11 @@ grep -rc 'memory_save(' skills/*/SKILL.md | grep -v ':0'
 ```
 Expected: the count of `sector:` occurrences is greater than or equal to the count of `memory_save(` call sites. A call site without a sector silently defaults to `knowledge`, which is rarely correct.
 
-- [ ] **Step 5: Bump the versions of every skill touched**
+- [x] **Step 5: Bump the versions of every skill touched**
 
 Increment the `version` frontmatter minor value on all six modified files (`technical-planning`, `execution`, `review`, `delivery`, `product-planning`, `tools-quickref`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add skills/
@@ -215,7 +217,7 @@ gotchas so it cannot silently return."
 - Consumes: nothing
 - Produces: nothing consumed by later tasks. Documentation only.
 
-- [ ] **Step 1: Locate the inaccurate sentence**
+- [x] **Step 1: Locate the inaccurate sentence**
 
 ```bash
 grep -n 'delivery' CLAUDE.md
@@ -223,20 +225,20 @@ grep -n 'delivery' CLAUDE.md
 
 Expected: a line in the "Guided delivery workflow" section reading `Epic close-out (\`skills/delivery/\`) is always a deliberate, manual step — the Orchestrator announces completion and asks, never auto-runs it.`
 
-- [ ] **Step 2: Replace it with the accurate description**
+- [x] **Step 2: Replace it with the accurate description**
 
 ```markdown
 Story close-out (`skills/delivery/`) verifies every task is done, closes the story, and closes the parent feature when all its stories are complete. Epic close-out is the Orchestrator's (`skills/orchestrator/` §8) and is always a deliberate, manual step — it announces completion and asks, never auto-runs `delivery`.
 ```
 
-- [ ] **Step 3: Verify the claim against the skill**
+- [x] **Step 3: Verify the claim against the skill**
 
 ```bash
 grep -in 'epic' skills/delivery/SKILL.md
 ```
 Expected: **no output**, or only a "What Comes Next" mention that routes elsewhere — confirming `delivery` genuinely does not close epics.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add CLAUDE.md
@@ -261,7 +263,7 @@ The hook injects one line of context when a runtime is present, and nothing at a
 - Consumes: nothing
 - Produces: a line of the exact form `Agent runtime: herdr <version> (pane <pane_id>, workspace <workspace_id>)` appended to the hook's `additionalContext`. Plan 4 (`agent-runtime`) reads this line to decide whether to load `skills/agent-runtime/`. The prefix `Agent runtime: ` is the contract — do not change it without updating Plan 4.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `hooks/test-session-start.sh`:
 
@@ -311,12 +313,12 @@ Then make it executable:
 chmod +x hooks/test-session-start.sh
 ```
 
-- [ ] **Step 2: Run the test to see the current state**
+- [x] **Step 2: Run the test to see the current state**
 
 Run: `bash hooks/test-session-start.sh`
 Expected: all three PASS. The hook does not emit a runtime line today, so the two negative assertions already hold, and the JSON assertion guards against breaking the existing behaviour in Step 3. **This is the regression net, not a red test** — the positive case cannot be asserted portably, because it requires a live Herdr server. Verify it manually in Step 5.
 
-- [ ] **Step 3: Add the probe to `hooks/session-start.sh`**
+- [x] **Step 3: Add the probe to `hooks/session-start.sh`**
 
 Insert immediately before the final `jq -n` block, after `SKILL_CONTENT` is assigned:
 
@@ -349,12 +351,12 @@ fi
 
 Two details that matter. `detect_runtime` returns non-zero on every failure path so the `if` guard suppresses the line entirely — no empty section, no stray separator. And the `compatible: yes` check means a protocol-mismatched server is treated as *runtime absent*, never as *runtime broken*, so a stale Herdr install cannot block delivery.
 
-- [ ] **Step 4: Run the test to verify nothing regressed**
+- [x] **Step 4: Run the test to verify nothing regressed**
 
 Run: `bash hooks/test-session-start.sh`
 Expected: all three still PASS. In particular the JSON assertion must still hold — a runtime line containing an unescaped quote or newline would break `jq -n`.
 
-- [ ] **Step 5: Verify the positive case manually against the live server**
+- [x] **Step 5: Verify the positive case manually against the live server**
 
 ```bash
 echo '{"source":"startup"}' | bash hooks/session-start.sh | jq -r '.hookSpecificOutput.additionalContext' | tail -5
@@ -362,7 +364,7 @@ echo '{"source":"startup"}' | bash hooks/session-start.sh | jq -r '.hookSpecific
 
 Expected, when run inside a Herdr pane: the last lines show `Agent runtime: herdr 0.7.5 (pane wN:pM, workspace wN)` followed by the load instruction. Outside a pane, no such line appears.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add hooks/session-start.sh hooks/test-session-start.sh

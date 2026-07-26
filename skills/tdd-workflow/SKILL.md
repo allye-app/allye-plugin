@@ -1,19 +1,19 @@
 ---
 name: tdd-workflow
 description: Test-Driven Development discipline for AI agents. Red-Green-Refactor cycle, detection heuristic, and anti-patterns. Use when implementing features or fixing bugs.
-version: "1.0"
+version: "1.1"
 category: methodology
 ---
 
 # TDD Workflow
 
-This skill defines the Test-Driven Development discipline for implementing code with Allye workflows. TDD is not about writing tests — it's about **designing code through tests**.
+TDD is not about writing tests — it's about **designing code through tests**.
 
 ---
 
 ## 1. TDD Detection Heuristic
 
-Before implementing anything, ask yourself:
+Before implementing anything, ask:
 
 > **Can I write `expect(fn(input)).toBe(output)` before writing `fn`?**
 
@@ -50,12 +50,11 @@ The only question is whether the test comes before or after the implementation.
 
 ## 2. The Red-Green-Refactor Cycle
 
-### Red — Write a Failing Test
+### Red — write a failing test
 
-Write a test that describes the behavior you want:
+Write a test that describes the target behavior, not the implementation:
 
 ```javascript
-// Good: tests WHAT, not HOW
 test("should return 404 when user not found", async () => {
   const response = await request(app).get("/users/nonexistent");
   expect(response.status).toBe(404);
@@ -63,19 +62,9 @@ test("should return 404 when user not found", async () => {
 });
 ```
 
-```python
-# Good: tests behavior, not implementation
-def test_calculate_discount_for_premium_user():
-    user = User(tier="premium")
-    order = Order(total=100.00)
-    assert calculate_discount(user, order) == 15.00
-```
+**Run the test. It MUST fail.** If it passes, either the functionality already exists (don't reimplement it) or the test is wrong (it's not testing what you think).
 
-**Run the test. It MUST fail.** If it passes:
-- The functionality already exists — don't reimplement it
-- The test is wrong — it's not testing what you think
-
-### Green — Make It Pass
+### Green — make it pass
 
 Write the **minimum code** to make the test pass:
 
@@ -90,17 +79,11 @@ Rules for the Green phase:
 
 **Run the test. It MUST pass.**
 
-### Refactor — Clean Up
+### Refactor — clean up
 
-With green tests as your safety net:
+With green tests as your safety net: remove duplication, improve naming, simplify logic, extract functions where the code is too long, apply patterns where they genuinely help.
 
-- Remove duplication
-- Improve naming
-- Simplify logic
-- Extract functions if the code is too long
-- Apply patterns where they genuinely help
-
-**Run tests after EVERY change.** If a test fails, you broke something — undo and try again.
+**Run tests after EVERY change.** A failing test means you broke something — undo and try again.
 
 ### Repeat
 
@@ -108,55 +91,12 @@ Write the next test for the next behavior. Continue the cycle until all acceptan
 
 ---
 
-## 3. Test Quality Guidelines
+## 3. Test Quality
 
-### Write tests that describe behavior
-
-```javascript
-// Bad: tests implementation details
-test("should call userRepository.findById", () => { ... });
-
-// Good: tests observable behavior
-test("should return user profile for valid ID", () => { ... });
-```
-
-### One assertion per concept
-
-```python
-# Bad: testing multiple unrelated things
-def test_user_creation():
-    user = create_user("alice", "alice@example.com")
-    assert user.name == "alice"
-    assert user.email == "alice@example.com"
-    assert user.created_at is not None
-    assert send_welcome_email.called  # different concern!
-
-# Good: separate tests for separate concepts
-def test_user_created_with_correct_fields():
-    user = create_user("alice", "alice@example.com")
-    assert user.name == "alice"
-    assert user.email == "alice@example.com"
-
-def test_welcome_email_sent_on_creation():
-    create_user("alice", "alice@example.com")
-    assert send_welcome_email.called
-```
-
-### Test edge cases
-
-After the happy path passes, add tests for:
-- Empty inputs
-- Invalid inputs
-- Boundary values
-- Error conditions
-- Concurrent access (if applicable)
-
-### Name tests clearly
-
-The test name should read like a specification:
-- `should return empty list when no users match filter`
-- `should throw validation error when email is invalid`
-- `should retry request up to 3 times on timeout`
+- **Assert on behavior, not implementation** — `should return user profile for valid ID`, not `should call userRepository.findById`. Tests coupled to implementation break on every refactor.
+- **One assertion per concept.** A test that checks unrelated things (fields set *and* an email was sent) hides which concept broke when it fails — split into separate tests.
+- **Cover the edges** after the happy path passes: empty inputs, invalid inputs, boundary values, error conditions, concurrent access where applicable.
+- **Name tests as specifications** — `should throw validation error when email is invalid`, `should retry request up to 3 times on timeout`.
 
 ---
 
@@ -178,24 +118,9 @@ The test name should read like a specification:
 
 ## 5. Testing Patterns
 
-### Arrange-Act-Assert (AAA)
+Structure each test **Arrange-Act-Assert**: set up state, perform the one action under test, assert the result.
 
-```javascript
-test("should apply discount to order total", () => {
-  // Arrange
-  const order = createOrder({ total: 100, coupon: "SAVE10" });
-
-  // Act
-  const result = applyDiscount(order);
-
-  // Assert
-  expect(result.total).toBe(90);
-});
-```
-
-### Test doubles hierarchy
-
-Use the simplest double that works:
+Use the simplest test double that works:
 
 | Double | When to use |
 |--------|-------------|
@@ -204,15 +129,7 @@ Use the simplest double that works:
 | **Mock** | Set expectations upfront. Use sparingly — prefer stubs + assertions. |
 | **Fake** | Lightweight implementation (e.g., in-memory DB). Use for integration tests. |
 
-### Boundary testing
-
-Test at the edges of your system, not in the middle:
-
-```
-[External Input] → [Your Boundary] → [Your Logic] → [Your Boundary] → [External Output]
-     ↑                    ↑                                  ↑
-  Validate here     Test here                          Test here
-```
+Test at your system's boundaries — validate at the input boundary, assert at the output boundary — rather than reaching into the middle.
 
 ---
 

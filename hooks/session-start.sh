@@ -99,6 +99,31 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
   echo "export ALLYE_TENANT_SLUG=$ALLYE_TENANT_SLUG" >> "$CLAUDE_ENV_FILE"
 fi
 
+# Agent runtime detection — emits one line, or nothing at all.
+# A user without a runtime pays zero context for this feature.
+detect_runtime() {
+  [ "${HERDR_ENV:-}" = "1" ] || return 1
+  command -v herdr >/dev/null 2>&1 || return 1
+
+  local status version
+  status=$(herdr status 2>/dev/null) || return 1
+  echo "$status" | grep -q 'compatible: yes' || return 1
+
+  version=$(echo "$status" | awk '/^client:/{f=1} f&&/version:/{print $2; exit}')
+  [ -n "$version" ] || version="unknown"
+
+  echo "Agent runtime: herdr ${version} (pane ${HERDR_PANE_ID:-unknown}, workspace ${HERDR_WORKSPACE_ID:-unknown})"
+}
+
+if RUNTIME_LINE=$(detect_runtime); then
+  SKILL_CONTENT="${SKILL_CONTENT}
+
+---
+
+${RUNTIME_LINE}
+A story-parallel dispatch runtime is available. Load the \`agent-runtime\` skill before dispatching work in parallel."
+fi
+
 # Output structured JSON for Claude Code
 jq -n --arg ctx "$SKILL_CONTENT" '{
   "hookSpecificOutput": {

@@ -1,13 +1,13 @@
 ---
 name: delivery
 description: Workflow for finalizing a story after all tasks pass review. Verifies completeness, closes the story, updates documentation, and cleans up. Use when all tasks are done and reviewed.
-version: "1.0"
+version: "1.2"
 category: methodology
 ---
 
 # Technical Delivery Workflow
 
-This skill guides you through the final steps of delivering a story: verifying all tasks are complete, closing the story, updating documentation, and saving a final delivery memory.
+This skill finalizes a story after every task has passed review — closing it out, documenting what shipped, and clearing loose ends.
 
 Use this when: all tasks for a story are implemented and reviewed, and the user is ready to finalize delivery.
 
@@ -30,9 +30,8 @@ work_children(id: "{story uuid}")
 ```
 
 <HARD-GATE>
-Do NOT close the story if any task is not in "done" status.
-Every task must be completed and verified before the story can be delivered.
-If tasks are incomplete, go back to Technical Development or Technical Review.
+Close the story only once every task is completed, verified, and in "done" status.
+If any task is incomplete, route back to Technical Development or Technical Review instead of closing.
 </HARD-GATE>
 
 ### Verification checklist
@@ -136,8 +135,7 @@ memory_save(
   title: "Delivered — {STORY-KEY} {story title}",
   content: "## What was delivered\n{summary of the feature/change}\n\n## Tasks completed\n- {TASK-1}: {title}\n- {TASK-2}: {title}\n- {TASK-3}: {title}\n\n## Key decisions\n{important decisions from planning and implementation}\n\n## Documentation\n{what was documented, or 'No documentation needed'}\n\n## Lessons learned\n{anything worth remembering for similar work in the future}",
   tags: ["delivery", "completed", "{story-key}", "{feature-key}"],
-  work_item_id: "{story uuid}",
-  sprint_id: "{sprint uuid if applicable}"
+  sector: "knowledge"
 )
 ```
 

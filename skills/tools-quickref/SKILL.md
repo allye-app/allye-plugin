@@ -1,13 +1,11 @@
 ---
 name: tools-quickref
 description: Complete quick reference for all Allye MCP tools and their actions with parameters, plus the concrete gotchas that cause silent failures or confusing errors. Use when you need to know how to call a specific Allye tool, or you hit an unexpected error/behavior from one.
-version: "2.0"
+version: "2.2"
 category: reference
 ---
 
 # Allye Tools Quick Reference
-
-Complete reference for all 12 Allye MCP tools and their actions.
 
 ---
 
@@ -18,13 +16,14 @@ Complete reference for all 12 Allye MCP tools and their actions.
 - **`work_create`/`work_bulk_create` require `work_category`**, even though it looks optional next to `item_type`. Omit it and the call fails, listing the full valid-category enum back to you (see below).
 - **Item types include more than the obvious five**: `epic`, `feature`, `story`, `bug`, `hotfix`, `task`, `spike`, `subtask` — not just epic/feature/story/task/bug.
 - **Assigning to someone else is two calls, not one.** `work_assign_to_me` only covers yourself. For anyone else: `team_members` (via `team`) to resolve their user id, then `work_update(id, assignee_id: "<their id>")`.
-- **`work_update(id, work_status: "<status uuid>")` jumps directly to any status in one call** — it is not limited to one step forward. `work_status` is wired straight through to `status_id` on the backend PATCH (`allye_mcp/application/tools/work_items.py:379`, covered by `test_forwards_status_and_assignee` in `tests/unit/test_work_items_tool.py`). This was previously a silent no-op — fixed in allye-mcp commit `b9b6281` ("wire status/assignee in work_update + team_members", 2026-06-15, `develop` branch) — if you're working from an older memory or doc that says status/assignee can't be set via `work_update`, that's stale. `work_status_next`/`work_status_done` remain valid for stepwise or done-jump flows; `work_update` is the direct alternative when you already know the target status id.
+- **`work_update(id, work_status: "<status uuid>")` jumps directly to any status in one call** — not limited to one step forward. Fixed in allye-mcp commit `b9b6281` (2026-06-15, `develop`) after being a silent no-op; if a memory or doc claims status/assignee can't be set via `work_update`, that's stale. `work_status_next`/`work_status_done` remain valid for stepwise or done-jump flows; `work_update` is the direct alternative when you already know the target status id.
 - **`work_update` still does NOT accept `parent_key`/`parent_id`.** Re-parenting is create-time only (`work_create`, `work_bulk_create`) — the `work_update` action in `work_items.py` never reads `payload.parent_key`, so passing it is silently ignored, not an error. Don't assume the 2026-06-15 status/assignee fix extended to parent.
 - **`work_status_next` moves forward only.** It errors if the item is already at the last status in the board's progression, and there's no `work_status_prev`. Use `work_status_done` to jump straight to done regardless of current position, or `work_update(work_status: ...)` to jump to any specific status. See the `allye-board-progression` skill for the full resolution logic.
 - **`work_bulk_create` caps at 50 items per call**, and each item takes `parent_temp_id` (reference another item in the same batch) **or** `parent_key` (reference an existing item) — never both on the same item.
 - **`doc_create` needs `doc_emoji`** for every type except `folder` — check `doc_full_tree` for placement before creating, always; don't guess a parent location.
-- **`memory_save` never silently fails or duplicates.** Every save resolves to one of four outcomes — `created`, `updated` (non-destructive merge), `superseded` (new one wins, old kept for audit), or `noop` (already fully captured, nothing written). Treat `noop` as "already known," not an error to reword-and-retry past.
-- **Memory `sector` determines scope automatically — you never set scope directly.** `sessions` and `preferences` are always personal; every other sector (`decisions`, `incidents`, `plans`, `patterns`, `knowledge`) is always team. Passing `sector` wrong is the #1 way a memory ends up invisible to the rest of the team.
+- **`memory_save` never silently fails or duplicates.** Every save resolves to one of four outcomes (`created`/`updated`/`superseded`/`noop` — see §intelligence). Treat `noop` as "already known," not an error to reword-and-retry past.
+- **`memory_save` does not link a memory to a work item.** There is no `work_item_id` or `sprint_id` parameter — not on the MCP tool (`IntelligenceRequest`), not in its domain layer, and not on the backend's `SaveMemoryDto`. Passing them is silently discarded, not an error. To make a memory findable from a work item, put the key in `tags` and in the `title`.
+- **Memory `sector` determines scope automatically — you never set scope directly** (mapping in §intelligence). Passing it wrong is the #1 way a memory ends up invisible to the rest of the team.
 - **The memory relocation flow is one-time per user, ever** — always check `alreadyPrompted` on `memory_relocation_candidates` before offering it; offering it twice is exactly the nagging behavior the guard exists to prevent.
 - **`initialize` returns `profile.user.id`** — the reliable way to know "who's currently logged in" when deciding self-assignment vs. assigning to someone else.
 
@@ -274,7 +273,7 @@ Bootstrap Allye environment.
 4. work_status_done(id: "...")                           → mark complete
 ```
 
-Stepwise `work_status_next` calls are still the right default while work is actually progressing through each stage (keeps tracking fidelity — see `allye-board-progression`). But you are **not required to advance one step at a time** if you already know the target status: `work_statuses()` → find the target status id → `work_update(id: "...", work_status: "<target status uuid>")` moves the item there directly in one call, regardless of how many statuses it skips. Use this when correcting a status that's out of sync, or jumping to a known target instead of walking through intermediate ones.
+Stepwise `work_status_next` is still the right default while work is actually progressing through each stage. To jump straight to a known target instead — correcting a status that's out of sync, for example — use `work_update(id: "...", work_status: "<target status uuid>")` from `work_statuses()` (see the Gotchas entry above).
 
 ### Find and resume previous work
 

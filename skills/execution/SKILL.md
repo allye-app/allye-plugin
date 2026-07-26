@@ -1,7 +1,7 @@
 ---
 name: execution
 description: Workflow for implementing tasks with TDD discipline, read-first rule, and wave execution. Use when the user wants to write code, implement a task, or develop features.
-version: "1.1"
+version: "1.2"
 category: methodology
 ---
 
@@ -245,8 +245,7 @@ memory_save(
   title: "Implementation — {TASK-KEY} {short description}",
   content: "## What was done\n{summary of changes}\n\n## Key decisions during implementation\n{any new decisions made}\n\n## Files changed\n- {file 1}\n- {file 2}\n\n## Gotchas\n{anything surprising or non-obvious encountered}\n\n## Tests\n{what was tested, any notable test patterns}",
   tags: ["development", "implementation", "{story-key}", "{task-key}"],
-  work_item_id: "{task uuid}",
-  sprint_id: "{sprint uuid if applicable}"
+  sector: "knowledge"
 )
 ```
 
