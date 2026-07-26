@@ -389,7 +389,7 @@ A skill whose file exists but which nothing can resolve is a broken reference, n
 **Files:**
 - Modify: `seed/seed-skills.json`, `skills/using-allye/SKILL.md`, `README.md`, `CLAUDE.md`
 
-- [ ] **Step 1: Seed it**
+- [x] **Step 1: Seed it**
 
 Add to `seed/seed-skills.json`'s `skills` array, matching the existing entry shape exactly:
 
@@ -407,7 +407,7 @@ Add to `seed/seed-skills.json`'s `skills` array, matching the existing entry sha
 
 Every agent, because git is git everywhere — unlike `agent-runtime`, which is claude-only because only there does a hook detect a runtime.
 
-- [ ] **Step 2: Add it to the bootstrap's on-demand paragraph**
+- [x] **Step 2: Add it to the bootstrap's on-demand paragraph**
 
 `using-allye` §2 has a one-sentence paragraph naming the skills that sit outside the routing table because no user request routes to them directly. It currently begins **"Two skills sit outside this table"** — that word becomes **"Three"**, and `branch-landing` joins the list as reached from `delivery`, `orchestrator`, and `execution`.
 
@@ -415,11 +415,11 @@ Changing the number is not cosmetic: a sentence that says "two" and lists three 
 
 **This file is injected into every session** — keep the addition to the existing sentence rather than adding a new one, and check the line count afterwards.
 
-- [ ] **Step 3: Update the counts**
+- [x] **Step 3: Update the counts**
 
 `README.md` and `CLAUDE.md` both state skill counts. **17 skills** after this plan. The README's marketplace-published count rises to **16** — every skill except `setup`.
 
-- [ ] **Step 4: Verify the whole registration, not just the file**
+- [x] **Step 4: Verify the whole registration, not just the file**
 
 ```bash
 jq -e '.skills | map(select(.slug=="branch-landing")) | length == 1' seed/seed-skills.json
@@ -433,7 +433,7 @@ grep -on '1[0-9] skills' README.md CLAUDE.md
 ```
 Expected: the seed entry present and valid JSON; **16** seeded against **17** on disk, the difference being `setup`; the bootstrap references it; **zero** occurrences of "Two skills sit outside" and **one** of "Three skills sit outside"; `using-allye` at most **193** lines — it was 191 after Plan 05 and this adds words to one sentence, not a section; and every written count reading 17.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add seed/ skills/using-allye/ README.md CLAUDE.md

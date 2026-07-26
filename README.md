@@ -61,7 +61,7 @@ After installing, you get:
 - **OAuth authentication** — browser-based login, no tokens to manage
 - **Bootstrap hook** — injects workflow methodology at session start
 - **5 dispatched subagents** — reviewer-standards, reviewer-spec, deep-search, code-analyzer, executor, delegated via the Agent tool for phases that don't need to pause and ask you anything (executor only runs this way if you opt into automatic mode — manual is the default)
-- **16 skills** — Sandbox, Planning, Technical Planning, Orchestrator, and Delivery run as skills loaded directly into your conversation, loaded on-demand by the bootstrap, so they can ask you questions when something's ambiguous
+- **17 skills** — Sandbox, Planning, Technical Planning, Orchestrator, and Delivery run as skills loaded directly into your conversation, loaded on-demand by the bootstrap, so they can ask you questions when something's ambiguous
 - **Parallel delivery, when a runtime is detected** — the Orchestrator can drive several independent stories at once, each in its own git worktree and its own watchable agent process; without a detected runtime, delivery degrades to the existing manual and automatic-subagent modes
 
 #### Multiple Allye accounts (multi-tenant)
@@ -246,7 +246,7 @@ Once an epic's whole status cascade completes, the Orchestrator offers — never
 
 ## Skills
 
-Skills are the knowledge base that powers the agents. 15 workflow skills are published in the **Allye marketplace** — available to all users without setup (`setup` itself is Claude Code's local install-time skill and isn't marketplace-published).
+Skills are the knowledge base that powers the agents. 16 workflow skills are published in the **Allye marketplace** — available to all users without setup (`setup` itself is Claude Code's local install-time skill and isn't marketplace-published).
 
 | Skill | What it teaches |
 |-------|----------------|
@@ -265,6 +265,7 @@ Skills are the knowledge base that powers the agents. 15 workflow skills are pub
 | `tools-quickref` | Complete reference for all 12 MCP tools and 68+ actions |
 | `verification-loop` | Deriving the AFK/HITL label from whether every task has a runnable verification command |
 | `agent-runtime` | The five-primitive contract for driving an external agent runtime (Herdr), for parallel dispatch |
+| `branch-landing` | Decide how a finished branch lands — merge, PR, or leave it — and tear down without losing work |
 
 ### Custom team skills
 
