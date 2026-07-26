@@ -74,7 +74,7 @@ Read **§19 of the spec** before Task 1.
 - Consumes: nothing.
 - Produces: the adapter schema every later task reads. Field names are the contract — Tasks 2–5 use them literally.
 
-- [ ] **Step 1: Write the table**
+- [x] **Step 1: Write the table**
 
 Create `install/adapters.json`. One object per agent; the six existing agents' paths come from reading `install.sh`, not from memory.
 
@@ -114,7 +114,7 @@ Field meanings, which Tasks 2–5 depend on:
 | `skills.source` | `mcp` — the agent fetches them; seed to the API. `disk` — write files to `skills.path`. |
 | `bootstrap.kind` | `hook`, `plugin`, or absent. |
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 jq -e '.agents | length == 6' install/adapters.json
@@ -124,7 +124,7 @@ jq -e '[.agents[] | select(has("detect") and has("mcp") and has("skills"))] | le
 ```
 Expected: six agents — `claude codex cursor gemini hermes opencode`; exactly one reading skills from disk; every entry carrying the three required keys.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add install/adapters.json
@@ -148,7 +148,7 @@ reusing an existing format writer."
 - Consumes: Task 1's schema.
 - Produces: `allye_install <id>`, `allye_uninstall <id>`, `allye_status`, and the writers Task 3 and Task 4 call.
 
-- [ ] **Step 1: Write the shared library**
+- [x] **Step 1: Write the shared library**
 
 `install/lib.sh` holds detection, the version marker, the format writers, and the three verbs. Structure it so `install.sh` becomes argument parsing plus a dispatch.
 
@@ -190,7 +190,7 @@ Running `install` twice must produce exactly the same file as running it once. A
 - `allye_install [id]` — with no id, every detected agent. With an id, that one, and it says so plainly if that agent is not detected rather than installing into nothing.
 - `allye_uninstall <id>` — removes only what this installer wrote, identified by the marker. **Never removes a config file**; it removes the key or block it added.
 
-- [ ] **Step 2: Rewrite `install.sh` as a dispatcher**
+- [x] **Step 2: Rewrite `install.sh` as a dispatcher**
 
 Keep Steps 1–3 (PAT, validation, seeding) as they are — they work. Replace Step 4's five per-agent blocks with:
 
@@ -207,7 +207,7 @@ esac
 
 Bare `./install.sh` still installs everything detected — the existing behaviour and the one most people will run.
 
-- [ ] **Step 3: Verify idempotency, which is the property most likely to break**
+- [x] **Step 3: Verify idempotency, which is the property most likely to break**
 
 ```bash
 export ALLYE_TEST_HOME=/tmp/allye-install-test
@@ -231,7 +231,7 @@ HOME="$ALLYE_TEST_HOME" ./install.sh install claude >/dev/null
 jq -e '.mcpServers.userOwn and .mcpServers.allye' "$ALLYE_TEST_HOME/.claude.json" && echo "MERGED — user key survived"
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add install/lib.sh install.sh
@@ -257,7 +257,7 @@ and be unrecoverable."
 - Consumes: `skills.source == "disk"` and `skills.path` from the adapter.
 - Produces: `install_skills_to_disk <agent-id>`, called by `allye_install`.
 
-- [ ] **Step 1: Add the function**
+- [x] **Step 1: Add the function**
 
 For an adapter with `skills.source == "disk"`, export each seeded skill in `skills.export_format` and write it to `<skills.path>/<name>/SKILL.md`.
 
@@ -271,7 +271,7 @@ The adapter's `skills.source` is what decides. Do not "helpfully" do both.
 
 Every written `SKILL.md` carries the version marker as an HTML comment after the frontmatter, so `status` and `uninstall` can identify what this installer put there.
 
-- [ ] **Step 2: Confirm the format actually transfers**
+- [x] **Step 2: Confirm the format actually transfers**
 
 Hermes reads `SKILL.md` with YAML frontmatter following the agentskills.io standard; the adapter says `export_format: "claude"` on the expectation that it transfers unchanged. **Verify rather than assume**: install one skill, then read it back.
 
@@ -283,7 +283,7 @@ head -12 "$ALLYE_TEST_HOME/.hermes/skills/allye/using-allye/SKILL.md"
 
 Expected: our four frontmatter keys present and parseable. If Hermes requires anything ours lacks, add it in the writer and record what was needed in your report — that is a finding worth having, and it is the argument for a `hermes` export format upstream in `allye-mcp`.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 jq -r '.skills[].slug' seed/seed-skills.json | sort > /tmp/seeded.txt
@@ -293,7 +293,7 @@ grep -c 'ALLYE_INSTALLER_VERSION' "$ALLYE_TEST_HOME/.hermes/skills/allye/using-a
 ```
 Expected: the sixteen seeded skills present on disk, no more and no fewer; the marker present.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add install/lib.sh
@@ -316,7 +316,7 @@ Three artifacts: the MCP block, the skills (Task 3 handles those), and a bootstr
 - Create: `manifests/hermes/__init__.py`
 - Modify: `install/lib.sh`
 
-- [ ] **Step 1: Write the bootstrap plugin**
+- [x] **Step 1: Write the bootstrap plugin**
 
 `manifests/hermes/plugin.yaml`:
 
@@ -363,11 +363,11 @@ def register(ctx):
     ctx.register_hook("on_session_start", _bootstrap)
 ```
 
-- [ ] **Step 2: Install it from the adapter**
+- [x] **Step 2: Install it from the adapter**
 
 Extend the `bootstrap.kind == "plugin"` path: copy `manifests/hermes/` to `bootstrap.path`, then add the plugin name to `plugins.enabled` in `~/.hermes/config.yaml` — **appending to the list, not replacing it.** The user already has `herdr-agent-state` there and it must survive.
 
-- [ ] **Step 3: Handle interactive OAuth honestly**
+- [x] **Step 3: Handle interactive OAuth honestly**
 
 `mcp.interactive_auth` is true for Hermes: its OAuth needs a TTY, and a non-interactive `hermes mcp add` correctly refuses. Write the config block, then **tell the user what to run**:
 
@@ -378,7 +378,7 @@ Extend the `bootstrap.kind == "plugin"` path: copy `manifests/hermes/` to `boots
 
 Do not attempt it, and do not report success. A silent half-install is worse than a clear instruction.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Seed the sandbox with a config that already has a plugin, so the append is genuinely tested:
 
@@ -394,7 +394,7 @@ HOME="$ALLYE_TEST_HOME" ./install.sh status
 ```
 Expected: the plugin directory present with both files; the marker on line 4; the Python parses; `plugins.enabled` contains **both** `herdr-agent-state` and `allye-bootstrap` — the pre-existing entry surviving is the point of this test; `status` reports hermes as `current (v1)`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add manifests/hermes/ install/lib.sh
@@ -419,7 +419,7 @@ a clear instruction."
 - Modify: `README.md`, `CLAUDE.md`
 - Create: `docs/install-hermes.md`, `docs/update-hermes.md`
 
-- [ ] **Step 1: Document the three verbs**
+- [x] **Step 1: Document the three verbs**
 
 `README.md`'s Installation section gains the unified path as the primary route, with the per-agent marketplace and paste-into-agent instructions kept for people who prefer them.
 
@@ -430,15 +430,15 @@ a clear instruction."
 ./install.sh uninstall hermes
 ```
 
-- [ ] **Step 2: Add the Hermes guides**
+- [x] **Step 2: Add the Hermes guides**
 
 `docs/install-hermes.md` and `docs/update-hermes.md`, matching the existing four in shape. Both must state the interactive-OAuth step plainly — it is the one part that cannot be automated.
 
-- [ ] **Step 3: Update the architecture section**
+- [x] **Step 3: Update the architecture section**
 
 `CLAUDE.md`'s "Two parallel distribution mechanisms" section describes `install.sh` as configuring "MCP connections, the Claude Code hook/env, and the OpenCode plugin array". That is now wrong in three ways: six agents not five, skills-to-disk is new, and the three verbs replace the flat run. Rewrite it, and describe `install/adapters.json` as the place a seventh agent is added.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'install.sh status' README.md
@@ -448,7 +448,7 @@ grep -on 'six agents\|6 agents\|five agents\|5 agents' README.md CLAUDE.md
 ```
 Expected: the verbs documented; both guides present; `adapters.json` named in the architecture; and **no surviving mention of five agents** — that count is now wrong everywhere it appears.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md CLAUDE.md docs/install-hermes.md docs/update-hermes.md

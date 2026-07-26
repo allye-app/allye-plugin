@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Source of the **Allye** plugin — a methodology/workflow layer on top of the Allye MCP server, distributed to five different AI coding agents (Claude Code, OpenCode, Cursor, Codex, Gemini CLI). There is no build step for the plugin itself; it's mostly Markdown (agents, skills) plus shell scripts, distributed via `install.sh` or the Claude Code plugin marketplace. The one compiled piece is `packages/allye-opencode` (a TypeScript/bun package published to npm).
+Source of the **Allye** plugin — a methodology/workflow layer on top of the Allye MCP server, distributed to six different AI coding agents (Claude Code, OpenCode, Cursor, Codex, Gemini CLI, Hermes Agent). There is no build step for the plugin itself; it's mostly Markdown (agents, skills) plus shell scripts, distributed via `install.sh` or the Claude Code plugin marketplace. The one compiled piece is `packages/allye-opencode` (a TypeScript/bun package published to npm).
 
 ## Commands
 
 - No repo-wide build/lint/test — this is markdown + shell, not compiled (except the opencode package below).
 - Bump version, sync files, commit, tag, and push a release: `./release.sh [major|minor|patch]` (default `patch`). In practice releases are automated by semantic-release on push to `main` (see `.releaserc.json` / `.github/workflows/auto-release.yml`), driven by Conventional Commits — `release.sh` is the manual fallback.
-- Manual local install/update for testing: `./install.sh` (prompts for an Allye PAT, seeds skills via the API, detects and configures installed agents).
+- Manual local install/update for testing: `./install.sh` (prompts for an Allye PAT, seeds skills via the API, detects and configures every installed agent). Also supports explicit verbs: `./install.sh status`, `./install.sh install <agent>`, `./install.sh uninstall <agent>`.
 
 ### `packages/allye-opencode` (bun, TypeScript)
 - `bun install`
@@ -24,7 +24,9 @@ Source of the **Allye** plugin — a methodology/workflow layer on top of the Al
 ### Two parallel distribution mechanisms
 
 1. **Claude Code plugin** (native): `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` describe the plugin; Claude Code loads `agents/*.md` as subagents, `skills/*/SKILL.md` as on-demand skills, and `hooks/hooks.json` wires `hooks/session-start.sh` to `SessionStart`. `.mcp.json` configures the Allye MCP server itself (OAuth 2.1, HTTP transport, tenant-scoped URL).
-2. **Other agents** (OpenCode, Cursor, Codex, Gemini CLI): each gets a per-agent manifest under `manifests/<agent>/` (e.g. `manifests/codex/AGENTS.md`, `manifests/cursor/.cursorrules`, `manifests/gemini/GEMINI.md`, `manifests/opencode/opencode.json`) that bakes in the same workflow instructions in that agent's native format. These manifests are installed via the agent-assisted `docs/install-*.md` guides (paste-into-agent instructions), not by `install.sh` — `install.sh` only configures MCP connections, the Claude Code hook/env, and the OpenCode plugin array. OpenCode additionally gets a real plugin package (`packages/allye-opencode`) that registers 6 agents (Allye orchestrator-router, Plan, Orchestrator, Build, Review, Deliver) and injects Allye context via a system-prompt transform hook (`src/index.ts`, `src/context.ts`).
+2. **Other agents** (OpenCode, Cursor, Codex, Gemini CLI, Hermes Agent): each gets a per-agent manifest under `manifests/<agent>/` (e.g. `manifests/codex/AGENTS.md`, `manifests/cursor/.cursorrules`, `manifests/gemini/GEMINI.md`, `manifests/opencode/opencode.json`, `manifests/hermes/`) that bakes in the same workflow instructions in that agent's native format. The four paste-into-agent manifests are installed via the agent-assisted `docs/install-*.md` guides; Hermes's is installed by `install.sh` itself, since its shape (a Python plugin directory plus skills read from disk) needs real file writes, not a paste. OpenCode additionally gets a real plugin package (`packages/allye-opencode`) that registers 6 agents (Allye orchestrator-router, Plan, Orchestrator, Build, Review, Deliver) and injects Allye context via a system-prompt transform hook (`src/index.ts`, `src/context.ts`).
+
+`install.sh` is a thin dispatcher (`install.sh/lib.sh` sourced after PAT/skill-seeding) over `install/adapters.json` — one data entry per agent describing how to detect it, where its MCP config lives and in what format (`json` / `toml` / `yaml-block`), whether it fetches skills over MCP or reads them from a directory, and its bootstrap mechanism if any. Three verbs — `install [agent]`, `uninstall <agent>`, `status` — read that table; every writer is additive and idempotent (read, merge, write back), and a version-marker comment embedded in each file it writes (`ALLYE_INSTALLER_VERSION=N`) is what makes `status` a read instead of a registry. Adding a seventh agent is an adapter entry plus, at most, reusing an existing format writer.
 
 When editing workflow methodology, the canonical source is `skills/*/SKILL.md` — there is no separate synced/legacy copy. The old `skills/workflows/`, `skills/methodology/`, `skills/reference/`, and `skills/bootstrap/` directories were dead duplicates that drifted from the canonical files and have been deleted; each skill's `SKILL.md` is the single source of truth.
 

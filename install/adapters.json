@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "claude",
+      "label": "Claude Code",
+      "detect": { "command": "claude" },
+      "mcp": {
+        "path": "~/.claude.json",
+        "format": "json",
+        "key": "mcpServers.allye",
+        "entry": { "type": "http", "url": "{{MCP_URL}}" }
+      },
+      "skills": { "source": "mcp" },
+      "bootstrap": {
+        "kind": "hook",
+        "path": "~/.claude/settings.json",
+        "format": "json",
+        "hook_command": "{{SCRIPT_DIR}}/manifests/claude/hooks/session-start.sh"
+      }
+    },
+    {
+      "id": "cursor",
+      "label": "Cursor",
+      "detect": { "command": "cursor", "dir": "~/.cursor" },
+      "mcp": {
+        "path": "~/.cursor/mcp.json",
+        "format": "json",
+        "key": "mcpServers.allye",
+        "entry": { "url": "{{MCP_URL}}" }
+      },
+      "skills": { "source": "mcp" }
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode",
+      "detect": { "command": "opencode" },
+      "mcp": {
+        "path": "~/.config/opencode/opencode.json",
+        "format": "json",
+        "key": "mcp.allye",
+        "entry": { "type": "remote", "url": "{{MCP_URL}}", "enabled": true },
+        "array_merge": { "path": "plugin", "value": "allye-opencode" }
+      },
+      "skills": { "source": "mcp" }
+    },
+    {
+      "id": "codex",
+      "label": "Codex",
+      "detect": { "command": "codex" },
+      "mcp": {
+        "path": "~/.codex/config.toml",
+        "format": "toml",
+        "key": "mcp_servers.allye",
+        "block": "[mcp_servers.allye]\nurl = \"{{MCP_URL}}\"\nenabled = true"
+      },
+      "skills": { "source": "mcp" }
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini CLI",
+      "detect": { "command": "gemini" },
+      "mcp": {
+        "path": "~/.gemini/settings.json",
+        "format": "json",
+        "key": "mcpServers.allye",
+        "entry": { "httpUrl": "{{MCP_URL}}" }
+      },
+      "skills": { "source": "mcp" }
+    },
+    {
+      "id": "hermes",
+      "label": "Hermes Agent",
+      "detect": { "command": "hermes" },
+      "mcp": {
+        "path": "~/.hermes/config.yaml",
+        "format": "yaml-block",
+        "key": "mcp_servers.allye",
+        "interactive_auth": true,
+        "block": "  allye:\n    url: \"{{MCP_URL}}\"\n    auth: oauth\n    enabled: true"
+      },
+      "skills": {
+        "source": "disk",
+        "path": "~/.hermes/skills/allye",
+        "export_format": "claude",
+        "layout": "category-dir"
+      },
+      "bootstrap": {
+        "kind": "plugin",
+        "path": "~/.hermes/plugins/allye-bootstrap",
+        "enable_key": "plugins.enabled"
+      }
+    }
+  ]
+}
