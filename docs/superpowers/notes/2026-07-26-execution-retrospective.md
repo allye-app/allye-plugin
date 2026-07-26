@@ -179,6 +179,37 @@ A throwaway pane, `--cwd` at `/home/bfernandes/dev/allye/.worktrees/f7-probe` �
 
 ---
 
+## F12 — Recording a finding and applying it are different acts, and the second does not happen on its own
+
+**Observed:** this document recorded five fixes phrased as *"Fix (Plan 04, Task 1, `references/herdr.md` §spawn)"* — F1, F2, F4, F5, F10. Every one was written carefully, with the exact file and section. **None had been applied to Plan 04.** They were caught only because I re-read the plan before dispatching it, for an unrelated reason.
+
+**What would have shipped:** the runtime contract, permanently, with `spawn` inspecting the shell instead of waiting for it; `collect` justified by an alternate-screen failure that had already been shown not to reproduce; no section on answering a blocked agent; and `wait` with no notification bridge — the very lesson that came from Bruno asking why he had not been told a pane finished.
+
+**Why it happens:** writing the finding feels like completing it. The document fills up, each entry names its own remedy, and the sense of having handled it is indistinguishable from having handled it. Nothing in the loop closes.
+
+**Fix:** a retrospective needs an **application gate**, not just an author. Two mechanisms, both cheap:
+
+1. Every finding whose fix targets a plan is not closed until that plan is edited. Grep the retrospective for `Fix (Plan` before dispatching any plan, and confirm each one naming that plan has landed.
+2. Plan 05 carries this as an explicit task — see §16.7 of the spec — rather than trusting it to diligence.
+
+**The general shape, which is the part worth keeping:** any document that records "someone should do X" and is not itself checked before X's deadline will accumulate undone Xs at exactly the rate it accumulates insight. The failure is structural, not personal — the same trap the `orchestrator`'s two-correction rule and the `verification-loop`'s bound both exist to close elsewhere.
+
+---
+
+## F13 — A skill referenced by name but not seeded is a dangling reference, not a wrong count
+
+**Observed:** `plan04` flagged, as an out-of-scope note, that it had updated README's "workflow skills published in the Allye marketplace" from 13 to 15 **on the assumption** that the two new skills would be published — and said plainly it was an assumption. `seed/seed-skills.json` still held 13.
+
+**Why it mattered more than a count:** skills reference each other by name. `execution` says *"see the `verification-loop` skill"*; `orchestrator` says *"load the `agent-runtime` skill"*. A user whose Allye database lacks them does not get a slightly wrong number — they get a reference that fails at the exact moment the skill is needed, in the middle of execution.
+
+**Fix, applied:** both seeded. `verification-loop` for all five agents; `agent-runtime` claude-only, because the session hook that detects a runtime and makes the skill reachable exists only there. `setup` remains deliberately unseeded — it is Claude Code's local install-time skill.
+
+**What actually surfaced it:** the briefing's closing instruction — *"anything wrong but out of scope: report it, do not fix it."* The executor had no mandate to touch the seed and correctly did not. Without that line it would either have silently fixed it, hiding a design question about what ships to users, or said nothing at all.
+
+**Generalization:** a new skill is not complete when its file exists. It is complete when everything that names it can resolve it — the seed manifest, the routing table, and the counts in the documentation. Plan 05 should carry that as a checklist item, since two of the three were missed here.
+
+---
+
 ## Process observations
 
 Not defects — things about *how* this was built that are worth keeping or dropping.
@@ -189,4 +220,19 @@ Not defects — things about *how* this was built that are worth keeping or drop
 
 - **Delegating the doctrine rewrite to a parallel pane paid for itself** — 7 skills, −242 lines, two honestly-reported doctrine conflicts, while the design conversation continued. It also produced both defects recorded in spec §12, which no one was looking for.
 
-- **The false alarm cost real time.** `git diff spec..feat` showed Plans 02–04 as deleted, because they were added on the target branch after the merge base. Not a defect, but a reminder to check `--name-status` and the merge base before raising an alarm about missing work.
+- **The false alarm cost real time, twice.** `git diff spec..feat` showed files as deleted because they were added on the target branch after the merge base — once for Plans 02–04, once for this retrospective. Not a defect either time, but a reminder to check `--name-status` and the merge base before raising an alarm about missing work.
+
+- **Defects moved from being found late to being found early, and not by luck.**
+
+  | Plan | Defects found by the executor, mid-run | Defects found by pre-flight, before dispatch |
+  |---|---|---|
+  | 01 | 1 | — (no pre-flight yet) |
+  | 02 | 1 | 0 |
+  | 03 | 0 | 3 |
+  | 04 | 0 | 2 assertion defects + 5 unapplied findings |
+
+  Plans 03 and 04 ran without stopping because their defects had already been removed, not because they were better written. The pre-flight — reading each assertion and asking *what would have to be true for this to pass without the change having happened correctly* — is the cheapest thing in this whole session, at roughly ten minutes per plan.
+
+- **The briefing template did more work than any skill.** Three separate behaviours came from paragraphs written by hand into the dispatch briefings, not from any skill or handover template: stopping on a contradictory step rather than improvising; reporting out-of-scope findings without fixing them (which surfaced F13, the two defects in spec §12, and the `delivery` scope error); and refusing to say "no conflicts" to be agreeable, which produced the two honest doctrine conflicts in the first workstream. **All three belong in `references/story-execution.md`, and only the first is currently scoped for Plan 05.** The other two are the strongest candidates for whatever comes after it.
+
+- **Every executor's most useful output was the thing it was told not to fix.** Four dispatches, four out-of-scope sections, and between them: two API defects, one architecture-doc error, and one dangling skill reference. None was in any plan. The instruction that produced them costs one sentence.
