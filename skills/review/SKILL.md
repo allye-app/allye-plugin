@@ -1,15 +1,13 @@
 ---
 name: review
 description: Workflow for reviewing implemented code with decision context from planning. Use when the user wants to review code quality, validate implementation, or check tasks before delivery.
-version: "1.1"
+version: "1.2"
 category: methodology
 ---
 
 # Technical Review Workflow
 
 This skill guides you through reviewing implemented code with full context — the decisions made during planning, the acceptance criteria defined for each task, and the architectural constraints captured in memories.
-
-Use this when the user wants to: review code, check implementation quality, validate against requirements, or prepare for delivery.
 
 ---
 
@@ -46,47 +44,41 @@ This gives you:
 
 ---
 
-## Step 2: Review Each Task
+## Step 2: Review Each Task — Two Axes
 
-For each completed task, verify:
+<!-- adapted from mattpocock/skills code-review (MIT) -->
 
-### 2.1 Acceptance Criteria
+Review runs as two independent passes. Keep them separate on the page and separate in
+your head, and **do not reconcile them**: a change can pass one and fail the other, and
+reporting them together is what lets one hide the other.
 
-Check the task description's acceptance criteria one by one:
+> Code that follows every standard but implements the wrong thing → **Standards pass,
+> Spec fail.**
+> Code that does exactly what was asked but breaks the project's conventions → **Spec
+> pass, Standards fail.**
 
-- [ ] Is each criterion met?
-- [ ] Can each criterion be verified (test, endpoint, UI)?
-- [ ] Are there criteria that were silently skipped?
+### Axis 1 — Standards: how it is written
 
-### 2.2 Code Quality
+Load team standards first (`skill_list` → `skill_get`); they override everything below.
+Then: consistency with existing patterns, security, error handling, naming, and test
+quality — do the tests assert behaviour rather than implementation, cover edge cases,
+and break for the right reasons?
 
-Review the actual code changes against these standards:
+Full checklist and the baseline smells: `agents/reviewer-standards.md`.
 
-| Check | What to look for |
-|-------|-----------------|
-| **Correctness** | Does it do what the acceptance criteria say? |
-| **Consistency** | Does it follow existing patterns in the codebase? |
-| **Simplicity** | Is it the simplest solution that works? No over-engineering? |
-| **Test coverage** | Are there tests? Do they test behavior, not implementation details? |
-| **Security** | No injection vulnerabilities, no exposed secrets, proper auth checks? |
-| **Error handling** | Are failure cases handled? Are errors informative? |
-| **Naming** | Are variables, functions, and files named clearly? |
+### Axis 2 — Spec: whether it is what was asked for
 
-### 2.3 Decision Compliance
+Every acceptance criterion, one at a time, against the verification evidence the
+execution report carried. A criterion reported met with no command output or observed
+procedure behind it is **unverified**, and gets reported as unverified rather than met.
+Then locked-decision compliance — any deviation is a defect — and unrequested scope.
 
-Check that the implementation respects the decisions from the planning phase:
+Full checklist: `agents/reviewer-spec.md`.
 
-- **Locked decisions** — Were they followed exactly? Any deviation is a defect.
-- **Agent-discretion decisions** — Were they reasonable? Is the rationale documented?
+### Reporting
 
-### 2.4 Test Quality
-
-Review the tests themselves:
-
-- Do tests describe behavior (what), not implementation (how)?
-- Are edge cases covered?
-- Can tests break for the right reasons (behavior changed) and not for the wrong ones (refactoring)?
-- Are there tests that test nothing meaningful (e.g., testing that a mock returns what you told it to)?
+Two reports, never merged, never reranked. The decision that combines them belongs to
+the Orchestrator — see `orchestrator` §6.
 
 ---
 
@@ -157,11 +149,11 @@ If you can run the test suite, do it:
 
 - [ ] Story and all tasks loaded
 - [ ] Planning decisions and implementation memories retrieved
-- [ ] Each task reviewed against acceptance criteria
-- [ ] Code quality checked (correctness, consistency, simplicity, security)
-- [ ] Locked decisions verified as respected
-- [ ] Tests reviewed for quality and coverage
-- [ ] Findings documented and saved as memory
+- [ ] Axis 2: each task's acceptance criteria checked against its verification evidence
+- [ ] Axis 2: locked decisions verified as respected
+- [ ] Axis 1: consistency, security, error handling, and naming checked
+- [ ] Axis 1: tests reviewed for quality and coverage
+- [ ] Findings documented and saved as memory, two axes kept separate
 - [ ] Tests run and passing
 
 ---

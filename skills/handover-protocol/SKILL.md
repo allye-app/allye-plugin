@@ -1,7 +1,7 @@
 ---
 name: handover-protocol
 description: The shared contract for handing off context between Allye workflow phases as copy-pasted chat text. Use when a phase skill is ending and needs to brief a fresh chat for the next phase (Planning, Technical Planning, Orchestrator, Executor), or when a fresh chat opens with a pasted handover and needs to detect which skill to load.
-version: "1.0"
+version: "1.1"
 category: methodology
 ---
 
@@ -44,10 +44,10 @@ Six types. Each is a distinct handoff with its own objective and field set — n
 | `execution-report` | Executor → Orchestrator | Return the implementation result | `references/execution-report.md` |
 | `correction` | Orchestrator → Executor | Fix specific review findings | `references/correction.md` |
 
-**Reviewer never receives a handover.** It's invoked<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> with a constructed prompt (story + tasks + files changed), dispatched by the Orchestrator — not by a pasted handover.
+**Neither reviewer axis ever receives a handover.** `reviewer-standards` and `reviewer-spec` are both invoked<!-- opencode-exclude:start --> via the `Agent` tool<!-- opencode-exclude:end --> with a constructed prompt (story + tasks + files changed), dispatched by the Orchestrator — not by a pasted handover.
 
 <!-- opencode-exclude:start -->
-**Executor is reachable both ways.** In manual mode it receives `story-execution`/`correction` handovers as documented above. In automatic mode (Orchestrator's choice, offered per story) it's dispatched via the `Agent` tool instead, the same way Reviewer is — see `agents/executor.md`. Either way the content is the same; only the transport differs.
+**Executor is reachable both ways.** In manual mode it receives `story-execution`/`correction` handovers as documented above. In automatic mode (Orchestrator's choice, offered per story) it's dispatched via the `Agent` tool instead, the same way the reviewer axes are — see `agents/executor.md`. Either way the content is the same; only the transport differs.
 <!-- opencode-exclude:end -->
 
 ## 3. Writing a good handover (mandatory checklist)

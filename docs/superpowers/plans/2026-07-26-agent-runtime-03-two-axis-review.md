@@ -43,7 +43,7 @@ ls skills/verification-loop/SKILL.md       # expect: exists (Plan 02)
 - Consumes: a dispatch prompt carrying team context, the story key, the task keys, and the files-changed list — the same fields `agents/reviewer.md` receives today.
 - Produces: findings in `✅ / ⚠️ / ❌` per task. Task 4 reads this shape. Do not change the symbols.
 
-- [ ] **Step 1: Write the agent**
+- [x] **Step 1: Write the agent**
 
 Create `agents/reviewer-standards.md`:
 
@@ -131,7 +131,7 @@ key and `review-standards`. The Orchestrator reads results from Allye, not from 
 terminal, so a report you did not save is a report that did not arrive.
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 sed -n '1,6p' agents/reviewer-standards.md
@@ -140,7 +140,7 @@ grep -c 'Feature Envy' agents/reviewer-standards.md
 ```
 Expected: frontmatter carries `name`, `description`, `tools`; the boundary sentence present exactly once; the smell table present. These check the two things that make this agent an axis rather than a generic reviewer — its refusal to answer the other axis, and the baseline it applies when a repo documents nothing.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/reviewer-standards.md
@@ -163,7 +163,7 @@ the code implements the right thing; that is reviewer-spec's axis."
 - Consumes: the same dispatch prompt as Task 1, plus the per-criterion verification evidence produced by Plan 02.
 - Produces: findings in the same `✅ / ⚠️ / ❌` shape. Task 4 reads both.
 
-- [ ] **Step 1: Write the agent**
+- [x] **Step 1: Write the agent**
 
 Create `agents/reviewer-spec.md`:
 
@@ -232,7 +232,7 @@ Save your findings with `memory_save`, `sector: "knowledge"`, tags including the
 key and `review-spec`. The Orchestrator reads results from Allye, not from your terminal.
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 sed -n '1,6p' agents/reviewer-spec.md
@@ -241,7 +241,7 @@ grep -c 'Any deviation is a defect' agents/reviewer-spec.md
 ```
 Expected: frontmatter complete; the boundary sentence present exactly once; the locked-decision rule present. Again the assertion checks the sentences that define the axis, not how often the sibling is named.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add agents/reviewer-spec.md
@@ -265,7 +265,7 @@ but wrong' visible instead of averaged away."
 - Consumes: Tasks 1 and 2.
 - Produces: a `review` skill describing both axes, for the interactive case where a human runs review by hand.
 
-- [ ] **Step 1: Find every reference to the old agent**
+- [x] **Step 1: Find every reference to the old agent**
 
 The obvious pattern misses half of them: `README.md` and `handover-protocol` write "Reviewer" capitalized and without backticks. Search case-insensitively, and scope to living files:
 
@@ -281,13 +281,13 @@ Expected: hits in `skills/orchestrator/SKILL.md`, `skills/review/SKILL.md`, `ski
 The current spec (`2026-07-26-*`) already describes the split — it is the document that decided it.
 </HARD-GATE>
 
-- [ ] **Step 2: Delete the old agent**
+- [x] **Step 2: Delete the old agent**
 
 ```bash
 git rm agents/reviewer.md
 ```
 
-- [ ] **Step 3: Rewrite the review skill's checks into two axes**
+- [x] **Step 3: Rewrite the review skill's checks into two axes**
 
 In `skills/review/SKILL.md`, replace section 2's single flat list of checks. Section 2.2 "Code Quality" and 2.3 "Decision Compliance" and 2.4 "Test Quality" become two clearly separated subsections:
 
@@ -329,15 +329,15 @@ Two reports, never merged, never reranked. The decision that combines them belon
 the Orchestrator — see `orchestrator` §6.
 ```
 
-- [ ] **Step 4: Apply the authoring doctrine to the whole file**
+- [x] **Step 4: Apply the authoring doctrine to the whole file**
 
 Run the no-op test sentence by sentence and delete whole sentences that fail; collapse duplicated meaning; confirm every step ends on a checkable criterion. Do not touch tool names, the `work_statuses()` / `work_update` backward-move mechanic, or the ✅/⚠️/❌ symbols.
 
-- [ ] **Step 5: Update the stale references**
+- [x] **Step 5: Update the stale references**
 
 In `CLAUDE.md` and `README.md`, replace every mention of four subagents with five, and every mention of `reviewer` with the two axis agents. Specifically, `CLAUDE.md`'s runtime-flow section 3 lists the shipped subagents; `README.md`'s "What you get" and "Agents" sections both give counts.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 test ! -f agents/reviewer.md && echo "old agent removed"
@@ -347,7 +347,7 @@ grep -c 'Axis 1\|Axis 2' skills/review/SKILL.md
 ```
 Expected: `agents/` lists `code-analyzer.md`, `deep-search.md`, `executor.md`, `reviewer-spec.md`, `reviewer-standards.md`; no stale path references; both axes present in the skill.
 
-- [ ] **Step 7: Bump version and commit**
+- [x] **Step 7: Bump version and commit**
 
 ```bash
 git add -A skills/review/ agents/ CLAUDE.md README.md
@@ -372,14 +372,14 @@ Also applies the skill-authoring doctrine to the review skill."
 - Consumes: Tasks 1–3.
 - Produces: the combination rule. Plan 04 modifies this same file for dispatch-mode resolution and must preserve this section.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -c 'reviewer-standards\|reviewer-spec' skills/orchestrator/SKILL.md
 ```
 Expected: `0`.
 
-- [ ] **Step 2: Replace section 5's dispatch instruction**
+- [x] **Step 2: Replace section 5's dispatch instruction**
 
 <HARD-GATE>
 **Preserve every `<!-- opencode-exclude:start -->` / `<!-- opencode-exclude:end -->` marker.** `skills/orchestrator/SKILL.md` carries twelve of them and `skills/handover-protocol/SKILL.md` three. They fence off Claude-Code-only text so it is stripped from the prompt generated for OpenCode, which has no `Agent` tool and no automatic-Executor mode.
@@ -403,7 +403,7 @@ per-criterion verification evidence the report carried — it reviews against th
 so a report that omits it produces a review that cannot confirm anything.
 ```
 
-- [ ] **Step 3: Replace section 6 with the combination rule**
+- [x] **Step 3: Replace section 6 with the combination rule**
 
 Section 6 currently reacts to one reviewer's output. Replace its opening with:
 
@@ -435,7 +435,7 @@ produced them: a task corrected once for standards and once for spec has used bo
 rounds, and a third failure escalates to the human.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'reviewer-standards' skills/orchestrator/SKILL.md
@@ -450,11 +450,11 @@ Expected, in order: both agent names present; the offsetting rule found; the per
 
 Note what these assert and what they do not. They check the distinctive sentences each edit introduces, not a count of how often an agent name appears — a name count would pass just as happily if you mentioned `reviewer-spec` twice in a comment and never wired it up.
 
-- [ ] **Step 5: Update the handover protocol's note**
+- [x] **Step 5: Update the handover protocol's note**
 
 `skills/handover-protocol/SKILL.md` §2 states "Reviewer never receives a handover." Update the name to plural — both axis agents are dispatched with a constructed prompt, neither receives a handover.
 
-- [ ] **Step 6: Bump version and commit**
+- [x] **Step 6: Bump version and commit**
 
 ```bash
 git add skills/orchestrator/ skills/handover-protocol/
