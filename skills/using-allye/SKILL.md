@@ -63,7 +63,7 @@ At the END of every conversation, you MUST run the `memory-protocol` skill's /sa
 
 Follow the `memory-protocol` skill's current save process — load it if you haven't already, and don't rely on an outdated inline copy of it here. That skill is the single source of truth for:
 
-- The **/save protocol** for session state (a 3-step process: consolidate the session into one `sector: "sessions"` memory, mine it for knowledge worth promoting to team sectors, react to each save's outcome)
+- The **/save protocol** for session state (a 4-step process: consolidate the session into one `sector: "sessions"` memory, mine it for knowledge worth promoting to team sectors, react to each save's outcome, and promote any session todo that outlives the session)
 - **When to save mid-conversation** (decisions, trade-offs, blockers, non-obvious context — each in its correct sector)
 - **Tag conventions** and sector selection
 
