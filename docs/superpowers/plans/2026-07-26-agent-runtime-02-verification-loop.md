@@ -170,7 +170,7 @@ label rather than leaving it to the Orchestrator to guess."
 - Consumes: `skills/verification-loop/SKILL.md` from Task 1, referenced by name.
 - Produces: every task description carries either a `## Verification` block with a runnable command, or `verification: manual` with a procedure. Tasks 3 and 4 read that block.
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n 'How to Verify' skills/technical-planning/SKILL.md
@@ -178,7 +178,7 @@ grep -c 'verification-loop' skills/technical-planning/SKILL.md
 ```
 Expected: the `## How to Verify` line exists in the task template (prose, no command required), and `verification-loop` appears **zero** times. That is the gap.
 
-- [ ] **Step 2: Replace the template's verification section**
+- [x] **Step 2: Replace the template's verification section**
 
 In `skills/technical-planning/SKILL.md`, section 4.3 "Task Description Template", replace this line:
 
@@ -199,7 +199,7 @@ verification: manual
 {the exact procedure a human follows, and what they should observe}
 ```
 
-- [ ] **Step 3: Add the gate**
+- [x] **Step 3: Add the gate**
 
 Immediately after the existing "Deep Work Rule" HARD-GATE in section 4.2, add:
 
@@ -222,7 +222,7 @@ costs the Orchestrator its ability to dispatch that story unattended.
 </HARD-GATE>
 ```
 
-- [ ] **Step 4: Add the derived label to the story summary**
+- [x] **Step 4: Add the derived label to the story summary**
 
 In section 3.5 "Confirm All Gray Areas Are Resolved", the confirmation summary already lists decisions. Append one line to what gets confirmed with the user:
 
@@ -233,7 +233,7 @@ Orchestrator reads this rather than guessing, so a wrong label here becomes a st
 dispatched to an unattended pane that then sits waiting for a human who is not watching.
 ```
 
-- [ ] **Step 5: Add the checklist item**
+- [x] **Step 5: Add the checklist item**
 
 In the "Workflow Checklist" near the end of the file, add after the acceptance-criteria item:
 
@@ -242,13 +242,13 @@ In the "Workflow Checklist" near the end of the file, add after the acceptance-c
 - [ ] The story's AFK/HITL label is derived and stated
 ```
 
-- [ ] **Step 6: Apply the authoring doctrine to the whole file**
+- [x] **Step 6: Apply the authoring doctrine to the whole file**
 
 This file was excluded from the earlier doctrine pass because this plan rewrites it. Apply it now: run the no-op test sentence by sentence and delete whole sentences that fail; collapse any meaning stated in more than one place; confirm each step ends on a criterion an agent can check.
 
 Do not touch: any MCP tool name, action name, or parameter; the Epic/Feature/Story vocabulary; the wave mechanic; the locked-vs-agent-discretion classification.
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 ```bash
 grep -c 'How to Verify' skills/technical-planning/SKILL.md
@@ -257,7 +257,7 @@ grep -c 'verification: manual' skills/technical-planning/SKILL.md
 ```
 Expected: `0` for the old heading; at least `2` for `verification-loop`; at least `2` for `verification: manual`.
 
-- [ ] **Step 8: Bump version and commit**
+- [x] **Step 8: Bump version and commit**
 
 ```bash
 git add skills/technical-planning/
