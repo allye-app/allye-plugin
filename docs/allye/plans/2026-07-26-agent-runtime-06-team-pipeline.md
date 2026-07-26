@@ -401,7 +401,7 @@ fifteen tasks still in review."
 **Files:**
 - Modify: `skills/delivery/SKILL.md`
 
-- [ ] **Step 1: Establish the failing assertion**
+- [x] **Step 1: Establish the failing assertion**
 
 ```bash
 grep -n 'work_status_done' skills/delivery/SKILL.md
@@ -409,7 +409,7 @@ grep -c 'pipeline' skills/delivery/SKILL.md
 ```
 Expected: the close-out calls present; `pipeline` absent.
 
-- [ ] **Step 2: Extend the verification gate**
+- [x] **Step 2: Extend the verification gate**
 
 §1's HARD-GATE requires every task done before closing. Add to it:
 
@@ -422,7 +422,7 @@ If tasks are parked, close-out is not blocked by an oversight. It is **not yet d
 gate they are waiting at and stop; do not close the story to tidy the board.
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 grep -n 'not yet due' skills/delivery/SKILL.md
@@ -430,7 +430,7 @@ grep -n 'done category' skills/delivery/SKILL.md
 ```
 Expected: both found.
 
-- [ ] **Step 4: Bump version and commit**
+- [x] **Step 4: Bump version and commit**
 
 ```bash
 git add skills/delivery/
