@@ -1,13 +1,13 @@
 ---
 name: delivery
 description: Workflow for finalizing a story after all tasks pass review. Verifies completeness, closes the story, updates documentation, and cleans up. Use when all tasks are done and reviewed.
-version: "1.0"
+version: "1.1"
 category: methodology
 ---
 
 # Technical Delivery Workflow
 
-This skill guides you through the final steps of delivering a story: verifying all tasks are complete, closing the story, updating documentation, and saving a final delivery memory.
+This skill finalizes a story after every task has passed review — closing it out, documenting what shipped, and clearing loose ends.
 
 Use this when: all tasks for a story are implemented and reviewed, and the user is ready to finalize delivery.
 
@@ -30,9 +30,8 @@ work_children(id: "{story uuid}")
 ```
 
 <HARD-GATE>
-Do NOT close the story if any task is not in "done" status.
-Every task must be completed and verified before the story can be delivered.
-If tasks are incomplete, go back to Technical Development or Technical Review.
+Close the story only once every task is completed, verified, and in "done" status.
+If any task is incomplete, route back to Technical Development or Technical Review instead of closing.
 </HARD-GATE>
 
 ### Verification checklist
