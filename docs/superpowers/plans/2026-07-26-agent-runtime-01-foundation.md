@@ -32,7 +32,7 @@ The branch `refactor/pocock-skill-doctrine` holds seven commits rewriting seven 
 - Consumes: nothing
 - Produces: the seven rewritten skill files, which Task 2 then edits. No symbol or signature changes — this is prose only.
 
-- [ ] **Step 1: Confirm the branch is clean and contains only the expected files**
+- [x] **Step 1: Confirm the branch is clean and contains only the expected files**
 
 ```bash
 cd /home/bfernandes/dev/allye/allye-plugin
@@ -42,7 +42,7 @@ git diff --stat main..refactor/pocock-skill-doctrine
 
 Expected: the `status --porcelain` output is **empty**, and the diffstat lists **exactly seven files**, all under `skills/`. If any other path appears, stop — that is a collision with a later plan and must be resolved before merging.
 
-- [ ] **Step 2: Verify no MCP tool or parameter name was altered**
+- [x] **Step 2: Verify no MCP tool or parameter name was altered**
 
 ```bash
 git diff main..refactor/pocock-skill-doctrine -- skills/ \
@@ -52,7 +52,7 @@ git diff main..refactor/pocock-skill-doctrine -- skills/ \
 
 Expected: every removed line (`-`) that mentions a tool name has a matching added line (`+`) with the **same** tool name, or is a genuine deduplication where the same call already appears elsewhere in the file. A tool name that appears only on a `-` line and nowhere on a `+` line means a call was dropped — investigate before merging.
 
-- [ ] **Step 3: Merge the branch**
+- [x] **Step 3: Merge the branch**
 
 ```bash
 git merge --no-ff refactor/pocock-skill-doctrine -m "refactor(skills): apply skill-authoring doctrine to seven skills
@@ -71,7 +71,7 @@ legitimately-flat peer-set case the doctrine carves out."
 
 Expected: a clean merge with no conflicts, since no other branch has touched these seven files.
 
-- [ ] **Step 4: Verify the frontmatter contract survived**
+- [x] **Step 4: Verify the frontmatter contract survived**
 
 ```bash
 for f in memory-protocol tdd-workflow board-progression tools-quickref product-planning sandbox delivery; do
@@ -82,7 +82,7 @@ done
 
 Expected: all four keys present for all seven skills. A missing `version` or `category` is a regression against a fix already made in commit `9b53e33`.
 
-- [ ] **Step 5: Confirm the source worktree and pane are already gone**
+- [x] **Step 5: Confirm the source worktree and pane are already gone**
 
 The `pocock-doctrine` worktree was removed and its pane closed on 2026-07-26, before this plan began executing — worktree first, pane last, per the teardown rule in spec §7.6. The branch was deliberately kept as the record.
 
