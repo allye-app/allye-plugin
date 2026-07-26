@@ -316,7 +316,7 @@ Three artifacts: the MCP block, the skills (Task 3 handles those), and a bootstr
 - Create: `manifests/hermes/__init__.py`
 - Modify: `install/lib.sh`
 
-- [ ] **Step 1: Write the bootstrap plugin**
+- [x] **Step 1: Write the bootstrap plugin**
 
 `manifests/hermes/plugin.yaml`:
 
@@ -363,11 +363,11 @@ def register(ctx):
     ctx.register_hook("on_session_start", _bootstrap)
 ```
 
-- [ ] **Step 2: Install it from the adapter**
+- [x] **Step 2: Install it from the adapter**
 
 Extend the `bootstrap.kind == "plugin"` path: copy `manifests/hermes/` to `bootstrap.path`, then add the plugin name to `plugins.enabled` in `~/.hermes/config.yaml` — **appending to the list, not replacing it.** The user already has `herdr-agent-state` there and it must survive.
 
-- [ ] **Step 3: Handle interactive OAuth honestly**
+- [x] **Step 3: Handle interactive OAuth honestly**
 
 `mcp.interactive_auth` is true for Hermes: its OAuth needs a TTY, and a non-interactive `hermes mcp add` correctly refuses. Write the config block, then **tell the user what to run**:
 
@@ -378,7 +378,7 @@ Extend the `bootstrap.kind == "plugin"` path: copy `manifests/hermes/` to `boots
 
 Do not attempt it, and do not report success. A silent half-install is worse than a clear instruction.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Seed the sandbox with a config that already has a plugin, so the append is genuinely tested:
 
@@ -394,7 +394,7 @@ HOME="$ALLYE_TEST_HOME" ./install.sh status
 ```
 Expected: the plugin directory present with both files; the marker on line 4; the Python parses; `plugins.enabled` contains **both** `herdr-agent-state` and `allye-bootstrap` — the pre-existing entry surviving is the point of this test; `status` reports hermes as `current (v1)`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add manifests/hermes/ install/lib.sh

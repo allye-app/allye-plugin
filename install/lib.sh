@@ -78,7 +78,7 @@ yaml_append_in_section() {  # $1 = path, $2 = header line, $3 = insert text
   local path="$1" target="$2" insert="$3"
   awk -v target="$target" -v insert="$insert" '
     function indent_of(s) { match(s, /^[ \t]*/); return RLENGTH }
-    BEGIN { in_section = 0; done = 0; target_indent = -1 }
+    BEGIN { in_section = 0; done = 0; target_indent = -1; blanks = "" }
     {
       if (!done && $0 == target) {
         print
@@ -87,18 +87,29 @@ yaml_append_in_section() {  # $1 = path, $2 = header line, $3 = insert text
         next
       }
       if (in_section && !done) {
-        is_blank = ($0 ~ /^[ \t]*$/)
+        if ($0 ~ /^[ \t]*$/) {
+          blanks = blanks $0 "\n"
+          next
+        }
         cur_indent = indent_of($0)
-        if (!is_blank && cur_indent <= target_indent) {
+        if (cur_indent <= target_indent) {
           print insert
           in_section = 0
           done = 1
+          printf "%s", blanks
+          blanks = ""
+        } else {
+          printf "%s", blanks
+          blanks = ""
         }
       }
       print
     }
     END {
-      if (in_section && !done) print insert
+      if (in_section && !done) {
+        print insert
+        printf "%s", blanks
+      }
     }
   ' "$path" > "$path.allye.tmp" && mv "$path.allye.tmp" "$path"
 }
@@ -289,6 +300,34 @@ install_skills_to_disk() {  # $1 = agent id
         ;;
     esac
   done
+}
+
+install_bootstrap_plugin() {  # $1 = adapter json
+  local aj="$1" src dest_dir config plugin_name enable_key top_key nested_key
+
+  src="$SCRIPT_DIR/manifests/$(echo "$aj" | jq -r '.id')"
+  dest_dir=$(expand_home "$(echo "$aj" | jq -r '.bootstrap.path')")
+  plugin_name=$(basename "$dest_dir")
+
+  mkdir -p "$dest_dir"
+  cp "$src/plugin.yaml" "$dest_dir/plugin.yaml"
+  cp "$src/__init__.py" "$dest_dir/__init__.py"
+
+  config=$(expand_home "~/.hermes/config.yaml")
+  mkdir -p "$(dirname "$config")"
+  touch "$config"
+
+  enable_key=$(echo "$aj" | jq -r '.bootstrap.enable_key')
+  top_key=$(echo "$enable_key" | cut -d. -f1)
+  nested_key=$(echo "$enable_key" | cut -d. -f2)
+
+  yaml_ensure_top_key "$config" "${top_key}:"
+  if ! grep -qxF "  ${nested_key}:" "$config" 2>/dev/null; then
+    yaml_append_in_section "$config" "${top_key}:" "  ${nested_key}:"
+  fi
+  if ! grep -qxF "    - $plugin_name" "$config" 2>/dev/null; then
+    yaml_append_in_section "$config" "  ${nested_key}:" "    - $plugin_name"
+  fi
 }
 
 # ─── Verbs ──────────────────────────────────────────────────────────────────
