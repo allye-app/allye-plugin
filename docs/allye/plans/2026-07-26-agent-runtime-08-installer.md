@@ -419,7 +419,7 @@ a clear instruction."
 - Modify: `README.md`, `CLAUDE.md`
 - Create: `docs/install-hermes.md`, `docs/update-hermes.md`
 
-- [ ] **Step 1: Document the three verbs**
+- [x] **Step 1: Document the three verbs**
 
 `README.md`'s Installation section gains the unified path as the primary route, with the per-agent marketplace and paste-into-agent instructions kept for people who prefer them.
 
@@ -430,15 +430,15 @@ a clear instruction."
 ./install.sh uninstall hermes
 ```
 
-- [ ] **Step 2: Add the Hermes guides**
+- [x] **Step 2: Add the Hermes guides**
 
 `docs/install-hermes.md` and `docs/update-hermes.md`, matching the existing four in shape. Both must state the interactive-OAuth step plainly — it is the one part that cannot be automated.
 
-- [ ] **Step 3: Update the architecture section**
+- [x] **Step 3: Update the architecture section**
 
 `CLAUDE.md`'s "Two parallel distribution mechanisms" section describes `install.sh` as configuring "MCP connections, the Claude Code hook/env, and the OpenCode plugin array". That is now wrong in three ways: six agents not five, skills-to-disk is new, and the three verbs replace the flat run. Rewrite it, and describe `install/adapters.json` as the place a seventh agent is added.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 grep -c 'install.sh status' README.md
@@ -448,7 +448,7 @@ grep -on 'six agents\|6 agents\|five agents\|5 agents' README.md CLAUDE.md
 ```
 Expected: the verbs documented; both guides present; `adapters.json` named in the architecture; and **no surviving mention of five agents** — that count is now wrong everywhere it appears.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md CLAUDE.md docs/install-hermes.md docs/update-hermes.md

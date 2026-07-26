@@ -12,6 +12,7 @@
   <img src="https://img.shields.io/badge/Cursor-supported-purple" alt="Cursor">
   <img src="https://img.shields.io/badge/Codex-supported-orange" alt="Codex">
   <img src="https://img.shields.io/badge/Gemini_CLI-supported-red" alt="Gemini CLI">
+  <img src="https://img.shields.io/badge/Hermes_Agent-supported-yellow" alt="Hermes Agent">
 </p>
 
 ---
@@ -39,6 +40,23 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 ---
 
 ## Installation
+
+### Unified installer (all agents)
+
+The fastest path if you have a terminal — one script detects every supported agent on your machine and configures each by the path it actually uses (MCP for agents that fetch it, skills-on-disk for agents that read them from a directory):
+
+```bash
+git clone https://github.com/allye-app/allye-plugin.git
+cd allye-plugin
+./install.sh          # every detected agent
+./install.sh status   # what is installed, and at which version
+./install.sh install hermes
+./install.sh uninstall hermes
+```
+
+Every write is additive and idempotent — your own MCP servers, plugins, and settings in each agent's config survive untouched. See [`docs/install-hermes.md`](docs/install-hermes.md) for Hermes Agent specifically (its OAuth step needs a terminal either way).
+
+Prefer the paste-into-agent or marketplace routes below? They still work — the unified installer doesn't replace them for Claude Code, OpenCode, Cursor, Codex, or Gemini CLI.
 
 ### Claude Code
 
@@ -151,6 +169,21 @@ After installing:
 Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-gemini.md
 ```
 
+### Hermes Agent
+
+```bash
+git clone https://github.com/allye-app/allye-plugin.git
+cd allye-plugin
+./install.sh install hermes
+```
+
+After installing:
+- **MCP server** configured in `~/.hermes/config.yaml` (OAuth needs a terminal — see [`docs/install-hermes.md`](docs/install-hermes.md))
+- **16 skills** exported to `~/.hermes/skills/allye/` — Hermes reads skills from disk, not over MCP
+- **`allye-bootstrap` plugin** installed and enabled — injects `using-allye` at session start
+
+**To update:** `cd allye-plugin && git pull && ./install.sh install hermes`
+
 ### Manual (all agents)
 
 ```bash
@@ -159,7 +192,7 @@ cd allye-plugin
 ./install.sh
 ```
 
-Auto-detects installed agents and configures MCP + skills for each one.
+Auto-detects every installed agent and configures each one — MCP for agents that fetch skills over it, skills-on-disk for Hermes.
 
 **To update:** `cd allye-plugin && git pull && ./install.sh`
 
@@ -184,6 +217,7 @@ Paste this into your agent's chat:
 | Cursor | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-cursor.md` |
 | Codex | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-codex.md` |
 | Gemini CLI | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-gemini.md` |
+| Hermes Agent | see [`docs/update-hermes.md`](docs/update-hermes.md) — run `./install.sh install hermes` after `git pull` |
 
 ### Manual
 
@@ -200,6 +234,7 @@ How multi-phase workflow support is implemented differs by platform, because not
 - **Claude Code** ships five dispatched subagents — **Reviewer-Standards**, **Reviewer-Spec**, **Deep Search**, **Code Analyzer**, and **Executor** — for phases that never need to interrupt you (Executor only runs this way if the Orchestrator's automatic mode is chosen for a story; its default is manual). Sandbox, Product Planning, Technical Planning, Orchestrator, and manual-mode Executor run as skills loaded directly into your conversation instead, precisely so they *can* stop and ask when something's ambiguous.
 - **OpenCode** ships 6 agent-picker personas (Ctrl+T to switch) — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver — OpenCode's agent model supports switching personas interactively within a session, so all 6 can be full agents. The automatic-Executor dispatch mode is Claude-Code-only for now; OpenCode always runs Executor (Allye Build) as an interactive agent.
 - **Cursor, Codex, Gemini CLI** — a single agent handles all phases with the same workflow knowledge (no multi-agent picker on these platforms).
+- **Hermes Agent** reads skills from a directory (`~/.hermes/skills/allye/`) rather than fetching them over MCP, and gets the `using-allye` bootstrap injected by a small Python plugin at session start instead of a hook — otherwise the same single-agent, same-workflow-knowledge shape as Cursor/Codex/Gemini CLI.
 
 Every phase, on every platform:
 - Responds in **your language** (detected from your messages, falling back to your profile only before you've said anything)
