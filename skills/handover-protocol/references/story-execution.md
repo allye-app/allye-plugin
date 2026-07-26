@@ -9,7 +9,11 @@
 - Exactly one story is named — if the Orchestrator is tempted to hand off two stories "to save a round trip," it must not; that's a feature-level handover in disguise.
 - **Every** task under that story is listed — all of them, across all waves, not just the first wave — with its acceptance criteria copied in **full** (not summarized, not just linked). The Executor's chat has no other context and will never receive a second handover for the rest of the story.
 - Tasks are grouped by wave so the Executor knows the execution order, but the wave grouping is ordering information only — it never shrinks the scope of the dispatch.
-- Applicable code standards were discovered (`skill_list` to find the relevant skill, then `skill_get(id: ...)` to fetch its actual content) and are named here, not left for the Executor to rediscover.
+- **Constraints are referenced, not recopied.** Anything true of every story under this
+  feature — the base branch, the test command, naming rules, the definition of done — belongs
+  in one feature-level doc that each handover points at. Recopying it into every handover
+  creates as many places to drift as there are stories, and the drift is silent because each
+  copy looks authoritative.
 - The story's **AFK/HITL label** is stated. It was derived at planning time from whether every
   task carries a runnable verification command (see `verification-loop` §4). The Orchestrator
   reads it to decide whether this story can go to an unattended pane — omitting it forces a
@@ -43,12 +47,28 @@ Implement {STORY-KEY} — {story title}
 ### Applicable locked decisions
 - {decision} — {rationale}
 
-### Applicable code standards
-{conventions discovered via skill_list and fetched via skill_get that must be followed, or "No team standard found — follow existing conventions in the code"}
+### Constraints
+Reference to the feature's constraints doc in Allye — read it, do not expect it summarised here.
+{doc title and id, or "No constraints doc — follow existing conventions in the code"}
 
 ### TDD expectation
 {whether Red-Green-Refactor applies and why, or why it doesn't}
 
 ---
-Read ONLY this story and these tasks — nothing more. Execute the waves in the listed order. If anything is unclear, STOP and ask — don't proceed on a guess.
+Read ONLY this story and these tasks. Execute the waves in the listed order.
+
+**If anything is unclear, STOP and ask — don't proceed on a guess.**
+
+**If anything is contradictory, STOP and report it.** A step that is perfectly clear and
+impossible is a different failure from an ambiguous one, and the more dangerous: it can be
+satisfied by quietly weakening whatever it conflicts with. Two criteria that cannot both
+hold, a task requiring what another forbids — report both halves, quoted, and resolve
+neither.
+
+**Report what is wrong but out of scope — do not fix it.** A defect you notice while working
+on something else is worth more reported than silently repaired, because a silent repair
+hides a decision that was never made.
+
+**Do not report "no issues" to be agreeable.** A conflict named is worth more than a clean
+report. If two rules genuinely disagreed and you chose one, say which and why.
 ```
