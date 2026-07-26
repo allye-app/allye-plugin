@@ -222,6 +222,21 @@
       "supported_agents": [
         "claude"
       ]
+    },
+    {
+      "name": "branch-landing",
+      "slug": "branch-landing",
+      "description": "Decide and execute what happens to a branch once its work is done — merge, open a pull request, or leave it — then tear down the worktree and pane without losing anything. Use when a story's implementation is complete, or when another skill needs the teardown sequence.",
+      "category": "devops",
+      "scope": "team",
+      "source_file": "skills/branch-landing/SKILL.md",
+      "supported_agents": [
+        "claude",
+        "opencode",
+        "cursor",
+        "codex",
+        "gemini"
+      ]
     }
   ]
 }

@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: Drives delivery of a planned feature — manages assignee, dispatches Executor for one story at a time, dispatches Reviewer in parallel, runs the correction loop, and cascades status up the work-item hierarchy. Use when a technical-to-orchestration handover arrives, or when the user wants to coordinate delivery of an already-planned feature (assign work, track status, drive tasks through review).
-version: "1.4"
+version: "1.5"
 category: methodology
 ---
 
@@ -206,30 +206,17 @@ is the correct outcome, not a failure to report.
 <!-- opencode-exclude:start -->
 ### 7.1 Merge and teardown — one story at a time
 
-Every step is a gate. Do not batch these across stories.
+Load the `branch-landing` skill and follow it. It holds the integration decision, the
+seven-step sequence, and the three locks that keep the sequence from losing work.
 
-1. Both review axes clear (§6) → tasks to `done`, story to `done`.
-2. **Gate:** `git -C <worktree> status --porcelain` must be empty. Dirty means stop —
-   do not merge, do not remove, escalate to the human.
-3. `git push -u origin feature/{story-key}-{slug}`.
-4. In the main checkout, on `$BASE`: `git merge --no-ff feature/{story-key}-{slug}`.
-5. Conflicts in shared wiring files are expected when parallel stories touch the same
-   composition root. **Resolve by consolidating into one instance, never by picking a side** —
-   picking a side silently deletes the other story's work while leaving its tests green.
-6. Rebuild, typecheck, and run tests **before** committing the merge.
-7. `git worktree remove <path>` — **without** `--force`.
-8. `herdr pane close <pane_id>` — only after step 7.
+Two things specific to parallel dispatch, which that skill does not know about:
 
-Three properties make "no work lost" structural rather than careful:
-
-| Step | What it guarantees |
-|---|---|
-| 3, push first | The branch exists on the remote before anything is destroyed. |
-| 7, no `--force` | Git refuses a dirty worktree. That refusal is the last safety net — bypassing it by reflex is how work disappears. |
-| 8, pane last | While the pane lives, the session's reasoning is still inspectable. Close it before a validated merge and the *why* is gone. |
-
-**An abandoned or failed story gets no cleanup.** Worktree, branch, and pane all stay.
-Visible litter costs far less than deleted work.
+- **One story at a time, never batched.** Several stories finishing together is exactly when
+  batching is tempting and exactly when a conflict in shared wiring is most likely. Land them
+  in sequence, rebuilding between.
+- **The pane you close is the one you created for that story.** With several open, closing the
+  wrong one destroys a running agent's session. Take the pane id from your own dispatch record,
+  never from the sidebar.
 <!-- opencode-exclude:end -->
 
 ## 7.2 Announce where delivery stopped
@@ -241,6 +228,10 @@ Orchestrator does not rediscover the boundary by trying to cross it.
 A story left open at a gate is **not** an incomplete delivery. It is delivery reporting its
 true position. The failure mode this replaces — closing the story to make the board look
 finished — cost a real board seven tasks' worth of untracked work.
+
+When delivery stops at a gate, the branch stops with it — see `branch-landing` §1. Say that
+explicitly in the announcement: the story is parked, and so is its code. A human reading only
+the board would otherwise assume the branch already landed.
 
 ## 8. Epic completion is manual
 

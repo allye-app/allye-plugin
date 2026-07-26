@@ -98,7 +98,7 @@ If no handover marker is present, fall through to the decision table below as be
 | Review code, check implementation quality | Technical Review | `allye-technical-review` |
 | Finalize delivery, close story, update docs | Technical Delivery | `allye-technical-delivery` |
 
-Two skills sit outside this table because no user request routes to them directly: `verification-loop` is loaded by `execution` when a task is being verified, and `agent-runtime` by `orchestrator` when parallel work is being dispatched. Both load on demand, from the skill that needs them.
+Three skills sit outside this table because no user request routes to them directly: `verification-loop` is loaded by `execution` when a task is being verified, `agent-runtime` by `orchestrator` when parallel work is being dispatched, and `branch-landing` by `delivery`, `orchestrator`, and `execution` when a branch's work is done. All three load on demand, from the skill that needs them.
 
 ### How to detect the phase
 
