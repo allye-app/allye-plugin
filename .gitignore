@@ -15,3 +15,4 @@ Thumbs.db
 # Node (caso venha a ter tooling)
 node_modules/
 
+.worktrees/
