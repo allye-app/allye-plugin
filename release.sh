@@ -42,6 +42,9 @@ jq --arg v "$NEW_VERSION" '
 ' "$MARKETPLACE_JSON" > /tmp/marketplace.json.tmp
 mv /tmp/marketplace.json.tmp "$MARKETPLACE_JSON"
 
+# Keep the public Pi package and its lockfile on the same release version.
+npm version --no-git-tag-version --ignore-scripts "$NEW_VERSION"
+
 # Commit and tag
 git add -A
 git commit -m "Release v$NEW_VERSION"

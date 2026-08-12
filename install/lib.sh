@@ -583,28 +583,10 @@ install_bootstrap_plugin() {  # $1 = adapter json
 }
 
 # ─── Pi package adapter ─────────────────────────────────────────────────────
-# Pi already owns its MCP configuration through pi-mcp-adapter. The installer
-# must not rewrite any MCP source; it only adds this repository as a Pi package
-# in settings.json, preserving every existing package and setting.
+# Pi owns package installation and persistence. Production installs always use
+# the published npm package; local checkout installation is an explicit
+# development-only opt-in. This code never edits Pi's settings.json.
 
-ensure_pi_dependencies() {
-  if [ -f "$SCRIPT_DIR/node_modules/pi-mcp-adapter/package.json" ]; then
-    return 0
-  fi
-  if ! command -v npm >/dev/null 2>&1; then
-    print_error "Pi runtime dependencies are missing and npm is not available."
-    return 1
-  fi
-  print_step "Installing Pi runtime dependencies in the Allye checkout..."
-  npm install --prefix "$SCRIPT_DIR" --omit=dev --no-audit --no-fund || {
-    print_error "Could not install Pi runtime dependencies in $SCRIPT_DIR"
-    return 1
-  }
-  if [ ! -f "$SCRIPT_DIR/node_modules/pi-mcp-adapter/package.json" ]; then
-    print_error "Pi runtime dependency pi-mcp-adapter is still missing after npm install"
-    return 1
-  fi
-}
 
 pi_expand_path() {  # $1 = adapter path, honoring Pi/project overrides
   case "$1" in
@@ -638,68 +620,62 @@ pi_mcp_source_with_allye() {  # $1 = adapter json -> first configured source
   return 1
 }
 
-write_pi_package() {  # $1 = adapter json
-  local aj="$1" path source content
-  path=$(pi_expand_path "$(echo "$aj" | jq -r '.package.settings_path')")
-  source=$(echo "$aj" | jq -r '.package.source' | sed "s#{{SCRIPT_DIR}}#$SCRIPT_DIR#g")
+pi_package_source() {  # $1 = adapter json, optional
+  local aj="${1:-}" production local_source
+  [ -n "$aj" ] || aj=$(allye_agent_json pi)
+  production=$(echo "$aj" | jq -r '.package.production_source')
+  local_source=$(echo "$aj" | jq -r '.package.local_source' | sed "s#{{SCRIPT_DIR}}#$SCRIPT_DIR#g")
 
-  mkdir -p "$(dirname "$path")"
-  if [ -f "$path" ]; then
-    if ! content=$(cat "$path") || ! echo "$content" | jq -e . >/dev/null 2>&1; then
-      print_error "Pi settings file is not valid JSON: $path"
-      print_error "Refusing to overwrite it; repair it and re-run the installer."
+  case "${ALLYE_PI_INSTALL_SOURCE:-npm}" in
+    npm) printf '%s\n' "$production" ;;
+    local) printf '%s\n' "$local_source" ;;
+    *)
+      print_error "Unsupported ALLYE_PI_INSTALL_SOURCE: ${ALLYE_PI_INSTALL_SOURCE}"
+      print_error "Use 'npm' (default) or 'local' for explicit checkout development."
       return 1
-    fi
-  else
-    content='{}'
-  fi
-
-  content=$(echo "$content" | jq --arg source "$source" '
-    .packages = ((.packages // []) |
-      if (map(if type == "string" then . else (.source // "") end) | index($source))
-      then . else . + [$source] end)')
-  printf '%s\n' "$content" | jq '.' > "$path"
+      ;;
+  esac
 }
 
-pi_package_source() {  # $1 = adapter json -> resolved source
-  echo "$1" | jq -r '.package.source' | sed "s#{{SCRIPT_DIR}}#$SCRIPT_DIR#g"
-}
-
-pi_package_installed() {  # $1 = adapter json
-  local aj="$1" path source
-  path=$(pi_expand_path "$(echo "$aj" | jq -r '.package.settings_path')")
-  source=$(pi_package_source "$aj")
-  [ -f "$path" ] || return 1
-  jq -e --arg source "$source" '
-    any((.packages // [])[]?; (type == "string" and . == $source) or
-      (type == "object" and .source == $source))' "$path" >/dev/null 2>&1
+pi_package_installed() {
+  local source="$1"
+  command -v pi >/dev/null 2>&1 || return 1
+  pi list 2>/dev/null | grep -Fqx -- "$source"
 }
 
 allye_install_pi() {  # $1 = adapter json
-  local aj="$1" mcp_source
-  ensure_pi_dependencies || return 1
-  write_pi_package "$aj" || return 1
+  local aj="$1" source mcp_source
+  command -v pi >/dev/null 2>&1 || {
+    print_error "Pi is not available on PATH."
+    return 1
+  }
+  source=$(pi_package_source "$aj") || return 1
+  print_step "Installing Pi package $source..."
+  pi install "$source" || {
+    print_error "Pi could not install $source"
+    return 1
+  }
   if mcp_source=$(pi_mcp_source_with_allye "$aj"); then
     print_success "Allye MCP detected at $mcp_source"
   else
     print_warning "Pi package installed, but no supported MCP source contains an Allye server"
-    print_warning "Checked project .mcp.json/.pi/mcp.json and supported global Pi/shared MCP paths."
     print_warning "Configure the Allye server with pi-mcp-adapter before starting work."
   fi
-  print_success "Pi configured (canonical skills + adapter package)"
+  print_success "Pi configured (canonical skills + official package manager)"
 }
 
-allye_uninstall_pi() {  # $1 = adapter json
-  local aj="$1" path source content
-  path=$(pi_expand_path "$(echo "$aj" | jq -r '.package.settings_path')")
-  source=$(pi_package_source "$aj")
-  [ -f "$path" ] || return 0
-  content=$(cat "$path")
-  if echo "$content" | jq -e . >/dev/null 2>&1; then
-    echo "$content" | jq --arg source "$source" '
-      .packages = ((.packages // []) | map(select(((type == "string" and . == $source) or
-        (type == "object" and .source == $source)) | not)))' | jq '.' > "$path"
-  fi
+allye_uninstall_pi() {
+  local aj="${1:-}" source
+  command -v pi >/dev/null 2>&1 || {
+    print_error "Pi is not available on PATH."
+    return 1
+  }
+  source=$(pi_package_source "$aj") || return 1
+  print_step "Removing Pi package $source..."
+  pi remove "$source" || {
+    print_error "Pi could not remove $source"
+    return 1
+  }
 }
 
 # ─── Verbs ──────────────────────────────────────────────────────────────────
@@ -710,7 +686,7 @@ allye_install_one() {  # $1 = adapter json
   label=$(echo "$aj" | jq -r '.label')
   if [ "$id" = "pi" ]; then
     allye_install_pi "$aj"
-    return 0
+    return $?
   fi
   fmt=$(echo "$aj" | jq -r '.mcp.format')
 
@@ -757,7 +733,7 @@ allye_install() {  # $1 = agent id, optional
       return 1
     fi
     allye_install_one "$aj"
-    return 0
+    return $?
   fi
 
   while IFS= read -r aj; do
@@ -785,7 +761,7 @@ allye_uninstall() {  # $1 = agent id
   fi
 
   if [ "$id" = "pi" ]; then
-    allye_uninstall_pi "$aj"
+    allye_uninstall_pi "$aj" || return $?
     print_success "$(echo "$aj" | jq -r '.label') uninstalled"
     return 0
   fi
@@ -854,18 +830,18 @@ allye_uninstall() {  # $1 = agent id
 }
 
 allye_status() {
-  local aj id label path installed status_text
+  local aj id label path source installed status_text
   while IFS= read -r aj; do
     id=$(echo "$aj" | jq -r '.id')
     label=$(echo "$aj" | jq -r '.label')
     if [ "$id" = "pi" ]; then
-      path=$(pi_expand_path "$(echo "$aj" | jq -r '.package.settings_path')")
+      source=$(pi_package_source "$aj" 2>/dev/null || true)
       if ! allye_detect "$id"; then
-        printf '  %-14s not detected           %s\n' "$label" "$path"
-      elif pi_package_installed "$aj"; then
-        printf '  %-14s current (package)      %s\n' "$label" "$path"
+        printf '  %-14s not detected           %s\n' "$label" "${source:-package source unavailable}"
+      elif [ -n "$source" ] && pi_package_installed "$source"; then
+        printf '  %-14s current (package)      %s\n' "$label" "$source"
       else
-        printf '  %-14s not installed          %s\n' "$label" "$path"
+        printf '  %-14s not installed          %s\n' "$label" "${source:-package source unavailable}"
       fi
       continue
     fi

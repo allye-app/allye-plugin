@@ -116,8 +116,8 @@
       },
       "skills": { "source": "package" },
       "package": {
-        "settings_path": "~/.pi/agent/settings.json",
-        "source": "{{SCRIPT_DIR}}"
+        "production_source": "npm:allye-pi",
+        "local_source": "{{SCRIPT_DIR}}"
       }
     }
   ]

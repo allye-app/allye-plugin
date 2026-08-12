@@ -9,18 +9,53 @@ replace Pi's MCP configuration:
   MCP server via `pi-mcp-adapter`;
 - Herdr is exposed only in explicit Pi orchestrator mode.
 
-## From a checkout
+## Official package sources
+
+### npm (default production install)
+
+```text
+./install.sh install pi
+# equivalent to:
+pi install npm:allye-pi
+
+./install.sh uninstall pi
+# equivalent to:
+pi remove npm:allye-pi
+```
+
+The installer delegates installation and persistence to Pi's official package
+manager. It never edits `~/.pi/agent/settings.json` manually and the default
+source is always the published npm package. Restart Pi (or run `/reload`) after
+installation.
+
+### Git
+
+Use Git when you want Pi to install the repository package directly, preferably
+at a tag for reproducibility:
+
+```text
+pi install git:github.com/allye-app/allye-plugin
+pi remove git:github.com/allye-app/allye-plugin
+```
+
+This is separate from `./install.sh install pi`, which intentionally remains an
+npm install.
+
+### Local checkout (development only)
+
+A checkout path is supported, but only through an explicit opt-in so a normal
+production install cannot accidentally load uncommitted code:
 
 ```text
 cd /path/to/allye-plugin
-./install.sh install pi
+ALLYE_PI_INSTALL_SOURCE=local ./install.sh install pi
+ALLYE_PI_INSTALL_SOURCE=local ./install.sh uninstall pi
 ```
 
-This adds the checkout path to `~/.pi/agent/settings.json` under `packages`,
-without replacing existing packages or settings. It also runs
-`npm install --omit=dev` in the checkout when `node_modules/pi-mcp-adapter` is
-missing, because Pi does not install dependencies for local package paths. The
-operation is idempotent; restart Pi (or run `/reload`) after installation.
+That delegates to `pi install /absolute/path/to/allye-plugin` and
+`pi remove /absolute/path/to/allye-plugin`. Pi manages the package settings and
+runtime dependencies in every case; `skills/*/SKILL.md` remains the single
+canonical skill tree.
 
 The installer deliberately does **not** edit any MCP file. Relative project
 paths are resolved from the installer `PWD`, or from `ALLYE_PI_PROJECT_DIR` when
@@ -34,16 +69,9 @@ Authenticate with `/mcp-auth allye` when required. Existing MCP servers are
 preserved. `./install.sh install pi` reports the first supported source that
 already contains Allye and warns only when none does.
 
-For a remote installation instead of a checkout:
-
-```text
-pi install git:github.com/allye-app/allye-plugin
-```
-
-The Git package uses the root Pi manifest and installs `pi-mcp-adapter` as a
-runtime dependency through Pi's package manager. Use a tagged ref when
-reproducibility is required. The npm tarball is intentionally limited to the
-adapter source, canonical skills, and Pi documentation; it is not the full
+Both npm and Git packages use the root Pi manifest and let Pi install
+`pi-mcp-adapter` as a runtime dependency. The npm tarball contains the adapter
+source, canonical `skills/` directory, and Pi documentation; it is not the full
 plugin checkout and is not the installer input.
 
 ## Modes

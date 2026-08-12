@@ -7,6 +7,7 @@
   <a href="https://github.com/allye-app/allye-plugin/releases"><img src="https://img.shields.io/github/v/release/allye-app/allye-plugin" alt="Release"></a>
   <a href="https://github.com/allye-app/allye-plugin/blob/main/LICENSE"><img src="https://img.shields.io/github/license/allye-app/allye-plugin" alt="License"></a>
   <a href="https://www.npmjs.com/package/allye-opencode"><img src="https://img.shields.io/npm/v/allye-opencode" alt="npm"></a>
+  <a href="https://www.npmjs.com/package/allye-pi"><img src="https://img.shields.io/npm/v/allye-pi" alt="npm"></a>
   <img src="https://img.shields.io/badge/Claude_Code-supported-blue" alt="Claude Code">
   <img src="https://img.shields.io/badge/OpenCode-supported-green" alt="OpenCode">
   <img src="https://img.shields.io/badge/Cursor-supported-purple" alt="Cursor">
@@ -173,16 +174,28 @@ Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye
 
 ### Pi
 
-Pi uses a native package adapter while keeping `skills/*/SKILL.md` as the only
-canonical skill source. The installer adds this checkout to Pi's package list
-and does not overwrite Pi's MCP configuration:
+Pi uses the published native package `allye-pi`, while keeping
+`skills/*/SKILL.md` as the only canonical skill source. The installer delegates
+installation to Pi's official package manager and does not edit Pi's
+`settings.json` or MCP configuration:
 
 ```bash
-./install.sh install pi
+./install.sh install pi       # production: npm:allye-pi
+./install.sh uninstall pi     # removes npm:allye-pi
 ```
 
-See [`docs/install-pi.md`](docs/install-pi.md) for MCP setup, executor versus
-orchestrator mode, and Herdr integration.
+Other official Pi sources are available when you choose them explicitly:
+
+```bash
+pi install npm:allye-pi
+pi install git:github.com/allye-app/allye-plugin
+ALLYE_PI_INSTALL_SOURCE=local ./install.sh install pi  # checkout development only
+```
+
+The installer defaults to npm. Use the Git command for a tagged repository
+checkout, and the `local` opt-in only while developing this repository. See
+[`docs/install-pi.md`](docs/install-pi.md) for MCP setup, mode selection, and
+Herdr integration.
 
 ### Hermes Agent
 

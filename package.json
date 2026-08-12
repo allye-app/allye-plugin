@@ -1,7 +1,6 @@
 {
-  "name": "allye-pi-adapter",
+  "name": "allye-pi",
   "version": "1.0.0",
-  "private": true,
   "description": "Pi package adapter for the canonical Allye workflow",
   "type": "module",
   "keywords": ["pi-package", "allye", "workflow"],
@@ -31,12 +30,13 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p packages/allye-pi/tsconfig.json",
-    "test:pi": "node --experimental-strip-types --test packages/allye-pi/src/index.test.ts"
+    "test:pi": "node --experimental-strip-types --test packages/allye-pi/src/index.test.ts",
+    "test:installer": "bash install/test-pi.sh"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/allye-app/allye-plugin",
-    "directory": "packages/allye-pi"
+    "directory": "."
   },
   "license": "MIT"
 }

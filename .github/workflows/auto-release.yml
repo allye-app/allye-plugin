@@ -73,3 +73,53 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-pi:
+    needs: release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Validate allye-pi package
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r '.version' package.json)
+          test "$(jq -r '.name' package.json)" = "allye-pi"
+          test "$(jq -r '.private // false' package.json)" = "false"
+          test "$(jq -r '.version' package-lock.json)" = "$VERSION"
+          test "$(jq -r '.packages[\"\"].name' package-lock.json)" = "allye-pi"
+          test "$(jq -r '.packages[\"\"].version' package-lock.json)" = "$VERSION"
+          jq -e '.pi.extensions == ["./packages/allye-pi/src/index.ts"] and .pi.skills == ["./skills"] and (.dependencies["pi-mcp-adapter"] | type == "string")' package.json >/dev/null
+          test -f packages/allye-pi/src/index.ts
+          test -d skills
+          npm pack --dry-run >/dev/null
+
+      - name: Check if version changed
+        id: version
+        run: |
+          set -euo pipefail
+          LOCAL=$(jq -r '.version' package.json)
+          REMOTE=$(npm view allye-pi version --registry=https://registry.npmjs.org 2>/dev/null || true)
+          REMOTE=${REMOTE:-0.0.0}
+          echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
+          echo "remote=$REMOTE" >> "$GITHUB_OUTPUT"
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish allye-pi to npm
+        if: steps.version.outputs.changed == 'true'
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
