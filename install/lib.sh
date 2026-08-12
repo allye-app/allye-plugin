@@ -582,12 +582,136 @@ install_bootstrap_plugin() {  # $1 = adapter json
   fi
 }
 
+# ─── Pi package adapter ─────────────────────────────────────────────────────
+# Pi already owns its MCP configuration through pi-mcp-adapter. The installer
+# must not rewrite any MCP source; it only adds this repository as a Pi package
+# in settings.json, preserving every existing package and setting.
+
+ensure_pi_dependencies() {
+  if [ -f "$SCRIPT_DIR/node_modules/pi-mcp-adapter/package.json" ]; then
+    return 0
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    print_error "Pi runtime dependencies are missing and npm is not available."
+    return 1
+  fi
+  print_step "Installing Pi runtime dependencies in the Allye checkout..."
+  npm install --prefix "$SCRIPT_DIR" --omit=dev --no-audit --no-fund || {
+    print_error "Could not install Pi runtime dependencies in $SCRIPT_DIR"
+    return 1
+  }
+  if [ ! -f "$SCRIPT_DIR/node_modules/pi-mcp-adapter/package.json" ]; then
+    print_error "Pi runtime dependency pi-mcp-adapter is still missing after npm install"
+    return 1
+  fi
+}
+
+pi_expand_path() {  # $1 = adapter path, honoring Pi/project overrides
+  case "$1" in
+    "~/.pi/agent/"*)
+      printf '%s/%s\n' "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}" "${1#\~/.pi/agent/}" ;;
+    "~/.pi/agent")
+      printf '%s\n' "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}" ;;
+    "~/"*) expand_home "$1" ;;
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s/%s\n' "${ALLYE_PI_PROJECT_DIR:-$PWD}" "$1" ;;
+  esac
+}
+
+pi_mcp_paths() {  # $1 = adapter json -> candidate paths
+  local aj="$1" raw
+  while IFS= read -r raw; do
+    [ -n "$raw" ] || continue
+    pi_expand_path "$raw"
+  done < <(echo "$aj" | jq -r '.mcp.paths[]?')
+}
+
+pi_mcp_source_with_allye() {  # $1 = adapter json -> first configured source
+  local aj="$1" path
+  while IFS= read -r path; do
+    [ -f "$path" ] || continue
+    if jq -e '(.mcpServers.allye // {}) | type == "object" and .disabled != true and ((.url? // .command? // "") | type == "string" and length > 0)' "$path" >/dev/null 2>&1; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done < <(pi_mcp_paths "$aj")
+  return 1
+}
+
+write_pi_package() {  # $1 = adapter json
+  local aj="$1" path source content
+  path=$(pi_expand_path "$(echo "$aj" | jq -r '.package.settings_path')")
+  source=$(echo "$aj" | jq -r '.package.source' | sed "s#{{SCRIPT_DIR}}#$SCRIPT_DIR#g")
+
+  mkdir -p "$(dirname "$path")"
+  if [ -f "$path" ]; then
+    if ! content=$(cat "$path") || ! echo "$content" | jq -e . >/dev/null 2>&1; then
+      print_error "Pi settings file is not valid JSON: $path"
+      print_error "Refusing to overwrite it; repair it and re-run the installer."
+      return 1
+    fi
+  else
+    content='{}'
+  fi
+
+  content=$(echo "$content" | jq --arg source "$source" '
+    .packages = ((.packages // []) |
+      if (map(if type == "string" then . else (.source // "") end) | index($source))
+      then . else . + [$source] end)')
+  printf '%s\n' "$content" | jq '.' > "$path"
+}
+
+pi_package_source() {  # $1 = adapter json -> resolved source
+  echo "$1" | jq -r '.package.source' | sed "s#{{SCRIPT_DIR}}#$SCRIPT_DIR#g"
+}
+
+pi_package_installed() {  # $1 = adapter json
+  local aj="$1" path source
+  path=$(pi_expand_path "$(echo "$aj" | jq -r '.package.settings_path')")
+  source=$(pi_package_source "$aj")
+  [ -f "$path" ] || return 1
+  jq -e --arg source "$source" '
+    any((.packages // [])[]?; (type == "string" and . == $source) or
+      (type == "object" and .source == $source))' "$path" >/dev/null 2>&1
+}
+
+allye_install_pi() {  # $1 = adapter json
+  local aj="$1" mcp_source
+  ensure_pi_dependencies || return 1
+  write_pi_package "$aj" || return 1
+  if mcp_source=$(pi_mcp_source_with_allye "$aj"); then
+    print_success "Allye MCP detected at $mcp_source"
+  else
+    print_warning "Pi package installed, but no supported MCP source contains an Allye server"
+    print_warning "Checked project .mcp.json/.pi/mcp.json and supported global Pi/shared MCP paths."
+    print_warning "Configure the Allye server with pi-mcp-adapter before starting work."
+  fi
+  print_success "Pi configured (canonical skills + adapter package)"
+}
+
+allye_uninstall_pi() {  # $1 = adapter json
+  local aj="$1" path source content
+  path=$(pi_expand_path "$(echo "$aj" | jq -r '.package.settings_path')")
+  source=$(pi_package_source "$aj")
+  [ -f "$path" ] || return 0
+  content=$(cat "$path")
+  if echo "$content" | jq -e . >/dev/null 2>&1; then
+    echo "$content" | jq --arg source "$source" '
+      .packages = ((.packages // []) | map(select(((type == "string" and . == $source) or
+        (type == "object" and .source == $source)) | not)))' | jq '.' > "$path"
+  fi
+}
+
 # ─── Verbs ──────────────────────────────────────────────────────────────────
 
 allye_install_one() {  # $1 = adapter json
   local aj="$1" id label fmt skills_source bootstrap_kind interactive
   id=$(echo "$aj" | jq -r '.id')
   label=$(echo "$aj" | jq -r '.label')
+  if [ "$id" = "pi" ]; then
+    allye_install_pi "$aj"
+    return 0
+  fi
   fmt=$(echo "$aj" | jq -r '.mcp.format')
 
   case "$fmt" in
@@ -660,6 +784,12 @@ allye_uninstall() {  # $1 = agent id
     return 1
   fi
 
+  if [ "$id" = "pi" ]; then
+    allye_uninstall_pi "$aj"
+    print_success "$(echo "$aj" | jq -r '.label') uninstalled"
+    return 0
+  fi
+
   revert_agent_config "$id"
 
   path=$(expand_home "$(echo "$aj" | jq -r '.mcp.path')")
@@ -728,6 +858,17 @@ allye_status() {
   while IFS= read -r aj; do
     id=$(echo "$aj" | jq -r '.id')
     label=$(echo "$aj" | jq -r '.label')
+    if [ "$id" = "pi" ]; then
+      path=$(pi_expand_path "$(echo "$aj" | jq -r '.package.settings_path')")
+      if ! allye_detect "$id"; then
+        printf '  %-14s not detected           %s\n' "$label" "$path"
+      elif pi_package_installed "$aj"; then
+        printf '  %-14s current (package)      %s\n' "$label" "$path"
+      else
+        printf '  %-14s not installed          %s\n' "$label" "$path"
+      fi
+      continue
+    fi
     path=$(expand_home "$(echo "$aj" | jq -r '.mcp.path')")
 
     if ! allye_detect "$id"; then

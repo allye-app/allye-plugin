@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/Codex-supported-orange" alt="Codex">
   <img src="https://img.shields.io/badge/Gemini_CLI-supported-red" alt="Gemini CLI">
   <img src="https://img.shields.io/badge/Hermes_Agent-supported-yellow" alt="Hermes Agent">
+  <img src="https://img.shields.io/badge/Pi-supported-cyan" alt="Pi">
 </p>
 
 ---
@@ -51,6 +52,7 @@ cd allye-plugin
 ./install.sh          # every detected agent
 ./install.sh status   # what is installed, and at which version
 ./install.sh install hermes
+./install.sh install pi
 ./install.sh uninstall hermes
 ```
 
@@ -169,6 +171,19 @@ After installing:
 Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-gemini.md
 ```
 
+### Pi
+
+Pi uses a native package adapter while keeping `skills/*/SKILL.md` as the only
+canonical skill source. The installer adds this checkout to Pi's package list
+and does not overwrite Pi's MCP configuration:
+
+```bash
+./install.sh install pi
+```
+
+See [`docs/install-pi.md`](docs/install-pi.md) for MCP setup, executor versus
+orchestrator mode, and Herdr integration.
+
 ### Hermes Agent
 
 ```bash
@@ -235,6 +250,7 @@ How multi-phase workflow support is implemented differs by platform, because not
 - **OpenCode** ships 6 agent-picker personas (Ctrl+T to switch) — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver — OpenCode's agent model supports switching personas interactively within a session, so all 6 can be full agents. The automatic-Executor dispatch mode is Claude-Code-only for now; OpenCode always runs Executor (Allye Build) as an interactive agent.
 - **Cursor, Codex, Gemini CLI** — a single agent handles all phases with the same workflow knowledge (no multi-agent picker on these platforms).
 - **Hermes Agent** reads skills from a directory (`~/.hermes/skills/allye/`) rather than fetching them over MCP, and gets the `using-allye` bootstrap injected by a small Python plugin at session start instead of a hook — otherwise the same single-agent, same-workflow-knowledge shape as Cursor/Codex/Gemini CLI.
+- **Pi** loads the canonical repository skills through a native Pi package, injects Allye context through the configured MCP adapter, and supports explicit executor or orchestrator mode. Executor mode is the safe default for Hermes-led work; orchestrator mode can drive Herdr through the five-primitive runtime contract.
 
 Every phase, on every platform:
 - Responds in **your language** (detected from your messages, falling back to your profile only before you've said anything)

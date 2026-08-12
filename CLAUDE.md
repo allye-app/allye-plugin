@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Source of the **Allye** plugin — a methodology/workflow layer on top of the Allye MCP server, distributed to six different AI coding agents (Claude Code, OpenCode, Cursor, Codex, Gemini CLI, Hermes Agent). There is no build step for the plugin itself; it's mostly Markdown (agents, skills) plus shell scripts, distributed via `install.sh` or the Claude Code plugin marketplace. The one compiled piece is `packages/allye-opencode` (a TypeScript/bun package published to npm).
+Source of the **Allye** plugin — a methodology/workflow layer on top of the Allye MCP server, distributed to seven different AI coding agents (Claude Code, OpenCode, Cursor, Codex, Gemini CLI, Hermes Agent, Pi). There is no build step for the plugin itself; it's mostly Markdown (agents, skills) plus shell scripts, distributed via `install.sh` or the Claude Code plugin marketplace. The compiled adapters are `packages/allye-opencode` and `packages/allye-pi`.
 
 ## Commands
 
@@ -19,16 +19,23 @@ Source of the **Allye** plugin — a methodology/workflow layer on top of the Al
 - `bun run typecheck` — `tsc --noEmit`
 - Published to npm as `allye-opencode` automatically by CI when `package.json`'s version changes on `main` (see `publish-opencode` job in `.github/workflows/auto-release.yml`).
 
+### `packages/allye-pi` (native Pi package adapter)
+- `npm install` from the repository root installs the adapter's development dependencies; `./install.sh install pi` installs runtime dependencies into a clean checkout with `npm install --omit=dev`.
+- `npm run typecheck` validates `packages/allye-pi/src/index.ts`.
+- `npm run test:pi` covers mode tool filtering and the multi-team bootstrap gate.
+- The root `package.json` is the Pi package manifest: it points Pi at the adapter extension and the canonical root `skills/` directory.
+- The adapter uses the configured `pi-mcp-adapter` for Allye context, defaults to executor mode, and exposes Herdr only when `ALLYE_PI_MODE=orchestrator` is explicit.
+
 ## Architecture
 
 ### Two parallel distribution mechanisms
 
 1. **Claude Code plugin** (native): `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` describe the plugin; Claude Code loads `agents/*.md` as subagents, `skills/*/SKILL.md` as on-demand skills, and `hooks/hooks.json` wires `hooks/session-start.sh` to `SessionStart`. `.mcp.json` configures the Allye MCP server itself (OAuth 2.1, HTTP transport, tenant-scoped URL).
-2. **Other agents** (OpenCode, Cursor, Codex, Gemini CLI, Hermes Agent): each gets a per-agent manifest under `manifests/<agent>/` (e.g. `manifests/codex/AGENTS.md`, `manifests/cursor/.cursorrules`, `manifests/gemini/GEMINI.md`, `manifests/opencode/opencode.json`, `manifests/hermes/`) that bakes in the same workflow instructions in that agent's native format. The four paste-into-agent manifests are installed via the agent-assisted `docs/install-*.md` guides; Hermes's is installed by `install.sh` itself, since its shape (a Python plugin directory plus skills read from disk) needs real file writes, not a paste. OpenCode additionally gets a real plugin package (`packages/allye-opencode`) that registers 6 agents (Allye orchestrator-router, Plan, Orchestrator, Build, Review, Deliver) and injects Allye context via a system-prompt transform hook (`src/index.ts`, `src/context.ts`).
+2. **Other agents** (OpenCode, Cursor, Codex, Gemini CLI, Hermes Agent): each gets a per-agent manifest under `manifests/<agent>/` (e.g. `manifests/codex/AGENTS.md`, `manifests/cursor/.cursorrules`, `manifests/gemini/GEMINI.md`, `manifests/opencode/opencode.json`, `manifests/hermes/`) that bakes in the same workflow instructions in that agent's native format. The four paste-into-agent manifests are installed via the agent-assisted `docs/install-*.md` guides; Hermes's is installed by `install.sh` itself, since its shape (a Python plugin directory plus skills read from disk) needs real file writes, not a paste. OpenCode additionally gets a real plugin package (`packages/allye-opencode`) that registers 6 agents (Allye orchestrator-router, Plan, Orchestrator, Build, Review, Deliver) and injects Allye context via a system-prompt transform hook (`src/index.ts`, `src/context.ts`). Pi gets a native package adapter under `packages/allye-pi`; its root `package.json` points to the adapter and the canonical `skills/` directory.
 
-`install.sh` is a thin dispatcher (`install.sh/lib.sh` sourced after PAT/skill-seeding) over `install/adapters.json` — one data entry per agent describing how to detect it, where its MCP config lives and in what format (`json` / `toml` / `yaml-block`), whether it fetches skills over MCP or reads them from a directory, and its bootstrap mechanism if any. Three verbs — `install [agent]`, `uninstall <agent>`, `status` — read that table; every writer is additive and idempotent (read, merge, write back), and a version-marker comment embedded in each file it writes (`ALLYE_INSTALLER_VERSION=N`) is what makes `status` a read instead of a registry. Adding a seventh agent is an adapter entry plus, at most, reusing an existing format writer.
+`install.sh` is a thin dispatcher (`install.sh/lib.sh` sourced after PAT/skill-seeding) over `install/adapters.json` — one data entry per agent describing how to detect it, where its MCP config lives and in what format (`json` / `toml` / `yaml-block`), whether it fetches skills over MCP or reads them from a directory, and its bootstrap mechanism if any. Three verbs — `install [agent]`, `uninstall <agent>`, `status` — read that table; every writer is additive and idempotent (read, merge, write back), and a version-marker comment embedded in each file it writes (`ALLYE_INSTALLER_VERSION=N`) is what makes `status` a read instead of a registry. Adding another agent is an adapter entry plus, at most, reusing an existing format writer.
 
-When editing workflow methodology, the canonical source is `skills/*/SKILL.md` — there is no separate synced/legacy copy. The old `skills/workflows/`, `skills/methodology/`, `skills/reference/`, and `skills/bootstrap/` directories were dead duplicates that drifted from the canonical files and have been deleted; each skill's `SKILL.md` is the single source of truth.
+When editing workflow methodology, the canonical source is `skills/*/SKILL.md` — there is no separate synced/legacy copy. The old `skills/workflows/`, `skills/methodology/`, `skills/reference/`, and `skills/bootstrap/` directories were dead duplicates that drifted from the canonical files and have been deleted; each skill's `SKILL.md` is the single source of truth. Pi's adapter exposes this same root `skills/` directory through resource discovery; it does not copy or maintain a second skill tree.
 
 ### Runtime flow (Claude Code)
 

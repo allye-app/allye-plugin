@@ -98,6 +98,27 @@
         "toolsets_remove": ["memory", "kanban"],
         "toolsets_add": ["mcp-allye"]
       }
+    },
+    {
+      "id": "pi",
+      "label": "Pi",
+      "detect": { "command": "pi", "dir": "~/.pi/agent" },
+      "mcp": {
+        "managed": false,
+        "paths": [
+          ".mcp.json",
+          ".pi/mcp.json",
+          "~/.config/mcp/mcp.json",
+          "~/.agents/mcp.json",
+          "~/.agents/mcp/mcp.json",
+          "~/.pi/agent/mcp.json"
+        ]
+      },
+      "skills": { "source": "package" },
+      "package": {
+        "settings_path": "~/.pi/agent/settings.json",
+        "source": "{{SCRIPT_DIR}}"
+      }
     }
   ]
 }
