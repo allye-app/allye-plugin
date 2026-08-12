@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/allye-app/allye-plugin/compare/v1.5.0...v1.5.1) (2026-08-12)
+
+
+### Bug Fixes
+
+* validate Pi lockfile in release workflow ([9abb057](https://github.com/allye-app/allye-plugin/commit/9abb057b22742003b77e559cec63a6cda3e6c1fa))
+
 # [1.5.0](https://github.com/allye-app/allye-plugin/compare/v1.4.0...v1.5.0) (2026-08-12)
 
 
