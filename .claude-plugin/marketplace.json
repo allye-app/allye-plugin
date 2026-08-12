@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Allye Agent Plugin — methodology and workflow layer for AI coding agents",
-    "version": "1.4.0"
+    "version": "1.5.0"
   },
   "plugins": [
     {
@@ -16,7 +16,7 @@
         "repo": "allye-app/allye-plugin"
       },
       "description": "Structured workflows, memory protocol, TDD discipline, and board progression for the Allye platform",
-      "version": "1.4.0"
+      "version": "1.5.0"
     }
   ]
 }

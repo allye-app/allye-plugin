@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/allye-app/allye-plugin/compare/v1.4.0...v1.5.0) (2026-08-12)
+
+
+### Features
+
+* publish Pi adapter as npm package ([130f95d](https://github.com/allye-app/allye-plugin/commit/130f95dcbc7585ec36fac3012251c82c9becf81a))
+
 # [1.4.0](https://github.com/allye-app/allye-plugin/compare/v1.3.0...v1.4.0) (2026-08-12)
 
 

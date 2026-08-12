@@ -1,9 +1,13 @@
 {
   "name": "allye-pi",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "Pi package adapter for the canonical Allye workflow",
   "type": "module",
-  "keywords": ["pi-package", "allye", "workflow"],
+  "keywords": [
+    "pi-package",
+    "allye",
+    "workflow"
+  ],
   "files": [
     "packages/allye-pi/src/index.ts",
     "packages/allye-pi/tsconfig.json",
@@ -12,8 +16,12 @@
     "LICENSE"
   ],
   "pi": {
-    "extensions": ["./packages/allye-pi/src/index.ts"],
-    "skills": ["./skills"]
+    "extensions": [
+      "./packages/allye-pi/src/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
   },
   "dependencies": {
     "pi-mcp-adapter": "^2.23.0"
