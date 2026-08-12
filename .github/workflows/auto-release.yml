@@ -96,8 +96,8 @@ jobs:
           test "$(jq -r '.name' package.json)" = "allye-pi"
           test "$(jq -r '.private // false' package.json)" = "false"
           test "$(jq -r '.version' package-lock.json)" = "$VERSION"
-          test "$(jq -r '.packages[\"\"].name' package-lock.json)" = "allye-pi"
-          test "$(jq -r '.packages[\"\"].version' package-lock.json)" = "$VERSION"
+          test "$(jq -r '.packages[""].name' package-lock.json)" = "allye-pi"
+          test "$(jq -r '.packages[""].version' package-lock.json)" = "$VERSION"
           jq -e '.pi.extensions == ["./packages/allye-pi/src/index.ts"] and .pi.skills == ["./skills"] and (.dependencies["pi-mcp-adapter"] | type == "string")' package.json >/dev/null
           test -f packages/allye-pi/src/index.ts
           test -d skills
