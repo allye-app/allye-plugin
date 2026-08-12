@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/allye-app/allye-plugin/compare/v1.3.0...v1.4.0) (2026-08-12)
+
+
+### Features
+
+* add native Pi Allye adapter ([4e95d85](https://github.com/allye-app/allye-plugin/commit/4e95d8529a1bf8147c5fbd7a89bec9140b63fa06))
+
 # [1.3.0](https://github.com/allye-app/allye-plugin/compare/v1.2.7...v1.3.0) (2026-07-26)
 
 
