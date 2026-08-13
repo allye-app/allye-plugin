@@ -20,8 +20,8 @@ test("using-allye remains available as the startup bootstrap skill", () => {
 });
 
 test("adaptive capabilities expose optional Herdr without a workflow mode", () => {
-  assert.deepEqual(describeCapabilities({ HERDR_ENV: "1", ALLYE_PI_MCP: "1", ALLYE_PI_SUBAGENTS: "1" }), { piSession: true, allyeMcp: true, filesystem: true, subagents: true, herdr: true });
-  assert.deepEqual(describeCapabilities({ ALLYE_PI_MCP: "0" }), { piSession: true, allyeMcp: false, filesystem: true, subagents: false, herdr: false });
+  assert.deepEqual(describeCapabilities({ HERDR_ENV: "1", ALLYE_PI_MCP: "1", ALLYE_PI_SUBAGENTS: "1" }, true), { piSession: true, allyeMcp: true, filesystem: true, subagents: true, herdr: true });
+  assert.deepEqual(describeCapabilities({ ALLYE_PI_MCP: "0" }, true), { piSession: true, allyeMcp: false, filesystem: true, subagents: false, herdr: false });
   assert.match(adaptiveInstructions({ piSession: true, allyeMcp: false, filesystem: true, subagents: false, herdr: false }), /not a mandatory workflow/i);
   assert.deepEqual(activeToolsForCapabilities(["read", "allye_herdr"], { piSession: true, allyeMcp: true, filesystem: true, subagents: false, herdr: false }), ["read"]);
   assert.deepEqual(activeToolsForCapabilities(["read"], { piSession: true, allyeMcp: true, filesystem: true, subagents: false, herdr: true }), ["read", "allye_herdr"]);
@@ -85,11 +85,12 @@ test("wait delivery remains durable when optional channels fail", () => {
   assert.equal(result.errors.length, 2);
 });
 
-test("team bootstrap fails closed when initialization cannot be interpreted", () => {
+test("unavailable Allye context does not block local work", () => {
   const state = invalidStartupContext("network down");
-  assert.equal(state.teamSelectionRequired, true);
+  assert.equal(state.teamSelectionRequired, false);
   assert.equal(state.allyeUnavailable, true);
-  assert.match(state.text, /bootstrap blocked/i);
+  assert.match(state.text, /optional context unavailable/i);
+  assert.match(state.text, /continue with local/i);
 });
 
 test("multi-team initialization requires an explicit team only when none is active", () => {

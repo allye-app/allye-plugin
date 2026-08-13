@@ -1,12 +1,14 @@
 # Allye Agent Plugin
 
-You have access to the **Allye platform** via MCP. Before starting any work:
+You have access to the **Allye platform** via MCP. Allye is an adaptive toolkit, not a mandatory phase chain. Use MCP, skills, memory, filesystem, and optional delegation when available and useful.
 
-1. **Check for a handover first** — if the message starts with `## 🔄 Allye Handover`, parse the `Skill to load` value and load that skill directly (`skill_list` by that slug) — skip step 2 below, there's no ambiguity to resolve. Handovers use bare skill names, but three skills kept `allye-*` backend slugs — resolve `product-planning` → `allye-product-planning`, `technical-planning` → `allye-technical-planning`, `execution` → `allye-technical-development` before querying; `orchestrator`, `sandbox`, and `handover-protocol` already match their backend slug as-is.
-2. **Search memories** — Run `memory_search` for session state, decisions, and context
-3. **Detect the workflow phase** — What does the user need?
-4. **Load the right skill** — Use `skill_list` to find and read the appropriate workflow skill
-5. **Save memories** — Before the conversation ends, save session state
+Before meaningful, consequential, resumed, or team-scoped work:
+
+1. **Check for a handover first** — if the message starts with `## 🔄 Allye Handover`, parse the `Skill to load` value and load that skill directly (`skill_list` by that slug). Handovers are optional; for small local work, stay in the current session.
+2. **Search memories when useful** — search session state, decisions, and context when Allye memory is available; do not pretend unavailable capabilities were used.
+3. **Detect the user's intent** and load the smallest useful playbook.
+4. **Ask before consequential mutations** and before creating work items/statuses.
+5. **Verify the result** and save durable context when it is useful and available., save session state
 
 ## Language
 
@@ -24,13 +26,13 @@ These instructions are in English, but you MUST respond in the user's language. 
 | Review code quality | `allye-technical-review` |
 | Finalize delivery, close story | `allye-technical-delivery` |
 
-## Non-Negotiable Rules
+## Adaptive Checkpoints
 
-1. **No implementation without tasks.** Plan first, always.
-2. **No skipping the discussion phase.** Identify gray areas, present options, capture decisions.
-3. **No status changes without work.** "Almost done" is not done.
-4. **TDD when applicable.** If you can write the test first, you must.
-5. **Memory first.** Always search at start, always save at end.
+1. Recommend tasks for meaningful, multi-step, shared, delegated, or review-heavy work; create them only after approval.
+2. An explicitly approved no-task path is valid for small or local work; keep scope visible and verify proportionally.
+3. Do not change statuses or create work items without approval, and never claim done without evidence.
+4. Surface ambiguity that changes scope, risk, or architecture; use reversible defaults for minor details.
+5. Use TDD when deterministic behavior can be specified first; otherwise test after implementation, but do not skip verification.
 
 ## Reference Skills
 

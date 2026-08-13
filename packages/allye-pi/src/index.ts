@@ -87,10 +87,17 @@ function limitText(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n[context truncated]`;
 }
 
-export function describeCapabilities(env: NodeJS.ProcessEnv = process.env): AllyeCapabilities {
+type McpBridgeRuntime = typeof globalThis & {
+  __piMcpAdapterActiveToolCaller?: ActiveMcpToolCaller | null;
+};
+
+export function describeCapabilities(
+  env: NodeJS.ProcessEnv = process.env,
+  mcpAvailable = Boolean((globalThis as McpBridgeRuntime).__piMcpAdapterActiveToolCaller),
+): AllyeCapabilities {
   return {
     piSession: true,
-    allyeMcp: env.ALLYE_PI_MCP !== "0",
+    allyeMcp: env.ALLYE_PI_MCP !== "0" && mcpAvailable,
     filesystem: true,
     subagents: env.ALLYE_PI_SUBAGENTS === "1",
     herdr: env.HERDR_ENV === "1",
@@ -133,9 +140,7 @@ async function configuredMcpCall(toolName: string, args: Record<string, unknown>
   // the in-process runtime. There is no public callMcpTool export in the
   // supported package version, so do not dynamically import its TypeScript
   // source from node_modules. A missing bridge is a hard bootstrap failure.
-  const globalBridge = (globalThis as typeof globalThis & {
-    __piMcpAdapterActiveToolCaller?: ActiveMcpToolCaller | null;
-  }).__piMcpAdapterActiveToolCaller;
+  const globalBridge = (globalThis as McpBridgeRuntime).__piMcpAdapterActiveToolCaller;
   if (!globalBridge) throw new Error("pi-mcp-adapter is not initialized; start the configured MCP adapter before using Allye");
   return globalBridge(MCP_SERVER, toolName, args);
 }
@@ -255,8 +260,8 @@ export function deliverWaitEvent(
 
 export function invalidStartupContext(message: string): StartupContext {
   return {
-    text: `## Allye bootstrap blocked\n${message}\nDo not call team-scoped work_items or intelligence operations. Resolve Allye connectivity and explicitly select a team with allye_team action team_switch before continuing.`,
-    teamSelectionRequired: true,
+    text: `## Allye optional context unavailable\n${message}\nDo not call team-scoped work_items or intelligence operations until Allye connectivity and team context are available. Continue with local, non-team-scoped work when appropriate.`,
+    teamSelectionRequired: false,
     allyeUnavailable: true,
     teams: [],
   };
@@ -266,7 +271,8 @@ export function canUseOwnedPane(state: DelegationState, paneId: string): boolean
   return state.panes.some((pane) => pane.paneId === paneId);
 }
 
-async function loadStartupContext(): Promise<StartupContext> {
+async function loadStartupContext(allyeMcp = true): Promise<StartupContext> {
+  if (!allyeMcp) return invalidStartupContext("Allye/MCP is disabled for this Pi session.");
   const sections: string[] = [];
   try {
     const initialization = await callAllye("allye_initialize", {
@@ -645,7 +651,7 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
     usingAllyeBootstrap = loadUsingAllyeSkill();
     syncCapabilityTools();
     if (ctx.hasUI) ctx.ui.setStatus("allye-pi", "loading Allye context…");
-    if (process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0") startupContext = await loadStartupContext();
+    if (process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0") startupContext = await loadStartupContext(capabilities.allyeMcp);
     if (startupContext.teamSelectionRequired && ctx.hasUI) {
       ctx.ui.notify("Allye has multiple teams and no active team. Use /allye-team <name|prefix|id> before team-scoped work.", "warning");
     }
