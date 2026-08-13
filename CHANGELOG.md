@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/allye-app/allye-plugin/compare/v1.6.2...v1.7.0) (2026-08-13)
+
+
+### Features
+
+* add adaptive Herdr execution lifecycle ([23f0c3d](https://github.com/allye-app/allye-plugin/commit/23f0c3da64f7982a023c7fd6d0b2ae7786c8b16a))
+
 ## [1.6.2](https://github.com/allye-app/allye-plugin/compare/v1.6.1...v1.6.2) (2026-08-13)
 
 
