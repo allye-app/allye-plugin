@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/allye-app/allye-plugin/compare/v1.5.1...v1.6.0) (2026-08-13)
+
+
+### Features
+
+* align Allye skills with adaptive toolkit ([1560ebc](https://github.com/allye-app/allye-plugin/commit/1560ebca06dab33915a3d19d3c5129f27218d3ea))
+
 ## [1.5.1](https://github.com/allye-app/allye-plugin/compare/v1.5.0...v1.5.1) (2026-08-12)
 
 
