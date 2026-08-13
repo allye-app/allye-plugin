@@ -12,16 +12,17 @@ All responses, questions, suggestions, and confirmations must be in the user's l
 `.trim()
 
 export const ALLYE_INIT_PROTOCOL = `
-## Allye Initialization (mandatory)
+## Allye Context (adaptive)
 
-At the START of every conversation, you MUST:
-
-1. **Call \`initialize\`** (action: \`init\`) to load your user context, team info, and core documents. This is mandatory.
-2. **Check active team** — If the response shows the user belongs to multiple teams and no team is active, ask which team they want to work with and call \`team_switch\`. Do not proceed until a team is selected.
+When Allye MCP is available and the work benefits from durable context, call \`initialize\` (action: \`init\`) to load user context, team info, and core documents.
+If initialization fails or is unavailable, state the limitation and continue locally unless Allye is required.
+If multiple teams exist without an active selection, ask before team-scoped operations; non-team-scoped work may continue.
 `.trim()
 
 export const MEMORY_SEARCH_PROTOCOL = `
-## Memory Search (mandatory at start)
+## Memory Search (proportional)
+
+For consequential, multi-step, resumed, or team-scoped work, search relevant memories before acting. For short, low-risk, local work, memory search may be skipped. Never claim a search was performed when Allye is unavailable.
 
 After initialization, search for relevant memories:
 
@@ -50,7 +51,9 @@ If graph traversal times out (408): reduce depth, add relation_types filter.
 `.trim()
 
 export const MEMORY_SAVE_PROTOCOL = `
-## Memory Save (mandatory at end)
+## Memory Save (when useful)
+
+For consequential sessions or durable decisions, save session state before ending. Skip trivial local work. If persistence is unavailable, report that continuity was not saved.
 
 Before ending your work, save session state:
 
@@ -70,9 +73,9 @@ Also save memories mid-conversation when:
 `.trim()
 
 export const DYNAMIC_SKILL_LOADING = `
-## Dynamic Skill Loading (mandatory before main work)
+## Dynamic Skill Loading (when relevant)
 
-Before starting your main work, you MUST search for team-specific skills:
+Before starting meaningful work, search for team-specific skills when Allye MCP is available and the task benefits from team standards:
 
 1. Call \`skill_list\` with queries matching your task domain (e.g., "planning", "code review", "development standards", "story template", "task template")
 2. For each relevant skill found, call \`skill_get\` to read its full content
@@ -94,12 +97,15 @@ Skills may be in any language. Adapt accordingly.
 `.trim()
 
 export const WORKFLOW_GATES = `
-## Non-Negotiable Rules
+## Adaptive Checkpoints and Guardrails
 
-1. **No implementation without tasks.** Do not write code for a story that has no tasks. Run planning first.
-2. **No skipping the discussion phase.** When planning tasks, identify gray areas and present options before creating tasks. Capture locked decisions as memories.
-3. **No status changes without work.** Do not move an item to "done" unless the work is completed and verified.
-4. **TDD when applicable.** If you can write \`expect(fn(input)).toBe(output)\` before writing \`fn\`, you MUST write the test first. If not (UI, infra), test after — but always test.
+Choose the smallest useful loop: intent → context → research (optional) → consent → action → verification → persistence (optional).
+- Recommend tasks for meaningful, multi-step, shared, delegated, or review-heavy work; create them only after approval.
+- For an explicitly approved no-task path, keep scope visible and verify proportionally.
+- Ask before consequential mutations, status changes, publication, deployment, or broad scope.
+- Surface ambiguity that changes scope, risk, or architecture; use reversible defaults for minor details.
+- Use TDD when deterministic behavior can be specified first; otherwise test after implementation, but do not skip verification.
+- Claim completion only from actual verification evidence, distinguishing implementation from review or deployment.
 `.trim()
 
 export const TOOLS_QUICKREF = `

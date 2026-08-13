@@ -81,8 +81,8 @@ Prefer the paste-into-agent or marketplace routes below? They still work — the
 After installing, you get:
 - **OAuth authentication** — browser-based login, no tokens to manage
 - **Bootstrap hook** — injects workflow methodology at session start
-- **5 dispatched subagents** — reviewer-standards, reviewer-spec, deep-search, code-analyzer, executor, delegated via the Agent tool for phases that don't need to pause and ask you anything (executor only runs this way if you opt into automatic mode — manual is the default)
-- **17 skills** — Sandbox, Planning, Technical Planning, Orchestrator, and Delivery run as skills loaded directly into your conversation, loaded on-demand by the bootstrap, so they can ask you questions when something's ambiguous
+- **Optional delegation** — bounded research, review, or execution subagents may be used when the runtime supports them and delegation is beneficial; local execution remains valid
+- **17 composable skills** — discovery, planning, execution, review, delivery, memory, verification, and delegation playbooks loaded as needed; no universal phase chain is required
 - **Parallel delivery, when a runtime is detected** — the Orchestrator can drive several independent stories at once, each in its own git worktree and its own watchable agent process; without a detected runtime, delivery degrades to the existing manual and automatic-subagent modes
 
 #### Multiple Allye accounts (multi-tenant)
@@ -113,7 +113,7 @@ The agent will configure the MCP server via OAuth and install the `allye-opencod
 
 After installing, you get:
 - **6 agents in the picker** — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver (Ctrl+T to switch)
-- **Auto-loaded context** — your profile and team info injected before every conversation
+- **Adaptive context** — profile, team info, and relevant memories loaded when Allye is available and useful
 - **Dynamic skill discovery** — agents search for your team's standards via MCP
 
 **To update:** Paste this into your agent:
@@ -263,7 +263,7 @@ How multi-phase workflow support is implemented differs by platform, because not
 - **OpenCode** ships 6 agent-picker personas (Ctrl+T to switch) — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver — OpenCode's agent model supports switching personas interactively within a session, so all 6 can be full agents. The automatic-Executor dispatch mode is Claude-Code-only for now; OpenCode always runs Executor (Allye Build) as an interactive agent.
 - **Cursor, Codex, Gemini CLI** — a single agent handles all phases with the same workflow knowledge (no multi-agent picker on these platforms).
 - **Hermes Agent** reads skills from a directory (`~/.hermes/skills/allye/`) rather than fetching them over MCP, and gets the `using-allye` bootstrap injected by a small Python plugin at session start instead of a hook — otherwise the same single-agent, same-workflow-knowledge shape as Cursor/Codex/Gemini CLI.
-- **Pi** loads the canonical repository skills through a native Pi package, injects Allye context through the configured MCP adapter, and exposes an adaptive toolkit. Herdr delegation is optional and capability-detected; tasks are recommended rather than mandatory.
+- **Pi** loads the canonical repository skills through a native Pi package, reads `using-allye` into the first prompt, injects Allye context through the configured MCP adapter, and exposes an adaptive toolkit. Herdr delegation is optional and capability-detected; tasks are recommended rather than mandatory.
 
 Every phase, on every platform:
 - Responds in **your language** (detected from your messages, falling back to your profile only before you've said anything)

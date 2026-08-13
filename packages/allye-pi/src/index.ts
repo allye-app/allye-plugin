@@ -71,7 +71,6 @@ export type DelegationState = {
   panes: OwnedPane[];
   waits: Set<string>;
 };
-const DELEGATION_TOOL_NAME = "allye_herdr";
 const WAIT_EVENT_TYPE = "allye-herdr-wait";
 const RUNTIME_TOOL_NAME = "allye_herdr";
 
@@ -452,7 +451,10 @@ async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<
     const newPane = collectValues(afterLayout, "pane_id").find((id) => !beforePanes.has(id));
     if (!newPane) throw new Error("Herdr split completed but no new pane id was returned");
     const paneRecords = collectPaneRecords(afterLayout);
-    const record = paneRecords.find((candidate) => candidate.paneId === newPane && candidate.workspaceId === String((afterLayout as Record<string, unknown>).workspace_id ?? candidate.workspaceId) && candidate.tabId === String((afterLayout as Record<string, unknown>).tab_id ?? candidate.tabId));
+    const layoutMetadata = afterLayout as Record<string, unknown>;
+    const record = paneRecords.find((candidate) => candidate.paneId === newPane
+      && candidate.workspaceId === String(layoutMetadata.workspace_id ?? candidate.workspaceId)
+      && candidate.tabId === String(layoutMetadata.tab_id ?? candidate.tabId));
     if (!record) throw new Error("Herdr returned a pane without workspace/tab ownership metadata");
     ownership.panes.push(record);
     await waitForInteractiveShell(newPane);
