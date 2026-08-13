@@ -11,8 +11,7 @@ An **agent runtime** owns real agent processes the human can watch, attach to, a
 over. This skill defines what the plugin needs from one, so the Orchestrator can drive
 any runtime that satisfies the contract rather than one specific tool.
 
-Load this only when the session hook reported a runtime. Without one, dispatch falls back
-to the manual handover and the dispatched-subagent modes, both of which work unchanged.
+Load this only when a compatible runtime is actually detected and the user benefits from delegation. Without one, continue locally or use another available subagent mechanism; never let the absence or degradation of a runtime block delivery.
 
 Concrete commands for the runtimes we implement live in `references/`. This file is the
 contract; the reference is the implementation.
@@ -105,19 +104,19 @@ through.
 
 ## The obligation on the dispatched side
 
-The contract closes only because the dispatched agent carries the other half:
+When a managed work item exists, the dispatched agent should leave a durable trace in
+Allye before settling: task statuses and an implementation/review memory as applicable.
+For an explicitly approved no-task path, return a durable result through the host session
+or another agreed channel and do not invent work items merely to satisfy this contract.
 
-> **Before settling, leave a durable trace in Allye.** Executor: task statuses advanced,
-> plus an implementation memory. Reviewer: a memory holding the findings.
-
-This is already what `execution` and `review` do. Here it becomes load-bearing rather than
-good practice — it is the entire result channel.
+This keeps Allye authoritative when it is in scope while allowing local, low-risk work
+to complete without a mandatory work-item workflow.
 
 ## Teardown
 
-Destroy only what you created, and only after the work it held is merged and verified.
-Never close a pane, tab, workspace, or session the plugin did not create. Never stop the
-runtime's server.
+Destroy only what you created, and only after the work it held is merged and verified or
+the user explicitly authorizes cleanup. Never close a pane, tab, workspace, or session the
+plugin did not create. Never stop the runtime's server.
 
 ## Implementations
 

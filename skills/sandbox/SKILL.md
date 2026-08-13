@@ -11,7 +11,7 @@ This is the entry point for ideas that aren't ready to become work items yet. Us
 
 <!-- adapted from superpowers:brainstorming (MIT) -->
 <HARD-GATE>
-Do not create any Allye work item, and do not treat any direction as decided, until the user has explicitly approved it. This skill's only output is a Discovery Doc and a handover — never an Epic, Feature, or Story. If you catch yourself about to call `work_create`, stop: that's Product Planning's job, one conversation later.
+Do not create any Allye work item, and do not treat any direction as decided, until the user has explicitly approved it. This skill's default output is a Discovery Doc and a handover, but a user may explicitly choose an informal local research note or no persistence when that is sufficient. If you catch yourself about to call `work_create`, stop and ask for approval first.
 </HARD-GATE>
 
 ## 1. The core rule: ask, don't decide
@@ -59,4 +59,4 @@ When a direction is approved — explicitly, by the user, not inferred — synth
 
 ## 4. What this skill is not
 
-This is not Technical Planning — no stack decisions, no architecture, no tasks here. It is not Product Planning — no Epic/Feature/Story structure gets created here (see the HARD-GATE above). If the user arrives already knowing exactly what they want and just needs it turned into work items, route to `product-planning` directly instead — Sandbox isn't the right entry point for that.
+This is not Technical Planning — no stack decisions, no architecture, no tasks here. It is not Product Planning — no Epic/Feature/Story structure gets created here without approval. If the user arrives already knowing exactly what they want and just needs it turned into work items, recommend `product-planning`; if they only need a small local change, the adaptive toolkit may proceed without forcing a planning phase.

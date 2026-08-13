@@ -7,7 +7,7 @@ replace Pi's MCP configuration:
 - the adapter exposes that directory through Pi's `resources_discover` event;
 - Allye context and memory are loaded through the already configured `allye`
   MCP server via `pi-mcp-adapter`;
-- Herdr is exposed only in explicit Pi orchestrator mode.
+- Herdr is exposed as an optional capability when the Pi session provides `HERDR_ENV=1`.
 
 ## Official package sources
 
@@ -74,47 +74,21 @@ Both npm and Git packages use the root Pi manifest and let Pi install
 source, canonical `skills/` directory, and Pi documentation; it is not the full
 plugin checkout and is not the installer input.
 
-## Modes
+## Adaptive toolkit
 
-Pi is an executor by default, which is the safe mode when Hermes is the master.
-The mode can be selected before starting a session:
+Pi does not select an executor or orchestrator mode. Allye is available as an
+adaptive toolkit in the current session. Use `/allye-capabilities` to inspect
+Allye/MCP, filesystem, subagent, and Herdr capabilities.
 
-```text
-ALLYE_PI_MODE=executor pi
-ALLYE_PI_MODE=orchestrator pi
-```
+When `HERDR_ENV=1`, the optional `allye_herdr` tool provides bounded `detect`,
+`spawn`, `dispatch`, `wait`, and Allye-backed `collect` operations. Without it,
+Pi continues locally. Herdr and subagents are capabilities, not prerequisites.
+Tasks are recommended for meaningful, delegated, multi-step, or review-heavy
+work, but an explicitly approved no-task path is supported.
 
-`ALLYE_ORCHESTRATOR=hermes` always forces executor mode. Pi orchestrator mode
-also requires both `ALLYE_ORCHESTRATION_RUN_ID` and `ALLYE_WORK_ITEM_KEY`; an
-explicit local lock is acquired before `allye_runtime` becomes active. The claim
-contains run/work-item identity, PID, session identity when available, a nonce,
-and a 30-minute lease. Normal `session_shutdown` aborts waits and removes only
-the exact claim owned by that instance. If a process crashes, recovery is
-disabled by default; after confirming the recorded local PID is gone and the
-lease expired, set `ALLYE_PI_RECOVER_STALE_LOCK=1` to quarantine and replace the
-lock. Active, unreadable, changed, or inconclusive locks fail closed. In a
-session, `/allye-mode executor` and `/allye-mode orchestrator` change the active
-mode only when the same guard succeeds. Only orchestrator mode enables the
-`allye_runtime` tool.
-
-### Pi orchestrator
-
-With `ALLYE_PI_MODE=orchestrator`, Pi coordinates the canonical workflow and may
-use `allye_runtime` for Herdr's `detect`, `spawn`, `dispatch`, `wait`, and
-Allye-backed `collect` operations. Parallel stories require separate worktrees;
-the pane cwd remains the plugin-enabled repository root and absolute worktree
-paths are placed in each briefing. The adapter does not create work items or change statuses automatically.
-Status updates by an assigned executor remain allowed through the canonical
-`execution` skill; pane/dispatch ownership is separate from status ownership.
-
-### Pi executor / Hermes master
-
-In executor mode, Pi reads the handed-over story/tasks, implements only that
-scope, follows the canonical `execution` skill, and may advance its assigned
-tasks to `in_progress` and `review` when the work and verification are complete.
-It does not create or dispatch panes, assume orchestration, or change scope.
-Hermes can remain the master and dispatch Pi or another agent through Herdr; Pi
-and Hermes must not orchestrate the same work item simultaneously.
+The adapter does not create work items or change statuses automatically. When a
+work item exists, Allye remains the source of truth for scope, decisions, and
+evidence; otherwise the user can proceed with proportional verification.
 
 ## Existing Pi startup extension
 
@@ -122,8 +96,7 @@ This package includes its own Allye bootstrap. If a user already has a separate
 `allye-memory-startup.ts`, both can be loaded without changing global files, but
 startup context may be fetched twice. To keep the existing global bootstrap as
 the only startup fetcher, set `ALLYE_PI_NATIVE_BOOTSTRAP=0`; canonical skill
-loading, mode handling, team-selection guidance, and the Herdr guard remain
-available.
+loading, capability detection, and team-selection guidance remain available.
 
 When `initialize` reports multiple teams without an active team, the adapter does
 not choose one silently and skips team-scoped memory search. If initialization
@@ -150,25 +123,21 @@ The extension is at `packages/allye-pi/src/index.ts`. Test it without changing
 Pi's global settings with:
 
 ```text
-pi -e ./packages/allye-pi/src/index.ts -p "Report the active Allye mode"
+pi -e ./packages/allye-pi/src/index.ts -p "Report the available Allye capabilities"
 ```
 
-When `allye_runtime dispatch` registers a wait, the wait runs inside the Pi
+When `allye_herdr dispatch` registers a wait, the wait runs inside the Pi
 process through managed `pi.exec`. On settlement it persists a durable session
 entry, shows a UI notification/message when available, and queues a follow-up
-turn to the Pi orchestrator. That message is evidence only and explicitly tells
-the orchestrator to run `allye_runtime collect` and inspect Allye
-`work_children`, Review memories, and Implementation memories before declaring
-completion. Normal completion, timeout, error, and abort are distinguished.
+turn to the current Pi session. That message is evidence only and explicitly
+tells the agent to run `allye_herdr collect` when a managed work item exists and
+inspect Allye `work_children`, Review memories, and Implementation memories
+before declaring completion. Normal completion, timeout, error, and abort are
+distinguished.
 Manual `herdr agent wait` commands started outside this Pi session (for example
 with `nohup` or Bash) do not wake Pi and do not generate this notification.
 
 A real Herdr dispatch still requires `HERDR_ENV=1`, a compatible Herdr session,
-an existing isolated worktree, explicit orchestrator mode, and an orchestration
-run/work-item claim. Pi records workspace/tab/pane/agent ownership in memory for
-future safe teardown; it never adopts foreign panes, stops Herdr, closes panes,
-merges, pushes, or publishes. The lock is local to the Pi checkout/agent
-configuration and is **not** a distributed Allye lock: Hermes and Pi must still
-coordinate the run externally when operating on different machines/process
-homes. A stale lock can be manually investigated using its PID, lease, and owner
-token; automatic recovery is intentionally opt-in.
+and an existing isolated worktree. Pi records workspace/tab/pane/agent ownership
+for safe teardown; it never adopts foreign panes, stops Herdr, closes panes,
+merges, pushes, or publishes without explicit authorization.

@@ -7,7 +7,7 @@ category: methodology
 
 # Technical Planning Workflow
 
-Turns a story into actionable tasks through a **Discussion Phase** — surfacing gray areas, capturing decisions, and writing tasks with verifiable acceptance criteria and a runnable verification command.
+Turns an approved, meaningful story into actionable tasks through a **Discussion Phase** — surfacing gray areas, capturing decisions, and writing tasks with verifiable acceptance criteria and a runnable verification command. It is recommended for durable, multi-step, shared, or review-heavy work, not mandatory for every local change.
 
 **Never assume — always ask.** The user knows the direction they want, sometimes only after researching further. Your job is to surface the gray areas and present real options, not to quietly pick one and present it as the plan.
 
@@ -22,6 +22,8 @@ Get story → Search context → Discussion Phase → Create tasks → Move stor
 ---
 
 ## 0. Scope: one feature, story by story
+
+If the user explicitly chooses a no-task path, do not enter this workflow or create tasks. State the local scope, assumptions, and verification plan instead.
 
 The steps below plan **one story at a time** — but the unit Technical Planning hands to the Orchestrator is the **feature**. When the target feature has multiple stories (a `planning-to-technical` handover usually lists several), work through every story under that feature in sequence, one at a time, running the full workflow (Steps 1–6) for each before starting the next.
 
@@ -73,9 +75,9 @@ If tasks already exist, review them instead of creating new ones. The user may w
 ## Step 3: Discussion Phase
 
 <EXTREMELY_IMPORTANT>
-Complete the discussion phase — surfacing ambiguity before committing to a plan —
-before creating any task. Skipping it leads to rework, wrong assumptions, and
-wasted effort.
+For tracked work, complete the discussion phase — surfacing ambiguity before committing
+to a plan — before creating any task. A user-approved no-task path may skip task creation,
+but must still surface scope-changing ambiguity and define proportional verification.
 </EXTREMELY_IMPORTANT>
 
 ### 3.1 Identify Gray Areas
@@ -90,7 +92,7 @@ Examples of gray areas:
 - Should we optimize for read speed or write speed?
 - How much backward compatibility do we need?
 
-**Mandatory:** whenever a story implies infrastructure, stack, or architecture choices, that is always a gray area to raise explicitly — never left to chance or agent discretion by default.
+Whenever tracked work implies infrastructure, stack, or architecture choices, raise them explicitly as gray areas. For a small no-task change, use established defaults only when the choice is low-risk and reversible; otherwise ask before acting.
 
 **Need more than a hunch to evaluate an option?** Dispatch the `deep-search` agent (web research) or the `code-analyzer` agent (analyze a public repo), both via the `Agent` tool — research is available here, not only in Sandbox. Bring findings back into the discussion before locking a decision.
 

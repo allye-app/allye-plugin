@@ -1,10 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, resolve } from "node:path";
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { homedir } from "node:os";
-import { randomUUID } from "node:crypto";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -14,7 +12,13 @@ const MAX_CONTEXT_CHARS = 12_000;
 const RUNTIME_TIMEOUT_MS = 30_000;
 const AGENT_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
 
-type PiMode = "orchestrator" | "executor";
+export type AllyeCapabilities = {
+  piSession: true;
+  allyeMcp: boolean;
+  filesystem: true;
+  subagents: boolean;
+  herdr: boolean;
+};
 type McpResult = { content?: Array<{ type?: string; text?: string }> };
 type StartupContext = {
   text: string;
@@ -57,32 +61,19 @@ export type WaitEventDeliveryResult = {
   sent: boolean;
   errors: string[];
 };
-export type OrchestrationMode = "pi" | "hermes";
-export type OrchestrationClaim = {
-  runId: string;
-  workItemKey: string;
-  master: OrchestrationMode;
-  pid: number;
-  sessionId?: string;
-  ownerToken: string;
-  claimedAt: string;
-  leaseExpiresAt: string;
-};
 export type OwnedPane = {
   workspaceId: string;
   tabId: string;
   paneId: string;
   agentName?: string;
 };
-export type OwnershipState = {
-  claim?: OrchestrationClaim;
+export type DelegationState = {
   panes: OwnedPane[];
   waits: Set<string>;
 };
-const RUNTIME_TOOL_NAME = "allye_runtime";
-const DEFAULT_LOCK_DIR = ".allye/pi-orchestration-locks";
-const DEFAULT_LEASE_MS = 30 * 60 * 1000;
+const DELEGATION_TOOL_NAME = "allye_herdr";
 const WAIT_EVENT_TYPE = "allye-herdr-wait";
+const RUNTIME_TOOL_NAME = "allye_herdr";
 
 function resultText(result: unknown): string {
   const content = (result as McpResult | null)?.content;
@@ -97,15 +88,32 @@ function limitText(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n[context truncated]`;
 }
 
-function initialMode(): PiMode {
-  if (resolveOrchestrationMode(process.env) === "hermes") return "executor";
-  const explicit = process.env.ALLYE_PI_MODE?.toLowerCase();
-  if (explicit === "orchestrator"
-    && resolveOrchestrationMode(process.env) === "pi"
-    && process.env.ALLYE_ORCHESTRATION_RUN_ID
-    && process.env.ALLYE_WORK_ITEM_KEY) return explicit;
-  if (explicit === "executor") return explicit;
-  return "executor";
+export function describeCapabilities(env: NodeJS.ProcessEnv = process.env): AllyeCapabilities {
+  return {
+    piSession: true,
+    allyeMcp: env.ALLYE_PI_MCP !== "0",
+    filesystem: true,
+    subagents: env.ALLYE_PI_SUBAGENTS === "1",
+    herdr: env.HERDR_ENV === "1",
+  };
+}
+
+export function adaptiveInstructions(capabilities: AllyeCapabilities): string {
+  const available = [
+    capabilities.allyeMcp ? "Allye/MCP" : "no Allye/MCP",
+    capabilities.filesystem ? "filesystem" : "no filesystem",
+    capabilities.subagents ? "subagents" : "no subagents",
+    capabilities.herdr ? "Herdr" : "no Herdr",
+  ].join(", ");
+  return `Allye is an adaptive toolkit, not a mandatory workflow. Available capabilities: ${available}. Use each only when it helps; continue locally when an optional capability is absent. Recommend tasks when they add traceability, delegation, review, or coordination value; if the user explicitly approves working without a task, proceed and verify proportionally. Ask for consent before consequential mutations and keep Allye as the source of truth.`;
+}
+
+export function loadUsingAllyeSkill(): string {
+  try {
+    return readFileSync(resolve(canonicalSkillsPath(), "using-allye", "SKILL.md"), "utf8");
+  } catch {
+    return "";
+  }
 }
 
 function canonicalSkillsPath(): string {
@@ -189,8 +197,8 @@ export function formatWaitEvent(event: WaitEvent): string {
   const output = event.stdout?.trim() || "(no stdout)";
   const error = event.error || event.stderr?.trim() || "(none)";
   return `Herdr wait settled for agent ${event.name}. Outcome: ${event.outcome}. `
-    + `This is runtime evidence only, not a completion verdict. `
-    + `Use allye_runtime collect now: read work_children for the story and search Allye memories for Review and Implementation evidence before declaring completion.\n\n`
+    + `This is delegation evidence only, not a completion verdict. `
+    + `Use allye_herdr collect when a managed work item exists: read work_children for the story and search Allye memories for Review and Implementation evidence before declaring completion.\n\n`
     + `timeout_ms=${event.timeoutMs} code=${event.code ?? "n/a"} killed=${event.killed ?? false} timestamp=${event.timestamp}\n`
     + `stdout:\n${output}\nerror/stderr:\n${error}`;
 }
@@ -255,157 +263,8 @@ export function invalidStartupContext(message: string): StartupContext {
   };
 }
 
-export function resolveOrchestrationMode(env: NodeJS.ProcessEnv): OrchestrationMode {
-  if (env.ALLYE_ORCHESTRATOR?.toLowerCase() === "hermes") return "hermes";
-  return "pi";
-}
-
-export function orchestrationLockPath(cwd: string, runId: string): string {
-  const safeRunId = runId.replace(/[^a-zA-Z0-9._-]/g, "_");
-  return resolve(cwd, DEFAULT_LOCK_DIR, `${safeRunId}.json`);
-}
-
-export function canUseOwnedPane(state: OwnershipState, paneId: string): boolean {
+export function canUseOwnedPane(state: DelegationState, paneId: string): boolean {
   return state.panes.some((pane) => pane.paneId === paneId);
-}
-
-export function claimConflict(existing: OrchestrationClaim | undefined, requested: OrchestrationClaim): string | null {
-  if (!existing) return null;
-  if (existing.runId === requested.runId
-    && existing.workItemKey === requested.workItemKey
-    && existing.master === requested.master
-    && existing.pid === requested.pid
-    && existing.ownerToken === requested.ownerToken) return null;
-  return `orchestration ownership conflict: ${existing.master}/${existing.runId}/${existing.workItemKey} owns this lock`;
-}
-
-function lockRoot(): string {
-  return process.env.ALLYE_PI_LOCK_DIR
-    ?? process.env.PI_CODING_AGENT_DIR
-    ?? resolve(homedir(), ".pi", "agent");
-}
-
-function processState(pid: number): "alive" | "dead" | "unknown" {
-  try {
-    process.kill(pid, 0);
-    return "alive";
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ESRCH") return "dead";
-    return "unknown";
-  }
-}
-
-function claimFromEnvironment(sessionId?: string): OrchestrationClaim {
-  const runId = process.env.ALLYE_ORCHESTRATION_RUN_ID?.trim();
-  const workItemKey = process.env.ALLYE_WORK_ITEM_KEY?.trim();
-  if (!runId || !workItemKey) {
-    throw new Error("Pi orchestrator requires ALLYE_ORCHESTRATION_RUN_ID and ALLYE_WORK_ITEM_KEY");
-  }
-  if (resolveOrchestrationMode(process.env) === "hermes") {
-    throw new Error("Hermes owns orchestration for this process; Pi remains executor");
-  }
-  const claimedAt = new Date();
-  return {
-    runId,
-    workItemKey,
-    master: "pi",
-    pid: process.pid,
-    ...(sessionId ? { sessionId } : {}),
-    ownerToken: randomUUID(),
-    claimedAt: claimedAt.toISOString(),
-    leaseExpiresAt: new Date(claimedAt.getTime() + DEFAULT_LEASE_MS).toISOString(),
-  };
-}
-
-function readClaim(path: string): OrchestrationClaim {
-  try {
-    const claim = JSON.parse(readFileSync(path, "utf8")) as Partial<OrchestrationClaim>;
-    if (typeof claim.runId !== "string" || typeof claim.workItemKey !== "string"
-      || (claim.master !== "pi" && claim.master !== "hermes")
-      || typeof claim.pid !== "number" || typeof claim.ownerToken !== "string"
-      || typeof claim.leaseExpiresAt !== "string") {
-      throw new Error("missing required owner, PID, or lease fields");
-    }
-    return claim as OrchestrationClaim;
-  } catch (error) {
-    throw new Error(`orchestration lock ${path} is unreadable or invalid (${error instanceof Error ? error.message : String(error)}); refusing to take ownership`);
-  }
-}
-
-export function acquireLocalClaim(_cwd: string, requested: OrchestrationClaim): void {
-  const path = orchestrationLockPath(lockRoot(), requested.workItemKey);
-  mkdirSync(resolve(path, ".."), { recursive: true });
-  try {
-    writeFileSync(path, JSON.stringify(requested, null, 2), { encoding: "utf8", mode: 0o600, flag: "wx" });
-    return;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-
-  const existing = readClaim(path);
-  const conflict = claimConflict(existing, requested);
-  if (!conflict) return;
-
-  const leaseExpiresAt = Date.parse(existing.leaseExpiresAt);
-  const staleRecoveryEnabled = process.env.ALLYE_PI_RECOVER_STALE_LOCK === "1";
-  const ownerPidState = processState(existing.pid);
-  if (!staleRecoveryEnabled || !Number.isFinite(leaseExpiresAt) || Date.now() <= leaseExpiresAt || ownerPidState !== "dead") {
-    const reason = ownerPidState === "alive"
-      ? "owner process is active"
-      : ownerPidState === "unknown"
-        ? "owner process state is inconclusive"
-        : "stale recovery is disabled, lease is active, or required lease data is invalid";
-    throw new Error(`${conflict}; refusing stale-lock recovery (${reason}). Set ALLYE_PI_RECOVER_STALE_LOCK=1 only after confirming the local PID is gone and the lease expired.`);
-  }
-
-  const recoveryMarker = `${path}.recovering`;
-  try {
-    writeFileSync(recoveryMarker, JSON.stringify({ ownerToken: existing.ownerToken, pid: existing.pid }), { encoding: "utf8", mode: 0o600, flag: "wx" });
-  } catch {
-    throw new Error(`orchestration lock ${path} is already being recovered; refusing concurrent stale-lock recovery`);
-  }
-  try {
-    const current = readClaim(path);
-    if (current.ownerToken !== existing.ownerToken) {
-      throw new Error(`orchestration lock ${path} changed owner during stale recovery; refusing takeover`);
-    }
-    const quarantine = `${path}.stale-${existing.ownerToken}-${randomUUID()}`;
-    renameSync(path, quarantine);
-    try {
-      writeFileSync(path, JSON.stringify(requested, null, 2), { encoding: "utf8", mode: 0o600, flag: "wx" });
-    } catch (writeError) {
-      try { renameSync(quarantine, path); } catch { /* fail closed; quarantine remains for manual recovery */ }
-      throw writeError;
-    }
-    try { unlinkSync(quarantine); } catch { /* retained quarantine is safe for manual audit */ }
-  } finally {
-    try { unlinkSync(recoveryMarker); } catch { /* marker is advisory; stale recovery remains fail-closed */ }
-  }
-}
-
-export function releaseLocalClaim(claim: OrchestrationClaim): boolean {
-  const path = orchestrationLockPath(lockRoot(), claim.workItemKey);
-  if (!existsSync(path)) return false;
-  const existing = readClaim(path);
-  if (claimConflict(existing, claim) !== null) return false;
-  try {
-    unlinkSync(path);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
-}
-
-export function shutdownOwnership(ownership: OwnershipState, waits: Map<string, AbortController>): boolean {
-  for (const controller of waits.values()) controller.abort();
-  waits.clear();
-  ownership.waits.clear();
-  if (!ownership.claim) return false;
-  const released = releaseLocalClaim(ownership.claim);
-  if (released) ownership.claim = undefined;
-  return released;
 }
 
 async function loadStartupContext(): Promise<StartupContext> {
@@ -454,25 +313,14 @@ async function loadPromptContext(prompt: string): Promise<string> {
   }
 }
 
-function modeInstructions(mode: PiMode): string {
-  if (mode === "orchestrator") {
-    return `## Allye Pi role: orchestrator
-You are the explicitly selected Pi master for this work item.
-- Allye is the source of truth for work items, skills, memories, decisions, and review/delivery state.
-- Follow the canonical Allye workflow and gates; do not invent a second workflow.
-- Do not implement a story yourself when coordinating it. Dispatch exactly one story at a time to an isolated worktree and executor pane.
-- Use the allye_runtime tool only for the Herdr detect/spawn/dispatch/wait/collect contract. The pane cwd stays at the plugin-enabled repository root; absolute worktree paths belong in the briefing.
-- Never close panes you did not create, stop Herdr, merge, push, or publish without explicit user approval.
-- Hermes and Pi are alternative masters. Confirm that Hermes is not coordinating the same work item before taking control.`;
-  }
-  return `## Allye Pi role: executor
-You are the executor for this session (the safe default).
-- Read the canonical Allye skills and the exact story/tasks or handover before changing code.
-- Implement only the assigned story/task scope, with the execution skill's verification and reporting rules.
-- Follow the canonical execution skill's status protocol: the executor may use Allye to advance its assigned tasks to in_progress and review when the corresponding work and verification are actually complete.
-- Do not create or dispatch panes, assume orchestration, or change the assigned scope. Hermes and Pi may both manage status; being allowed to advance assigned task status does not make this session a master.
-- If Hermes is the master, follow Hermes' briefing and return a durable implementation/review trace through Allye; do not take control of the work item.
-- Stop and report when the scope or a locked decision is unclear; do not guess.`;
+function toolkitInstructions(): string {
+  return `## Allye Pi toolkit
+${adaptiveInstructions(describeCapabilities())}
+- Use canonical Allye skills as composable playbooks and choose the smallest useful next step for the user's intent.
+- Discovery and Product Planning may produce research, documents, memories, or proposed work items; do not create work items until the user approves the proposal.
+- Tasks are recommended for meaningful, delegated, multi-step, or review-heavy work, not universally required. If the user approves a no-task path, record the choice when useful and verify the result.
+- Use subagents when available and beneficial. Use Herdr only when available and beneficial; never require either one.
+- Use Allye for durable context, decisions, work items, and verification evidence. Ask before consequential mutations.`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -552,9 +400,9 @@ async function waitForInteractiveShell(pane: string): Promise<void> {
   throw new Error(`Herdr pane ${pane} did not reach an interactive shell within 30 seconds`);
 }
 
-export function activeToolsForMode(activeTools: string[], mode: PiMode): string[] {
+export function activeToolsForCapabilities(activeTools: string[], capabilities: AllyeCapabilities): string[] {
   const next = new Set(activeTools);
-  if (mode === "orchestrator") next.add(RUNTIME_TOOL_NAME);
+  if (capabilities.herdr) next.add(RUNTIME_TOOL_NAME);
   else next.delete(RUNTIME_TOOL_NAME);
   return [...next];
 }
@@ -564,10 +412,8 @@ export function dispatchStateIsAcceptable(stateText: string): boolean {
   return /working|idle|done/i.test(stateText);
 }
 
-function requireOrchestrator(mode: PiMode): void {
-  if (mode !== "orchestrator") {
-    throw new Error("Herdr orchestration is disabled in executor mode. Set ALLYE_PI_MODE=orchestrator explicitly for the Pi master.");
-  }
+function requireHerdr(capabilities: AllyeCapabilities): void {
+  if (!capabilities.herdr) throw new Error("Herdr is not available in this Pi session; use another available capability or continue locally.");
 }
 
 function requireAbsolutePath(value: unknown, name: string): string {
@@ -577,9 +423,7 @@ function requireAbsolutePath(value: unknown, name: string): string {
   return value;
 }
 
-async function runtimeOperation(mode: PiMode, params: Record<string, unknown>, registerWait: WaitRegistrar, cancelWait: WaitCanceller, ownership: OwnershipState): Promise<unknown> {
-  requireOrchestrator(mode);
-  if (!ownership.claim) throw new Error("Pi orchestrator has no explicit orchestration claim; provide ALLYE_ORCHESTRATION_RUN_ID and ALLYE_WORK_ITEM_KEY");
+async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<string, unknown>, registerWait: WaitRegistrar, cancelWait: WaitCanceller, ownership: DelegationState): Promise<unknown> {
   const operation = params.operation;
   if (operation === "detect") {
     if (process.env.HERDR_ENV !== "1") return { available: false, reason: "HERDR_ENV is not 1" };
@@ -591,9 +435,7 @@ async function runtimeOperation(mode: PiMode, params: Record<string, unknown>, r
     }
   }
 
-  if (process.env.HERDR_ENV !== "1") {
-    throw new Error("Herdr runtime is not active in this Pi session (HERDR_ENV=1 is required).");
-  }
+  requireHerdr(capabilities);
 
   if (operation === "spawn") {
     const cwd = requireAbsolutePath(params.cwd, "cwd");
@@ -690,11 +532,11 @@ async function runtimeOperation(mode: PiMode, params: Record<string, unknown>, r
   throw new Error(`Unknown runtime operation: ${String(operation)}`);
 }
 
-function registerRuntimeTool(pi: ExtensionAPI, getMode: () => PiMode, registerWait: WaitRegistrar, cancelWait: WaitCanceller, state: OwnershipState): void {
+function registerRuntimeTool(pi: ExtensionAPI, getCapabilities: () => AllyeCapabilities, registerWait: WaitRegistrar, cancelWait: WaitCanceller, state: DelegationState): void {
   pi.registerTool({
-    name: "allye_runtime",
+    name: RUNTIME_TOOL_NAME,
     label: "Allye Runtime",
-    description: "Drive Herdr from Pi orchestrator mode using detect, spawn, dispatch, wait, and Allye-backed collect.",
+    description: "Use optional Herdr capabilities for delegation, waiting, and collecting results when available.",
     parameters: Type.Object({
       operation: Type.String({ description: "detect | spawn | dispatch | wait | collect" }),
       cwd: Type.Optional(Type.String({ description: "Absolute plugin-enabled repository root for spawn" })),
@@ -711,7 +553,7 @@ function registerRuntimeTool(pi: ExtensionAPI, getMode: () => PiMode, registerWa
     }),
     async execute(_toolCallId, params) {
       try {
-        const result = await runtimeOperation(getMode(), params as Record<string, unknown>, registerWait, cancelWait, state);
+        const result = await runtimeOperation(getCapabilities(), params as Record<string, unknown>, registerWait, cancelWait, state);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -722,14 +564,15 @@ function registerRuntimeTool(pi: ExtensionAPI, getMode: () => PiMode, registerWa
 }
 
 export default function allyePiAdapter(pi: ExtensionAPI): void {
-  let mode = initialMode();
+  const capabilities = describeCapabilities();
   let startupContext: StartupContext = { text: "", teamSelectionRequired: false, allyeUnavailable: true, teams: [] };
   let firstPrompt = true;
+  let usingAllyeBootstrap = "";
   let shuttingDown = false;
   let activeContext: ExtensionContext | undefined;
   const waits = new Map<string, AbortController>();
   const settledWaits = new Set<string>();
-  const ownership: OwnershipState = { panes: [], waits: new Set() };
+  const ownership: DelegationState = { panes: [], waits: new Set() };
 
   const registerWait: WaitRegistrar = (name, timeoutMs) => {
     if (settledWaits.has(name)) return { registered: false, name, timeoutMs, duplicate: true, settled: true };
@@ -785,8 +628,8 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
     waits.delete(name);
   };
 
-  const syncModeTools = () => {
-    pi.setActiveTools(activeToolsForMode(pi.getActiveTools(), mode));
+  const syncCapabilityTools = () => {
+    pi.setActiveTools(activeToolsForCapabilities(pi.getActiveTools(), capabilities));
   };
 
   pi.registerMessageRenderer(WAIT_EVENT_TYPE, () => undefined);
@@ -796,49 +639,34 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     shuttingDown = false;
     activeContext = ctx;
-    mode = initialMode();
     firstPrompt = true;
-    syncModeTools();
-    if (ctx.hasUI) ctx.ui.setStatus("allye-pi", `loading Allye context (${mode})…`);
+    usingAllyeBootstrap = loadUsingAllyeSkill();
+    syncCapabilityTools();
+    if (ctx.hasUI) ctx.ui.setStatus("allye-pi", "loading Allye context…");
     if (process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0") startupContext = await loadStartupContext();
-    if (mode === "orchestrator") {
-      try {
-        const claim = claimFromEnvironment(ctx.sessionManager.getSessionId());
-        acquireLocalClaim(ctx.cwd, claim);
-        ownership.claim = claim;
-      } catch (error) {
-        mode = "executor";
-        syncModeTools();
-        startupContext = {
-          ...startupContext,
-          text: `${startupContext.text}\n## Pi orchestration blocked\n${error instanceof Error ? error.message : String(error)}\nPi remains executor; status management for assigned tasks remains allowed.`,
-        };
-        if (ctx.hasUI) ctx.ui.notify("Pi orchestration blocked; no compatible ownership claim was acquired. Executor mode remains active.", "warning");
-      }
-    }
     if (startupContext.teamSelectionRequired && ctx.hasUI) {
       ctx.ui.notify("Allye has multiple teams and no active team. Use /allye-team <name|prefix|id> before team-scoped work.", "warning");
     }
-    if (ctx.hasUI) ctx.ui.setStatus("allye-pi", `Allye ${mode} ready`);
+    if (ctx.hasUI) ctx.ui.setStatus("allye-pi", "Allye ready");
   });
 
   pi.on("session_shutdown", () => {
     shuttingDown = true;
     activeContext = undefined;
-    try {
-      shutdownOwnership(ownership, waits);
-    } catch (error) {
-      console.error(`Allye Pi: could not release orchestration lock safely: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    for (const controller of waits.values()) controller.abort();
+    waits.clear();
+    ownership.waits.clear();
+    ownership.panes.length = 0;
   });
 
   pi.on("before_agent_start", async (event) => {
     const sections = [
-      `<allye-pi-adapter>\n${modeInstructions(mode)}\n\nCanonical Allye skills are loaded from ${canonicalSkillsPath()} — do not create copies.\n${startupContext.teamSelectionRequired ? "\n" + startupContext.text : ""}\n</allye-pi-adapter>`,
+      `<allye-pi-adapter>\n${toolkitInstructions()}\n\nCanonical Allye skills are loaded from ${canonicalSkillsPath()} — do not create copies.\n${startupContext.teamSelectionRequired ? "\n" + startupContext.text : ""}\n</allye-pi-adapter>`,
     ];
-    if (firstPrompt && process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0") {
+    if (firstPrompt) {
       firstPrompt = false;
-      if (startupContext.text) sections.push(`<allye-pi-startup-context>\n${startupContext.text}\n</allye-pi-startup-context>`);
+      if (usingAllyeBootstrap) sections.push(`<allye-using-allye-bootstrap>\n${usingAllyeBootstrap}\n</allye-using-allye-bootstrap>`);
+      if (process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0" && startupContext.text) sections.push(`<allye-pi-startup-context>\n${startupContext.text}\n</allye-pi-startup-context>`);
       if (!startupContext.teamSelectionRequired && !startupContext.allyeUnavailable) {
         const relevant = await loadPromptContext(event.prompt);
         if (relevant) sections.push(`<allye-pi-relevant-memory>\n${relevant}\n</allye-pi-relevant-memory>`);
@@ -847,45 +675,16 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
     return { systemPrompt: `${event.systemPrompt}\n\n${sections.join("\n\n")}` };
   });
 
-  pi.registerCommand("allye-mode", {
-    description: "Select executor or orchestrator mode for this Pi session",
-    getArgumentCompletions: (prefix) => ["executor", "orchestrator"]
-      .filter((value) => value.startsWith(prefix.trim()))
-      .map((value) => ({ value, label: value })),
-    handler: async (args, ctx) => {
-      const selected = args?.trim().toLowerCase();
-      if (selected !== "executor" && selected !== "orchestrator") {
-        ctx.ui.notify("Usage: /allye-mode executor|orchestrator", "error");
-        return;
-      }
-      if (selected === "orchestrator" && resolveOrchestrationMode(process.env) === "hermes") {
-        ctx.ui.notify("Hermes owns orchestration for this process; Pi remains executor.", "warning");
-        return;
-      }
-      if (selected === mode) {
-        ctx.ui.notify(`Allye mode is already ${mode} for this session`, "info");
-        return;
-      }
-      if (selected === "executor") {
-        // Downgrading must release the orchestration claim and abort waits so
-        // this session cannot keep coordinating after becoming an executor.
-        shutdownOwnership(ownership, waits);
-        ownership.panes.length = 0;
-      }
-      if (selected === "orchestrator" && !ownership.claim) {
-        try {
-          const claim = claimFromEnvironment(ctx.sessionManager.getSessionId());
-          acquireLocalClaim(ctx.cwd, claim);
-          ownership.claim = claim;
-        } catch (error) {
-          ctx.ui.notify(`Pi orchestration blocked: ${error instanceof Error ? error.message : String(error)}`, "error");
-          return;
-        }
-      }
-      mode = selected;
-      syncModeTools();
-      ctx.ui.setStatus("allye-pi", `Allye ${mode}`);
-      ctx.ui.notify(`Allye mode set to ${mode} for this session`, "info");
+  pi.registerCommand("allye-capabilities", {
+    description: "Show capabilities available to the Allye toolkit in this Pi session",
+    handler: async (_args, ctx) => {
+      const available = [
+        `Allye/MCP: ${capabilities.allyeMcp ? "available" : "unavailable"}`,
+        "filesystem: available",
+        `subagents: ${capabilities.subagents ? "available" : "unavailable"}`,
+        `Herdr: ${capabilities.herdr ? "available" : "unavailable"}`,
+      ].join("; ");
+      ctx.ui.notify(`${available}. Tasks are recommended, not mandatory.`, "info");
     },
   });
 
@@ -907,5 +706,5 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
     },
   });
 
-  registerRuntimeTool(pi, () => mode, registerWait, cancelWait, ownership);
+  registerRuntimeTool(pi, () => capabilities, registerWait, cancelWait, ownership);
 }

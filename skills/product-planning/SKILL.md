@@ -16,8 +16,10 @@ Use this when the user talks about: requirements, business needs, product scope,
 ## Workflow Overview
 
 ```
-Understand context → Search memories → Define hierarchy → Create items → Save decisions
+Understand intent → Search context when useful → Propose hierarchy when traceability helps → Get approval → Create items → Save decisions
 ```
+
+Product Planning is recommended for durable product scope, not a mandatory prerequisite for every local implementation. Never create items without explicit approval.
 
 ---
 
@@ -29,7 +31,7 @@ If you arrived via a `discovery-to-planning` handover (see the `handover-protoco
 
 ## Step 1: Understand the Business Context
 
-Before creating anything, have a conversation with the user to understand:
+Before proposing or creating anything, have a conversation with the user to understand:
 
 1. **What problem are we solving?** — The business need or opportunity
 2. **Who is it for?** — Target users or stakeholders
@@ -114,7 +116,7 @@ Epic: User Authentication System
     └── Story: User can log out from all devices
 ```
 
-Wait for the user to approve, modify, or add to this structure before proceeding.
+Wait for the user to approve, modify, or add to this structure before proceeding. If the user explicitly chooses a no-work-item path for a small or local change, do not create a hierarchy; keep the scope and verification visible instead.
 
 ---
 

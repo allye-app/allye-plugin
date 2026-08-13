@@ -9,9 +9,9 @@ category: bootstrap
 
 You have access to the **Allye platform** — a project management and knowledge system with 12 MCP tools covering work items, documentation, sprints, boards, memories, skills, and more.
 
-This skill teaches you **when and how** to use those tools effectively. It does NOT replace the tools — it gives you methodology and workflow discipline on top of them.
+This skill teaches you **when and how** to use those tools effectively. It does NOT replace the tools — it gives you portable playbooks and proportional guardrails on top of them.
 
-**What you must do:** search memories at the start of every conversation, detect which workflow phase applies, load the matching skill for that phase, and save memories before the conversation ends.
+**Default posture:** Allye is an adaptive toolkit, not a mandatory phase chain. Use Allye MCP, filesystem, subagents, Herdr, work items, and memories when available and useful; degrade honestly when a capability is absent. Recommend traceable tasks for meaningful work, but support an explicitly approved no-task path.
 
 ---
 
@@ -23,51 +23,25 @@ These instructions are written in English, but every response, question, suggest
 
 ## Asking Questions
 
-<!-- adapted from superpowers:brainstorming (MIT) — "prefer multiple choice questions when possible" -->
-<HARD-GATE>
-This applies in every phase — Sandbox exploration, Technical Planning's gray-area discussion, Orchestrator's assignee/status calls, Product Planning's scope forks, anywhere you'd otherwise type a question in prose. Whenever a fork has a small set of nameable options — who owns something, which of two approaches, narrow vs. broad scope, yes/no confirmations — use the `AskUserQuestion` tool instead of typing the question out in prose. It's faster to answer by picking than by typing, and its free-text "Other" option means nothing is lost versus asking in prose.
+When a fork has a small set of nameable options — ownership, approach, scope, or confirmation — prefer the runtime's native structured-question mechanism when one exists. If the runtime has no such tool, ask one focused question in concise prose and make the options explicit. Never silently choose a consequential option.
 
-**Never bundle an open-ended sub-question with an enumerable one in the same message.** If a question has both parts — "what's driving this, and who's the audience?" — split them: ask the open part in prose, and the enumerable part (audience: internal/external/both) via `AskUserQuestion`, as two separate turns. Bundling them is what makes the whole thing read as "open-ended" and skip the tool entirely — don't let the open half smuggle the enumerable half out of a structured question.
+**Never bundle an open-ended sub-question with an enumerable one in the same message.** Split them into separate turns. Reserve plain conversational questions for genuinely open-ended forks where enumerating options would require guessing.
 
-Reserve plain conversational questions for forks that are genuinely open-ended on their own — where enumerating options would just be guessing at what the user might say (e.g. "what's driving this?", "describe the current process").
-</HARD-GATE>
+## 1. Context and Memory Protocol
 
-Note: `AskUserQuestion` inside skill-loaded contexts has known reliability issues in Claude Code itself (tracked upstream, e.g. anthropics/claude-code#29547, #30544) — it can silently return an empty answer or fall back to prose regardless of this instruction. Treat a prose fallback as a degraded but acceptable outcome, not a failure to correct mid-conversation; the underlying discipline (ask before deciding) still holds either way.
-
----
-
-## 1. Memory First Protocol
-
-<EXTREMELY_IMPORTANT>
-At the START of every conversation, you MUST search for relevant memories before doing anything else.
-At the END of every conversation, you MUST run the `memory-protocol` skill's /save process.
-</EXTREMELY_IMPORTANT>
+Use durable Allye context when the Allye MCP capability is available and the work benefits from continuity. Do not pretend a memory was searched or saved when the capability is unavailable.
 
 ### On conversation start
 
-**Step 1: Initialize Allye** — Call `initialize` (action: `init`) to load user context, team info, and core documents. This is mandatory and must happen before anything else.
-
-**Step 2: Check active team** — If the init response shows the user belongs to multiple teams and no team is active, ask the user which team they want to work with and call `team_switch` with the team name. Do not proceed until a team is selected — most tools require a team context.
-
-**Step 3: Search for memories** using `memory_search`:
-
-1. `"Session State"` — find where the user left off last time
-2. `"decision {topic}"` — find previous decisions about the current topic
-3. `"{work item key}"` — find context for the specific item being discussed (e.g., "PROJ-123")
-
-**Step 4: Greet the user** — Summarize what you know (from init + memories) before proceeding. If no memories are found, proceed normally with the context from init.
-
-**Step 5: Note the runtime, if one was reported.** The session hook may have injected a line beginning `Agent runtime: `. If it did, the `agent-runtime` skill is available and the Orchestrator will dispatch through it. Do not load that skill now — it loads when work is about to be dispatched, which is the whole point of it being a separate skill.
+1. Initialize when available. If it fails, state the limitation and continue with local context unless Allye is required.
+2. Resolve team context proportionally: ask before a team-scoped operation when multiple teams have no active selection; non-team-scoped work may continue.
+3. Search relevant memories when useful, especially for consequential, multi-step, or resumed work.
+4. Distinguish confirmed Allye context, local repository context, and assumptions.
+5. Use subagents or Herdr only when detected and beneficial; never make them prerequisites.
 
 ### On conversation end (and saving in general)
 
-Follow the `memory-protocol` skill's current save process — load it if you haven't already, and don't rely on an outdated inline copy of it here. That skill is the single source of truth for:
-
-- The **/save protocol** for session state (a 4-step process: consolidate the session into one `sector: "sessions"` memory, mine it for knowledge worth promoting to team sectors, react to each save's outcome, and promote any session todo that outlives the session)
-- **When to save mid-conversation** (decisions, trade-offs, blockers, non-obvious context — each in its correct sector)
-- **Tag conventions** and sector selection
-
-One rule worth internalizing before you even load it: **always pass `sector` explicitly** — it's optional and defaults to `knowledge`, which is rarely the sector you actually want.
+Follow the `memory-protocol` skill when Allye memory is available and the context is worth preserving. Save decisions, trade-offs, blockers, and durable session state; do not save trivial noise. Always pass `sector` explicitly. If persistence is unavailable, report the unsaved state rather than implying continuity.
 
 ---
 
@@ -94,7 +68,7 @@ If no handover marker is present, fall through to the decision table below as be
 | Define product requirements, create epics/features/stories | Product Planning | `allye-product-planning` |
 | Plan technical tasks for a story, discuss approach | Technical Planning | `allye-technical-planning` |
 | Coordinate delivery of an already-planned feature — assign work, track status, drive tasks through review | Orchestrator | `orchestrator` |
-| Implement code, write tests, develop features | Technical Development | `allye-technical-development` |
+| Implement code, write tests, develop features | Technical Development or a lightweight local implementation loop | `allye-technical-development` when a task/work item exists |
 | Review code, check implementation quality | Technical Review | `allye-technical-review` |
 | Finalize delivery, close story, update docs | Technical Delivery | `allye-technical-delivery` |
 
@@ -127,21 +101,27 @@ Then read the skill content and follow its instructions. The loaded skill takes 
 
 If the user's request doesn't match any workflow phase (e.g., general questions, quick lookups, team management), use the Allye tools directly without loading a specific skill. The tools reference in section 4 gives you a quick overview.
 
+### Direct implementation path
+
+When the user asks for a small or low-risk local change and no task exists, recommend the lightweight execution loop: state scope, get explicit approval to bypass task creation, read first, test and verify, then report. Do not create a task merely because the execution skill exists.
+
 ---
 
-## 3. Workflow Gates
+## 3. Adaptive Checkpoints and Guardrails
 
-<HARD-GATE>
-These rules are non-negotiable. Do not proceed past a gate without meeting its condition.
+There is no universal phase gate. Choose the smallest useful loop for the user's intent:
 
-1. **No implementation without tasks.** Do not write code for a story that has no tasks created. Run Technical Planning first.
+`intent → context → research (optional) → decision/consent → action → verification → persistence (optional)`
 
-2. **No skipping the discussion phase.** When planning tasks for a story, always identify gray areas and present options to the user before creating tasks. Locked decisions must be captured as memories.
+Checkpoints may be skipped or repeated. Use this policy:
 
-3. **No status changes without work.** Do not move a work item to "done" (`work_status_done`) unless the actual work is completed and verified.
-
-4. **TDD when applicable.** If you can write `expect(fn(input)).toBe(output)` before writing `fn`, you MUST write the test first (Red → Green → Refactor). If not (UI, infra, integration), test after implementation — but always test.
-</HARD-GATE>
+- **Low-risk, local, reversible work:** proceed with a concise plan and proportionate verification. Do not create work items merely to satisfy the toolkit.
+- **Meaningful, multi-step, delegated, shared, or review-heavy work:** recommend a task or work item for traceability. Explain the benefit and ask for approval before creating it.
+- **No-task path:** if the user explicitly approves bypassing task creation, record that choice when useful, keep scope explicit, and verify the result proportionally.
+- **Consequential mutations** (external systems, destructive operations, publication, deployment, status changes, or broad scope): obtain explicit consent unless the user already clearly authorized that exact action. Do not create or change work items/statuses without approval.
+- **Ambiguity that changes scope, risk, or architecture:** stop and ask. Minor implementation details may use established defaults, stated assumptions, and a reversible change.
+- **TDD:** use Red → Green → Refactor when the behavior can be specified as a deterministic example; otherwise test after implementation, but do not skip verification.
+- **Done claims:** only claim completion after reading actual verification output and distinguishing implementation evidence from review, deployment, or other pending gates.
 
 ---
 
@@ -172,11 +152,11 @@ If you catch yourself thinking any of these, STOP:
 
 | Rationalization | Why it's wrong |
 |-----------------|---------------|
-| "I don't need to search memories, this is a fresh conversation." | The user may have worked on this topic before. Context from past sessions prevents rework and contradictions. Always search. |
-| "I'll just start coding, tasks aren't necessary for something this small." | Tasks create accountability, enable progress tracking, and force you to think before acting. Planning first, always. |
+| "I don't need to search memories, this is a fresh conversation." | For consequential or resumed work, prior context may prevent rework; search when useful and available, but do not pretend an unavailable capability was used. |
+| "I'll just start coding, tasks aren't necessary for something this small." | For meaningful work, tasks improve accountability; for small work, use the approved no-task path with explicit scope and verification. |
 | "I'll skip the tests, the implementation is straightforward." | Straightforward code still breaks. TDD catches assumptions. Write the test. |
 | "I'll move the story to done, the tasks are mostly complete." | "Mostly" is not "done". Verify all tasks are complete first. |
-| "I don't need to save memories, I covered everything in the conversation." | Conversations are ephemeral. The next session starts from zero without memories. Always save state. |
+| "I don't need to save memories, I covered everything in the conversation." | Save durable decisions and consequential session state when persistence is available; skip trivial noise and report when persistence is unavailable. |
 | "I'll load all skills at once to be prepared." | Skills are loaded on-demand for a reason — loading everything bloats context and degrades quality. Load only what's needed. |
 
 ---

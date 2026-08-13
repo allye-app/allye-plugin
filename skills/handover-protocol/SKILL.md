@@ -7,7 +7,7 @@ category: methodology
 
 # Handover Protocol
 
-A handover is how context moves between Allye workflow phases without carrying a chat's full history forward. Each phase runs in its own fresh, lean-context conversation; when it finishes, it emits a handover — a block of chat text the user reads, approves, and pastes as the first message of the next chat. The next chat's bootstrap detects the marker and loads the right skill automatically.
+A handover is one optional way context moves between Allye playbooks without carrying a chat's full history forward. Use it for meaningful, multi-step, delegated, or cross-session work where a durable briefing adds value. For short local work, stay in the current session rather than manufacturing phase boundaries. When a handover is used, the user reads, approves, and pastes the block as the first message of the next chat; the bootstrap detects the marker and loads the right skill automatically.
 
 **A handover is never saved as a memory or a file.** The Allye doc and work items it references are the durable record — the handover text itself is a disposable transport vehicle, copied by hand in both directions (including Orchestrator ↔ Executor's correction loop).
 
@@ -50,17 +50,17 @@ Six types. Each is a distinct handoff with its own objective and field set — n
 **Executor is reachable both ways.** In manual mode it receives `story-execution`/`correction` handovers as documented above. In automatic mode (Orchestrator's choice, offered per story) it's dispatched via the `Agent` tool instead, the same way the reviewer axes are — see `agents/executor.md`. Either way the content is the same; only the transport differs.
 <!-- opencode-exclude:end -->
 
-## 3. Writing a good handover (mandatory checklist)
+## 3. Writing a good handover checklist
 
 <!-- adapted from humanlayer/humanlayer create_handoff (Apache-2.0) and EveryInc/compound-engineering-plugin artifact_readiness contracts (MIT) -->
 
-Before emitting any handover, confirm:
+Before emitting a handover, confirm the following when applicable:
 
 - **Concrete keys, not vague pointers.** "The story we discussed" is not acceptable — write the actual `STORY-KEY`. The receiving chat has zero memory of this conversation.
 - **References carry an explicit read instruction, not just keys.** The handover must tell the receiver to actually fetch and read what it lists — work items via `work_get`/`work_children` (the entire subtree under the parent, when the handover is scoped to a parent item like a feature or epic), docs via `doc_get`. A key list without a "read all of this" instruction invites skimming, and the receiving chat has no other way to know reading is mandatory.
 - **Locked decisions are carried forward, verbatim.** If a decision was locked in this phase, restate it in the handover — don't make the next chat re-derive or, worse, re-litigate it.
 - **Scope matches the type.** `story-execution` carries exactly one story; `correction` carries only the failed findings, not the whole story again. Padding a handover with everything "just in case" defeats the purpose of a lean next chat.
-- **The reminder line is never dropped.** Every handover ends with the "stop and ask" line — it's the single most important sentence in this whole protocol.
+- **The reminder line is preserved.** A handover should end with the "stop and ask" line — it prevents guessed decisions in the next session.
 <!-- adapted from mattpocock/skills triage AGENT-BRIEF (MIT) — durability of handoff artifacts -->
 - **Name interfaces and contracts, not file paths and line numbers.** Write "the `SkillConfig`
   type gains an optional `schedule` field", never "open `src/types/skill.ts` and edit line 42."

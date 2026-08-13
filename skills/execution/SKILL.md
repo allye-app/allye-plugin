@@ -7,8 +7,8 @@ category: methodology
 
 # Technical Development Workflow
 
-Implements one task with discipline: read the existing code first, drive it with TDD,
-verify it actually works, and track progress in Allye.
+Implements a scoped change with discipline: read the existing code first, drive it with TDD when applicable,
+verify it actually works, and use Allye task tracking when a task exists or the user approves creating one. A small or explicitly approved no-task change still follows the same read, test, and verification discipline.
 
 **Scope, if you arrived via a `story-execution` or `correction` handover (see `handover-protocol`):** read only the one story and its tasks named in the handover — nothing else. A `correction` handover carries only the failed findings, not the whole story again; fix exactly what it lists.
 
@@ -23,6 +23,8 @@ Get task → Search context → Move to in_progress → Read code → TDD (Red �
 ---
 
 ## Step 1: Get the Task and Context
+
+If a task or handover exists, fetch it and treat its acceptance criteria and locked decisions as authoritative. If no task exists, confirm that the user approved the no-task path, define the scope and verification command locally, and continue without inventing a work item.
 
 Fetch the task you're about to implement:
 
@@ -73,6 +75,8 @@ If there are multiple independent tasks (same wave), they can be done in any ord
 ---
 
 ## Step 3: Move Task to In Progress
+
+If a task exists, signal that work has started. If no task exists, record the local scope in the implementation plan and do not make a status call.
 
 Signal that work has started:
 
@@ -301,6 +305,8 @@ Examples of things that need human action:
 
 ## Step 7: Move Task to Review
 
+For a tracked task, advance it to review only after the verification evidence is green. For an approved no-task change, report the same evidence directly and do not create or advance a status.
+
 <!-- adapted from superpowers:verification-before-completion (MIT) — evidence before assertions -->
 **Evidence before assertions.** Don't advance a task because it looks right — run the tests, read the actual output, and confirm each acceptance criterion against that output before proceeding. "Should work" is not the same as "ran and passed."
 
@@ -308,13 +314,13 @@ The task's verification command is what supplies that evidence. Advancing a task
 `review` without having run it green — or without having recorded a `verification:
 manual` observation — is the assertion this rule exists to forbid.
 
-Once all acceptance criteria are verifiably met and tests pass:
+Once all acceptance criteria are verifiably met and tests pass for a tracked task:
 
 ```
 work_status_next(id: "{task uuid}")
 ```
 
-This advances the task forward to the "review" status. **Do NOT call `work_status_done` here** — passing its own tests makes a task ready for review, not done. "Done" only happens after the Reviewer returns ✅, and that final move (`review` → `done`) is the Orchestrator's, not yours (see the `orchestrator` skill §7).
+This advances the task forward to the "review" status. **Do NOT call `work_status_done` here** — passing its own tests makes a task ready for review, not done. For a no-task change, completion means the agreed scope and verification are reported; no status transition is implied.
 
 ---
 

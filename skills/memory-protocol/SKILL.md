@@ -48,17 +48,15 @@ Every `memory_save` passes through conflict resolution: Allye checks for similar
 
 ## 2. When to search
 
-### Conversation start (mandatory)
+### Conversation start (proportional)
 
-<EXTREMELY_IMPORTANT>
-At the start of EVERY conversation, run at least these searches before doing anything else:
+For consequential, multi-step, resumed, or team-scoped work, search before acting:
 
 1. `memory_search(query: "Session State")` — find where the user left off
 2. `memory_search(query: "{topic of user's request}")` — find relevant context
 3. `memory_search(query: "{work item key}")` — if a specific item is mentioned (e.g., "PROJ-123")
-</EXTREMELY_IMPORTANT>
 
-React to what you find: session state → summarize it for the user ("Last time we were working on X, you completed Y, and the next step was Z"); decisions → keep them in mind and respect locked ones; nothing → proceed, noting this is a fresh context.
+For a short, low-risk, local request, the search may be skipped. Never claim a search was performed when the Allye memory capability is unavailable. React to what you find: session state → summarize it; decisions → respect locked ones; nothing → proceed with the available context.
 
 ### Before decisions and implementation
 
@@ -97,15 +95,13 @@ Save decisions and blockers immediately — not batched at session end. **Locked
 
 ### Session state — handled by the /save protocol
 
-<EXTREMELY_IMPORTANT>
-Before the conversation ends (or whenever /save is invoked), run the full /save protocol in §4. Session state is not a single ad hoc save — it's the first of four coordinated steps that also promote durable knowledge from the session into team sectors.
-</EXTREMELY_IMPORTANT>
+When the session is consequential, resumed, or contains durable decisions, use the full /save protocol in §4 before ending. For short, low-risk, local work, saving may be skipped. If Allye persistence is unavailable, report that continuity was not saved rather than implying it was.
 
 ---
 
 ## 4. The /save protocol
 
-`/save` is a 4-step protocol that turns a session's raw activity into (a) a personal continuity snapshot and (b) correctly-scoped, durable team knowledge. Run all four steps, in order, every time /save is invoked or a conversation is about to end.
+`/save` is a 4-step protocol that turns a session's raw activity into (a) a personal continuity snapshot and (b) correctly-scoped, durable team knowledge. Run all four steps, in order, whenever the user explicitly invokes `/save` or when a consequential session is being closed. Do not force it for trivial local work.
 
 ### Step 1 — Consolidate the session (sector: `sessions`, personal)
 
@@ -276,7 +272,7 @@ The relocation flow surfaces that backlog and offers to promote it — **once pe
 
 ### When to offer it
 
-Offer at most once per user, ever — not once per session. A good moment is early in a session, right after the mandatory memory searches (§2), at a natural pause before the actual task. Never interrupt an in-progress task to offer this; if the user is mid-implementation or mid-debugging, wait for a natural break or skip it for that session — it isn't urgent, and it'll still be there next time unless already offered.
+Offer at most once per user, ever — not once per session. A good moment is early in a consequential session, after any relevant memory searches (§2), at a natural pause before the actual task. Never interrupt an in-progress task to offer this; if the user is mid-implementation or mid-debugging, wait for a natural break or skip it for that session. If the relocation capability is unavailable, do not present the flow.
 
 ### Check the guard first
 

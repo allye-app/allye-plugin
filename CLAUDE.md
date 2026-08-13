@@ -24,7 +24,7 @@ Source of the **Allye** plugin — a methodology/workflow layer on top of the Al
 - `npm run typecheck` validates `packages/allye-pi/src/index.ts`.
 - `npm run test:pi` covers mode tool filtering and the multi-team bootstrap gate.
 - The root `package.json` is the Pi package manifest: it points Pi at the adapter extension and the canonical root `skills/` directory.
-- The adapter uses the configured `pi-mcp-adapter` for Allye context, defaults to executor mode, and exposes Herdr only when `ALLYE_PI_MODE=orchestrator` is explicit.
+- The adapter uses the configured `pi-mcp-adapter` for Allye context, exposes an adaptive toolkit, and enables Herdr only when the optional `HERDR_ENV=1` capability is present.
 
 ## Architecture
 
