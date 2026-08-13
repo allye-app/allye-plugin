@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { dirname, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -26,9 +27,9 @@ type StartupContext = {
   allyeUnavailable: boolean;
   teams: Array<{ id: string; name: string; prefix?: string }>;
 };
-type WaitRegistrar = (name: string, timeoutMs: number) => Record<string, unknown>;
+type WaitRegistrar = (name: string, timeoutMs: number, execution?: DelegationExecution) => Record<string, unknown>;
 type WaitCanceller = (name: string) => void;
-export type WaitOutcome = "completed" | "timeout" | "error" | "aborted";
+export type WaitOutcome = "completed" | "blocked" | "unknown" | "timeout" | "error" | "aborted";
 export type WaitExecutionResult = {
   code: number;
   killed: boolean;
@@ -36,6 +37,8 @@ export type WaitExecutionResult = {
   stderr: string;
 };
 export type WaitEvent = {
+  kind?: "settled" | "intervened";
+  executionId?: string;
   name: string;
   timeoutMs: number;
   outcome: WaitOutcome;
@@ -66,10 +69,37 @@ export type OwnedPane = {
   tabId: string;
   paneId: string;
   agentName?: string;
+  resourceId?: string;
+};
+export type OwnedResource = {
+  resourceId: string;
+  level: "pane" | "tab" | "workspace";
+  workspaceId: string;
+  tabId?: string;
+  paneId?: string;
+  createdAt: string;
+};
+export type DelegationExecution = {
+  executionId: string;
+  callerPaneId?: string;
+  workspaceId: string;
+  tabId: string;
+  paneId: string;
+  resourceLevel: "pane" | "tab" | "workspace";
+  resourceId?: string;
+  worktree: string;
+  agentName?: string;
+  status: "created" | "working" | "settled" | "blocked" | "unknown" | "intervened" | "cleaned";
+  runtimeState?: "working" | "idle" | "done" | "blocked" | "unknown";
+  manualIntervention: boolean;
+  createdAt: string;
+  settledAt?: string;
 };
 export type DelegationState = {
   panes: OwnedPane[];
+  resources: Map<string, OwnedResource>;
   waits: Set<string>;
+  executions: Map<string, DelegationExecution>;
 };
 const WAIT_EVENT_TYPE = "allye-herdr-wait";
 const RUNTIME_TOOL_NAME = "allye_herdr";
@@ -187,6 +217,11 @@ export function classifyWaitResult(result?: WaitExecutionResult, timeoutMs = 0, 
   const errorText = error instanceof Error ? error.message : String(error ?? "");
   if (/abort/i.test(errorText)) return "aborted";
   if (/timeout|timed out/i.test(errorText) || Boolean(result?.killed && timeoutMs > 0)) return "timeout";
+  if (/blocked/i.test(errorText)) return "blocked";
+  if (/unknown/i.test(errorText)) return "unknown";
+  const runtimeState = result ? extractAgentLifecycleState(parseJson(result.stdout)) ?? extractAgentLifecycleState(parseJson(result.stderr)) : null;
+  if (runtimeState === "blocked") return "blocked";
+  if (runtimeState === "unknown") return "unknown";
   if (!result || result.code !== 0) return "error";
   return "completed";
 }
@@ -200,7 +235,8 @@ export function shouldEmitWaitEvent(shuttingDown: boolean, settledWaits: Set<str
 export function formatWaitEvent(event: WaitEvent): string {
   const output = event.stdout?.trim() || "(no stdout)";
   const error = event.error || event.stderr?.trim() || "(none)";
-  return `Herdr wait settled for agent ${event.name}. Outcome: ${event.outcome}. `
+  const prefix = event.kind === "intervened" ? "Herdr agent intervention detected" : "Herdr wait settled";
+  return `${prefix} for agent ${event.name}. Outcome: ${event.outcome}. `
     + `This is delegation evidence only, not a completion verdict. `
     + `Use allye_herdr collect when a managed work item exists: read work_children for the story and search Allye memories for Review and Implementation evidence before declaring completion.\n\n`
     + `timeout_ms=${event.timeoutMs} code=${event.code ?? "n/a"} killed=${event.killed ?? false} timestamp=${event.timestamp}\n`
@@ -208,7 +244,7 @@ export function formatWaitEvent(event: WaitEvent): string {
 }
 
 export function waitEventNotificationLevel(event: WaitEvent): "info" | "warning" | "error" {
-  if (event.outcome === "error") return "error";
+  if (event.outcome === "error" || event.outcome === "blocked" || event.outcome === "unknown") return "error";
   if (event.outcome === "timeout") return "warning";
   return "info";
 }
@@ -412,9 +448,30 @@ export function activeToolsForCapabilities(activeTools: string[], capabilities: 
   return [...next];
 }
 
+export type AgentLifecycleState = "working" | "idle" | "done" | "blocked" | "unknown";
+
+export function extractAgentLifecycleState(value: unknown): AgentLifecycleState | null {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const state = extractAgentLifecycleState(item);
+      if (state) return state;
+    }
+    return null;
+  }
+  const object = value as Record<string, unknown>;
+  const raw = object.agent_status;
+  if (raw === "working" || raw === "idle" || raw === "done" || raw === "blocked" || raw === "unknown") return raw;
+  for (const child of Object.values(object)) {
+    const state = extractAgentLifecycleState(child);
+    if (state) return state;
+  }
+  return null;
+}
+
 export function dispatchStateIsAcceptable(stateText: string): boolean {
-  if (/blocked|unknown/i.test(stateText)) return false;
-  return /working|idle|done/i.test(stateText);
+  const state = extractAgentLifecycleState(parseJson(stateText));
+  return state === "working" || state === "idle" || state === "done";
 }
 
 function requireHerdr(capabilities: AllyeCapabilities): void {
@@ -426,6 +483,23 @@ function requireAbsolutePath(value: unknown, name: string): string {
     throw new Error(`${name} must be an absolute path`);
   }
   return value;
+}
+
+async function cleanupExecution(execution: DelegationExecution, ownership: DelegationState): Promise<unknown> {
+  if (execution.status === "working" || execution.status === "blocked" || execution.status === "unknown" || execution.manualIntervention) {
+    throw new Error(`execution ${execution.executionId} is not safe to clean up while status=${execution.status}`);
+  }
+  const resourceId = execution.resourceId;
+  if (!resourceId) return { cleaned: false, reason: "execution has no owned resource" };
+  const resource = ownership.resources.get(resourceId);
+  if (!resource) return { cleaned: false, reason: "owned resource is already absent" };
+  if (resource.level === "pane" && resource.paneId) await runHerdr(["pane", "close", resource.paneId]);
+  else if (resource.level === "tab" && resource.tabId) await runHerdr(["tab", "close", resource.tabId]);
+  else if (resource.level === "workspace") await runHerdr(["workspace", "close", resource.workspaceId]);
+  execution.status = "cleaned";
+  ownership.resources.delete(resourceId);
+  ownership.panes = ownership.panes.filter((pane) => pane.resourceId !== resourceId);
+  return { cleaned: true, resource };
 }
 
 async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<string, unknown>, registerWait: WaitRegistrar, cancelWait: WaitCanceller, ownership: DelegationState): Promise<unknown> {
@@ -441,6 +515,45 @@ async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<
   }
 
   requireHerdr(capabilities);
+
+  if (operation === "workspace") {
+    const cwd = requireAbsolutePath(params.cwd, "cwd");
+    if (typeof params.worktree === "string" && params.worktree !== cwd) throw new Error("workspace cwd must match the requested worktree; use worktree management before creating a workspace");
+    const label = typeof params.label === "string" && params.label.trim() ? params.label.trim() : `allye-${randomUUID().slice(0, 8)}`;
+    const focus = params.focus === true ? "--focus" : "--no-focus";
+    const resource = herdrResult(await runHerdr(["workspace", "create", "--cwd", cwd, "--label", label, focus]));
+    const record = resource as Record<string, unknown>;
+    const workspace = record.workspace as Record<string, unknown> | undefined;
+    const tab = record.tab as Record<string, unknown> | undefined;
+    const rootPane = record.root_pane as Record<string, unknown> | undefined;
+    const workspaceId = typeof workspace?.workspace_id === "string" ? workspace.workspace_id : "";
+    const tabId = typeof tab?.tab_id === "string" ? tab.tab_id : "";
+    const paneId = typeof rootPane?.pane_id === "string" ? rootPane.pane_id : "";
+    if (!workspaceId || !tabId || !paneId) throw new Error("Herdr workspace response did not include workspace, tab, and root pane identifiers");
+    ownership.resources.set(workspaceId, { resourceId: workspaceId, level: "workspace", workspaceId, tabId, paneId, createdAt: new Date().toISOString() });
+    ownership.panes.push({ workspaceId, tabId, paneId, resourceId: workspaceId });
+    return { created: true, level: "workspace", resource };
+  }
+
+  if (operation === "tab") {
+    const workspace = typeof params.workspaceId === "string" ? params.workspaceId : "";
+    const cwd = requireAbsolutePath(params.cwd, "cwd");
+    const label = typeof params.label === "string" && params.label.trim() ? params.label.trim() : `task-${randomUUID().slice(0, 8)}`;
+    const focus = params.focus === true ? "--focus" : "--no-focus";
+    const args = ["tab", "create", "--workspace", workspace, "--cwd", cwd, "--label", label, focus];
+    if (!workspace) throw new Error("tab creation requires workspaceId");
+    const resource = herdrResult(await runHerdr(args));
+    const record = resource as Record<string, unknown>;
+    const tab = record.tab as Record<string, unknown> | undefined;
+    const rootPane = record.root_pane as Record<string, unknown> | undefined;
+    const tabId = typeof tab?.tab_id === "string" ? tab.tab_id : "";
+    const paneId = typeof rootPane?.pane_id === "string" ? rootPane.pane_id : "";
+    if (!tabId || !paneId) throw new Error("Herdr tab response did not include tab and root pane identifiers");
+    const resourceId = `${workspace}:${tabId}`;
+    ownership.resources.set(resourceId, { resourceId, level: "tab", workspaceId: workspace, tabId, paneId, createdAt: new Date().toISOString() });
+    ownership.panes.push({ workspaceId: workspace, tabId, paneId, resourceId });
+    return { created: true, level: "tab", resource };
+  }
 
   if (operation === "spawn") {
     const cwd = requireAbsolutePath(params.cwd, "cwd");
@@ -462,9 +575,11 @@ async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<
       && candidate.workspaceId === String(layoutMetadata.workspace_id ?? candidate.workspaceId)
       && candidate.tabId === String(layoutMetadata.tab_id ?? candidate.tabId));
     if (!record) throw new Error("Herdr returned a pane without workspace/tab ownership metadata");
-    ownership.panes.push(record);
+    const resourceId = `${record.workspaceId}:${record.tabId}:${record.paneId}`;
+    ownership.resources.set(resourceId, { resourceId, level: "pane", workspaceId: record.workspaceId, tabId: record.tabId, paneId: record.paneId, createdAt: new Date().toISOString() });
+    ownership.panes.push({ ...record, resourceId });
     await waitForInteractiveShell(newPane);
-    return { pane: newPane, worktree, cwd, direction, ready: true, ownership: record };
+    return { pane: newPane, worktree, cwd, direction, ready: true, ownership: { ...record, resourceId } };
   }
 
   if (operation === "dispatch") {
@@ -496,7 +611,23 @@ async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<
     // A fast agent can already be idle/done by the time it is inspected. The
     // server-owned wait is registered immediately so that completion is not
     // lost and a fast, successful turn is not falsely rejected.
-    const wait = registerWait(name, 3_600_000);
+    const execution: DelegationExecution = {
+      executionId: randomUUID(),
+      callerPaneId: process.env.HERDR_PANE_ID,
+      workspaceId: ownedPane.workspaceId,
+      tabId: ownedPane.tabId,
+      paneId: ownedPane.paneId,
+      resourceLevel: "pane",
+      resourceId: ownedPane.resourceId,
+      worktree,
+      agentName: name,
+      status: "working",
+      runtimeState: "working",
+      manualIntervention: false,
+      createdAt: new Date().toISOString(),
+    };
+    ownership.executions.set(execution.executionId, execution);
+    const wait = registerWait(name, 3_600_000, execution);
     let agentState: unknown;
     try {
       agentState = herdrResult(await runHerdr(["agent", "get", name]));
@@ -514,8 +645,31 @@ async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<
       started: herdrResult(start),
       state: agentState,
       wait,
+      execution,
       ownership: ownedPane,
     };
+  }
+
+  if (operation === "status") {
+    const executionId = params.executionId;
+    if (typeof executionId !== "string") throw new Error("status requires executionId");
+    const execution = ownership.executions.get(executionId);
+    if (!execution) throw new Error(`execution ${executionId} is not owned by this Pi session`);
+    if (execution.agentName) {
+      const current = extractAgentLifecycleState(herdrResult(await runHerdr(["agent", "get", execution.agentName])));
+      if (current) execution.runtimeState = current;
+    }
+    return execution;
+  }
+
+  if (operation === "mark_intervened") {
+    const executionId = params.executionId;
+    if (typeof executionId !== "string") throw new Error("mark_intervened requires executionId");
+    const execution = ownership.executions.get(executionId);
+    if (!execution) throw new Error(`execution ${executionId} is not owned by this Pi session`);
+    execution.manualIntervention = true;
+    execution.status = "intervened";
+    return execution;
   }
 
   if (operation === "wait") {
@@ -526,6 +680,14 @@ async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<
     return registerWait(name, timeout);
   }
 
+  if (operation === "cleanup") {
+    const executionId = params.executionId;
+    if (typeof executionId !== "string") throw new Error("cleanup requires executionId");
+    const execution = ownership.executions.get(executionId);
+    if (!execution) throw new Error(`execution ${executionId} is not owned by this Pi session`);
+    return cleanupExecution(execution, ownership);
+  }
+
   if (operation === "collect") {
     const storyId = params.storyId;
     if (typeof storyId !== "string" || storyId.length === 0) throw new Error("collect requires the story UUID as storyId");
@@ -534,7 +696,7 @@ async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<
     const review = await callAllye("allye_intelligence", { action: "memory_search", query: reviewQuery, limit: 10, return_content: true });
     const implementationQuery = typeof params.taskKey === "string" ? `Implementation ${params.taskKey}` : `Implementation ${storyId}`;
     const implementation = await callAllye("allye_intelligence", { action: "memory_search", query: implementationQuery, limit: 10, return_content: true });
-    return { storyChildren: story, review, implementation };
+    return { storyChildren: story, review, implementation, cleanupAvailable: typeof params.executionId === "string" };
   }
 
   throw new Error(`Unknown runtime operation: ${String(operation)}`);
@@ -546,15 +708,19 @@ function registerRuntimeTool(pi: ExtensionAPI, getCapabilities: () => AllyeCapab
     label: "Allye Runtime",
     description: "Use optional Herdr capabilities for delegation, waiting, and collecting results when available.",
     parameters: Type.Object({
-      operation: Type.String({ description: "detect | spawn | dispatch | wait | collect" }),
+      operation: Type.String({ description: "detect | workspace | tab | spawn | dispatch | status | mark_intervened | wait | collect | cleanup" }),
       cwd: Type.Optional(Type.String({ description: "Absolute plugin-enabled repository root for spawn" })),
       worktree: Type.Optional(Type.String({ description: "Absolute isolated worktree path; required for spawn/dispatch" })),
+      workspaceId: Type.Optional(Type.String({ description: "Workspace id for tab creation" })),
+      label: Type.Optional(Type.String({ description: "Human-readable workspace/tab label" })),
+      focus: Type.Optional(Type.Boolean({ description: "Focus newly created workspace/tab" })),
       direction: Type.Optional(Type.String({ description: "right or down" })),
       pane: Type.Optional(Type.String({ description: "Pane id returned by Herdr" })),
       name: Type.Optional(Type.String({ description: "Stable Herdr agent name" })),
       kind: Type.Optional(Type.String({ description: "Herdr agent kind, normally pi" })),
       briefing: Type.Optional(Type.String({ description: "Complete story briefing, including the absolute worktree path" })),
       timeoutMs: Type.Optional(Type.Number({ description: "Bounded wait timeout in milliseconds" })),
+      executionId: Type.Optional(Type.String({ description: "Caller execution id for status/intervention/cleanup" })),
       storyId: Type.Optional(Type.String({ description: "Allye story UUID for collect" })),
       storyKey: Type.Optional(Type.String({ description: "Story key for review memory search" })),
       taskKey: Type.Optional(Type.String({ description: "Task key for implementation memory search" })),
@@ -580,9 +746,9 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
   let activeContext: ExtensionContext | undefined;
   const waits = new Map<string, AbortController>();
   const settledWaits = new Set<string>();
-  const ownership: DelegationState = { panes: [], waits: new Set() };
+  const ownership: DelegationState = { panes: [], resources: new Map(), waits: new Set(), executions: new Map() };
 
-  const registerWait: WaitRegistrar = (name, timeoutMs) => {
+  const registerWait: WaitRegistrar = (name, timeoutMs, execution) => {
     if (settledWaits.has(name)) return { registered: false, name, timeoutMs, duplicate: true, settled: true };
     const existing = waits.get(name);
     if (existing) return { registered: true, name, timeoutMs, duplicate: true };
@@ -593,6 +759,8 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
       signal: controller.signal,
     }).then((result) => {
       const event: WaitEvent = {
+        kind: execution?.manualIntervention ? "intervened" : "settled",
+        executionId: execution?.executionId,
         name,
         timeoutMs,
         outcome: classifyWaitResult(result, timeoutMs),
@@ -602,6 +770,11 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
         stderr: result.stderr,
         timestamp: new Date().toISOString(),
       };
+      if (execution) {
+        execution.status = execution.manualIntervention ? "intervened" : event.outcome === "blocked" ? "blocked" : event.outcome === "completed" ? "settled" : "unknown";
+        execution.runtimeState = event.outcome === "completed" ? "done" : event.outcome === "blocked" ? "blocked" : "unknown";
+        execution.settledAt = event.timestamp;
+      }
       deliverWaitEvent(event, shuttingDown, settledWaits, {
         appendEntry: (customType, value) => pi.appendEntry(customType, value),
         notify: activeContext?.hasUI ? (message, level) => activeContext?.ui.notify(message, level) : undefined,
@@ -609,12 +782,19 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
       });
     }).catch((error) => {
       const event: WaitEvent = {
+        kind: execution?.manualIntervention ? "intervened" : "settled",
+        executionId: execution?.executionId,
         name,
         timeoutMs,
         outcome: classifyWaitResult(undefined, timeoutMs, error),
         error: error instanceof Error ? error.message : String(error),
         timestamp: new Date().toISOString(),
       };
+      if (execution) {
+        execution.status = execution.manualIntervention ? "intervened" : event.outcome === "blocked" ? "blocked" : event.outcome === "completed" ? "settled" : "unknown";
+        execution.runtimeState = event.outcome === "completed" ? "done" : event.outcome === "blocked" ? "blocked" : "unknown";
+        execution.settledAt = event.timestamp;
+      }
       deliverWaitEvent(event, shuttingDown, settledWaits, {
         appendEntry: (customType, value) => pi.appendEntry(customType, value),
         notify: activeContext?.hasUI ? (message, level) => activeContext?.ui.notify(message, level) : undefined,
@@ -664,7 +844,9 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
     for (const controller of waits.values()) controller.abort();
     waits.clear();
     ownership.waits.clear();
-    ownership.panes.length = 0;
+    // Owned Herdr resources intentionally remain open across a Pi shutdown.
+    // Cleanup requires an explicit, verified cleanup operation and never runs
+    // implicitly while the caller cannot inspect its final state.
   });
 
   pi.on("before_agent_start", async (event) => {

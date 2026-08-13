@@ -13,7 +13,13 @@ any runtime that satisfies the contract rather than one specific tool.
 
 Load this only when a compatible runtime is actually detected and the user benefits from delegation. Without one, continue locally or use another available subagent mechanism; never let the absence or degradation of a runtime block delivery.
 
-Concrete commands for the runtimes we implement live in `references/`. This file is the
+Concrete commands for the runtimes we implement live in `references/`.
+
+For Herdr, the Pi adapter exposes `workspace` and `tab` creation in addition to
+`spawn`, and returns an execution ID from `dispatch`. The caller must retain this
+ID, use `status`/`wait`, collect the result, and only then request ownership-guarded
+`cleanup`. `mark_intervened` records human takeover and permanently blocks automatic
+cleanup for that execution. This file is the
 contract; the reference is the implementation.
 
 <!-- adapted from ogulcancelik/herdr SKILL.md (Apache-2.0) — the primitive vocabulary and the safety rules -->

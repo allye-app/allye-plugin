@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   activeToolsForCapabilities,
   adaptiveInstructions,
+  dispatchStateIsAcceptable,
+  extractAgentLifecycleState,
   classifyWaitResult,
   deliverWaitEvent,
   describeCapabilities,
@@ -27,14 +29,27 @@ test("adaptive capabilities expose optional Herdr without a workflow mode", () =
   assert.deepEqual(activeToolsForCapabilities(["read"], { piSession: true, allyeMcp: true, filesystem: true, subagents: false, herdr: true }), ["read", "allye_herdr"]);
 });
 
+test("dispatch lifecycle accepts exact settled states and rejects blocked/unknown", () => {
+  assert.equal(dispatchStateIsAcceptable('{"agent_status":"working"}'), true);
+  assert.equal(dispatchStateIsAcceptable('{"agent_status":"idle"}'), true);
+  assert.equal(dispatchStateIsAcceptable('{"agent_status":"done"}'), true);
+  assert.equal(dispatchStateIsAcceptable('{"agent_status":"blocked"}'), false);
+  assert.equal(dispatchStateIsAcceptable('{"agent_status":"unknown"}'), false);
+  assert.equal(extractAgentLifecycleState({ result: { agent: { agent_status: "done" } } }), "done");
+  assert.equal(extractAgentLifecycleState({ result: { agent: { agent_status: "blocked" } } }), "blocked");
+});
+
 test("wait events classify outcomes and require collection before a verdict", () => {
   assert.equal(classifyWaitResult({ code: 0, killed: false, stdout: "done", stderr: "" }, 1000), "completed");
   assert.equal(classifyWaitResult({ code: 1, killed: false, stdout: "", stderr: "failed" }, 1000), "error");
   assert.equal(classifyWaitResult({ code: 1, killed: true, stdout: "", stderr: "" }, 1000), "timeout");
   assert.equal(classifyWaitResult(undefined, 1000, new Error("aborted by shutdown")), "aborted");
+  assert.equal(classifyWaitResult(undefined, 1000, new Error("blocked waiting for approval")), "blocked");
+  assert.equal(classifyWaitResult(undefined, 1000, new Error("unknown lifecycle state")), "unknown");
   const text = formatWaitEvent({ name: "agent-a", timeoutMs: 1000, outcome: "completed", timestamp: "now" });
   assert.match(text, /delegation evidence only/i);
   assert.match(text, /allye_herdr collect/i);
+  assert.match(formatWaitEvent({ kind: "intervened", executionId: "exec-1", name: "agent-a", timeoutMs: 1000, outcome: "blocked", timestamp: "now" }), /intervention detected/i);
 });
 
 test("wait settlement persists, notifies, and queues a follow-up", () => {

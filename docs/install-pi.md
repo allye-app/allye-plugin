@@ -81,8 +81,9 @@ adaptive toolkit in the current session. Use `/allye-capabilities` to inspect
 Allye/MCP, filesystem, subagent, and Herdr capabilities.
 
 When `HERDR_ENV=1`, the optional `allye_herdr` tool provides bounded `detect`,
-`spawn`, `dispatch`, `wait`, and Allye-backed `collect` operations. Without it,
-Pi continues locally. Herdr and subagents are capabilities, not prerequisites.
+`workspace`, `tab`, `spawn`, `dispatch`, `status`, `mark_intervened`, `wait`,
+`collect`, and ownership-guarded `cleanup` operations. Without it, Pi continues
+locally. Herdr and subagents are capabilities, not prerequisites.
 Tasks are recommended for meaningful, delegated, multi-step, or review-heavy
 work, but an explicitly approved no-task path is supported.
 
@@ -138,6 +139,8 @@ Manual `herdr agent wait` commands started outside this Pi session (for example
 with `nohup` or Bash) do not wake Pi and do not generate this notification.
 
 A real Herdr dispatch still requires `HERDR_ENV=1`, a compatible Herdr session,
-and an existing isolated worktree. Pi records workspace/tab/pane/agent ownership
-for safe teardown; it never adopts foreign panes, stops Herdr, closes panes,
-merges, pushes, or publishes without explicit authorization.
+and an existing isolated worktree. Pi records execution IDs plus
+workspace/tab/pane/agent ownership for safe teardown; it never adopts foreign
+panes, stops Herdr, closes panes, merges, pushes, or publishes without explicit
+authorization. Cleanup is only allowed after a settled and collected execution;
+blocked, unknown, timed-out, interrupted, or manually assumed resources remain open.

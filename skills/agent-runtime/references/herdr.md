@@ -22,6 +22,18 @@ fails in a way that suggests the server went away.
 Caller context is injected into every managed pane: `$HERDR_PANE_ID`, `$HERDR_TAB_ID`,
 `$HERDR_WORKSPACE_ID`.
 
+## workspace and tab ownership
+
+The Pi adapter can create a workspace or a tab without focusing it:
+
+```text
+allye_herdr(operation="workspace", cwd="/absolute/repo", label="feature-runtime")
+allye_herdr(operation="tab", workspaceId="w...", cwd="/absolute/repo", label="story-1")
+```
+
+The returned IDs are registered as owned resources. Never infer IDs from layout
+order and never use these operations to adopt an existing user resource.
+
 ## spawn
 
 ```bash
@@ -132,13 +144,31 @@ herdr agent send-keys {name} esc
 Then dispatch normally, including the submit confirmation — a freshly dismissed menu leaves
 the agent idle, which is exactly the state where a prompt lands unsubmitted.
 
-## teardown
+## execution status, intervention, and teardown
+
+Each dispatch returns an `executionId`. Retain it for the whole lifecycle:
+
+```text
+allye_herdr(operation="status", executionId="...")
+allye_herdr(operation="wait", name="story-agent", timeoutMs=3600000)
+allye_herdr(operation="mark_intervened", executionId="...")
+allye_herdr(operation="cleanup", executionId="...")
+```
+
+Use `mark_intervened` when the user takes over or modifies the managed pane. A
+manual intervention, `blocked`, `unknown`, timeout, or missing collection must
+keep the resource open. Cleanup is valid only after wait settlement, Allye/result
+collection, and verification.
+
+The adapter rejects cleanup for resources it did not create and for executions
+that are still working, blocked, unknown, or manually intervened.
 
 ```bash
 herdr pane close {pane_id}
 ```
 
-Only panes the plugin created, and only after §7.1's merge gates have passed.
+Only panes/tabs/workspaces the plugin created, and only after §7.1's merge gates
+have passed.
 
 ## Safety rules — never widened
 
