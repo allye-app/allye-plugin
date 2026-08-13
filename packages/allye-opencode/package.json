@@ -1,6 +1,6 @@
 {
   "name": "allye-opencode",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Allye multi-agent plugin for OpenCode — planning, building, reviewing, and delivering with structured workflows",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

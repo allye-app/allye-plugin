@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/allye-app/allye-plugin/compare/v1.6.0...v1.6.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* harmonize adaptive guidance across runtimes ([06eef5e](https://github.com/allye-app/allye-plugin/commit/06eef5e094eda876abeeae9518fb42acca05cf5e))
+
 # [1.6.0](https://github.com/allye-app/allye-plugin/compare/v1.5.1...v1.6.0) (2026-08-13)
 
 
