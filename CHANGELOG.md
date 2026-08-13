@@ -1,3 +1,10 @@
+## [1.6.2](https://github.com/allye-app/allye-plugin/compare/v1.6.1...v1.6.2) (2026-08-13)
+
+
+### Bug Fixes
+
+* align external manifests with adaptive policy ([b360a31](https://github.com/allye-app/allye-plugin/commit/b360a31dfc4a8b05e152dbe512c97004e3853166))
+
 ## [1.6.1](https://github.com/allye-app/allye-plugin/compare/v1.6.0...v1.6.1) (2026-08-13)
 
 
