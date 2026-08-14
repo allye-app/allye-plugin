@@ -84,13 +84,13 @@ Before starting meaningful work, search for team-specific skills when Allye MCP 
 If NO relevant skills are found for your current work:
 1. Inform the user that no team standards were found for this type of work
 2. Suggest creating them: "I recommend creating standard templates for your team. Want to set them up now?"
-3. If the user agrees, ask which scope they want:
+3. If the user agrees, ask which internal write scope they want:
    - **personal** — only for them
-   - **team** — for their current team
-   - **organization** — for the entire organization
-   - **marketplace** — public for all Allye users
+   - **team** — for their selected team; membership is read-only and writes require owner/admin/manage or an active maintainer grant
+   - **organization** — for the authorized organization; writes require owner/admin/manage authority
+   - **Marketplace is not a write scope** — it is legacy read-only browsing/source material
 4. Guide them through defining the template interactively
-5. Save it as a skill via \`skill_create\` with the chosen scope
+5. Save it as a skill via \`skill_create\` with the chosen internal scope. Use `skill_resolve` for canonical `team > organization > personal` resolution. For forks, pass an explicit `skill_slug` after a `409 Conflict` and preserve selected-team context; never silently suffix or overwrite a key.
 
 This creates a virtuous cycle — the more the team uses Allye, the more standards accumulate.
 Skills may be in any language. Adapt accordingly.

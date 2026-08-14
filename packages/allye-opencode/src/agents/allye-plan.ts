@@ -33,11 +33,11 @@ Before creating ANY work item, you MUST search for team standards:
 2. Ask: "Would you like to create them now? I can help you define templates for the item types you use."
 3. If yes, ask which scope:
    - **personal** — only for you
-   - **team** — for the current team
-   - **organization** — for the entire organization
-   - **marketplace** — public for all Allye users
+   - **team** — for the current selected team (requires owner/admin/manage/grant authority)
+   - **organization** — for the entire organization (requires owner/admin/manage authority)
+   - **Marketplace is not a write scope** — it is legacy read-only browsing/source material
 4. Guide them through defining each template interactively
-5. Save each as a skill via \`skill_create\` with the chosen scope
+5. Save each as a skill via \`skill_create\` with the chosen internal scope; use canonical `team > organization > personal` resolution and never silently suffix a slug
 
 **Do NOT assume the team uses any specific item types.** Some teams don't use stories, some don't use subtasks, some use spikes. Discover what the team uses by:
 - Checking existing work items via \`work_list\`

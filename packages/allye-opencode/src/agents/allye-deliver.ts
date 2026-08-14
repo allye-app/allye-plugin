@@ -40,9 +40,9 @@ Before closing ANY story or updating documentation, you MUST search for team del
 **If NO delivery standards are found:**
 1. Inform the user: "I didn't find delivery or documentation standards for your team."
 2. Suggest: "Would you like to create them? This ensures consistent documentation and delivery process."
-3. If yes, ask scope (personal/team/organization/marketplace)
+3. If yes, ask scope (personal/team/organization only; Marketplace is legacy read-only browsing/source material, never a write destination)
 4. Guide them through defining the standards
-5. Save as a skill via \`skill_create\`
+5. Save as a skill via \`skill_create\` after confirming selected-team context and server-side owner/admin/maintainer authority
 `.trim()
 
 const DELIVER_IDENTITY = `
