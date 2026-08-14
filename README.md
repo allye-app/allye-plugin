@@ -269,7 +269,7 @@ Every phase, on every platform:
 - Responds in **your language** (detected from your messages, falling back to your profile only before you've said anything)
 - Calls `initialize` to load your profile and team context
 - **Discovers team skills** before starting — coding standards, templates, checklists
-- If no standards found → **suggests creating them** with your chosen scope (personal/team/org/marketplace)
+- If no standards found → **suggests creating them** with your chosen scope (personal/team/organization). Marketplace is a legacy read-only browsing/source surface, never a write destination.
 - Searches memories for past decisions and session state
 - Saves session state before ending
 
