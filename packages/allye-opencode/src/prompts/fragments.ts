@@ -90,7 +90,7 @@ If NO relevant skills are found for your current work:
    - **organization** — for the authorized organization; writes require owner/admin/manage authority
    - **Marketplace is not a write scope** — it is legacy read-only browsing/source material
 4. Guide them through defining the template interactively
-5. Save it as a skill via \`skill_create\` with the chosen internal scope. Use `skill_resolve` for canonical `team > organization > personal` resolution. For forks, pass an explicit `skill_slug` after a `409 Conflict` and preserve selected-team context; never silently suffix or overwrite a key.
+5. Save it as a skill via \`skill_create\` with the chosen internal scope. Use \`skill_resolve\` for canonical \`team > organization > personal\` resolution. For forks, pass an explicit \`skill_slug\` after a \`409 Conflict\` and preserve selected-team context; never silently suffix or overwrite a key.
 
 This creates a virtuous cycle — the more the team uses Allye, the more standards accumulate.
 Skills may be in any language. Adapt accordingly.

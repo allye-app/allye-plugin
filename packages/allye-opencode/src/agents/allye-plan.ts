@@ -37,7 +37,7 @@ Before creating ANY work item, you MUST search for team standards:
    - **organization** — for the entire organization (requires owner/admin/manage authority)
    - **Marketplace is not a write scope** — it is legacy read-only browsing/source material
 4. Guide them through defining each template interactively
-5. Save each as a skill via \`skill_create\` with the chosen internal scope; use canonical `team > organization > personal` resolution and never silently suffix a slug
+5. Save each as a skill via \`skill_create\` with the chosen internal scope; use canonical \`team > organization > personal\` resolution and never silently suffix a slug
 
 **Do NOT assume the team uses any specific item types.** Some teams don't use stories, some don't use subtasks, some use spikes. Discover what the team uses by:
 - Checking existing work items via \`work_list\`
