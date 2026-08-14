@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/allye-app/allye-plugin/compare/v1.7.0...v1.7.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* escape generated plugin prompt backticks ([61a0b9e](https://github.com/allye-app/allye-plugin/commit/61a0b9ee8457f7a86241e2f4e096f1809c0b3610))
+
 # [1.7.0](https://github.com/allye-app/allye-plugin/compare/v1.6.2...v1.7.0) (2026-08-13)
 
 
