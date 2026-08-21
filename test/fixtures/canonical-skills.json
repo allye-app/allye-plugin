@@ -8,6 +8,26 @@
         { "path": "references/style.md", "bytes": "# Style\n" },
         { "path": "assets/logo.svg", "bytes": "<svg />\n" }
       ],
+      "snapshot": {
+        "materialized": true,
+        "origin": { "url": "https://example.test/skills/release-notes/SKILL.md" },
+        "origin_hash": "c831d5c502ab6d729ffdbdc1f46998c9fa511c68ae1e5eecb37fc9f6df2daf03"
+      },
+      "valid": true,
+      "issues": []
+    },
+    {
+      "id": "unicode-canonical-order",
+      "files": [
+        { "path": "references/ä.md", "bytes": "umlaut" },
+        { "path": "SKILL.md", "bytes": "---\nname: unicode\ndescription: Unicode order\n---\n" },
+        { "path": "references/z.md", "bytes": "zed" }
+      ],
+      "snapshot": {
+        "materialized": true,
+        "origin": { "url": "https://example.test/skills/unicode/SKILL.md" },
+        "origin_hash": "a5fd2a245b61ab42d62702d6225db4b1f034633fd0b1fb79bfd9bcf9d4754e13"
+      },
       "valid": true,
       "issues": []
     },
