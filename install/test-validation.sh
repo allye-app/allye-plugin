@@ -5,10 +5,11 @@ node - "$ROOT/test/fixtures/canonical-skills.json" <<'NODE'
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const source = fs.readFileSync(process.argv[2]);
-if (crypto.createHash('sha256').update(source).digest('hex') !== '6d3119a4e825c061bd496cc5324c137051e7db1648b937533c210d6fe4b6501e') throw new Error('fixture mismatch');
+if (crypto.createHash('sha256').update(source).digest('hex') !== 'ebbb4633529737eb3a0bc05938fb03db2677e2ae13a1c4a7cd3802606d9963f2') throw new Error('fixture mismatch');
 const cases = JSON.parse(source).cases;
 const expected = {
   'valid-with-resources': { valid: true, issues: [] },
+  'unicode-canonical-order': { valid: true, issues: [] },
   'script-static-warning': { valid: true, issues: [['warning','CANONICAL_SKILL_SCRIPT_STATIC_ANALYSIS','scripts/setup.sh']] },
   'unsafe-entries': { valid: false, issues: [
     ['error','CANONICAL_SKILL_MISSING_ROOT','SKILL.md'], ['error','CANONICAL_SKILL_PATH_TRAVERSAL','../escape.md'],
@@ -19,6 +20,18 @@ for (const testCase of cases) {
   const actual = testCase.issues.map(({severity,code,path}) => [severity,code,path]);
   if (JSON.stringify(actual) !== JSON.stringify(contract.issues)) throw new Error(`semantic issues mismatch: ${testCase.id}`);
   for (const file of testCase.files) if (file.path.startsWith('scripts/') && !String(file.bytes).includes('NEVER_EXECUTE')) throw new Error('script sentinel missing');
+  if (testCase.snapshot) {
+    if (testCase.valid !== true || testCase.snapshot.materialized !== true) throw new Error(`invalid materialized snapshot: ${testCase.id}`);
+    if (!testCase.snapshot.origin || typeof testCase.snapshot.origin.url !== 'string') throw new Error(`snapshot origin missing: ${testCase.id}`);
+    const digest = crypto.createHash('sha256');
+    // Must exactly match the API's code-point lexical comparator; localeCompare
+    // changes the order (and therefore digest) for accepted Unicode paths.
+    for (const file of [...testCase.files].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) {
+      digest.update(file.path, 'utf8'); digest.update('\0', 'utf8');
+      digest.update(Array.isArray(file.bytes) ? Buffer.from(file.bytes) : file.bytes, 'utf8'); digest.update('\0', 'utf8');
+    }
+    if (digest.digest('hex') !== testCase.snapshot.origin_hash) throw new Error(`snapshot origin hash mismatch: ${testCase.id}`);
+  }
 }
 console.log('Canonical skill fixture semantic conformance passed');
 NODE
