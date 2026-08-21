@@ -1,0 +1,39 @@
+{
+  "contractVersion": "1.0",
+  "cases": [
+    {
+      "id": "valid-with-resources",
+      "files": [
+        { "path": "SKILL.md", "bytes": "---\nname: release-notes\ndescription: Writes release notes\n---\n# Release notes\n" },
+        { "path": "references/style.md", "bytes": "# Style\n" },
+        { "path": "assets/logo.svg", "bytes": "<svg />\n" }
+      ],
+      "valid": true,
+      "issues": []
+    },
+    {
+      "id": "script-static-warning",
+      "files": [
+        { "path": "SKILL.md", "bytes": "---\nname: safe-script\ndescription: Documents an optional script\n---\n" },
+        { "path": "scripts/setup.sh", "bytes": "#!/bin/sh\necho NEVER_EXECUTE\n" }
+      ],
+      "valid": true,
+      "issues": [{ "severity": "warning", "code": "CANONICAL_SKILL_SCRIPT_STATIC_ANALYSIS", "path": "scripts/setup.sh" }]
+    },
+    {
+      "id": "unsafe-entries",
+      "files": [
+        { "path": "../escape.md", "bytes": "escape" },
+        { "path": "shortcut", "bytes": "target", "kind": "symlink" },
+        { "path": "assets/blob.bin", "bytes": [0, 1], "kind": "binary" }
+      ],
+      "valid": false,
+      "issues": [
+        { "severity": "error", "code": "CANONICAL_SKILL_MISSING_ROOT", "path": "SKILL.md" },
+        { "severity": "error", "code": "CANONICAL_SKILL_PATH_TRAVERSAL", "path": "../escape.md" },
+        { "severity": "error", "code": "CANONICAL_SKILL_SYMLINK_FORBIDDEN", "path": "shortcut" },
+        { "severity": "error", "code": "CANONICAL_SKILL_BINARY_FORBIDDEN", "path": "assets/blob.bin" }
+      ]
+    }
+  ]
+}
