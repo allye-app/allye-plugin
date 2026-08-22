@@ -515,43 +515,76 @@ write_bootstrap_hook() {  # $1 = adapter json (claude)
 # shadowing a fresh seeded one would fail silently.
 
 install_skills_to_disk() {  # $1 = agent id
-  local id="$1" aj skills_path export_format count i skill slug source_file src dest_dir dest marker
-
+  local id="$1" aj skills_path artifact release hash runtime adapter tmp_root file path encoded expected_hash expected_bytes marker dest python_bin
+  python_bin="${ALLYE_PYTHON_BIN:-python3}"
+  local -A seen_paths=()
   aj=$(allye_agent_json "$id")
   skills_path=$(expand_home "$(echo "$aj" | jq -r '.skills.path')")
-  export_format=$(echo "$aj" | jq -r '.skills.export_format')
-  marker="<!-- $(allye_marker_string) -->"
-
-  mkdir -p "$skills_path"
-
-  count=$(jq '.skills | length' "$SEED_FILE")
-  for i in $(seq 0 $((count - 1))); do
-    skill=$(jq -c ".skills[$i]" "$SEED_FILE")
-    slug=$(echo "$skill" | jq -r '.slug')
-    source_file=$(echo "$skill" | jq -r '.source_file')
-    src="$SCRIPT_DIR/$source_file"
-
-    if [ ! -f "$src" ]; then
-      print_warning "Skipping $slug — source file not found: $source_file"
-      continue
-    fi
-
-    case "$export_format" in
-      claude)
-        dest_dir="$skills_path/$slug"
-        dest="$dest_dir/SKILL.md"
-        mkdir -p "$dest_dir"
-        awk -v marker="$marker" '
-          { print }
-          /^---$/ { seen++; if (seen == 2) print marker }
-        ' "$src" > "$dest"
-        ;;
-      *)
-        print_error "Unknown skills export_format: $export_format"
-        return 1
-        ;;
-    esac
-  done
+  artifact="${ALLYE_CANONICAL_ARTIFACT_JSON:-}"
+  # Disk bytes are accepted only from a transient API/MCP response. Seed files
+  # are identifiers only and are never read as canonical content here.
+  if [ -z "$artifact" ] || [ ! -f "$artifact" ]; then print_error "Disk installation requires ALLYE_CANONICAL_ARTIFACT_JSON API/MCP response"; return 1; fi
+  if ! jq -e '.release_id | type == "string" and length > 0' "$artifact" >/dev/null ||
+    ! jq -e '.canonical_hash | type == "string" and test("^[a-fA-F0-9]{64}$")' "$artifact" >/dev/null ||
+    ! jq -e '.integrity.valid == true and .manifest.sha256 == .canonical_hash and (.files|type == "array" and length > 0)' "$artifact" >/dev/null; then
+    print_error "Canonical API artifact is invalid"; return 1
+  fi
+  release=$(jq -r '.release_id' "$artifact"); hash=$(jq -r '.canonical_hash' "$artifact")
+  if ! "$python_bin" - <<'PY'
+import ctypes, sys
+if sys.platform != "linux": raise SystemExit("atomic exchange requires Linux")
+if not hasattr(ctypes.CDLL(None), "renameat2"): raise SystemExit("libc renameat2 unavailable")
+PY
+  then print_error "Atomic directory exchange requires Linux with libc renameat2; refusing installation before writes"; return 1; fi
+  runtime=$(echo "$aj" | jq -r '.id'); adapter="${runtime}-workspace"
+  mkdir -p "$(dirname "$skills_path")"
+  tmp_root=$(mktemp -d "$(dirname "$skills_path")/.allye-artifact.XXXXXX") || return 1
+  trap 'rm -rf "$tmp_root"' RETURN
+  while IFS= read -r file; do
+    path=$(echo "$file" | jq -r '.path')
+    case "$path" in SKILL.md|references/*|assets/*|scripts/*) ;; *) print_error "Invalid API artifact path: $path"; return 1;; esac
+    case "$path" in /*|*'//'|./*|../*|*/./*|*/../*|*/.|*/..) print_error "Non-canonical API artifact path: $path"; return 1;; esac
+    if [ "${seen_paths[$path]+x}" = x ]; then print_error "Duplicate API artifact path: $path"; return 1; fi
+    seen_paths[$path]=1
+    encoded=$(echo "$file" | jq -r '.bytes_base64 // empty')
+    expected_hash=$(jq -r --arg path "$path" '.manifest.files[] | select(.path == $path) | .sha256' "$artifact")
+    expected_bytes=$(jq -r --arg path "$path" '.manifest.files[] | select(.path == $path) | .bytes' "$artifact")
+    [ -n "$encoded" ] && [ -n "$expected_hash" ] && [ "$expected_bytes" != "null" ] || { print_error "API artifact manifest/bytes missing: $path"; return 1; }
+    dest="$tmp_root/$path"; mkdir -p "$(dirname "$dest")"
+    printf '%s' "$encoded" | base64 -d > "$dest" || { print_error "Invalid base64 API artifact bytes: $path"; return 1; }
+    [ "$(wc -c < "$dest" | tr -d ' ')" = "$expected_bytes" ] && [ "$(sha256sum "$dest" | cut -d' ' -f1)" = "$expected_hash" ] || { print_error "API artifact integrity check failed: $path"; return 1; }
+  done < <(jq -c '.files[]' "$artifact")
+  [ "$(jq '.manifest.files | length' "$artifact")" = "$(jq '.files | length' "$artifact")" ] || { print_error "API artifact manifest is incomplete"; return 1; }
+  marker="{\"release_id\":\"$release\",\"canonical_hash\":\"$hash\",\"adapter\":\"$adapter\",\"runtime\":\"$runtime\",\"installer\":\"$(allye_marker_string)\"}"
+  [ -f "$tmp_root/SKILL.md" ] || { print_error "API artifact missing SKILL.md"; return 1; }
+  # Metadata is a sidecar: canonical SKILL.md bytes are never rewritten.
+  printf '%s\n' "$marker" > "$tmp_root/.allye-artifact.json"
+  # Publish one complete tree. A test-only failpoint proves the old tree stays
+  # intact before the commit rename; no child is individually removed/moved.
+  [ "${ALLYE_INSTALL_FAILPOINT:-}" != "before-tree-swap" ] || { print_error "Installer failpoint before tree swap"; return 1; }
+  local previous="${skills_path}.allye.previous.$$"
+  if [ -e "$skills_path" ]; then
+    # Linux renameat2(RENAME_EXCHANGE) swaps two existing paths atomically;
+    # unlike two mv calls it never leaves skills_path absent. Fail closed when
+    # the kernel/libc primitive is unavailable.
+    if ! "$python_bin" - "$tmp_root" "$skills_path" <<'PY'
+import ctypes, os, sys
+libc = ctypes.CDLL(None, use_errno=True)
+try: renameat2 = libc.renameat2
+except AttributeError: raise OSError("libc renameat2 unavailable")
+renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+renameat2.restype = ctypes.c_int
+r = renameat2(-100, os.fsencode(sys.argv[1]), -100, os.fsencode(sys.argv[2]), 2)
+if r: raise OSError(ctypes.get_errno(), "renameat2(RENAME_EXCHANGE) unavailable")
+PY
+    then print_error "Atomic directory exchange is unavailable; refusing non-atomic publication"; return 1; fi
+    # tmp_root now names the former live tree; retain it briefly as recovery evidence.
+    mv "$tmp_root" "$previous" || { print_error "Atomic exchange completed; prior tree retained at $tmp_root"; return 1; }
+    rm -rf "$previous"
+  else
+    mv "$tmp_root" "$skills_path" || return 1
+  fi
+  trap - RETURN
 }
 
 install_bootstrap_plugin() {  # $1 = adapter json

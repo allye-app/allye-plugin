@@ -39,7 +39,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p packages/allye-pi/tsconfig.json",
     "test:pi": "node --experimental-strip-types --test packages/allye-pi/src/index.test.ts",
-    "test:installer": "bash install/test-validation.sh && bash install/test-pi.sh"
+    "test:adapters": "node --experimental-strip-types --test packages/allye-pi/src/runtime-adapters.test.ts",
+    "test:installer": "bash install/test-validation.sh && bash install/test-pi.sh && bash install/test-installer.sh"
   },
   "repository": {
     "type": "git",
