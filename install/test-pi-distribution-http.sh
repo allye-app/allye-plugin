@@ -40,16 +40,17 @@ export PI_LOG="$TMP/pi.log" PI_STATE="$TMP/state" PI_ROOT="$TMP/pkg" EVENTS="$TM
 print_error(){ printf '%s\n' "$*" >&2; }; print_warning(){ :; }; print_success(){ :; }; print_step(){ :; }
 printf 'npm:unrelated\n' > "$PI_STATE"
 source "$ROOT/install/lib.sh"
-allye_install pi
-grep -Fqx 'preflight' "$TMP/events"; grep -Fqx 'complete' "$TMP/events"; grep -Fq 'install npm:allye-pi' "$TMP/events"
-# Context mismatch is rejected before the package manager mutates state.
-before=$(grep -c '^install ' "$TMP/events"); export ALLYE_DISTRIBUTION_CONTEXT_JSON="$(jq '.runtime="codex"' "$TMP/context.json")"; if allye_install pi; then exit 1; fi; test "$(grep -c '^install ' "$TMP/events")" -eq "$before"
-# Completion rejection restores the verified prior immutable package source.
-export ALLYE_DISTRIBUTION_CONTEXT_JSON="$(<"$TMP/context.json")"; touch "$TMP/reject"; if allye_install pi; then exit 1; fi; grep -Fqx 'install npm:allye-pi@1.7.1' "$TMP/events"
-# The next operation must discover a restored version-pinned source and use it for a safe snapshot.
-test "$(pi_installed_package_path 'npm:allye-pi')" = "$TMP/pkg"
-pi_package_snapshot "$(allye_agent_json pi)" 'npm:allye-pi' "$TMP/pkg" | jq -e '.packageVersion == "1.7.1"' >/dev/null
-# A homonymous package never satisfies the configured package identity.
-printf 'npm:allye-pi-homonym@1.7.1\n' > "$PI_STATE"
-if pi_installed_package_path 'npm:allye-pi' >/dev/null; then exit 1; fi
-printf 'Pi HTTP distribution receipt: ok\n'
+# Option 2: even a valid API execution context cannot authorize the shared Pi
+# package/configuration path. It must not contact preflight or mutate Pi state.
+before_state=$(<"$PI_STATE"); before_events=$(test -f "$TMP/events" && cat "$TMP/events" || true)
+set +e; diagnostic=$(allye_install pi 2>&1); status=$?; set -e
+[ "$status" -ne 0 ] || exit 1
+printf '%s\n' "$diagnostic" | grep -Fq 'CONFLICT_UNMANAGED'
+test "$(<"$PI_STATE")" = "$before_state"
+after_events=$(test -f "$TMP/events" && cat "$TMP/events" || true); test "$after_events" = "$before_events"
+test ! -e "$HOME/.allye/distribution-manifests/pi.json"
+set +e; diagnostic=$(allye_uninstall pi 2>&1); status=$?; set -e
+[ "$status" -ne 0 ] || exit 1
+printf '%s\n' "$diagnostic" | grep -Fq 'DISTRIBUTION_REMOVE_OWNERSHIP_UNAVAILABLE'
+test "$(<"$PI_STATE")" = "$before_state"
+printf 'Pi HTTP distribution receipt: Option-2 blocked ok\n'

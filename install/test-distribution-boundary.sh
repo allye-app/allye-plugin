@@ -4,9 +4,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"; TMP="$(mktemp -d)"; trap 'rm -rf "$TMP
 export HOME="$TMP/home" SCRIPT_DIR="$ROOT" ADAPTERS_FILE="$ROOT/install/adapters.json"
 print_error(){ printf '%s\n' "$*" >&2; }; print_warning(){ :; }; print_success(){ :; }; print_step(){ :; }
 source "$ROOT/install/lib.sh"
-payload=$'---\nname: x\ndescription: x\n---'; hash=$(printf %s "$payload" | sha256sum | cut -d' ' -f1); bytes=$(printf %s "$payload" | base64 -w0); length=$(printf %s "$payload" | wc -c | tr -d ' ')
+# Exercise the public authorized disk-distribution entrypoint, not a helper.
+allye_detect() { [ "$1" = hermes ]; }
+payload=$'---\nname: x\ndescription: x\n---'; file_hash=$(printf %s "$payload" | sha256sum | cut -d' ' -f1); hash=$(node -e 'const c=require("node:crypto");process.stdout.write(c.createHash("sha256").update("SKILL.md").update("\0").update(process.argv[1]).update("\0").digest("hex"))' -- "$payload"); bytes=$(printf %s "$payload" | base64 -w0); length=$(printf %s "$payload" | wc -c | tr -d ' ')
 cat > "$TMP/artifact.json" <<EOF
-{"release_id":"release-1","canonical_hash":"$hash","integrity":{"valid":true},"manifest":{"sha256":"$hash","files":[{"path":"SKILL.md","bytes":$length,"sha256":"$hash"}]},"files":[{"path":"SKILL.md","bytes_base64":"$bytes"}]}
+{"release_id":"release-1","canonical_hash":"$hash","integrity":{"valid":true},"manifest":{"sha256":"$hash","files":[{"path":"SKILL.md","bytes":$length,"sha256":"$file_hash"}]},"files":[{"path":"SKILL.md","bytes_base64":"$bytes"}]}
 EOF
 node - "$hash" "$TMP/context.json" "$TMP/jwks.json" <<'NODE'
 const { generateKeyPairSync, sign } = require('node:crypto'); const { writeFileSync } = require('node:fs');
@@ -31,19 +33,25 @@ CURL
 chmod +x "$TMP/bin/curl"; export PATH="$TMP/bin:$PATH" CALLS="$TMP/calls" JWKS="$TMP/jwks.json" HASH="$hash" ALLYE_CANONICAL_ARTIFACT_JSON="$TMP/artifact.json"
 # Context/JWS/preflight all happen before the physical tree exists.
 export ALLYE_DISTRIBUTION_CONTEXT_JSON="$(<"$TMP/context.json")" ALLYE_API_URL=http://127.0.0.1:3001
-install_skills_to_disk hermes
+allye_install hermes
 test -f "$HOME/.hermes/skills/allye/SKILL.md"; grep -q '/jwks' "$TMP/calls"; grep -q '/preflight' "$TMP/calls"; grep -q '/complete' "$TMP/calls"
 # Tampered JWS is rejected before staging/publishing and retains the live tree.
 : > "$TMP/calls"; good_context="$ALLYE_DISTRIBUTION_CONTEXT_JSON"; export ALLYE_DISTRIBUTION_CONTEXT_JSON="$(jq '.executionToken |= . + "x"' <<<"$good_context")"
-if install_skills_to_disk hermes; then exit 1; fi
+if allye_install hermes; then exit 1; fi
 test -f "$HOME/.hermes/skills/allye/SKILL.md"; ! grep -q '/preflight' "$TMP/calls"
 export ALLYE_DISTRIBUTION_CONTEXT_JSON="$good_context"
-# Rejected completion restores the old physical tree and reports failure.
-printf 'old\n' > "$HOME/.hermes/skills/allye/SKILL.md"; : > "$TMP/calls"
-if FAIL_COMPLETE=1 install_skills_to_disk hermes; then exit 1; fi
-grep -qx 'old' "$HOME/.hermes/skills/allye/SKILL.md"; grep -q '/fail' "$TMP/calls"
+# Snapshot the complete receipt state before deliberately modifying the tree.
+target="$HOME/.hermes/skills/allye"; manifest="$HOME/.allye/distribution-manifests/hermes.json"; test "$(canonicalTreeHash "$target")" = "$hash"; cp -a "$target" "$TMP/tree.receipt"; cp -a "$manifest" "$TMP/manifest.receipt"
+# A local tree modification is detected from actual bytes and is preserved.
+printf 'local modified\n' > "$target/SKILL.md"; cp "$target/SKILL.md" "$TMP/modified.before"; : > "$TMP/calls"
+if allye_install hermes; then exit 1; fi
+cmp "$TMP/modified.before" "$target/SKILL.md"; if grep -q '/complete' "$TMP/calls"; then exit 1; fi
+# Restore all receipt state byte-for-byte: tree, sidecar and manifest.
+rm -rf "$target"; cp -a "$TMP/tree.receipt" "$target"; cp -a "$TMP/manifest.receipt" "$manifest"; cp "$manifest" "$TMP/manifest.before"; : > "$TMP/calls"
+if FAIL_COMPLETE=1 allye_install hermes; then exit 1; fi
+cmp <(printf '%s' "$payload") "$HOME/.hermes/skills/allye/SKILL.md"; cmp "$TMP/manifest.before" "$manifest"; grep -q '/fail' "$TMP/calls"
 # Non-loopback HTTP is rejected before staging or any bearer request.
 : > "$TMP/calls"; ALLYE_API_URL=http://example.test
-if install_skills_to_disk hermes; then exit 1; fi
+if allye_install hermes; then exit 1; fi
 test ! -s "$TMP/calls"
 printf 'distribution boundary lifecycle: ok\n'
