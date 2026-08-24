@@ -51,21 +51,13 @@ print_success() { :; }
 print_warning() { :; }
 print_error() { printf '%s\n' "$*" >&2; }
 
-# The production/default path must use the published package.
+# Option 2: Pi's shared package/configuration path is unmanaged and must not
+# be authorized by a local or absent context.
 unset ALLYE_PI_INSTALL_SOURCE || true
 source "$REPO_ROOT/install/lib.sh"
-allye_install pi
-allye_uninstall pi
-
-grep -Fqx 'install npm:allye-pi' "$ALLYE_PI_TEST_LOG"
-grep -Fqx 'remove npm:allye-pi' "$ALLYE_PI_TEST_LOG"
-
-# Local development is explicit and must use Pi's local-source command.
-export ALLYE_PI_INSTALL_SOURCE=local
-allye_install pi
-grep -Fqx "install $REPO_ROOT" "$ALLYE_PI_TEST_LOG"
-allye_uninstall pi
-grep -Fqx "remove $REPO_ROOT" "$ALLYE_PI_TEST_LOG"
+if allye_install pi; then exit 1; fi
+if allye_uninstall pi; then exit 1; fi
+test ! -e "$ALLYE_PI_TEST_INSTALLED"
 
 # The installer must never create or rewrite Pi settings itself.
 test ! -e "$HOME/.pi/agent/settings.json"

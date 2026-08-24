@@ -30,6 +30,157 @@ allye_installed_version() {  # $1 = path -> prints version, or nothing
   grep -o 'ALLYE_INSTALLER_VERSION=[0-9]\+' "$1" 2>/dev/null | head -1 | cut -d= -f2
 }
 
+# ─── Distribution ownership manifest ───────────────────────────────────────
+# This is local evidence only: it never carries credentials or decides API
+# authorization. A record is created only after a safe installer mutation.
+ALLYE_MANIFEST_DIR="${ALLYE_MANIFEST_DIR:-$HOME/.allye/distribution-manifests}"
+
+manifestPath() {  # $1 = runtime
+  case "$1" in claude|codex|opencode|pi|cursor|gemini|hermes) ;; *) return 1 ;; esac
+  printf '%s/%s.json\n' "$ALLYE_MANIFEST_DIR" "$1"
+}
+
+readManifest() {  # $1 = runtime -> normalized JSON manifest
+  local runtime="$1" path
+  path=$(manifestPath "$runtime") || return 1
+  if [ ! -f "$path" ]; then
+    jq -cn --arg runtime "$runtime" '{version:1,runtime:$runtime,artifacts:[]}'
+    return 0
+  fi
+  jq -e --arg runtime "$runtime" '
+    .version == 1 and .runtime == $runtime and (.artifacts | type == "array")
+    and (([.artifacts[].path] | unique | length) == ([.artifacts[].path] | length))
+    and all(.artifacts[]; (.path|type == "string") and (.skillId|type == "string") and (.releaseId|type == "string") and (.hash|type == "string" and test("^[a-fA-F0-9]{64}$")) and (.updatedAt|type == "string"))
+  ' "$path" >/dev/null || return 1
+  jq -cS . "$path"
+}
+
+hashFile() {  # $1 = existing non-symlink regular file
+  [ -f "$1" ] && [ ! -L "$1" ] || return 1
+  sha256sum "$1" | cut -d' ' -f1
+}
+
+apiManagedArtifact() { # $1 runtime, $2 path, $3 resulting content hash
+  local runtime="$1" path="$2" hash="$3" context="${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}"
+  jq -e --arg runtime "$runtime" '(.skillId|type == "string" and length > 0) and (.releaseId|type == "string" and length > 0) and (.expectedHash|type == "string" and test("^[a-fA-F0-9]{64}$")) and .runtime == $runtime' >/dev/null <<<"$context" || return 1
+  jq -cn --arg path "$path" --arg hash "$hash" --argjson context "$context" '{path:$path,skillId:$context.skillId,releaseId:$context.releaseId,contentHash:$hash}'
+}
+
+requireApiOwnershipContext() { # $1 runtime
+  apiManagedArtifact "$1" /dev/null "$(printf x | sha256sum | cut -d' ' -f1)" >/dev/null || { print_error "CONFLICT_UNMANAGED: API-backed SkillRevision execution context is required; preserving configuration"; return 1; }
+}
+
+backup() {  # $1 = existing path, $2 = transaction id -> prints backup path
+  local path="$1" tx_id="$2" backup_path
+  [ -e "$path" ] || return 1
+  backup_path="${path}.allye.backup.${tx_id}"
+  cp -p "$path" "$backup_path" || return 1
+  printf '%s\n' "$backup_path"
+}
+
+cleanupTransaction() {  # $1 = transaction temp path
+  [ -z "${1:-}" ] || rm -f -- "$1"
+}
+
+# Same-filesystem transactional file replacement. The caller has already
+# constructed/validated content; this routine preserves the old bytes until
+# the single `mv` commit and exposes deterministic failpoints for tests.
+atomicWrite() {  # $1 = target path, $2 = complete new content
+  local path="$1" content="$2" dir temp tx_id backup_path=""
+  dir=$(dirname "$path"); mkdir -p "$dir" || return 1
+  temp=$(mktemp "$dir/.allye-tx.XXXXXX") || return 1
+  tx_id=$(basename "$temp")
+  if ! printf '%s' "$content" > "$temp"; then cleanupTransaction "$temp"; return 1; fi
+  if [ "${ALLYE_INSTALL_FAILPOINT:-}" = "before-commit" ]; then
+    cleanupTransaction "$temp"
+    printf '%s\n' '{"status":"failed","code":"PARTIAL_WRITE_CLEANED","diagnostic":"Failpoint before commit; original preserved"}'
+    return 1
+  fi
+  if [ -e "$path" ]; then backup_path=$(backup "$path" "$tx_id") || { cleanupTransaction "$temp"; return 1; }; fi
+  if [ "${ALLYE_INSTALL_FAILPOINT:-}" = "after-backup" ]; then
+    cleanupTransaction "$temp"
+    printf '{"status":"failed","code":"PARTIAL_WRITE_CLEANED","backupPath":"%s","diagnostic":"Failpoint after backup; original preserved"}\n' "$backup_path"
+    return 1
+  fi
+  if [ -e "$path" ]; then chmod --reference="$path" "$temp" && touch -r "$path" "$temp" || { cleanupTransaction "$temp"; return 1; }; fi
+  if ! mv -f "$temp" "$path"; then cleanupTransaction "$temp"; printf '{"status":"failed","code":"PARTIAL_WRITE_CLEANED","backupPath":"%s"}\n' "$backup_path"; return 1; fi
+  [ -z "$backup_path" ] || rm -f -- "$backup_path"
+  printf '{"status":"written","targetPath":"%s"}\n' "$path"
+}
+
+writeManifest() {  # $1 = runtime, $2 = normalized manifest JSON
+  local runtime="$1" manifest="$2" path dir temp
+  path=$(manifestPath "$runtime") || return 1
+  dir=$(dirname "$path")
+  mkdir -p "$dir" || return 1
+  jq -e . >/dev/null <<<"$manifest" || return 1
+  atomicWrite "$path" "$(jq -cS . <<<"$manifest")" >/dev/null
+}
+
+recordManagedArtifact() {  # $1 = runtime, $2 = ManagedArtifact JSON
+  local runtime="$1" artifact="$2" path updated manifest
+  path=$(jq -r '.path // empty' <<<"$artifact")
+  jq -e '(.path|type == "string" and length > 0) and (.skillId|type == "string" and length > 0) and (.releaseId|type == "string" and length > 0) and (.contentHash|type == "string" and test("^[a-fA-F0-9]{64}$"))' >/dev/null <<<"$artifact" || return 1
+  updated=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  manifest=$(readManifest "$runtime") || return 1
+  manifest=$(jq -c --arg path "$path" --arg updated "$updated" --argjson artifact "$artifact" '
+    .artifacts = ((.artifacts | map(select(.path != $path))) + [{skillId:$artifact.skillId,releaseId:$artifact.releaseId,path:$artifact.path,hash:($artifact.contentHash|ascii_downcase),updatedAt:$updated}])
+  ' <<<"$manifest") || return 1
+  writeManifest "$runtime" "$manifest"
+}
+
+# Prints an explicit ConflictDecision. Callers must check `.allowed`; no
+# existing file is implicitly adopted just because it has an Allye marker.
+classifyConflict() {  # $1 = runtime, $2 = expected ManagedArtifact JSON
+  local runtime="$1" expected="$2" path actual manifest owner expected_hash
+  jq -e '(.path|type == "string" and length > 0) and (.skillId|type == "string" and length > 0) and (.releaseId|type == "string" and length > 0) and (.contentHash|type == "string" and test("^[a-fA-F0-9]{64}$"))' >/dev/null <<<"$expected" || return 1
+  path=$(jq -r '.path' <<<"$expected")
+  expected_hash=$(jq -r '.contentHash|ascii_downcase' <<<"$expected")
+  if [ ! -e "$path" ]; then jq -cn --arg path "$path" '{classification:"missing",allowed:true,code:"CREATE_ALLOWED",path:$path}'; return 0; fi
+  actual=$(hashFile "$path" 2>/dev/null || true)
+  [ -n "$actual" ] || { jq -cn --arg path "$path" '{classification:"unmanaged",allowed:false,code:"CONFLICT_UNMANAGED",path:$path,diagnostic:"Target is not a regular managed artifact; preserving it"}'; return 0; }
+  manifest=$(readManifest "$runtime") || return 1
+  owner=$(jq -c --arg path "$path" '.artifacts[] | select(.path == $path)' <<<"$manifest" | tail -n1)
+  if [ -z "$owner" ]; then jq -cn --arg path "$path" '{classification:"unmanaged",allowed:false,code:"CONFLICT_UNMANAGED",path:$path,diagnostic:"Target has no Allye ownership record; preserving it"}'; return 0; fi
+  if [ "$(jq -r '.skillId' <<<"$owner")" != "$(jq -r '.skillId' <<<"$expected")" ] || [ "$(jq -r '.releaseId' <<<"$owner")" != "$(jq -r '.releaseId' <<<"$expected")" ]; then
+    jq -cn --arg path "$path" --arg owner "$(jq -r '.skillId' <<<"$owner")" '{classification:"foreign",allowed:false,code:"CONFLICT_FOREIGN",path:$path,diagnostic:("Target is owned by skill " + $owner + "; preserving it")}'; return 0
+  fi
+  if [ "$(jq -r '.hash|ascii_downcase' <<<"$owner")" = "$actual" ] && [ "$actual" = "$expected_hash" ]; then
+    jq -cn --arg path "$path" '{classification:"owned-intact",allowed:true,code:"UPDATE_ALLOWED",path:$path}'; return 0
+  fi
+  jq -cn --arg path "$path" '{classification:"owned-modified",allowed:false,code:"CONFLICT_MODIFIED",path:$path,diagnostic:"Target differs from the owned hash; preserving local modification"}'
+}
+
+ownershipAwareWrite() { # shared configs are never canonical API artifacts
+  print_error "CONFLICT_UNMANAGED: shared $1 configuration has no API-backed ownership artifact; preserving $2"
+  return 1
+}
+
+# Canonical disk artifacts are the sole directory ownership boundary. The
+# sidecar is written from the already preflight-verified API artifact, never
+# accepted as authority by itself.
+canonicalTreeHash() { # $1 tree; excludes installer sidecar and rejects symlinks
+  node - "$1" <<'NODE'
+const {createHash}=require('node:crypto'),{readdirSync,readFileSync,lstatSync}=require('node:fs'),{join,relative}=require('node:path');
+const root=process.argv[2], files=[]; const walk=d=>{for(const n of readdirSync(d)){const p=join(d,n),r=relative(root,p); if(r==='.allye-artifact.json')continue; const s=lstatSync(p); if(s.isSymbolicLink()||!s.isFile()&&!s.isDirectory())process.exit(1); if(s.isDirectory())walk(p);else files.push([r,p]);}}; walk(root); const h=createHash('sha256'); for(const [r,p] of files.sort((a,b)=>a[0].localeCompare(b[0]))){h.update(r).update('\0').update(readFileSync(p)).update('\0');} process.stdout.write(h.digest('hex'));
+NODE
+}
+classifyCanonicalArtifact() { # $1 runtime, $2 target dir, $3 API-backed ManagedArtifact
+  local runtime="$1" target="$2" expected="$3" marker manifest row actual_hash stored_hash
+  [ ! -e "$target" ] && { jq -cn '{classification:"missing",allowed:true,code:"CREATE_ALLOWED"}'; return 0; }
+  [ ! -L "$target" ] && [ -d "$target" ] || { jq -cn '{classification:"unmanaged",allowed:false,code:"CONFLICT_UNMANAGED",diagnostic:"Artifact target is not a regular directory"}'; return 0; }
+  marker="$target/.allye-artifact.json"; [ -f "$marker" ] && [ ! -L "$marker" ] || { jq -cn '{classification:"unmanaged",allowed:false,code:"CONFLICT_UNMANAGED",diagnostic:"Artifact has no safe ownership sidecar"}'; return 0; }
+  manifest=$(readManifest "$runtime") || { print_error "CONFLICT_UNMANAGED: invalid or duplicate ownership manifest"; return 1; }
+  row=$(jq -c --arg path "$target" '.artifacts[] | select(.path == $path)' <<<"$manifest")
+  [ -n "$row" ] || { jq -cn '{classification:"unmanaged",allowed:false,code:"CONFLICT_UNMANAGED",diagnostic:"Artifact has no ownership record"}'; return 0; }
+  [ "$(jq -r '.skillId' <<<"$row")" = "$(jq -r '.skillId' <<<"$expected")" ] || { jq -cn '{classification:"foreign",allowed:false,code:"CONFLICT_FOREIGN"}'; return 0; }
+  stored_hash=$(jq -r '.hash' <<<"$row"); actual_hash=$(canonicalTreeHash "$target") || { jq -cn '{classification:"owned-modified",allowed:false,code:"CONFLICT_MODIFIED"}'; return 0; }
+  if [ "$(jq -r '.canonical_hash // empty' "$marker")" != "$stored_hash" ] || [ "$actual_hash" != "$stored_hash" ]; then jq -cn '{classification:"owned-modified",allowed:false,code:"CONFLICT_MODIFIED"}'; return 0; fi
+  # Same owner with a new API release is an authorized upgrade only after the
+  # old receipt/tree has passed the integrity check above.
+  jq -cn '{classification:"owned-intact",allowed:true,code:"UPDATE_ALLOWED"}'
+}
+
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
 expand_home() {  # $1 = path, possibly starting with ~
@@ -251,17 +402,25 @@ yaml_list_add_item() {  # $1 = path, $2 = header line, $3 = item
 # Running install twice must produce a byte-identical file.
 
 write_mcp_json() {  # $1 = adapter json
-  local aj="$1" path key entry content array_path array_val plugin_added=false
+  local aj="$1" path key entry content array_path array_val plugin_added=false runtime
+  runtime=$(echo "$aj" | jq -r '.id')
   path=$(expand_home "$(echo "$aj" | jq -r '.mcp.path')")
   key=$(echo "$aj" | jq -r '.mcp.key')
 
   mkdir -p "$(dirname "$path")"
-  if [ -f "$path" ] && content=$(cat "$path") && echo "$content" | jq -e . >/dev/null 2>&1; then
-    :
+  if [ -f "$path" ]; then
+    content=$(cat "$path") || return 1
+    if ! echo "$content" | jq -e . >/dev/null 2>&1; then
+      print_error "Invalid JSON at $path; preserving user configuration"
+      return 1
+    fi
   else
     content='{}'
   fi
 
+  # Preserve whether the plugin list entry was originally installer-owned;
+  # recomputing this from the current list would make a repeat appear modified.
+  plugin_added=$(echo "$content" | jq -r --arg key "$key" '(getpath(($key | split("."))) | ._allye_installer_plugin_added) == true')
   array_path=$(echo "$aj" | jq -r '.mcp.array_merge.path // empty')
   if [ -n "$array_path" ]; then
     array_val=$(echo "$aj" | jq -r '.mcp.array_merge.value')
@@ -279,7 +438,8 @@ write_mcp_json() {  # $1 = adapter json
       'setpath([$p]; ((getpath([$p]) // []) | if index($v) then . else . + [$v] end))')
   fi
 
-  printf '%s\n' "$content" | jq '.' > "$path"
+  content=$(printf '%s\n' "$content" | jq '.') || return 1
+  ownershipAwareWrite "$runtime" "$path" "$content"
 }
 
 remove_mcp_toml_section() {  # $1 path, $2 key; preserve all non-owned TOML bytes
@@ -645,7 +805,7 @@ allye_distribution_report() { # $1 complete|fail, $2 artifact, $3 runtime, $4 di
 }
 
 install_skills_to_disk() {  # $1 = agent id
-  local id="$1" aj skills_path artifact release hash runtime adapter tmp_root file path encoded expected_hash expected_bytes marker dest python_bin
+  local id="$1" aj skills_path artifact release hash runtime adapter tmp_root file path encoded expected_hash expected_bytes marker dest python_bin ownership lock_dir decision prior_manifest
   python_bin="${ALLYE_PYTHON_BIN:-python3}"
   local -A seen_paths=()
   aj=$(allye_agent_json "$id")
@@ -669,9 +829,15 @@ PY
   runtime=$(echo "$aj" | jq -r '.id'); adapter="${runtime}-workspace"
   # Every physical disk distribution is token-preflighted before staging.
   allye_distribution_preflight "$artifact" "$runtime" || return 1
+  ownership=$(apiManagedArtifact "$runtime" "$skills_path" "$hash") || { print_error "Invalid verified execution context"; return 1; }
+  decision=$(classifyCanonicalArtifact "$runtime" "$skills_path" "$ownership") || return 1
+  jq -e '.allowed == true' >/dev/null <<<"$decision" || { print_error "$(jq -r '.code + ": canonical target preserved"' <<<"$decision")"; return 1; }
   mkdir -p "$(dirname "$skills_path")"
+  lock_dir="${skills_path}.allye.lock"
+  mkdir "$lock_dir" 2>/dev/null || { print_error "CONFLICT_LOCKED: canonical artifact transaction already active"; return 1; }
+  trap 'rmdir "$lock_dir" 2>/dev/null || true' RETURN
   tmp_root=$(mktemp -d "$(dirname "$skills_path")/.allye-artifact.XXXXXX") || return 1
-  trap 'rm -rf "$tmp_root"' RETURN
+  trap 'rm -rf "${tmp_root:-}"; rmdir "${lock_dir:-}" 2>/dev/null || true' RETURN
   while IFS= read -r file; do
     path=$(echo "$file" | jq -r '.path')
     case "$path" in SKILL.md|references/*|assets/*|scripts/*) ;; *) print_error "Invalid API artifact path: $path"; return 1;; esac
@@ -716,6 +882,20 @@ PY
   else
     mv "$tmp_root" "$skills_path" || return 1
   fi
+  # Snapshot the exact pre-publication manifest. Completion is still part of
+  # this transaction, so rejection must restore both disk bytes and receipt.
+  prior_manifest=$(readManifest "$runtime") || { print_error "CONFLICT_UNMANAGED: manifest is invalid"; return 1; }
+  # The manifest publication is part of the same recoverable transaction: a
+  # metadata failure restores the prior tree before any success report.
+  if ! recordManagedArtifact "$runtime" "$ownership"; then
+    if [ "$had_previous" = 1 ]; then "$python_bin" - "$skills_path" "$previous" <<'PY'
+import ctypes, os, sys
+libc=ctypes.CDLL(None,use_errno=True); r=libc.renameat2(-100,os.fsencode(sys.argv[1]),-100,os.fsencode(sys.argv[2]),2)
+if r: raise OSError(ctypes.get_errno(), "rollback unavailable")
+PY
+    else rm -rf "$skills_path"; fi
+    print_error "PARTIAL_WRITE_CLEANED: manifest publication failed; artifact rolled back"; return 1
+  fi
   if [ -n "${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" ] && ! allye_distribution_report complete "$artifact" "$runtime"; then
     # Completion is the success boundary. Restore the prior complete tree (or remove
     # only this newly-created tree) before reporting failure; no residual publish remains.
@@ -729,15 +909,18 @@ renameat2.restype = ctypes.c_int
 if renameat2(-100, os.fsencode(sys.argv[1]), -100, os.fsencode(sys.argv[2]), 2): raise OSError(ctypes.get_errno(), "renameat2 rollback unavailable")
 PY
       then print_error "Completion rejected and atomic rollback failed; retained recovery handle $previous"; return 1; fi
+      if ! writeManifest "$runtime" "$prior_manifest"; then print_error "Completion rejected; manifest rollback failed; retained recovery handle $previous"; return 1; fi
       rm -rf "$previous"
     else
       rm -rf "$skills_path"
+      if ! writeManifest "$runtime" "$prior_manifest"; then print_error "Completion rejected; manifest rollback failed after new tree removal"; return 1; fi
     fi
     allye_distribution_report fail "$artifact" "$runtime" "Completion was rejected after publication; physical publish was rolled back" || true
     print_error "Distribution completion was not confirmed; physical publish rolled back"
     return 1
   fi
   [ "$had_previous" = 0 ] || rm -rf "$previous"
+  rmdir "$lock_dir" 2>/dev/null || true
   trap - RETURN
 }
 
@@ -1029,6 +1212,11 @@ allye_install_one() {  # $1 = adapter json
   id=$(echo "$aj" | jq -r '.id')
   label=$(echo "$aj" | jq -r '.label')
   validate_adapter_install "$aj" || return 1
+  # Option 2: these commands mutate shared runtime configuration. The existing
+  # execution context authorizes only a canonical disk artifact, never derived
+  # JSON/TOML/YAML/hooks/package configuration, so fail closed before any write.
+  print_error "CONFLICT_UNMANAGED: shared $id configuration has no API-backed ownership artifact; preserving it"
+  return 1
   if [ "$id" = "pi" ]; then
     allye_install_pi "$aj"
     return $?
@@ -1083,6 +1271,12 @@ allye_install() {  # $1 = agent id, optional
       print_warning "$target is not detected on this machine — install or select the runtime, then retry; no configuration was written"
       return 1
     fi
+    # Public physical distribution bypasses shared runtime config entirely.
+    # The disk seam performs the existing JWS/JWKS/API preflight itself.
+    if [ "$target" = "hermes" ] && [ -n "${ALLYE_CANONICAL_ARTIFACT_JSON:-}" ] && [ -n "${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" ]; then
+      install_skills_to_disk "$target"
+      return $?
+    fi
     allye_install_one "$aj"
     return $?
   fi
@@ -1111,11 +1305,10 @@ allye_uninstall() {  # $1 = agent id
     return 1
   fi
 
-  if [ "$id" = "pi" ]; then
-    allye_uninstall_pi "$aj" || return $?
-    print_success "$(echo "$aj" | jq -r '.label') uninstalled"
-    return 0
-  fi
+  # Physical removal remains API-bound and unavailable until a proven ownership
+  # protocol supplies an explicit remove authorization. Never mutate local state.
+  print_error "DISTRIBUTION_REMOVE_OWNERSHIP_UNAVAILABLE: physical uninstall is blocked; no local mutation was performed"
+  return 1
 
   bootstrap_kind=$(echo "$aj" | jq -r '.bootstrap.kind // empty')
   [ "$bootstrap_kind" != "instructions" ] || validate_bootstrap_instructions_removal "$aj" || return 1
