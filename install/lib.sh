@@ -251,11 +251,9 @@ yaml_list_add_item() {  # $1 = path, $2 = header line, $3 = item
 # Running install twice must produce a byte-identical file.
 
 write_mcp_json() {  # $1 = adapter json
-  local aj="$1" path key entry content array_path array_val
+  local aj="$1" path key entry content array_path array_val plugin_added=false
   path=$(expand_home "$(echo "$aj" | jq -r '.mcp.path')")
   key=$(echo "$aj" | jq -r '.mcp.key')
-  entry=$(echo "$aj" | jq -c '.mcp.entry' | sed "s#{{MCP_URL}}#$MCP_URL#g")
-  entry=$(echo "$entry" | jq --arg m "$(allye_marker_string)" '. + {_allye_installer: $m}')
 
   mkdir -p "$(dirname "$path")"
   if [ -f "$path" ] && content=$(cat "$path") && echo "$content" | jq -e . >/dev/null 2>&1; then
@@ -264,17 +262,40 @@ write_mcp_json() {  # $1 = adapter json
     content='{}'
   fi
 
-  content=$(echo "$content" | jq --argjson entry "$entry" --arg key "$key" \
-    'setpath(($key | split(".")); $entry)')
-
   array_path=$(echo "$aj" | jq -r '.mcp.array_merge.path // empty')
   if [ -n "$array_path" ]; then
     array_val=$(echo "$aj" | jq -r '.mcp.array_merge.value')
+    if ! echo "$content" | jq -e --arg p "$array_path" --arg v "$array_val" '((getpath([$p]) // []) | index($v)) != null' >/dev/null; then
+      plugin_added=true
+    fi
+  fi
+  entry=$(echo "$aj" | jq -c '.mcp.entry' | sed "s#{{MCP_URL}}#$MCP_URL#g")
+  entry=$(echo "$entry" | jq --arg m "$(allye_marker_string)" --argjson added "$plugin_added" '. + {_allye_installer: $m, _allye_installer_plugin_added: $added}')
+  content=$(echo "$content" | jq --argjson entry "$entry" --arg key "$key" \
+    'setpath(($key | split(".")); $entry)')
+
+  if [ -n "$array_path" ]; then
     content=$(echo "$content" | jq --arg p "$array_path" --arg v "$array_val" \
       'setpath([$p]; ((getpath([$p]) // []) | if index($v) then . else . + [$v] end))')
   fi
 
   printf '%s\n' "$content" | jq '.' > "$path"
+}
+
+remove_mcp_toml_section() {  # $1 path, $2 key; preserve all non-owned TOML bytes
+  local path="$1" key="$2" marker="$(allye_marker '#')"
+  [ -f "$path" ] || return 0
+  awk -v marker="$marker" -v header="[$key]" '
+    function flush_blank() { if (held_blank) { print ""; held_blank = 0 } }
+    $0 == marker { held_blank = 0; pending = 1; next }
+    pending && $0 == header { skip = 1; pending = 0; next }
+    pending { flush_blank(); print marker; pending = 0 }
+    skip && /^\[/ { skip = 0 }
+    skip { next }
+    $0 == "" { if (held_blank) print ""; held_blank = 1; next }
+    { flush_blank(); print }
+    END { if (pending) print marker; else flush_blank() }
+  ' "$path" > "$path.allye.tmp" && mv "$path.allye.tmp" "$path"
 }
 
 write_mcp_toml() {  # $1 = adapter json
@@ -291,13 +312,7 @@ write_mcp_toml() {  # $1 = adapter json
     return 0
   fi
 
-  awk -v pat='ALLYE_INSTALLER_VERSION=' -v hdr="[$key]" '
-    $0 ~ pat { skip = 1; next }
-    skip && $0 == hdr { next }
-    skip && /^\[/ { skip = 0 }
-    skip && $0 == "" { skip = 0; next }
-    { print }
-  ' "$path" > "$path.allye.tmp" && mv "$path.allye.tmp" "$path"
+  remove_mcp_toml_section "$path" "$key"
 
   {
     echo ""
@@ -509,6 +524,75 @@ write_bootstrap_hook() {  # $1 = adapter json (claude)
   printf '%s\n' "$content" | jq '.' > "$path"
 }
 
+bootstrap_source_path() {  # $1 = bootstrap source from an adapter
+  local source="$1"
+  source=$(printf '%s' "$source" | sed "s#{{SCRIPT_DIR}}#$SCRIPT_DIR#g")
+  case "$source" in
+    /*) printf '%s\n' "$source" ;;
+    *) printf '%s/%s\n' "$SCRIPT_DIR" "$source" ;;
+  esac
+}
+
+validate_adapter_install() {  # $1 = adapter json; must run before mutations
+  local aj="$1" kind source
+  kind=$(echo "$aj" | jq -r '.bootstrap.kind // empty')
+  if [ "$kind" = "instructions" ]; then
+    source=$(bootstrap_source_path "$(echo "$aj" | jq -r '.bootstrap.source')")
+    [ -f "$source" ] || { print_error "Instruction manifest not found: $source"; return 1; }
+  fi
+}
+
+write_bootstrap_instructions() {  # $1 = adapter json (Codex)
+  local aj="$1" path source begin end
+  path=$(expand_home "$(echo "$aj" | jq -r '.bootstrap.path')")
+  source=$(bootstrap_source_path "$(echo "$aj" | jq -r '.bootstrap.source')")
+  begin="# BEGIN $(allye_marker_string) CODEX AGENTS"
+  end="# END $(allye_marker_string) CODEX AGENTS"
+
+  [ -f "$source" ] || { print_error "Instruction manifest not found: $source"; return 1; }
+  mkdir -p "$(dirname "$path")"
+  touch "$path"
+  # The paired markers scope only the installer-owned block. User guidance
+  # before or after it remains untouched and repeat install is idempotent.
+  grep -qF "$begin" "$path" 2>/dev/null && return 0
+  {
+    printf '\n%s\n' "$begin"
+    cat "$source"
+    printf '%s\n' "$end"
+  } >> "$path"
+}
+
+validate_bootstrap_instructions_removal() {  # $1 = adapter json
+  local aj="$1" path begin end begin_count end_count begin_line end_line
+  path=$(expand_home "$(echo "$aj" | jq -r '.bootstrap.path')")
+  begin="# BEGIN $(allye_marker_string) CODEX AGENTS"
+  end="# END $(allye_marker_string) CODEX AGENTS"
+  [ -f "$path" ] || return 0
+  begin_count=$(grep -Fxc "$begin" "$path" || true)
+  end_count=$(grep -Fxc "$end" "$path" || true)
+  [ "$begin_count" = 0 ] && [ "$end_count" = 0 ] && return 0
+  begin_line=$(grep -Fnx "$begin" "$path" | cut -d: -f1)
+  end_line=$(grep -Fnx "$end" "$path" | cut -d: -f1)
+  if [ "$begin_count" != 1 ] || [ "$end_count" != 1 ] || [ "$begin_line" -ge "$end_line" ]; then
+    print_error "Codex AGENTS markers are malformed or unpaired; preserving user instructions"
+    return 1
+  fi
+}
+
+remove_bootstrap_instructions() {  # $1 = adapter json
+  local aj="$1" path begin end
+  path=$(expand_home "$(echo "$aj" | jq -r '.bootstrap.path')")
+  begin="# BEGIN $(allye_marker_string) CODEX AGENTS"
+  end="# END $(allye_marker_string) CODEX AGENTS"
+  validate_bootstrap_instructions_removal "$aj" || return 1
+  [ -f "$path" ] || return 0
+  awk -v begin="$begin" -v end="$end" '
+    $0 == begin { skip = 1; next }
+    skip && $0 == end { skip = 0; next }
+    !skip { print }
+  ' "$path" > "$path.allye.tmp" && mv "$path.allye.tmp" "$path"
+}
+
 # ─── Skills-to-disk (agents that read skills from a directory, not MCP) ────
 # A skill goes to either the API (seeded in Steps 1-3, for agents that fetch
 # over MCP) or disk, never both for the same agent — a stale on-disk copy
@@ -551,13 +635,13 @@ NODE
   jq -e --arg op "$(jq -r '.operationId' <<<"$context")" --arg runtime "$runtime" --arg hash "$(jq -r '.expectedHash|ascii_downcase' <<<"$context")" '(.data // .) | .operationId == $op and .status == "pending" and .runtime == $runtime and (.expectedHash|ascii_downcase) == $hash' >/dev/null <<<"$result" || { print_error "Execution preflight response is not pending matching context"; return 1; }
 }
 
-allye_distribution_report() { # $1 complete|fail, $2 artifact, $3 runtime, $4 diagnostic
-  local action="$1" artifact="$2" runtime="$3" diagnostic="${4:-}" context="$ALLYE_DISTRIBUTION_CONTEXT_JSON" api="$ALLYE_API_URL" payload response
+allye_distribution_report() { # $1 complete|fail, $2 artifact, $3 runtime, $4 diagnostic, $5 runtime version, $6 Pi receipt
+  local action="$1" artifact="$2" runtime="$3" diagnostic="${4:-}" runtime_version="${5:-${runtime}-installer/1}" pi_package="${6:-}" context="$ALLYE_DISTRIBUTION_CONTEXT_JSON" api="$ALLYE_API_URL" payload response
   if [ "$action" = complete ]; then
-    payload=$(jq -cn --arg hash "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" --arg version "${runtime}-installer/1" --arg verified "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{observedHash:$hash,runtimeVersion:$version,verifiedAt:$verified}')
+    payload=$(jq -cn --arg hash "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" --arg version "$runtime_version" --arg verified "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson piPackage "${pi_package:-null}" '{observedHash:$hash,runtimeVersion:$version,verifiedAt:$verified} + (if $piPackage == null then {} else {piPackage:$piPackage} end)')
   else payload=$(jq -cn --arg code DISTRIBUTION_COMPLETION_REJECTED --arg diagnostic "$diagnostic" '{code:$code,diagnostic:$diagnostic}'); fi
   response=$(curl --silent --show-error --fail -X POST -H "Authorization: Bearer $(jq -r '.executionToken' <<<"$context")" -H 'Content-Type: application/json' --data "$payload" "$api/api/skills/$(jq -r '.skillId' <<<"$context")/distributions/$(jq -r '.operationId' <<<"$context")/$action") || return 1
-  [ "$action" != complete ] || jq -e --arg op "$(jq -r '.operationId' <<<"$context")" --arg hash "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" --arg runtime "$runtime" '(.data // .) | .operationId == $op and .status == "succeeded" and .evidence.runtime == $runtime and (.evidence.observedHash|ascii_downcase) == $hash and (.evidence.runtimeVersion|type == "string" and length > 0) and (.evidence.verifiedAt|type == "string" and length > 0)' >/dev/null <<<"$response"
+  [ "$action" != complete ] || jq -e --arg op "$(jq -r '.operationId' <<<"$context")" --arg hash "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" --arg runtime "$runtime" --argjson piReceipt "${pi_package:-null}" '(.data // .) | .operationId == $op and .status == "succeeded" and .evidence.runtime == $runtime and (.evidence.observedHash|ascii_downcase) == $hash and (.evidence.runtimeVersion|type == "string" and length > 0) and (.evidence.verifiedAt|type == "string" and length > 0) and ($piReceipt == null or .evidence.piPackage == $piReceipt)' >/dev/null <<<"$response"
 }
 
 install_skills_to_disk() {  # $1 = agent id
@@ -740,24 +824,164 @@ pi_package_source() {  # $1 = adapter json, optional
   esac
 }
 
-pi_package_installed() {
-  local source="$1"
+pi_source_matches_configured() {  # $1 configured source, $2 source rendered by pi list
+  local configured="$1" resolved="$2" version
+  [ "$resolved" = "$configured" ] && return 0
+  case "$configured" in
+    npm:*)
+      case "$resolved" in "$configured"@*) version="${resolved#"$configured"@}" ;; *) return 1 ;; esac
+      # Only a concrete SemVer pin is accepted; ranges/tags and homonyms fail.
+      [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+pi_installed_package_path() {  # $1 = configured source; resolve the root Pi actually loaded
+  local source="$1" listed line root="" found=0
   command -v pi >/dev/null 2>&1 || return 1
-  pi list 2>/dev/null | grep -Fqx -- "$source"
+  case "$source" in
+    /*) [ -d "$source" ] && { realpath "$source"; return 0; } ;;
+  esac
+  listed=$(pi list 2>/dev/null) || return 1
+  # Pi emits indented source/root pairs. Match exactly the configured source,
+  # or its concrete pinned version after a restore; never a homonymous package.
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    if [ "$found" = 0 ]; then
+      pi_source_matches_configured "$source" "$line" && found=1
+      continue
+    fi
+    [ -z "$line" ] && continue
+    case "$line" in
+      /*) root="$line"; break ;;
+      *) return 1 ;;
+    esac
+  done <<<"$listed"
+  [ -n "$root" ] && [ -d "$root" ] || return 1
+  printf '%s\n' "$root"
+}
+
+pi_package_installed() {  # $1 = source; compatibility predicate for status
+  local root
+  root=$(pi_installed_package_path "$1") && [ -n "$root" ] && [ -d "$root" ]
+}
+
+pi_validate_package_layout() {  # $1 = adapter json, $2 = Pi-resolved package root
+  local aj="$1" root="$2" manifest discover
+  manifest=$(echo "$aj" | jq -r '.layout.packageManifest')
+  discover=$(echo "$aj" | jq -r '.layout.resourcesDiscover')
+  [ -f "$root/$manifest" ] && [ -f "$root/$discover" ] \
+    && jq -e '(.name == "allye-pi") and (.pi.extensions | index("./packages/allye-pi/src/index.ts")) and (.pi.skills | index("./skills"))' "$root/$manifest" >/dev/null
+}
+
+pi_package_digests() {  # $1 package root, $2 manifest path, $3 resources-discover path
+  node - "$1" "$2" "$3" <<'NODE'
+const { createHash } = require('node:crypto'); const { readdirSync, readFileSync, statSync } = require('node:fs'); const { join, relative } = require('node:path');
+const [root, manifest, discover] = process.argv.slice(2); const sha = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+const files = [manifest, discover]; const walk = (dir) => { for (const name of readdirSync(dir)) { const path = join(dir, name); const relativePath = relative(root, path); if (relativePath.startsWith('node_modules/')) continue; if (statSync(path).isDirectory()) walk(path); else files.push(relativePath); } };
+walk(join(root, 'skills')); const unique = [...new Set(files)].sort(); const digest = createHash('sha256'); for (const file of unique) digest.update(file).update('\0').update(sha(join(root, file))).update('\0');
+process.stdout.write(JSON.stringify({ packageManifestDigest: sha(join(root, manifest)), packageContentDigest: digest.digest('hex'), layoutIdentity: `pi:manifest=${manifest};resources=${discover};skills=skills` }));
+NODE
+}
+
+pi_distribution_receipt() {  # $1 adapter, $2 source, $3 Pi-resolved package root
+  local aj="$1" source="$2" root="$3" context="${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" artifact="${ALLYE_CANONICAL_ARTIFACT_JSON:-}" version package_version manifest discover digests
+  [ -n "$context" ] && [ -n "$artifact" ] && [ -f "$artifact" ] || return 2
+  pi_validate_package_layout "$aj" "$root" || return 1
+  version=$(pi --version 2>/dev/null | head -n1 | tr -d '\r')
+  package_version=$(jq -r '.version // empty' "$root/package.json")
+  manifest=$(echo "$aj" | jq -r '.layout.packageManifest')
+  discover=$(echo "$aj" | jq -r '.layout.resourcesDiscover')
+  digests=$(pi_package_digests "$root" "$manifest" "$discover") || return 1
+  [ -n "$version" ] && [ -n "$package_version" ] || return 1
+  jq -e '(.operationId|type == "string" and length > 0) and (.releaseId|type == "string" and length > 0) and .runtime == "pi" and (.expectedHash|type == "string" and test("^[a-fA-F0-9]{64}$"))' >/dev/null <<<"$context" \
+    && jq -e '(.release_id|type == "string" and length > 0) and (.canonical_hash|type == "string" and test("^[a-fA-F0-9]{64}$")) and .integrity.valid == true and .manifest.sha256 == .canonical_hash' "$artifact" >/dev/null \
+    && [ "$(jq -r '.releaseId' <<<"$context")" = "$(jq -r '.release_id' "$artifact")" ] \
+    && [ "$(jq -r '.expectedHash|ascii_downcase' <<<"$context")" = "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" ] \
+    || return 1
+  jq -cn --arg releaseId "$(jq -r '.releaseId' <<<"$context")" --arg canonicalHash "$(jq -r '.expectedHash|ascii_downcase' <<<"$context")" --arg packageSource "$source" --arg packageVersion "$package_version" --argjson digests "$digests" '{releaseId:$releaseId,canonicalHash:$canonicalHash,packageSource:$packageSource,packageVersion:$packageVersion} + $digests'
+}
+
+pi_package_snapshot() {  # $1 adapter, $2 source, $3 resolved root; never stores host path
+  local aj="$1" source="$2" root="$3" version manifest discover digests
+  pi_validate_package_layout "$aj" "$root" || return 1
+  version=$(jq -r '.version // empty' "$root/package.json")
+  manifest=$(echo "$aj" | jq -r '.layout.packageManifest')
+  discover=$(echo "$aj" | jq -r '.layout.resourcesDiscover')
+  digests=$(pi_package_digests "$root" "$manifest" "$discover") || return 1
+  [ -n "$version" ] || return 1
+  jq -cn --arg packageVersion "$version" --argjson digests "$digests" '{packageVersion:$packageVersion} + $digests'
+}
+
+pi_prior_restore_source() {  # $1 source, $2 existing resolved root -> immutable npm version spec
+  local source="$1" root="$2" version package
+  [ -n "$root" ] && [ -f "$root/package.json" ] || return 1
+  version=$(jq -r '.version // empty' "$root/package.json")
+  case "$source" in
+    npm:*) package="${source#npm:}"; package="${package%@*}"; [ -n "$package" ] && [ -n "$version" ] && printf 'npm:%s@%s\n' "$package" "$version" ;;
+    *) return 1 ;;
+  esac
+}
+
+pi_rollback_install() {  # $1 source, $2 prior immutable source, $3 prior snapshot, $4 adapter
+  local source="$1" prior_restore="${2:-}" prior_snapshot="${3:-}" aj="${4:-}" restored_root restored_snapshot
+  if [ -n "$prior_restore" ]; then
+    pi install "$prior_restore" >/dev/null 2>&1 || { print_error "Pi receipt failed and prior package restore failed: $prior_restore"; return 1; }
+    restored_root=$(pi_installed_package_path "$prior_restore") || { print_error "Pi restored package has no resolved Pi list root"; return 1; }
+    restored_snapshot=$(pi_package_snapshot "$aj" "$prior_restore" "$restored_root") || { print_error "Pi restored package layout/digests are invalid"; return 1; }
+    [ "$restored_snapshot" = "$prior_snapshot" ] || { print_error "Pi restored package receipt differs from the prior immutable package"; return 1; }
+    return 0
+  fi
+  pi remove "$source" >/dev/null 2>&1 || { print_error "Pi receipt failed and automatic package rollback failed: $source"; return 1; }
 }
 
 allye_install_pi() {  # $1 = adapter json
-  local aj="$1" source mcp_source
+  local aj="$1" source mcp_source receipt package_root prior_root prior_restore prior_snapshot receipt_status
   command -v pi >/dev/null 2>&1 || {
     print_error "Pi is not available on PATH."
     return 1
   }
   source=$(pi_package_source "$aj") || return 1
+  # A canonical distribution operation must be authorized before Pi mutates
+  # package state. Context-less setup remains configuration, never succeeded.
+  if [ -n "${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" ] || [ -n "${ALLYE_CANONICAL_ARTIFACT_JSON:-}" ]; then
+    [ -n "${ALLYE_CANONICAL_ARTIFACT_JSON:-}" ] && [ -f "$ALLYE_CANONICAL_ARTIFACT_JSON" ] \
+      && allye_distribution_preflight "$ALLYE_CANONICAL_ARTIFACT_JSON" pi \
+      || { print_error "Pi canonical distribution preflight failed; no package was installed"; return 1; }
+  fi
+  if prior_root=$(pi_installed_package_path "$source" 2>/dev/null); then :; else prior_root=""; fi
+  if prior_restore=$(pi_prior_restore_source "$source" "$prior_root" 2>/dev/null); then :; else prior_restore=""; fi
+  if prior_snapshot=$(pi_package_snapshot "$aj" "$source" "$prior_root" 2>/dev/null); then :; else prior_snapshot=""; fi
+  [ -z "$prior_restore" ] || [ -n "$prior_snapshot" ] || { print_error "Existing Pi package cannot be snapshotted for safe replacement"; return 1; }
   print_step "Installing Pi package $source..."
-  pi install "$source" || {
-    print_error "Pi could not install $source"
+  pi install "$source" || { print_error "Pi could not install $source"; return 1; }
+  package_root=$(pi_installed_package_path "$source") || {
+    pi_rollback_install "$source" "$prior_restore" "$prior_snapshot" "$aj" || print_error "Pi package state is unrecovered after missing resolved root"
+    print_error "Pi did not report a resolved package path after install; package was rolled back"
     return 1
   }
+  if ! pi_validate_package_layout "$aj" "$package_root"; then
+    pi_rollback_install "$source" "$prior_restore" "$prior_snapshot" "$aj" || print_error "Pi package state is unrecovered after invalid layout"
+    print_error "Pi resolved package layout is incompatible; package was rolled back"
+    return 1
+  fi
+  if receipt=$(pi_distribution_receipt "$aj" "$source" "$package_root"); then
+    if ! allye_distribution_report complete "$ALLYE_CANONICAL_ARTIFACT_JSON" pi "" "$(pi --version | head -n1)" "$receipt"; then
+      pi_rollback_install "$source" "$prior_restore" "$prior_snapshot" "$aj" || print_error "Pi package state is unrecovered after completion rejection"
+      print_error "Pi receipt completion was rejected; package was rolled back"
+      return 1
+    fi
+    print_success "Pi canonical distribution evidence verified: $receipt"
+  else
+    receipt_status=$?
+    if [ "$receipt_status" -eq 1 ]; then
+      pi_rollback_install "$source" "$prior_restore" "$prior_snapshot" "$aj" || print_error "Pi package state is unrecovered after invalid receipt"
+      print_error "Pi package receipt is incompatible with the requested release/hash/layout; package was rolled back"
+      return 1
+    fi
+    print_warning "Pi package configured; canonical distribution is pending an API release/hash execution receipt"
+  fi
   if mcp_source=$(pi_mcp_source_with_allye "$aj"); then
     print_success "Allye MCP detected at $mcp_source"
   else
@@ -783,13 +1007,36 @@ allye_uninstall_pi() {
 
 # ─── Verbs ──────────────────────────────────────────────────────────────────
 
+allye_install_codex() {  # $1 = validated Codex adapter json
+  local aj="$1" config agents backup had_config=0 had_agents=0
+  config=$(expand_home "$(echo "$aj" | jq -r '.mcp.path')")
+  agents=$(expand_home "$(echo "$aj" | jq -r '.bootstrap.path')")
+  backup=$(mktemp -d) || return 1
+  [ ! -e "$config" ] || { cp -p "$config" "$backup/config"; had_config=1; }
+  [ ! -f "$agents" ] || { cp -p "$agents" "$backup/agents"; had_agents=1; }
+  if ! write_mcp_toml "$aj" || ! write_bootstrap_instructions "$aj"; then
+    [ "$had_config" = 0 ] && rm -f "$config" || cp -p "$backup/config" "$config"
+    [ "$had_agents" = 0 ] && rm -f "$agents" || cp -p "$backup/agents" "$agents"
+    rm -rf "$backup"
+    print_error "Codex installation failed; configuration was rolled back"
+    return 1
+  fi
+  rm -rf "$backup"
+}
+
 allye_install_one() {  # $1 = adapter json
   local aj="$1" id label fmt skills_source bootstrap_kind interactive
   id=$(echo "$aj" | jq -r '.id')
   label=$(echo "$aj" | jq -r '.label')
+  validate_adapter_install "$aj" || return 1
   if [ "$id" = "pi" ]; then
     allye_install_pi "$aj"
     return $?
+  fi
+  if [ "$id" = "codex" ]; then
+    allye_install_codex "$aj" || return 1
+    print_success "$label configured"
+    return 0
   fi
   fmt=$(echo "$aj" | jq -r '.mcp.format')
 
@@ -817,6 +1064,7 @@ allye_install_one() {  # $1 = adapter json
   case "$bootstrap_kind" in
     hook) write_bootstrap_hook "$aj" ;;
     plugin) install_bootstrap_plugin "$aj" ;;
+    instructions) write_bootstrap_instructions "$aj" ;;
   esac
 
   print_success "$label configured"
@@ -832,7 +1080,7 @@ allye_install() {  # $1 = agent id, optional
       return 1
     fi
     if ! allye_detect "$target"; then
-      print_warning "$target is not detected on this machine — skipping"
+      print_warning "$target is not detected on this machine — install or select the runtime, then retry; no configuration was written"
       return 1
     fi
     allye_install_one "$aj"
@@ -853,7 +1101,7 @@ allye_install() {  # $1 = agent id, optional
 }
 
 allye_uninstall() {  # $1 = agent id
-  local id="$1" aj path fmt key content array_path array_val
+  local id="$1" aj path fmt key content array_path array_val plugin_added
   local bootstrap_kind bpath cmd bdir plugin_name enable_key
   local skills_source spath
 
@@ -869,6 +1117,8 @@ allye_uninstall() {  # $1 = agent id
     return 0
   fi
 
+  bootstrap_kind=$(echo "$aj" | jq -r '.bootstrap.kind // empty')
+  [ "$bootstrap_kind" != "instructions" ] || validate_bootstrap_instructions_removal "$aj" || return 1
   revert_agent_config "$id"
 
   path=$(expand_home "$(echo "$aj" | jq -r '.mcp.path')")
@@ -879,9 +1129,10 @@ allye_uninstall() {  # $1 = agent id
     case "$fmt" in
       json)
         content=$(cat "$path")
+        plugin_added=$(echo "$content" | jq -r --arg key "$key" '(getpath(($key | split("."))) | ._allye_installer_plugin_added) == true')
         content=$(echo "$content" | jq --arg key "$key" 'delpaths([($key | split("."))])')
         array_path=$(echo "$aj" | jq -r '.mcp.array_merge.path // empty')
-        if [ -n "$array_path" ]; then
+        if [ -n "$array_path" ] && [ "$plugin_added" = true ]; then
           array_val=$(echo "$aj" | jq -r '.mcp.array_merge.value')
           content=$(echo "$content" | jq --arg p "$array_path" --arg v "$array_val" \
             'setpath([$p]; ((getpath([$p]) // []) - [$v]))')
@@ -889,13 +1140,7 @@ allye_uninstall() {  # $1 = agent id
         printf '%s\n' "$content" | jq '.' > "$path"
         ;;
       toml)
-        awk -v pat='ALLYE_INSTALLER_VERSION=' -v hdr="[$key]" '
-          $0 ~ pat { skip = 1; next }
-          skip && $0 == hdr { next }
-          skip && /^\[/ { skip = 0 }
-          skip && $0 == "" { skip = 0; next }
-          { print }
-        ' "$path" > "$path.allye.tmp" && mv "$path.allye.tmp" "$path"
+        remove_mcp_toml_section "$path" "$key"
         ;;
       yaml-block)
         yaml_remove_block "$path" "  allye:"
@@ -913,6 +1158,8 @@ allye_uninstall() {  # $1 = agent id
         '.hooks.SessionStart = ((.hooks.SessionStart // []) | map(select(.hooks[0].command != $cmd)))')
       printf '%s\n' "$content" | jq '.' > "$bpath"
     fi
+  elif [ "$bootstrap_kind" = "instructions" ]; then
+    remove_bootstrap_instructions "$aj" || return 1
   elif [ "$bootstrap_kind" = "plugin" ]; then
     bdir=$(expand_home "$(echo "$aj" | jq -r '.bootstrap.path')")
     plugin_name=$(basename "$bdir")

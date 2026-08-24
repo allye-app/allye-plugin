@@ -42,7 +42,9 @@
         "entry": { "type": "remote", "url": "{{MCP_URL}}", "enabled": true },
         "array_merge": { "path": "plugin", "value": "allye-opencode" }
       },
-      "skills": { "source": "mcp" }
+      "skills": { "source": "mcp" },
+      "capabilities": ["mcp", "json-config", "plugin"],
+      "layout": { "config": "~/.config/opencode/opencode.json", "plugin": "allye-opencode" }
     },
     {
       "id": "codex",
@@ -54,7 +56,14 @@
         "key": "mcp_servers.allye",
         "block": "[mcp_servers.allye]\nurl = \"{{MCP_URL}}\"\nenabled = true"
       },
-      "skills": { "source": "mcp" }
+      "skills": { "source": "mcp" },
+      "bootstrap": {
+        "kind": "instructions",
+        "path": "~/.codex/AGENTS.md",
+        "source": "manifests/codex/AGENTS.md"
+      },
+      "capabilities": ["mcp", "toml-config", "agents-instructions"],
+      "layout": { "config": "~/.codex/config.toml", "instructions": "~/.codex/AGENTS.md" }
     },
     {
       "id": "gemini",
@@ -118,7 +127,9 @@
       "package": {
         "production_source": "npm:allye-pi",
         "local_source": "{{SCRIPT_DIR}}"
-      }
+      },
+      "capabilities": ["package-manager", "resources-discover", "mcp-existing-config"],
+      "layout": { "packageManifest": "package.json", "resourcesDiscover": "packages/allye-pi/src/index.ts" }
     }
   ]
 }
