@@ -69,6 +69,19 @@ test("consumes the exact structured MCP artifact compatibility payload for allow
   const result = adaptApiArtifact("claude", blocked);
   assert.equal("kind" in result, true); if ("kind" in result) assert.equal("files" in result, false);
 });
+test("derives a fail-closed multi-runtime aggregate without hiding partial failure", async () => {
+  const { deriveMultiRuntimeDistribution } = await import("./runtime-adapters.ts");
+  const result = deriveMultiRuntimeDistribution([
+    { operationId: "op-1", status: "succeeded", runtime: "claude", releaseId: "revision-1", evidence: { runtime: "claude", observedHash: source.canonical_hash, runtimeVersion: "1.0.0", verifiedAt: "2026-08-18T12:01:00.000Z" } },
+    { operationId: "op-2", status: "failed", runtime: "codex", releaseId: "revision-1" },
+  ]);
+  assert.equal(result.aggregate, "failed"); assert.equal(result.items[1].status, "failed");
+});
+test("only a succeeded API operation with matching runtime evidence can claim a runtime result", async () => {
+  const { isVerifiedDistributionResult } = await import("./runtime-adapters.ts");
+  assert.equal(isVerifiedDistributionResult({ operationId: "operation-1", status: "succeeded", runtime: "claude", releaseId: "revision-1", evidence: { runtime: "claude", observedHash: source.canonical_hash, runtimeVersion: "1.0.0", verifiedAt: "2026-08-18T12:01:00.000Z" } }, apiArtifact()), true);
+  assert.equal(isVerifiedDistributionResult({ operationId: "operation-1", status: "pending", runtime: "claude", releaseId: "revision-1" }, apiArtifact()), false);
+});
 test("invalid API result produces no output", () => assert.deepEqual(adaptApiArtifact("pi", { ...apiArtifact("pi"), integrity: { valid: false } }), { kind: "adapter_failure", runtime: "pi", release_id: "revision-1", canonical_hash: source.canonical_hash, code: "CANONICAL_ARTIFACT_INVALID", message: "API canonical artifact is invalid" }));
 test("emits no output when the API compatibility decision blocks distribution", () => {
   const result = adaptApiArtifact("codex", { ...apiArtifact("codex"), distribution_decision: { ...allowedDecision, runtime: "codex", allowed: false, code: "SKILL_DISTRIBUTION_EXPERIMENTAL_POLICY_REQUIRED", diagnostic: "Explicit acknowledgement required" } });

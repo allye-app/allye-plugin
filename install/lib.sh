@@ -514,6 +514,52 @@ write_bootstrap_hook() {  # $1 = adapter json (claude)
 # over MCP) or disk, never both for the same agent — a stale on-disk copy
 # shadowing a fresh seeded one would fail silently.
 
+allye_distribution_api_is_safe() {
+  local url="$1"
+  if ! node - "$url" <<'NODE'
+const raw = process.argv[2]; let parsed;
+try { parsed = new URL(raw); } catch { process.exit(1); }
+if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) process.exit(1);
+const loopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1' || parsed.hostname === '[::1]';
+if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && loopback)) process.exit(1);
+NODE
+  then print_error "ALLYE_API_URL must be credential-free HTTPS; HTTP is allowed only for structural loopback tests"; return 1; fi
+}
+
+allye_distribution_preflight() { # $1 artifact runtime
+  local artifact="$1" runtime="$2" context="${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" api="${ALLYE_API_URL:-}" jwks result
+  [ -n "$context" ] && [ -n "$api" ] || { print_error "Physical disk distribution requires ALLYE_DISTRIBUTION_CONTEXT_JSON and ALLYE_API_URL"; return 1; }
+  allye_distribution_api_is_safe "$api" || return 1
+  jq -e '.operationId|type == "string" and length > 0' >/dev/null <<<"$context" || { print_error "Invalid execution context"; return 1; }
+  jq -e '(.skillId|type == "string") and (.releaseId|type == "string") and (.runtime|type == "string") and (.target|type == "string") and (.expectedHash|test("^[a-fA-F0-9]{64}$")) and (.executionToken|type == "string")' >/dev/null <<<"$context" || { print_error "Invalid execution context"; return 1; }
+  [ "$(jq -r '.runtime' <<<"$context")" = "$runtime" ] || { print_error "Execution context runtime differs from disk adapter"; return 1; }
+  [ "$(jq -r '.expectedHash|ascii_downcase' <<<"$context")" = "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" ] || { print_error "Execution context hash differs from API artifact"; return 1; }
+  jwks=$(curl --silent --show-error --fail "$api/api/skills/distribution-execution/jwks") || { print_error "Could not fetch execution JWKS"; return 1; }
+  if ! node - "$context" "$jwks" <<'NODE'
+const { createPublicKey, verify } = require('node:crypto');
+const [context, jwks] = process.argv.slice(2).map(JSON.parse); const token = context.executionToken;
+const [h,p,s] = token.split('.'); if (!h || !p || !s) process.exit(1);
+const header = JSON.parse(Buffer.from(h, 'base64url')); const payload = JSON.parse(Buffer.from(p, 'base64url'));
+const key = (jwks.data || jwks).keys?.find((item) => item.kid === header.kid && item.kty === 'RSA' && item.alg === 'RS256');
+if (!key || header.alg !== 'RS256' || !verify('RSA-SHA256', Buffer.from(`${h}.${p}`), createPublicKey({ key, format: 'jwk' }), Buffer.from(s, 'base64url'))) process.exit(1);
+for (const name of ['skillId','releaseId','runtime','target','expectedHash']) if (payload[name] !== context[name]) process.exit(1);
+if (payload.distributionId !== context.operationId) process.exit(1);
+if (payload.typ !== 'skill_distribution_execution' || !Number.isInteger(payload.exp) || payload.exp <= Math.floor(Date.now()/1000)) process.exit(1);
+NODE
+  then print_error "Execution JWS is invalid, expired, or does not match its context"; return 1; fi
+  result=$(curl --silent --show-error --fail -X POST -H "Authorization: Bearer $(jq -r '.executionToken' <<<"$context")" "$api/api/skills/$(jq -r '.skillId' <<<"$context")/distributions/$(jq -r '.operationId' <<<"$context")/preflight") || { print_error "Execution preflight rejected"; return 1; }
+  jq -e --arg op "$(jq -r '.operationId' <<<"$context")" --arg runtime "$runtime" --arg hash "$(jq -r '.expectedHash|ascii_downcase' <<<"$context")" '(.data // .) | .operationId == $op and .status == "pending" and .runtime == $runtime and (.expectedHash|ascii_downcase) == $hash' >/dev/null <<<"$result" || { print_error "Execution preflight response is not pending matching context"; return 1; }
+}
+
+allye_distribution_report() { # $1 complete|fail, $2 artifact, $3 runtime, $4 diagnostic
+  local action="$1" artifact="$2" runtime="$3" diagnostic="${4:-}" context="$ALLYE_DISTRIBUTION_CONTEXT_JSON" api="$ALLYE_API_URL" payload response
+  if [ "$action" = complete ]; then
+    payload=$(jq -cn --arg hash "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" --arg version "${runtime}-installer/1" --arg verified "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{observedHash:$hash,runtimeVersion:$version,verifiedAt:$verified}')
+  else payload=$(jq -cn --arg code DISTRIBUTION_COMPLETION_REJECTED --arg diagnostic "$diagnostic" '{code:$code,diagnostic:$diagnostic}'); fi
+  response=$(curl --silent --show-error --fail -X POST -H "Authorization: Bearer $(jq -r '.executionToken' <<<"$context")" -H 'Content-Type: application/json' --data "$payload" "$api/api/skills/$(jq -r '.skillId' <<<"$context")/distributions/$(jq -r '.operationId' <<<"$context")/$action") || return 1
+  [ "$action" != complete ] || jq -e --arg op "$(jq -r '.operationId' <<<"$context")" --arg hash "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" --arg runtime "$runtime" '(.data // .) | .operationId == $op and .status == "succeeded" and .evidence.runtime == $runtime and (.evidence.observedHash|ascii_downcase) == $hash and (.evidence.runtimeVersion|type == "string" and length > 0) and (.evidence.verifiedAt|type == "string" and length > 0)' >/dev/null <<<"$response"
+}
+
 install_skills_to_disk() {  # $1 = agent id
   local id="$1" aj skills_path artifact release hash runtime adapter tmp_root file path encoded expected_hash expected_bytes marker dest python_bin
   python_bin="${ALLYE_PYTHON_BIN:-python3}"
@@ -537,6 +583,8 @@ if not hasattr(ctypes.CDLL(None), "renameat2"): raise SystemExit("libc renameat2
 PY
   then print_error "Atomic directory exchange requires Linux with libc renameat2; refusing installation before writes"; return 1; fi
   runtime=$(echo "$aj" | jq -r '.id'); adapter="${runtime}-workspace"
+  # Every physical disk distribution is token-preflighted before staging.
+  allye_distribution_preflight "$artifact" "$runtime" || return 1
   mkdir -p "$(dirname "$skills_path")"
   tmp_root=$(mktemp -d "$(dirname "$skills_path")/.allye-artifact.XXXXXX") || return 1
   trap 'rm -rf "$tmp_root"' RETURN
@@ -562,8 +610,9 @@ PY
   # Publish one complete tree. A test-only failpoint proves the old tree stays
   # intact before the commit rename; no child is individually removed/moved.
   [ "${ALLYE_INSTALL_FAILPOINT:-}" != "before-tree-swap" ] || { print_error "Installer failpoint before tree swap"; return 1; }
-  local previous="${skills_path}.allye.previous.$$"
+  local previous="${skills_path}.allye.previous.$$" had_previous=0
   if [ -e "$skills_path" ]; then
+    had_previous=1
     # Linux renameat2(RENAME_EXCHANGE) swaps two existing paths atomically;
     # unlike two mv calls it never leaves skills_path absent. Fail closed when
     # the kernel/libc primitive is unavailable.
@@ -578,12 +627,33 @@ r = renameat2(-100, os.fsencode(sys.argv[1]), -100, os.fsencode(sys.argv[2]), 2)
 if r: raise OSError(ctypes.get_errno(), "renameat2(RENAME_EXCHANGE) unavailable")
 PY
     then print_error "Atomic directory exchange is unavailable; refusing non-atomic publication"; return 1; fi
-    # tmp_root now names the former live tree; retain it briefly as recovery evidence.
+    # Keep the old tree as a rollback handle until the API persists matching evidence.
     mv "$tmp_root" "$previous" || { print_error "Atomic exchange completed; prior tree retained at $tmp_root"; return 1; }
-    rm -rf "$previous"
   else
     mv "$tmp_root" "$skills_path" || return 1
   fi
+  if [ -n "${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" ] && ! allye_distribution_report complete "$artifact" "$runtime"; then
+    # Completion is the success boundary. Restore the prior complete tree (or remove
+    # only this newly-created tree) before reporting failure; no residual publish remains.
+    if [ "$had_previous" = 1 ]; then
+      if ! "$python_bin" - "$skills_path" "$previous" <<'PY'
+import ctypes, os, sys
+libc = ctypes.CDLL(None, use_errno=True)
+renameat2 = libc.renameat2
+renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+renameat2.restype = ctypes.c_int
+if renameat2(-100, os.fsencode(sys.argv[1]), -100, os.fsencode(sys.argv[2]), 2): raise OSError(ctypes.get_errno(), "renameat2 rollback unavailable")
+PY
+      then print_error "Completion rejected and atomic rollback failed; retained recovery handle $previous"; return 1; fi
+      rm -rf "$previous"
+    else
+      rm -rf "$skills_path"
+    fi
+    allye_distribution_report fail "$artifact" "$runtime" "Completion was rejected after publication; physical publish was rolled back" || true
+    print_error "Distribution completion was not confirmed; physical publish rolled back"
+    return 1
+  fi
+  [ "$had_previous" = 0 ] || rm -rf "$previous"
   trap - RETURN
 }
 

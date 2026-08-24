@@ -29,6 +29,28 @@ export function normalizeApiArtifact(payload: TransportArtifact): ApiArtifact | 
 }
 export type RuntimeOutput = { runtime: Runtime; adapter: string; adapter_version: string; release_id: string; canonical_hash: string; output_hash: string; files: readonly ApiFile[] };
 export type RuntimeFailure = { kind: "adapter_failure"; runtime: Runtime; release_id: string; canonical_hash: string; code: string; message: string };
+/** API public result projection. The Plugin never turns output generation into installation evidence. */
+export type DistributionResult = { operationId: string | null; status: "pending" | "succeeded" | "failed" | "noop" | "conflict" | "blocked"; runtime: Runtime; releaseId: string; evidence?: { runtime: Runtime; observedHash: string; runtimeVersion: string; verifiedAt: string } };
+export type MultiRuntimeDistributionResult = { items: readonly DistributionResult[]; aggregate: DistributionResult["status"] };
+export function deriveMultiRuntimeDistribution(items: readonly DistributionResult[]): MultiRuntimeDistributionResult {
+  const states = new Set(items.map((item) => item.status));
+  const aggregate = states.has("failed") ? "failed" : states.has("blocked") ? "blocked" : states.has("conflict") ? "conflict" : states.has("pending") ? "pending" : items.length > 0 && [...states].every((state) => state === "succeeded") ? "succeeded" : states.has("noop") ? "noop" : "conflict";
+  return { items, aggregate };
+}
+export function isVerifiedDistributionResult(result: DistributionResult, artifact: ApiArtifact): boolean {
+  return result.status === "succeeded"
+    && result.operationId !== null
+    && result.runtime === artifact.distribution_decision.runtime
+    && result.releaseId === artifact.release_id
+    && result.evidence?.runtime === result.runtime
+    && result.evidence.observedHash === artifact.canonical_hash
+    && Boolean(result.evidence.runtimeVersion)
+    && Boolean(result.evidence.verifiedAt);
+}
+/** The sole Plugin mutation gate; remove/pending/failure outcomes are always read-only. */
+export function mayMaterializeDistribution(result: DistributionResult, artifact: ApiArtifact): boolean {
+  return isVerifiedDistributionResult(result, artifact);
+}
 
 /** Plugin consumes only an API/MCP response; it does not load local canonical source. */
 export function adaptApiArtifact(runtime: Runtime, artifact: ApiArtifact): RuntimeOutput | RuntimeFailure {
