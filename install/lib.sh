@@ -181,6 +181,27 @@ classifyCanonicalArtifact() { # $1 runtime, $2 target dir, $3 API-backed Managed
   jq -cn '{classification:"owned-intact",allowed:true,code:"UPDATE_ALLOWED"}'
 }
 
+# A retry is idempotent only when the complete on-disk receipt still matches
+# the API-authorized immutable artifact. The manifest is evidence, never the
+# authorization source; the preflight must already have validated the context.
+canonicalArtifactReceiptMatches() { # $1 runtime, $2 target dir, $3 API-backed ManagedArtifact
+  local runtime="$1" target="$2" expected="$3" marker manifest row expected_hash
+  [ -d "$target" ] && [ ! -L "$target" ] || return 1
+  marker="$target/.allye-artifact.json"
+  [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+  expected_hash=$(jq -r '.contentHash|ascii_downcase' <<<"$expected") || return 1
+  manifest=$(readManifest "$runtime") || return 1
+  row=$(jq -c --arg path "$target" '.artifacts[] | select(.path == $path)' <<<"$manifest")
+  [ -n "$row" ] || return 1
+  jq -e --arg release "$(jq -r '.releaseId' <<<"$expected")" --arg hash "$expected_hash" --arg runtime "$runtime" '
+    .release_id == $release and .canonical_hash == $hash and .runtime == $runtime
+  ' "$marker" >/dev/null || return 1
+  jq -e --arg skill "$(jq -r '.skillId' <<<"$expected")" --arg release "$(jq -r '.releaseId' <<<"$expected")" --arg hash "$expected_hash" '
+    .skillId == $skill and .releaseId == $release and (.hash|ascii_downcase) == $hash
+  ' <<<"$row" >/dev/null || return 1
+  [ "$(canonicalTreeHash "$target")" = "$expected_hash" ]
+}
+
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
 expand_home() {  # $1 = path, possibly starting with ~
@@ -832,6 +853,16 @@ PY
   ownership=$(apiManagedArtifact "$runtime" "$skills_path" "$hash") || { print_error "Invalid verified execution context"; return 1; }
   decision=$(classifyCanonicalArtifact "$runtime" "$skills_path" "$ownership") || return 1
   jq -e '.allowed == true' >/dev/null <<<"$decision" || { print_error "$(jq -r '.code + ": canonical target preserved"' <<<"$decision")"; return 1; }
+  # Retrying the same pending operation must not rewrite an intact Claude tree.
+  # Re-read every receipt surface before allowing the API completion boundary.
+  if canonicalArtifactReceiptMatches "$runtime" "$skills_path" "$ownership"; then
+    if ! allye_distribution_report complete "$artifact" "$runtime"; then
+      allye_distribution_report fail "$artifact" "$runtime" "Existing canonical artifact could not be confirmed by the API" || true
+      print_error "Distribution completion was not confirmed; existing artifact was preserved"
+      return 1
+    fi
+    return 0
+  fi
   mkdir -p "$(dirname "$skills_path")"
   lock_dir="${skills_path}.allye.lock"
   mkdir "$lock_dir" 2>/dev/null || { print_error "CONFLICT_LOCKED: canonical artifact transaction already active"; return 1; }
@@ -895,6 +926,29 @@ if r: raise OSError(ctypes.get_errno(), "rollback unavailable")
 PY
     else rm -rf "$skills_path"; fi
     print_error "PARTIAL_WRITE_CLEANED: manifest publication failed; artifact rolled back"; return 1
+  fi
+  # Do not claim success from staged bytes: re-read the published tree, sidecar
+  # and manifest receipt after the atomic swap and before contacting completion.
+  if ! canonicalArtifactReceiptMatches "$runtime" "$skills_path" "$ownership"; then
+    if [ "$had_previous" = 1 ]; then
+      if ! "$python_bin" - "$skills_path" "$previous" <<'PY'
+import ctypes, os, sys
+libc = ctypes.CDLL(None, use_errno=True)
+renameat2 = libc.renameat2
+renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+renameat2.restype = ctypes.c_int
+if renameat2(-100, os.fsencode(sys.argv[1]), -100, os.fsencode(sys.argv[2]), 2): raise OSError(ctypes.get_errno(), "renameat2 rollback unavailable")
+PY
+      then print_error "Post-write receipt verification failed and atomic rollback failed; retained recovery handle $previous"; return 1; fi
+      writeManifest "$runtime" "$prior_manifest" || { print_error "Post-write receipt verification failed; manifest rollback failed"; return 1; }
+      rm -rf "$previous"
+    else
+      rm -rf "$skills_path"
+      writeManifest "$runtime" "$prior_manifest" || { print_error "Post-write receipt verification failed; manifest rollback failed"; return 1; }
+    fi
+    allye_distribution_report fail "$artifact" "$runtime" "Post-write Claude artifact receipt verification failed; publication was rolled back" || true
+    print_error "Post-write receipt verification failed; physical publish was rolled back"
+    return 1
   fi
   if [ -n "${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" ] && ! allye_distribution_report complete "$artifact" "$runtime"; then
     # Completion is the success boundary. Restore the prior complete tree (or remove
@@ -1269,11 +1323,16 @@ allye_install() {  # $1 = agent id, optional
     fi
     if ! allye_detect "$target"; then
       print_warning "$target is not detected on this machine — install or select the runtime, then retry; no configuration was written"
+      # Runtime absence is a diagnostic non-success. Report it only through an
+      # already API-bound execution context; no shared config is touched.
+      if [ "$target" = "claude" ] && [ -n "${ALLYE_CANONICAL_ARTIFACT_JSON:-}" ] && [ -n "${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" ] && [ -n "${ALLYE_API_URL:-}" ]; then
+        allye_distribution_report fail "$ALLYE_CANONICAL_ARTIFACT_JSON" claude "Claude Code runtime is not available; no local layout or shared configuration was changed" || true
+      fi
       return 1
     fi
     # Public physical distribution bypasses shared runtime config entirely.
     # The disk seam performs the existing JWS/JWKS/API preflight itself.
-    if [ "$target" = "hermes" ] && [ -n "${ALLYE_CANONICAL_ARTIFACT_JSON:-}" ] && [ -n "${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" ]; then
+    if { [ "$target" = "hermes" ] || [ "$target" = "claude" ]; } && [ -n "${ALLYE_CANONICAL_ARTIFACT_JSON:-}" ] && [ -n "${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" ]; then
       install_skills_to_disk "$target"
       return $?
     fi
