@@ -11,7 +11,11 @@
         "key": "mcpServers.allye",
         "entry": { "type": "http", "url": "{{MCP_URL}}" }
       },
-      "skills": { "source": "mcp" },
+      "skills": {
+        "source": "disk",
+        "path": "~/.claude/skills/allye",
+        "layout": "skill-package"
+      },
       "bootstrap": {
         "kind": "hook",
         "path": "~/.claude/settings.json",

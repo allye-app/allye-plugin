@@ -40,7 +40,7 @@
     "typecheck": "tsc --noEmit -p packages/allye-pi/tsconfig.json",
     "test:pi": "node --experimental-strip-types --test packages/allye-pi/src/index.test.ts",
     "test:adapters": "node --experimental-strip-types --test packages/allye-pi/src/runtime-adapters.test.ts",
-    "test:installer": "bash install/test-validation.sh && bash install/test-pi.sh && bash install/test-installer.sh && bash install/test-multi-runtime-distribution.sh && bash install/test-pi-distribution-http.sh"
+    "test:installer": "bash install/test-validation.sh && bash install/test-pi.sh && bash install/test-installer.sh && bash install/test-multi-runtime-distribution.sh && bash install/test-pi-distribution-http.sh && bash install/test-claude-distribution.sh"
   },
   "repository": {
     "type": "git",
