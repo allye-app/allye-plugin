@@ -30,7 +30,13 @@ export function normalizeApiArtifact(payload: TransportArtifact): ApiArtifact | 
 export type RuntimeOutput = { runtime: Runtime; adapter: string; adapter_version: string; release_id: string; canonical_hash: string; output_hash: string; files: readonly ApiFile[] };
 export type RuntimeFailure = { kind: "adapter_failure"; runtime: Runtime; release_id: string; canonical_hash: string; code: string; message: string };
 /** API public result projection. The Plugin never turns output generation into installation evidence. */
-export type DistributionResult = { operationId: string | null; status: "pending" | "succeeded" | "failed" | "noop" | "conflict" | "blocked"; runtime: Runtime; releaseId: string; evidence?: { runtime: Runtime; observedHash: string; runtimeVersion: string; verifiedAt: string } };
+export type DistributionEligibilityTransport = { release_id: string; canonical_hash: string | null; eligible: boolean; integrity_status: string; reason_codes: readonly string[]; findings: readonly { code: string; severity: string; evidence: { path: string; detector: string; matchedRule?: string; digest?: string }; blocking: boolean }[] };
+export type DistributionResult = { operationId: string | null; status: "pending" | "succeeded" | "failed" | "noop" | "conflict" | "blocked"; runtime: Runtime; releaseId: string; eligibility?: DistributionEligibilityTransport; evidence?: { runtime: Runtime; observedHash: string; runtimeVersion: string; verifiedAt: string } };
+/** Copies the API envelope verbatim; this is transport normalization, never an eligibility evaluator. */
+export function normalizeApiDistributionResult(payload: DistributionResult & Partial<DistributionEligibilityTransport>): DistributionResult {
+  const eligibility = payload.eligibility ?? (payload.integrity_status ? { release_id: payload.release_id, canonical_hash: payload.canonical_hash ?? null, eligible: payload.eligible === true, integrity_status: payload.integrity_status, reason_codes: payload.reason_codes ?? [], findings: payload.findings ?? [] } : undefined);
+  return { ...payload, ...(eligibility ? { eligibility } : {}) };
+}
 export type MultiRuntimeDistributionResult = { items: readonly DistributionResult[]; aggregate: DistributionResult["status"] };
 export function deriveMultiRuntimeDistribution(items: readonly DistributionResult[]): MultiRuntimeDistributionResult {
   const states = new Set(items.map((item) => item.status));
@@ -48,8 +54,8 @@ export function isVerifiedDistributionResult(result: DistributionResult, artifac
     && Boolean(result.evidence.verifiedAt);
 }
 /** The sole Plugin mutation gate; remove/pending/failure outcomes are always read-only. */
-export function mayMaterializeDistribution(result: DistributionResult, artifact: ApiArtifact): boolean {
-  return isVerifiedDistributionResult(result, artifact);
+export function mayMaterializeDistribution(result: DistributionResult & Partial<DistributionEligibilityTransport>, artifact: ApiArtifact): boolean {
+  return isVerifiedDistributionResult(normalizeApiDistributionResult(result), artifact);
 }
 
 /** Plugin consumes only an API/MCP response; it does not load local canonical source. */
