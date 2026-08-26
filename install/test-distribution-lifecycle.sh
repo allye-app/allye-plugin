@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { mayMaterializeDistribution } from "./packages/allye-pi/src/runtime-adapters.ts";
+import { mayMaterializeDistribution, normalizeApiDistributionResult } from "./packages/allye-pi/src/runtime-adapters.ts";
 
 const bytes = new TextEncoder().encode("# skill\n");
 const hash = createHash("sha256").update("SKILL.md").update("\0").update(bytes).update("\0").digest("hex");
@@ -21,6 +21,9 @@ assert.equal(mayMaterializeDistribution(succeeded, artifact), true, "matching ru
 for (const status of ["pending", "failed", "conflict", "blocked"]) {
   assert.equal(mayMaterializeDistribution({ ...succeeded, status, operationId: status === "blocked" ? null : "operation-1" }, artifact), false, `${status} must not become installation`);
 }
+const integrityBlocked = normalizeApiDistributionResult({ ...succeeded, status: "blocked", operationId: null, failureCode: "RISK_FINDING_BLOCKED", release_id: "release-1", canonical_hash: hash, eligible: false, integrity_status: "risk_blocked", reason_codes: ["RISK_FINDING_BLOCKED"], findings: [{ code: "STATIC_SCRIPT", severity: "high", evidence: { path: "scripts/setup.sh", detector: "static" }, blocking: true }] });
+assert.deepEqual(integrityBlocked.eligibility, { release_id: "release-1", canonical_hash: hash, eligible: false, integrity_status: "risk_blocked", reason_codes: ["RISK_FINDING_BLOCKED"], findings: [{ code: "STATIC_SCRIPT", severity: "high", evidence: { path: "scripts/setup.sh", detector: "static" }, blocking: true }] }, "Plugin preserves the complete API eligibility envelope");
+assert.equal(mayMaterializeDistribution(integrityBlocked, artifact), false, "API integrity reason cannot be overridden by Plugin policy");
 const sandbox = mkdtempSync(join(tmpdir(), "allye-distribution-"));
 try {
   const foreign = join(sandbox, "unmanaged.txt");
