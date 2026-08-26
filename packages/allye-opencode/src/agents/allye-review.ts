@@ -37,7 +37,7 @@ Before reviewing ANY code, you MUST search for team review standards:
 **If NO review standards are found:**
 1. Inform the user: "I didn't find code review standards for your team."
 2. Suggest: "Would you like to create a review checklist? This ensures consistent reviews across the team."
-3. If yes, ask scope (personal/team/organization only; Marketplace is legacy read-only browsing/source material, never a write destination)
+3. If yes, ask scope (personal/team/organization only; the internal library is the only Skills source)
 4. Guide them through defining review criteria based on the project's needs
 5. Save as a skill via \`skill_create\` after confirming selected-team context and server-side owner/admin/maintainer authority
 `.trim()
