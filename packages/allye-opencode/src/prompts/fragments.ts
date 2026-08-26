@@ -88,7 +88,7 @@ If NO relevant skills are found for your current work:
    - **personal** — only for them
    - **team** — for their selected team; membership is read-only and writes require owner/admin/manage or an active maintainer grant
    - **organization** — for the authorized organization; writes require owner/admin/manage authority
-   - **Marketplace is not a write scope** — it is legacy read-only browsing/source material
+   - **Only personal, team, and organization are valid scopes** — retired public-scope requests return the API diagnostic unchanged
 4. Guide them through defining the template interactively
 5. Save it as a skill via \`skill_create\` with the chosen internal scope. Use \`skill_resolve\` for canonical \`team > organization > personal\` resolution. For forks, pass an explicit \`skill_slug\` after a \`409 Conflict\` and preserve selected-team context; never silently suffix or overwrite a key.
 

@@ -35,7 +35,7 @@ Before creating ANY work item, you MUST search for team standards:
    - **personal** — only for you
    - **team** — for the current selected team (requires owner/admin/manage/grant authority)
    - **organization** — for the entire organization (requires owner/admin/manage authority)
-   - **Marketplace is not a write scope** — it is legacy read-only browsing/source material
+   - **Only personal, team, and organization are valid scopes** — use the internal library
 4. Guide them through defining each template interactively
 5. Save each as a skill via \`skill_create\` with the chosen internal scope; use canonical \`team > organization > personal\` resolution and never silently suffix a slug
 

@@ -59,7 +59,7 @@ cd allye-plugin
 
 Every write is additive and idempotent — your own MCP servers, plugins, and settings in each agent's config survive untouched. See [`docs/install-hermes.md`](docs/install-hermes.md) for Hermes Agent specifically (its OAuth step needs a terminal either way).
 
-Prefer the paste-into-agent or marketplace routes below? They still work — the unified installer doesn't replace them for Claude Code, OpenCode, Cursor, Codex, or Gemini CLI.
+Prefer the paste-into-agent or host plugin-registry routes below? They still work — the unified installer does not replace them for supported agents. The host command name below is not an Allye Skills catalogue.
 
 ### Claude Code
 
@@ -269,7 +269,7 @@ Every phase, on every platform:
 - Responds in **your language** (detected from your messages, falling back to your profile only before you've said anything)
 - Calls `initialize` to load your profile and team context
 - **Discovers team skills** before starting — coding standards, templates, checklists
-- If no standards found → **suggests creating them** with your chosen scope (personal/team/organization). Marketplace is a legacy read-only browsing/source surface, never a write destination.
+- If no standards found → **suggests creating them** with your chosen scope (personal/team/organization). The internal library is the only Skills source.
 - Searches memories for past decisions and session state
 - Saves session state before ending
 
@@ -310,7 +310,7 @@ Once an epic's whole status cascade completes, the Orchestrator offers — never
 
 ## Skills
 
-Skills are the knowledge base that powers the agents. 16 workflow skills are published in the **Allye marketplace** — available to all users without setup (`setup` itself is Claude Code's local install-time skill and isn't marketplace-published).
+Skills are the internal knowledge base that powers the agents. Workflow skills ship with the installed package and are available through the internal Skills library.
 
 | Skill | What it teaches |
 |-------|----------------|

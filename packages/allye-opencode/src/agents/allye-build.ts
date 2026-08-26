@@ -40,7 +40,7 @@ Before writing ANY code, you MUST search for project-specific standards:
 **If NO development standards are found:**
 1. Inform the user: "I didn't find development standards or coding conventions for your project."
 2. Suggest: "Would you like to create them? This helps maintain consistency across the team."
-3. If yes, ask scope (personal/team/organization only; Marketplace is legacy read-only browsing/source material, never a write destination)
+3. If yes, ask scope (personal/team/organization only; the internal library is the only Skills source)
 4. Guide them through defining standards based on the project's existing code patterns
 5. Confirm selected-team context for team writes and save as skills via \`skill_create\`; owner/admin/maintainer policy is enforced server-side
 

@@ -192,18 +192,17 @@ Manage and export workflow skills.
 | `skill_get` | Get skill by ID | `skill_id`* or `id`* |
 | `skill_update` | Update a skill | `skill_id`* or `id`*, `skill_name`, `skill_content`, `skill_description`, `skill_category`, `skill_is_active` |
 | `skill_delete` | Delete a skill | `skill_id`* or `id`* |
-| `skill_marketplace` | Browse marketplace skills | `query`, `limit`, `offset` |
 | `skill_fork` | Fork a readable source skill into an independent internal draft | `skill_id`* or `id`*, `skill_scope`*, `skill_slug` (explicit namespace key; required to retry a collision), `skill_name`, `skill_category` (scope only `personal`/`team`/`organization` — no `marketplace`) |
 | `skill_export` | Export a skill in agent format | `skill_id`* or `id`*, `skill_export_format`* |
 | `skill_import_github` | Import skill from GitHub | `repo_url`* |
 | `skill_install` | Install a skill | `skill_id`* or `id`* |
 | `skill_export_merged` | Export multiple skills merged | `skill_ids`*, `skill_export_format`* |
 
-**`skill_create` requires all three of `skill_content`, `skill_scope`, and `skill_category`** — easy to miss since only `skill_name` reads as obviously required. Write scopes are only `personal`, `team`, and `organization`; `marketplace` is legacy read-only browsing/source material and must never be sent as a create, import, update, fork target, publication, or rating destination.
+**`skill_create` requires all three of `skill_content`, `skill_scope`, and `skill_category`** — easy to miss since only `skill_name` reads as obviously required. Write scopes are only `personal`, `team`, and `organization`. A retired public-scope request returns API error `MARKETPLACE_RETIRED` (HTTP 410): `Marketplace público foi aposentado; use a biblioteca interna de Skills.`
 
 For shared writes, the API is authoritative: the authenticated actor must be the container owner/admin, have tenant-scoped `skills:manage`, or hold an active maintainer grant. Membership gives read access, not write access. Team writes require the selected active team (`team_id`/request context); personal and organization writes do not. Use `skill_resolve` for canonical `team > organization > personal` resolution and honor its `candidates`, `selected`, `owner`, `rule`, `reason`, and `conflict` fields.
 
-Forks are independent drafts with `forked_from_id`, a new author, no copied grants, and preserved source provenance when available. If a fork returns `409 Conflict`, choose a different explicit `skill_slug` and retry; never silently suffix or overwrite a namespace. Marketplace can be browsed and used as readable source material for an internal fork, but it is never an internal write scope.
+Forks are independent drafts with `forked_from_id`, a new author, no copied grants, and preserved source provenance when available. If a fork returns `409 Conflict`, choose a different explicit `skill_slug` and retry; never silently suffix or overwrite a namespace. The internal library is the only Skills source.
 
 **Export formats:** `cursor`, `claude`, `copilot`, `windsurf`, `opencode`, `codex`, `gemini`
 **Skill scopes (create/import/fork):** `personal`, `team`, `organization` (never `marketplace`)
