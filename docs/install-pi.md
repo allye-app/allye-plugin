@@ -1,7 +1,11 @@
 # Install Allye for Pi
 
-The Pi adapter is a thin native Pi package. It does not copy workflow skills or
-replace Pi's MCP configuration:
+The Pi adapter is a thin native Pi package. Installation/configuration is not
+API authorization, release approval, publication, or distribution success. Official
+distribution consumes only the API-authorized immutable release identity
+(`skill_id`, `release_id`, `version`, canonical SHA-256 hash, and supplied origin); a revoked or
+otherwise ineligible release remains blocked until the API returns matching physical
+runtime evidence. It does not copy workflow skills or replace Pi's MCP configuration:
 
 - `skills/*/SKILL.md` in this repository remains the canonical skill source;
 - the adapter exposes that directory through Pi's `resources_discover` event;

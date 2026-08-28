@@ -28,7 +28,7 @@ NODE
 skill_b64=$(printf %s "$skill" | base64 -w0)
 reference_b64=$(printf %s "$reference" | base64 -w0)
 cat > "$TMP/artifact.json" <<EOF
-{"release_id":"release-1","canonical_hash":"$hash","integrity":{"valid":true},"manifest":{"sha256":"$hash","files":[{"path":"SKILL.md","bytes":$(printf %s "$skill" | wc -c | tr -d ' '),"sha256":"$skill_hash"},{"path":"references/guide.md","bytes":$(printf %s "$reference" | wc -c | tr -d ' '),"sha256":"$reference_hash"}]},"files":[{"path":"SKILL.md","bytes_base64":"$skill_b64","kind":"file"},{"path":"references/guide.md","bytes_base64":"$reference_b64","kind":"file"}]}
+{"skill_id":"skill-1","release_id":"release-1","version":"1.2.3","origin":null,"canonical_hash":"$hash","integrity":{"valid":true},"manifest":{"sha256":"$hash","files":[{"path":"SKILL.md","bytes":$(printf %s "$skill" | wc -c | tr -d ' '),"sha256":"$skill_hash"},{"path":"references/guide.md","bytes":$(printf %s "$reference" | wc -c | tr -d ' '),"sha256":"$reference_hash"}]},"files":[{"path":"SKILL.md","bytes_base64":"$skill_b64","kind":"file"},{"path":"references/guide.md","bytes_base64":"$reference_b64","kind":"file"}]}
 EOF
 export ALLYE_CANONICAL_ARTIFACT_JSON="$TMP/artifact.json"
 export ALLYE_DISTRIBUTION_CONTEXT_JSON="$(jq -cn --arg hash "$hash" '{operationId:"operation-1",skillId:"skill-1",releaseId:"release-1",runtime:"claude",target:"claude:global",expectedHash:$hash,executionToken:"test-token"}')"
@@ -46,7 +46,7 @@ allye_distribution_report() {
   printf '%s\n' "$action" >> "$CALLS"
   if [ "$action" = complete ]; then
     [ "$(canonicalTreeHash "$target")" = "$hash" ]
-    jq -e --arg hash "$hash" '.release_id == "release-1" and .canonical_hash == $hash and .runtime == "claude"' "$target/.allye-artifact.json" >/dev/null
+    jq -e --arg hash "$hash" '.skill_id == "skill-1" and .release_id == "release-1" and .canonical_hash == $hash and .runtime == "claude"' "$target/.allye-artifact.json" >/dev/null
     manifest=$(readManifest claude)
     jq -e --arg path "$target" --arg hash "$hash" '.version == 1 and any(.artifacts[]; .path == $path and .skillId == "skill-1" and .releaseId == "release-1" and .hash == $hash)' <<<"$manifest" >/dev/null
   fi

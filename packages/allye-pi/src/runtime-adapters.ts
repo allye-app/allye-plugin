@@ -1,16 +1,18 @@
 import { createHash } from "node:crypto";
 
 export type Runtime = "claude" | "codex" | "opencode" | "pi";
+export type SkillOrigin = Readonly<Record<string, unknown>>;
 type ApiFile = { path: string; bytes: Uint8Array; kind: string };
 type ApiDecision = { release_id: string; canonical_hash: string; runtime: Runtime; contract_version: string; state: string; allowed: boolean; adapter: string | null; adapter_version: string | null; code?: string | null; diagnostic?: string; limitations?: readonly string[] };
-type ApiArtifact = { release_id: string; canonical_hash: string; files: readonly ApiFile[]; integrity: { valid: boolean }; distribution_decision: ApiDecision };
-type TransportArtifact = { release_id: string; canonical_hash: string; files: readonly { path: string; bytes_base64: string; kind: string }[]; integrity: { valid: boolean }; manifest?: { sha256: string; files: readonly { path: string; bytes: number; sha256: string }[] }; compatibility_matrix?: { profiles: readonly { runtime: string; state: string; adapterStatus: string }[] }; distribution_decision?: ApiDecision };
+type ApiArtifact = { skill_id: string; release_id: string; version: string; origin?: SkillOrigin | null; canonical_hash: string; files: readonly ApiFile[]; integrity: { valid: boolean }; distribution_decision: ApiDecision };
+type TransportArtifact = { skill_id: string; release_id: string; version?: string; origin?: SkillOrigin | null; canonical_hash: string; files: readonly { path: string; bytes_base64: string; kind: string }[]; integrity: { valid: boolean }; manifest?: { sha256: string; files: readonly { path: string; bytes: number; sha256: string }[] }; compatibility_matrix?: { profiles: readonly { runtime: string; state: string; adapterStatus: string }[] }; distribution_decision?: ApiDecision };
 
 /** Normalizes the transport DTO returned by the API/MCP endpoint; no local source is read. */
 export function normalizeApiArtifact(payload: TransportArtifact): ApiArtifact | RuntimeFailure {
   try {
     if (!payload.manifest || !payload.distribution_decision || payload.manifest.sha256 !== payload.canonical_hash) throw new Error("manifest");
     const decision = payload.distribution_decision;
+    if (typeof payload.skill_id !== "string" || payload.skill_id.length === 0 || typeof payload.version !== "string" || payload.version.trim().length === 0 || (payload.origin !== undefined && payload.origin !== null && (typeof payload.origin !== "object" || Array.isArray(payload.origin)))) throw new Error("release");
     if (decision.release_id !== payload.release_id || decision.canonical_hash !== payload.canonical_hash || !decision.runtime || !decision.contract_version || !decision.state || typeof decision.allowed !== "boolean") throw new Error("decision");
     const seen = new Set<string>();
     const files = payload.files.map((file) => {
@@ -24,17 +26,17 @@ export function normalizeApiArtifact(payload: TransportArtifact): ApiArtifact | 
     const digest = createHash("sha256");
     for (const file of [...files].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)) digest.update(file.path).update("\0").update(file.bytes).update("\0");
     if (digest.digest("hex") !== payload.canonical_hash) throw new Error("aggregate");
-    return { release_id: payload.release_id, canonical_hash: payload.canonical_hash, integrity: payload.integrity, files, distribution_decision: decision };
+    return { skill_id: payload.skill_id, release_id: payload.release_id, version: payload.version, ...(payload.origin === undefined ? {} : { origin: payload.origin }), canonical_hash: payload.canonical_hash, integrity: payload.integrity, files, distribution_decision: decision };
   } catch { return { kind: "adapter_failure", runtime: "pi", release_id: payload.release_id, canonical_hash: payload.canonical_hash, code: "CANONICAL_ARTIFACT_INVALID", message: "API transport artifact is invalid" }; }
 }
-export type RuntimeOutput = { runtime: Runtime; adapter: string; adapter_version: string; release_id: string; canonical_hash: string; output_hash: string; files: readonly ApiFile[] };
+export type RuntimeOutput = { runtime: Runtime; adapter: string; adapter_version: string; skill_id: string; release_id: string; version: string; origin?: SkillOrigin | null; canonical_hash: string; output_hash: string; files: readonly ApiFile[] };
 export type RuntimeFailure = { kind: "adapter_failure"; runtime: Runtime; release_id: string; canonical_hash: string; code: string; message: string };
 /** API public result projection. The Plugin never turns output generation into installation evidence. */
 export type DistributionEligibilityTransport = { release_id: string; canonical_hash: string | null; eligible: boolean; integrity_status: string; reason_codes: readonly string[]; findings: readonly { code: string; severity: string; evidence: { path: string; detector: string; matchedRule?: string; digest?: string }; blocking: boolean }[] };
 export type DistributionResult = { operationId: string | null; status: "pending" | "succeeded" | "failed" | "noop" | "conflict" | "blocked"; runtime: Runtime; releaseId: string; eligibility?: DistributionEligibilityTransport; evidence?: { runtime: Runtime; observedHash: string; runtimeVersion: string; verifiedAt: string } };
 /** Copies the API envelope verbatim; this is transport normalization, never an eligibility evaluator. */
 export function normalizeApiDistributionResult(payload: DistributionResult & Partial<DistributionEligibilityTransport>): DistributionResult {
-  const eligibility = payload.eligibility ?? (payload.integrity_status ? { release_id: payload.release_id, canonical_hash: payload.canonical_hash ?? null, eligible: payload.eligible === true, integrity_status: payload.integrity_status, reason_codes: payload.reason_codes ?? [], findings: payload.findings ?? [] } : undefined);
+  const eligibility = payload.eligibility ?? (payload.integrity_status && payload.release_id ? { release_id: payload.release_id, canonical_hash: payload.canonical_hash ?? null, eligible: payload.eligible === true, integrity_status: payload.integrity_status, reason_codes: payload.reason_codes ?? [], findings: payload.findings ?? [] } : undefined);
   return { ...payload, ...(eligibility ? { eligibility } : {}) };
 }
 export type MultiRuntimeDistributionResult = { items: readonly DistributionResult[]; aggregate: DistributionResult["status"] };
@@ -77,5 +79,5 @@ export function adaptApiArtifact(runtime: Runtime, artifact: ApiArtifact): Runti
     digest.update(file.path).update("\0").update(file.kind).update("\0").update(String(file.bytes.byteLength)).update("\0").update(file.bytes).update("\0");
   }
   const output_hash = digest.digest("hex");
-  return { runtime, adapter, adapter_version: decision.adapter_version, release_id: artifact.release_id, canonical_hash: artifact.canonical_hash, output_hash, files };
+  return { runtime, adapter, adapter_version: decision.adapter_version, skill_id: artifact.skill_id, release_id: artifact.release_id, version: artifact.version, ...(artifact.origin === undefined ? {} : { origin: artifact.origin }), canonical_hash: artifact.canonical_hash, output_hash, files };
 }
