@@ -796,9 +796,11 @@ allye_distribution_preflight() { # $1 artifact runtime
   [ -n "$context" ] && [ -n "$api" ] || { print_error "Physical disk distribution requires ALLYE_DISTRIBUTION_CONTEXT_JSON and ALLYE_API_URL"; return 1; }
   allye_distribution_api_is_safe "$api" || return 1
   jq -e '.operationId|type == "string" and length > 0' >/dev/null <<<"$context" || { print_error "Invalid execution context"; return 1; }
-  jq -e '(.skillId|type == "string") and (.releaseId|type == "string") and (.runtime|type == "string") and (.target|type == "string") and (.expectedHash|test("^[a-fA-F0-9]{64}$")) and (.executionToken|type == "string")' >/dev/null <<<"$context" || { print_error "Invalid execution context"; return 1; }
+  jq -e '(.skillId|type == "string" and length > 0) and (.releaseId|type == "string" and length > 0) and (.version|type == "string" and (gsub("^\\s+|\\s+$"; "") | length > 0)) and (has("origin") and (.origin == null or (.origin|type == "object"))) and (.runtime|type == "string") and (.target|type == "string") and (.expectedHash|test("^[a-fA-F0-9]{64}$")) and (.executionToken|type == "string")' >/dev/null <<<"$context" || { print_error "Invalid execution context"; return 1; }
   [ "$(jq -r '.runtime' <<<"$context")" = "$runtime" ] || { print_error "Execution context runtime differs from disk adapter"; return 1; }
-  [ "$(jq -r '.expectedHash|ascii_downcase' <<<"$context")" = "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" ] || { print_error "Execution context hash differs from API artifact"; return 1; }
+  jq -e --arg skill "$(jq -r '.skill_id' "$artifact")" --arg release "$(jq -r '.release_id' "$artifact")" --arg version "$(jq -r '.version' "$artifact")" --arg hash "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" --argjson origin "$(jq -c '.origin' "$artifact")" '
+    .skillId == $skill and .releaseId == $release and .version == $version and .origin == $origin and (.expectedHash|ascii_downcase) == $hash
+  ' <<<"$context" >/dev/null || { print_error "Execution context immutable identity differs from API artifact"; return 1; }
   jwks=$(curl --silent --show-error --fail "$api/api/skills/distribution-execution/jwks") || { print_error "Could not fetch execution JWKS"; return 1; }
   if ! node - "$context" "$jwks" <<'NODE'
 const { createPublicKey, verify } = require('node:crypto');
@@ -807,13 +809,22 @@ const [h,p,s] = token.split('.'); if (!h || !p || !s) process.exit(1);
 const header = JSON.parse(Buffer.from(h, 'base64url')); const payload = JSON.parse(Buffer.from(p, 'base64url'));
 const key = (jwks.data || jwks).keys?.find((item) => item.kid === header.kid && item.kty === 'RSA' && item.alg === 'RS256');
 if (!key || header.alg !== 'RS256' || !verify('RSA-SHA256', Buffer.from(`${h}.${p}`), createPublicKey({ key, format: 'jwk' }), Buffer.from(s, 'base64url'))) process.exit(1);
-for (const name of ['skillId','releaseId','runtime','target','expectedHash']) if (payload[name] !== context[name]) process.exit(1);
+const isOrigin = (value) => value === null || (typeof value === 'object' && !Array.isArray(value));
+const canonicalJson = (value) => {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number' && Number.isFinite(value)) return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  throw new Error('non-JSON value');
+};
+for (const name of ['skillId','releaseId','version','runtime','target','expectedHash']) if (payload[name] !== context[name]) process.exit(1);
+if (!isOrigin(payload.origin) || !isOrigin(context.origin) || canonicalJson(payload.origin) !== canonicalJson(context.origin)) process.exit(1);
 if (payload.distributionId !== context.operationId) process.exit(1);
 if (payload.typ !== 'skill_distribution_execution' || !Number.isInteger(payload.exp) || payload.exp <= Math.floor(Date.now()/1000)) process.exit(1);
 NODE
   then print_error "Execution JWS is invalid, expired, or does not match its context"; return 1; fi
   result=$(curl --silent --show-error --fail -X POST -H "Authorization: Bearer $(jq -r '.executionToken' <<<"$context")" "$api/api/skills/$(jq -r '.skillId' <<<"$context")/distributions/$(jq -r '.operationId' <<<"$context")/preflight") || { print_error "Execution preflight rejected"; return 1; }
-  jq -e --arg op "$(jq -r '.operationId' <<<"$context")" --arg runtime "$runtime" --arg hash "$(jq -r '.expectedHash|ascii_downcase' <<<"$context")" '(.data // .) | .operationId == $op and .status == "pending" and .runtime == $runtime and (.expectedHash|ascii_downcase) == $hash' >/dev/null <<<"$result" || { print_error "Execution preflight response is not pending matching context"; return 1; }
+  jq -e --arg op "$(jq -r '.operationId' <<<"$context")" --arg runtime "$runtime" --arg version "$(jq -r '.version' <<<"$context")" --arg hash "$(jq -r '.expectedHash|ascii_downcase' <<<"$context")" --argjson origin "$(jq -c '.origin' <<<"$context")" '(.data // .) | .operationId == $op and .status == "pending" and .runtime == $runtime and .version == $version and .origin == $origin and (.expectedHash|ascii_downcase) == $hash' >/dev/null <<<"$result" || { print_error "Execution preflight response is not pending matching context"; return 1; }
 }
 
 allye_distribution_report() { # $1 complete|fail, $2 artifact, $3 runtime, $4 diagnostic, $5 runtime version, $6 Pi receipt
@@ -826,7 +837,7 @@ allye_distribution_report() { # $1 complete|fail, $2 artifact, $3 runtime, $4 di
 }
 
 install_skills_to_disk() {  # $1 = agent id
-  local id="$1" aj skills_path artifact release hash runtime adapter tmp_root file path encoded expected_hash expected_bytes marker dest python_bin ownership lock_dir decision prior_manifest
+  local id="$1" aj skills_path artifact skill release version origin hash runtime adapter tmp_root file path encoded expected_hash expected_bytes marker dest python_bin ownership lock_dir decision prior_manifest
   python_bin="${ALLYE_PYTHON_BIN:-python3}"
   local -A seen_paths=()
   aj=$(allye_agent_json "$id")
@@ -837,10 +848,10 @@ install_skills_to_disk() {  # $1 = agent id
   if [ -z "$artifact" ] || [ ! -f "$artifact" ]; then print_error "Disk installation requires ALLYE_CANONICAL_ARTIFACT_JSON API/MCP response"; return 1; fi
   if ! jq -e '.release_id | type == "string" and length > 0' "$artifact" >/dev/null ||
     ! jq -e '.canonical_hash | type == "string" and test("^[a-fA-F0-9]{64}$")' "$artifact" >/dev/null ||
-    ! jq -e '.integrity.valid == true and .manifest.sha256 == .canonical_hash and (.files|type == "array" and length > 0)' "$artifact" >/dev/null; then
+    ! jq -e '(.skill_id|type == "string" and length > 0) and (.version|type == "string" and (gsub("^\\s+|\\s+$"; "") | length > 0)) and (has("origin") and (.origin == null or (.origin|type == "object"))) and .integrity.valid == true and .manifest.sha256 == .canonical_hash and (.files|type == "array" and length > 0)' "$artifact" >/dev/null; then
     print_error "Canonical API artifact is invalid"; return 1
   fi
-  release=$(jq -r '.release_id' "$artifact"); hash=$(jq -r '.canonical_hash' "$artifact")
+  skill=$(jq -r '.skill_id' "$artifact"); release=$(jq -r '.release_id' "$artifact"); version=$(jq -r '.version' "$artifact"); origin=$(jq -c '.origin' "$artifact"); hash=$(jq -r '.canonical_hash' "$artifact")
   if ! "$python_bin" - <<'PY'
 import ctypes, sys
 if sys.platform != "linux": raise SystemExit("atomic exchange requires Linux")
@@ -884,7 +895,7 @@ PY
     [ "$(wc -c < "$dest" | tr -d ' ')" = "$expected_bytes" ] && [ "$(sha256sum "$dest" | cut -d' ' -f1)" = "$expected_hash" ] || { print_error "API artifact integrity check failed: $path"; return 1; }
   done < <(jq -c '.files[]' "$artifact")
   [ "$(jq '.manifest.files | length' "$artifact")" = "$(jq '.files | length' "$artifact")" ] || { print_error "API artifact manifest is incomplete"; return 1; }
-  marker="{\"release_id\":\"$release\",\"canonical_hash\":\"$hash\",\"adapter\":\"$adapter\",\"runtime\":\"$runtime\",\"installer\":\"$(allye_marker_string)\"}"
+  marker=$(jq -cn --arg skill "$skill" --arg release "$release" --arg version "$version" --arg hash "$hash" --arg adapter "$adapter" --arg runtime "$runtime" --arg installer "$(allye_marker_string)" --argjson origin "$origin" '{skill_id:$skill,release_id:$release,version:$version,origin:$origin,canonical_hash:$hash,adapter:$adapter,runtime:$runtime,installer:$installer}')
   [ -f "$tmp_root/SKILL.md" ] || { print_error "API artifact missing SKILL.md"; return 1; }
   # Metadata is a sidecar: canonical SKILL.md bytes are never rewritten.
   printf '%s\n' "$marker" > "$tmp_root/.allye-artifact.json"

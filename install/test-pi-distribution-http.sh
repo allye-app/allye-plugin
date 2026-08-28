@@ -7,18 +7,18 @@ cat > "$TMP/pkg/package.json" <<'EOF'
 EOF
 touch "$TMP/pkg/packages/allye-pi/src/index.ts"
 hash=$(printf 'pi-http-receipt' | sha256sum | cut -d' ' -f1)
-printf '{"release_id":"release-1","canonical_hash":"%s","integrity":{"valid":true},"manifest":{"sha256":"%s"}}\n' "$hash" "$hash" > "$TMP/artifact.json"
+printf '{"skill_id":"skill-1","release_id":"release-1","version":"1.2.3","origin":null,"canonical_hash":"%s","integrity":{"valid":true},"manifest":{"sha256":"%s"}}\n' "$hash" "$hash" > "$TMP/artifact.json"
 cat > "$TMP/server.js" <<'NODE'
 const http=require('node:http'),fs=require('node:fs'),crypto=require('node:crypto');
 const [hash,dir]=process.argv.slice(2), {privateKey,publicKey}=crypto.generateKeyPairSync('rsa',{modulusLength:2048});
 const b64=(v)=>Buffer.from(typeof v==='string'?v:JSON.stringify(v)).toString('base64url'); const h={alg:'RS256',kid:'pi-test'};
-const p={typ:'skill_distribution_execution',actor:'actor-1',skillId:'skill-1',distributionId:'operation-1',releaseId:'release-1',runtime:'pi',target:'package:allye-pi',expectedHash:hash,exp:Math.floor(Date.now()/1000)+600};
+const p={typ:'skill_distribution_execution',actor:'actor-1',skillId:'skill-1',distributionId:'operation-1',releaseId:'release-1',version:'1.2.3',origin:null,runtime:'pi',target:'package:allye-pi',expectedHash:hash,exp:Math.floor(Date.now()/1000)+600};
 const input=`${b64(h)}.${b64(p)}`; const token=`${input}.${crypto.sign('RSA-SHA256',Buffer.from(input),privateKey).toString('base64url')}`;
-fs.writeFileSync(`${dir}/context.json`,JSON.stringify({operationId:'operation-1',skillId:'skill-1',releaseId:'release-1',runtime:'pi',target:'package:allye-pi',expectedHash:hash,executionToken:token}));
+fs.writeFileSync(`${dir}/context.json`,JSON.stringify({operationId:'operation-1',skillId:'skill-1',releaseId:'release-1',version:'1.2.3',origin:null,runtime:'pi',target:'package:allye-pi',expectedHash:hash,executionToken:token}));
 const send=(r,n,o)=>{r.writeHead(n,{'content-type':'application/json'});r.end(JSON.stringify(o));};
 const server=http.createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req.on('end',()=>{
  if(req.url.endsWith('/jwks')) return send(res,200,{keys:[{...publicKey.export({format:'jwk'}),kid:'pi-test',use:'sig',alg:'RS256'}]});
- if(req.url.endsWith('/preflight')) {fs.appendFileSync(`${dir}/events`,'preflight\n');return send(res,200,{data:{operationId:'operation-1',status:'pending',runtime:'pi',expectedHash:hash}});}
+ if(req.url.endsWith('/preflight')) {fs.appendFileSync(`${dir}/events`,'preflight\n');return send(res,200,{data:{operationId:'operation-1',status:'pending',runtime:'pi',expectedHash:hash,version:'1.2.3',origin:null}});}
  if(req.url.endsWith('/complete')) {fs.appendFileSync(`${dir}/events`,'complete\n');const x=JSON.parse(body||'{}'),q=x.piPackage;if(fs.existsSync(`${dir}/reject`)||!q||q.releaseId!=='release-1'||q.canonicalHash!==hash||q.packagePath) return send(res,409,{error:'rejected'});return send(res,200,{data:{operationId:'operation-1',status:'succeeded',evidence:{runtime:'pi',observedHash:hash,runtimeVersion:x.runtimeVersion,verifiedAt:x.verifiedAt,piPackage:q}}});}
  send(res,404,{});});});server.listen(0,'127.0.0.1',()=>fs.writeFileSync(`${dir}/port`,String(server.address().port)));
 NODE

@@ -54,7 +54,7 @@ Tell the user:
 >   - **Allye Build** — TDD implementation
 >   - **Allye Review** — code review with context
 >   - **Allye Deliver** — delivery and documentation
-> - 13 workflow skills available from the Allye marketplace
+> - Workflow guidance is included with the installed Allye plugin
 > - User context auto-loads at the start of every conversation
 >
 > **Restart OpenCode** to activate. Your browser will open for login on first use. You'll see the Allye agents in the agent picker (Ctrl+T).
