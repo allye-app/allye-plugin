@@ -791,6 +791,14 @@ NODE
   then print_error "ALLYE_API_URL must be credential-free HTTPS; HTTP is allowed only for structural loopback tests"; return 1; fi
 }
 
+allye_distribution_correlation_id() {
+  printf '%s' "${ALLYE_CORRELATION_ID:-plugin-correlation-$(jq -r '.operationId // "unknown"' <<<"${ALLYE_DISTRIBUTION_CONTEXT_JSON:-{}}")}"
+}
+
+allye_distribution_request_id() {
+  printf '%s' "${ALLYE_REQUEST_ID:-plugin-request-$(jq -r '.operationId // "unknown"' <<<"${ALLYE_DISTRIBUTION_CONTEXT_JSON:-{}}")}"
+}
+
 allye_distribution_preflight() { # $1 artifact runtime
   local artifact="$1" runtime="$2" context="${ALLYE_DISTRIBUTION_CONTEXT_JSON:-}" api="${ALLYE_API_URL:-}" jwks result
   [ -n "$context" ] && [ -n "$api" ] || { print_error "Physical disk distribution requires ALLYE_DISTRIBUTION_CONTEXT_JSON and ALLYE_API_URL"; return 1; }
@@ -823,7 +831,12 @@ if (payload.distributionId !== context.operationId) process.exit(1);
 if (payload.typ !== 'skill_distribution_execution' || !Number.isInteger(payload.exp) || payload.exp <= Math.floor(Date.now()/1000)) process.exit(1);
 NODE
   then print_error "Execution JWS is invalid, expired, or does not match its context"; return 1; fi
-  result=$(curl --silent --show-error --fail -X POST -H "Authorization: Bearer $(jq -r '.executionToken' <<<"$context")" "$api/api/skills/$(jq -r '.skillId' <<<"$context")/distributions/$(jq -r '.operationId' <<<"$context")/preflight") || { print_error "Execution preflight rejected"; return 1; }
+  result=$(curl --silent --show-error --fail -X POST \
+    -H "Authorization: Bearer $(jq -r '.executionToken' <<<"$context")" \
+    -H 'X-Allye-Channel: plugin' \
+    -H "X-Correlation-Id: $(allye_distribution_correlation_id)" \
+    -H "X-Request-Id: $(allye_distribution_request_id)" \
+    "$api/api/skills/$(jq -r '.skillId' <<<"$context")/distributions/$(jq -r '.operationId' <<<"$context")/preflight") || { print_error "Execution preflight rejected"; return 1; }
   jq -e --arg op "$(jq -r '.operationId' <<<"$context")" --arg runtime "$runtime" --arg version "$(jq -r '.version' <<<"$context")" --arg hash "$(jq -r '.expectedHash|ascii_downcase' <<<"$context")" --argjson origin "$(jq -c '.origin' <<<"$context")" '(.data // .) | .operationId == $op and .status == "pending" and .runtime == $runtime and .version == $version and .origin == $origin and (.expectedHash|ascii_downcase) == $hash' >/dev/null <<<"$result" || { print_error "Execution preflight response is not pending matching context"; return 1; }
 }
 
@@ -832,7 +845,13 @@ allye_distribution_report() { # $1 complete|fail, $2 artifact, $3 runtime, $4 di
   if [ "$action" = complete ]; then
     payload=$(jq -cn --arg hash "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" --arg version "$runtime_version" --arg verified "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson piPackage "${pi_package:-null}" '{observedHash:$hash,runtimeVersion:$version,verifiedAt:$verified} + (if $piPackage == null then {} else {piPackage:$piPackage} end)')
   else payload=$(jq -cn --arg code DISTRIBUTION_COMPLETION_REJECTED --arg diagnostic "$diagnostic" '{code:$code,diagnostic:$diagnostic}'); fi
-  response=$(curl --silent --show-error --fail -X POST -H "Authorization: Bearer $(jq -r '.executionToken' <<<"$context")" -H 'Content-Type: application/json' --data "$payload" "$api/api/skills/$(jq -r '.skillId' <<<"$context")/distributions/$(jq -r '.operationId' <<<"$context")/$action") || return 1
+  response=$(curl --silent --show-error --fail -X POST \
+    -H "Authorization: Bearer $(jq -r '.executionToken' <<<"$context")" \
+    -H 'Content-Type: application/json' \
+    -H 'X-Allye-Channel: plugin' \
+    -H "X-Correlation-Id: $(allye_distribution_correlation_id)" \
+    -H "X-Request-Id: $(allye_distribution_request_id)" \
+    --data "$payload" "$api/api/skills/$(jq -r '.skillId' <<<"$context")/distributions/$(jq -r '.operationId' <<<"$context")/$action") || return 1
   [ "$action" != complete ] || jq -e --arg op "$(jq -r '.operationId' <<<"$context")" --arg hash "$(jq -r '.canonical_hash|ascii_downcase' "$artifact")" --arg runtime "$runtime" --argjson piReceipt "${pi_package:-null}" '(.data // .) | .operationId == $op and .status == "succeeded" and .evidence.runtime == $runtime and (.evidence.observedHash|ascii_downcase) == $hash and (.evidence.runtimeVersion|type == "string" and length > 0) and (.evidence.verifiedAt|type == "string" and length > 0) and ($piReceipt == null or .evidence.piPackage == $piReceipt)' >/dev/null <<<"$response"
 }
 
