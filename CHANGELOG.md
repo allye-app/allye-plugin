@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/allye-app/allye-plugin/compare/v1.7.1...v1.8.0) (2026-09-09)
+
+
+### Features
+
+* **oauth:** switch harnesses to native MCP OAuth ([e7eb030](https://github.com/allye-app/allye-plugin/commit/e7eb030d123e855690957534d25c2e166cdaadcc))
+
 ## [1.7.1](https://github.com/allye-app/allye-plugin/compare/v1.7.0...v1.7.1) (2026-08-14)
 
 
