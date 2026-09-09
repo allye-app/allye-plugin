@@ -36,30 +36,28 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 | **Skills** | Dynamic discovery | Agents find and follow your team's standards automatically — no manual config |
 | **Standards** | Guided creation | No team standards? Agent suggests creating them with your chosen scope |
 | **Boards** | Status progression | Correct transitions: backlog → todo → in_progress → review → done |
-| **Context** | Auto-loaded profile | User context, team info, and preferences injected before first message |
+| **Context** | On-demand profile | Agents load user context, team info, and preferences through the authenticated `allye` MCP tools |
 | **Language** | Multi-language | Agent responds in your language — configs are English, conversations are yours |
 
 ---
 
 ## Installation
 
-### Unified installer (all agents)
+### Repository installer boundary
 
-The fastest path if you have a terminal — one script detects every supported agent on your machine and configures each by the path it actually uses (MCP for agents that fetch it, skills-on-disk for agents that read them from a directory):
+The repository includes config-shape adapters and distribution verification, but
+shared runtime writes are currently fail-closed unless an API-backed ownership
+operation authorizes them. Physical uninstall is also blocked. Use the native
+platform procedures below; `./install.sh status` is safe for local inspection.
 
 ```bash
 git clone https://github.com/allye-app/allye-plugin.git
 cd allye-plugin
-./install.sh          # every detected agent
-./install.sh status   # what is installed, and at which version
-./install.sh install hermes
-./install.sh install pi
-./install.sh uninstall hermes
+./install.sh status
 ```
 
-Every write is additive and idempotent — your own MCP servers, plugins, and settings in each agent's config survive untouched. See [`docs/install-hermes.md`](docs/install-hermes.md) for Hermes Agent specifically (its OAuth step needs a terminal either way).
-
-Prefer the paste-into-agent or host plugin-registry routes below? They still work — the unified installer does not replace them for supported agents. The host command name below is not an Allye Skills catalogue.
+A blocked `./install.sh install ...` or `./install.sh uninstall ...` result means
+no shared configuration was changed. It is not installation or cleanup success.
 
 ### Claude Code
 
@@ -73,7 +71,7 @@ Prefer the paste-into-agent or host plugin-registry routes below? They still wor
 **Step 2 — Authenticate:**
 1. Run `/plugin` to open the plugin panel
 2. Find **Allye MCP Server** and click **Connect**
-3. Your browser opens for OAuth login — sign in with your Allye account, select a team, and approve
+3. Your browser opens for OAuth login — sign in with your Allye account, select a tenant, and approve
 4. Done! The MCP server connects automatically
 
 > Authentication is handled via OAuth 2.1 — your browser opens once, and tokens are cached automatically.
@@ -85,19 +83,12 @@ After installing, you get:
 - **17 composable skills** — discovery, planning, execution, review, delivery, memory, verification, and delegation playbooks loaded as needed; no universal phase chain is required
 - **Parallel delivery, when a runtime is detected** — the Orchestrator can drive several independent stories at once, each in its own git worktree and its own watchable agent process; without a detected runtime, delivery degrades to the existing manual and automatic-subagent modes
 
-#### Multiple Allye accounts (multi-tenant)
+#### Tenant selection
 
-If you use different Allye accounts in different projects (e.g., personal account in `~/dev/myproject` and work account in `~/dev/company`), install the plugin with the **"local" scope** (per-project). Each project directory automatically gets its own OAuth session — no extra configuration needed.
-
-1. Open Claude Code in each project directory
-2. Install with local scope: `/plugin install allye` (select "local" when prompted)
-3. Run `/reload-plugins`
-4. Go to `/plugin` → **Connect** on the Allye MCP Server
-5. Log in with the Allye account you want for that project
-
-The plugin automatically generates a unique identifier per project directory, so each project authenticates independently. You can use a different Allye account in each project without conflicts.
-
-> **Single account users don't need this.** If you only use one Allye account, just install and authenticate — it works out of the box.
+Every project uses the same `allye` server URL:
+`https://mcp.allye.app/mcp`. Choose the tenant during OAuth consent. Separate
+authorizations create independent grants without encoding a tenant or account in
+the URL.
 
 **To update:** `/plugin update allye` then `/reload-plugins`
 
@@ -147,7 +138,7 @@ Install allye-plugin following: https://raw.githubusercontent.com/allye-app/ally
 ```
 
 After installing:
-- **MCP server** configured in `~/.codex/config.toml`
+- **`allye` MCP server** at `https://mcp.allye.app/mcp`, authenticated by Codex's native OAuth flow
 - **`AGENTS.md`** installed with workflow instructions
 
 **To update:** Paste this into your agent:
@@ -175,54 +166,25 @@ Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye
 ### Pi
 
 Pi uses the published native package `allye-pi`, while keeping
-`skills/*/SKILL.md` as the only canonical skill source. The installer delegates
-installation to Pi's official package manager and does not edit Pi's
-`settings.json` or MCP configuration:
-
-```bash
-./install.sh install pi       # production: npm:allye-pi
-./install.sh uninstall pi     # removes npm:allye-pi
-```
-
-Other official Pi sources are available when you choose them explicitly:
+`skills/*/SKILL.md` as the only canonical skill source. Install through Pi's
+package manager:
 
 ```bash
 pi install npm:allye-pi
-pi install git:github.com/allye-app/allye-plugin
-ALLYE_PI_INSTALL_SOURCE=local ./install.sh install pi  # checkout development only
 ```
 
-The installer defaults to npm. Use the Git command for a tagged repository
-checkout, and the `local` opt-in only while developing this repository. See
-[`docs/install-pi.md`](docs/install-pi.md) for MCP setup, mode selection, and
-Herdr integration.
+Configure one `allye` server at `https://mcp.allye.app/mcp` in the effective
+pi-mcp-adapter source, then run `/mcp-auth allye` and `/mcp reconnect allye`.
+The package and repository installer do not edit Pi's MCP configuration. See
+[`docs/install-pi.md`](docs/install-pi.md) for source selection, authentication,
+and the installer boundary.
 
 ### Hermes Agent
 
-```bash
-git clone https://github.com/allye-app/allye-plugin.git
-cd allye-plugin
-./install.sh install hermes
-```
-
-After installing:
-- **MCP server** configured in `~/.hermes/config.yaml` (OAuth needs a terminal — see [`docs/install-hermes.md`](docs/install-hermes.md))
-- **16 skills** exported to `~/.hermes/skills/allye/` — Hermes reads skills from disk, not over MCP
-- **`allye-bootstrap` plugin** installed and enabled — injects `using-allye` at session start
-
-**To update:** `cd allye-plugin && git pull && ./install.sh install hermes`
-
-### Manual (all agents)
-
-```bash
-git clone https://github.com/allye-app/allye-plugin.git
-cd allye-plugin
-./install.sh
-```
-
-Auto-detects every installed agent and configures each one — MCP for agents that fetch skills over it, skills-on-disk for Hermes.
-
-**To update:** `cd allye-plugin && git pull && ./install.sh`
+Follow [`docs/install-hermes.md`](docs/install-hermes.md) for its native package
+and OAuth procedure. The repository installer preserves its fail-closed
+ownership boundary and must not be described as a general-purpose config writer
+or cleanup command.
 
 ---
 
@@ -245,13 +207,10 @@ Paste this into your agent's chat:
 | Cursor | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-cursor.md` |
 | Codex | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-codex.md` |
 | Gemini CLI | `Update allye-plugin following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/update-gemini.md` |
-| Hermes Agent | see [`docs/update-hermes.md`](docs/update-hermes.md) — run `./install.sh install hermes` after `git pull` |
+| Hermes Agent | see [`docs/update-hermes.md`](docs/update-hermes.md) for the native update procedure |
 
-### Manual
-
-```bash
-cd allye-plugin && git pull && ./install.sh
-```
+The repository's `install.sh` remains an inspection and API-authorized
+distribution boundary; it does not replace these native updates.
 
 ---
 

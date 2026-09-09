@@ -9,7 +9,7 @@
         "path": "~/.claude.json",
         "format": "json",
         "key": "mcpServers.allye",
-        "entry": { "type": "http", "url": "{{MCP_URL}}" }
+        "entry": { "type": "http", "url": "https://mcp.allye.app/mcp" }
       },
       "skills": {
         "source": "disk",
@@ -31,7 +31,7 @@
         "path": "~/.cursor/mcp.json",
         "format": "json",
         "key": "mcpServers.allye",
-        "entry": { "url": "{{MCP_URL}}" }
+        "entry": { "url": "https://mcp.allye.app/mcp" }
       },
       "skills": { "source": "mcp" }
     },
@@ -43,7 +43,7 @@
         "path": "~/.config/opencode/opencode.json",
         "format": "json",
         "key": "mcp.allye",
-        "entry": { "type": "remote", "url": "{{MCP_URL}}", "enabled": true },
+        "entry": { "type": "remote", "url": "https://mcp.allye.app/mcp", "enabled": true },
         "array_merge": { "path": "plugin", "value": "allye-opencode" }
       },
       "skills": { "source": "mcp" },
@@ -58,7 +58,7 @@
         "path": "~/.codex/config.toml",
         "format": "toml",
         "key": "mcp_servers.allye",
-        "block": "[mcp_servers.allye]\nurl = \"{{MCP_URL}}\"\nenabled = true"
+        "block": "[mcp_servers.allye]\nurl = \"https://mcp.allye.app/mcp\"\nenabled = true"
       },
       "skills": { "source": "mcp" },
       "bootstrap": {
@@ -77,7 +77,7 @@
         "path": "~/.gemini/settings.json",
         "format": "json",
         "key": "mcpServers.allye",
-        "entry": { "httpUrl": "{{MCP_URL}}" }
+        "entry": { "httpUrl": "https://mcp.allye.app/mcp" }
       },
       "skills": { "source": "mcp" }
     },
@@ -90,7 +90,7 @@
         "format": "yaml-block",
         "key": "mcp_servers.allye",
         "interactive_auth": true,
-        "block": "  allye:\n    url: \"{{MCP_URL}}\"\n    auth: oauth\n    enabled: true"
+        "block": "  allye:\n    url: \"https://mcp.allye.app/mcp\"\n    auth: oauth\n    enabled: true"
       },
       "skills": {
         "source": "disk",

@@ -10,7 +10,7 @@ Source of the **Allye** plugin — a methodology/workflow layer on top of the Al
 
 - No repo-wide build/lint/test — this is markdown + shell, not compiled (except the opencode package below).
 - Bump version, sync files, commit, tag, and push a release: `./release.sh [major|minor|patch]` (default `patch`). In practice releases are automated by semantic-release on push to `main` (see `.releaserc.json` / `.github/workflows/auto-release.yml`), driven by Conventional Commits — `release.sh` is the manual fallback.
-- Manual local install/update for testing: `./install.sh` (prompts for an Allye PAT, seeds skills via the API, detects and configures every installed agent). Also supports explicit verbs: `./install.sh status`, `./install.sh install <agent>`, `./install.sh uninstall <agent>`.
+- `./install.sh status` is the local inspection command. Shared runtime `install` operations are fail-closed without an API-backed ownership artifact, and `uninstall` is intentionally blocked; do not report either blocked path as a successful mutation.
 
 ### `packages/allye-opencode` (bun, TypeScript)
 - `bun install`
@@ -20,7 +20,7 @@ Source of the **Allye** plugin — a methodology/workflow layer on top of the Al
 - Published to npm as `allye-opencode` automatically by CI when `package.json`'s version changes on `main` (see `publish-opencode` job in `.github/workflows/auto-release.yml`).
 
 ### `packages/allye-pi` (native Pi package adapter)
-- `npm install` from the repository root installs the adapter's development dependencies; `./install.sh install pi` installs runtime dependencies into a clean checkout with `npm install --omit=dev`.
+- `npm install` from the repository root installs the adapter's development dependencies. Production users install the adapter through Pi's native `pi install npm:allye-pi`; the repository installer does not write Pi's MCP configuration.
 - `npm run typecheck` validates `packages/allye-pi/src/index.ts`.
 - `npm run test:pi` covers startup bootstrap loading, adaptive capability filtering, wait delivery, and the multi-team bootstrap gate.
 - The root `package.json` is the Pi package manifest: it points Pi at the adapter extension and the canonical root `skills/` directory.
@@ -30,10 +30,10 @@ Source of the **Allye** plugin — a methodology/workflow layer on top of the Al
 
 ### Two parallel distribution mechanisms
 
-1. **Claude Code plugin** (native): `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` describe the plugin; Claude Code loads `agents/*.md` as subagents, `skills/*/SKILL.md` as on-demand skills, and `hooks/hooks.json` wires `hooks/session-start.sh` to `SessionStart`. `.mcp.json` configures the Allye MCP server itself (OAuth 2.1, HTTP transport, tenant-scoped URL).
-2. **Other agents** (OpenCode, Cursor, Codex, Gemini CLI, Hermes Agent): each gets a per-agent manifest under `manifests/<agent>/` (e.g. `manifests/codex/AGENTS.md`, `manifests/cursor/.cursorrules`, `manifests/gemini/GEMINI.md`, `manifests/opencode/opencode.json`, `manifests/hermes/`) that bakes in the same workflow instructions in that agent's native format. The four paste-into-agent manifests are installed via the agent-assisted `docs/install-*.md` guides; Hermes's is installed by `install.sh` itself, since its shape (a Python plugin directory plus skills read from disk) needs real file writes, not a paste. OpenCode additionally gets a real plugin package (`packages/allye-opencode`) that registers 6 agents (Allye orchestrator-router, Plan, Orchestrator, Build, Review, Deliver) and injects Allye context via a system-prompt transform hook (`src/index.ts`, `src/context.ts`). Pi gets a native package adapter under `packages/allye-pi`; its root `package.json` points to the adapter and the canonical `skills/` directory.
+1. **Claude Code plugin** (native): `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` describe the plugin; Claude Code loads `agents/*.md` as subagents, `skills/*/SKILL.md` as on-demand skills, and `hooks/hooks.json` wires `hooks/session-start.sh` to `SessionStart`. `.mcp.json` declares the `allye` server at the canonical `https://mcp.allye.app/mcp`; Claude owns OAuth registration, credentials, and refresh.
+2. **Other agents** (OpenCode, Cursor, Codex, Gemini CLI, Hermes Agent): each gets a per-agent manifest under `manifests/<agent>/` and an agent-assisted `docs/install-*.md` guide. OpenCode additionally gets `packages/allye-opencode`, which registers six workflow agents but does not read credentials or call MCP outside OpenCode's native connection. Pi uses the native `allye-pi` package and the user's existing pi-mcp-adapter config.
 
-`install.sh` is a thin dispatcher (`install.sh/lib.sh` sourced after PAT/skill-seeding) over `install/adapters.json` — one data entry per agent describing how to detect it, where its MCP config lives and in what format (`json` / `toml` / `yaml-block`), whether it fetches skills over MCP or reads them from a directory, and its bootstrap mechanism if any. Three verbs — `install [agent]`, `uninstall <agent>`, `status` — read that table; every writer is additive and idempotent (read, merge, write back), and a version-marker comment embedded in each file it writes (`ALLYE_INSTALLER_VERSION=N`) is what makes `status` a read instead of a registry. Adding another agent is an adapter entry plus, at most, reusing an existing format writer.
+`install/adapters.json` is the canonical registry of target config shapes. The current `install.sh` distribution boundary rejects shared config writes without an API-backed ownership artifact and rejects physical uninstall. Preserve that fail-closed behavior: update source templates and native setup guides rather than adding a bypassing writer.
 
 When editing workflow methodology, the canonical source is `skills/*/SKILL.md` — there is no separate synced/legacy copy. The old `skills/workflows/`, `skills/methodology/`, `skills/reference/`, and `skills/bootstrap/` directories were dead duplicates that drifted from the canonical files and have been deleted; each skill's `SKILL.md` is the single source of truth. Pi's adapter exposes this same root `skills/` directory through resource discovery; it does not copy or maintain a second skill tree.
 
@@ -54,7 +54,7 @@ Optional research, review, and execution subagents may be used when the current 
 
 Design spec: `docs/allye/specs/2026-07-12-guided-delivery-workflow-design.md`. Extended by `docs/allye/specs/2026-07-26-agent-runtime-and-verification-design.md`, which adds story-parallel delivery over an agent-runtime contract, the verification loop, and phase-to-agent routing; its execution notes live in `docs/allye/notes/2026-07-26-execution-retrospective.md`. Implementation plans (all executed): `docs/allye/plans/2026-07-12-guided-delivery-workflow-0{1..6}-*.md`.
 
-### Multi-tenant OAuth
+### OAuth connection
 
-The plugin supports multiple Allye accounts across projects: `ALLYE_TENANT_SLUG` (auto-derived from the working directory name if unset) is interpolated into the MCP server URL in `.mcp.json`, giving each project directory its own OAuth session. `scripts/oauth-login.sh` implements the PKCE browser-based OAuth flow used outside Claude Code's native OAuth UI (e.g. CI/manual setup); `ALLYE_PAT` remains a fallback auth path for non-interactive contexts.
+Every runtime uses one server named `allye` at `https://mcp.allye.app/mcp`. Tenant selection is part of consent, not the URL. The host runtime performs discovery, dynamic client registration, token storage, and refresh; plugin code must not read or print tokens, add fixed bearer headers or client IDs, or implement a parallel login flow.
 

@@ -2,38 +2,37 @@
 
 You are an AI agent helping the user install the Allye plugin for Hermes Agent. Follow these steps exactly.
 
-## Step 1: Clone the plugin and run the installer
+## Step 1: Configure and authenticate the canonical MCP entry
 
-```bash
-git clone https://github.com/allye-app/allye-plugin.git
-cd allye-plugin
-./install.sh install hermes
-```
-
-This writes the Allye MCP block to `~/.hermes/config.yaml`, exports the 16 Allye skills to `~/.hermes/skills/allye/`, and installs the `allye-bootstrap` plugin to `~/.hermes/plugins/allye-bootstrap/` (enabling it in `plugins.enabled` alongside any plugins already there).
-
-## Step 2: Authenticate (interactive — cannot be automated)
-
-Hermes MCP OAuth needs a TTY, so the installer writes the config block but cannot complete login for you. Run this yourself in a terminal:
+Use Hermes's native MCP command in a terminal:
 
 ```bash
 hermes mcp add allye --url https://mcp.allye.app/mcp --auth oauth
 ```
 
-Your browser opens for login — sign in with your Allye account, select a team, and approve.
+The browser opens for login. Sign in with your Allye account, select a tenant,
+and approve. Hermes owns OAuth registration, credential storage, and refresh;
+do not add a bearer header or fixed client ID.
+
+## Step 2: Understand the repository installer boundary
+
+`./install.sh install hermes` is fail-closed unless an API-backed ownership
+operation authorizes canonical skill distribution. A normal local invocation
+returns `CONFLICT_UNMANAGED` before changing shared configuration. Physical
+uninstall is also blocked. Use `./install.sh status` only for inspection, and
+never report a blocked invocation as successful installation or cleanup.
+
+When an authorized distribution operation is available, it verifies the
+immutable release artifact before publishing skills. It does not replace the
+native OAuth command above.
 
 ## Step 3: Confirm
 
-Tell the user:
+Tell the user only what was observed:
 
-> Allye is configured for Hermes Agent!
+> The `allye` MCP server is configured at `https://mcp.allye.app/mcp`.
 >
-> **What was set up:**
-> - Allye MCP block written to `~/.hermes/config.yaml` (needs the interactive OAuth step above)
-> - 16 workflow skills exported to `~/.hermes/skills/allye/`
-> - `allye-bootstrap` plugin installed and enabled — injects the `using-allye` skill at session start
->
-> **Run the OAuth command above in a terminal**, then start a new Hermes session to begin using Allye workflows.
+> Hermes manages its OAuth session natively. Workflow skills are installed only if the separate API-authorized distribution operation completed successfully.
 
 ## What the installer turns off, and why
 
@@ -65,8 +64,8 @@ your team's configured pipeline.
 **`todo` stays.** It is turn-scratch and that is legitimate. Anything that outlives the
 session is promoted to Allye at session end — see the `memory-protocol` skill.
 
-To keep either, remove it from `toolsets_remove` in `install/adapters.json` before
-installing, or re-add it to `platform_toolsets` afterwards.
+Changing the memory or toolset policy requires a separately reviewed adapter
+change; it is not an installation-time toggle.
 
 **One thing to watch.** Hermes's memory is woven into its turn loop, and context compression
 reads the same flag. If long conversations start behaving differently after installing, that

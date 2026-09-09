@@ -1,45 +1,43 @@
 # Allye Plugin — Codex CLI Update Guide
 
-You are an AI agent helping the user update the Allye plugin for Codex CLI. Follow these steps exactly.
+You are an AI agent helping the user update the Allye plugin for Codex CLI. Preserve unrelated MCP servers, credentials, and instructions.
 
 ## Step 1: Update AGENTS.md
 
-Download the latest version:
+Download the latest Allye instructions to a temporary file:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/allye-app/allye-plugin/main/manifests/codex/AGENTS.md > ~/.codex/AGENTS.md
+curl -fsSL https://raw.githubusercontent.com/allye-app/allye-plugin/main/manifests/codex/AGENTS.md > /tmp/allye-AGENTS.md
 ```
 
-## Step 2: Verify MCP server
+Merge the Allye content into `~/.codex/AGENTS.md` without overwriting user
+instructions.
 
-Check that the Allye MCP server is configured with OAuth (no PAT headers):
+## Step 2: Verify the canonical MCP entry
 
 ```bash
-grep "allye-mcp" ~/.codex/config.toml 2>/dev/null
+codex mcp get allye
 ```
 
-If it has `http_headers` with a PAT, update the config to remove them:
+The entry must be named `allye`, point to `https://mcp.allye.app/mcp`, and have
+no fixed headers or OAuth client metadata. If that Allye entry is stale, replace
+only it:
 
 ```bash
-sed -i '/http_headers.*Authorization.*Bearer/d' ~/.codex/config.toml
-sed -i 's|mcp.allye.app/jsonrpc|mcp.allye.app/mcp|g' ~/.codex/config.toml
+codex mcp logout allye
+codex mcp remove allye
+codex mcp add allye --url https://mcp.allye.app/mcp
+codex mcp login allye
 ```
 
-If it's missing entirely, add it:
-
-```bash
-cat >> ~/.codex/config.toml << TOML
-
-[mcp_servers.allye-mcp]
-url = "https://mcp.allye.app/mcp"
-enabled = true
-TOML
-```
+If the legacy server is registered under another name, run logout/remove with
+that exact old name before adding `allye`. Never delete Codex's global credential
+store or unrelated MCP entries.
 
 ## Step 3: Confirm
 
 Tell the user:
 
-> Allye plugin updated for Codex CLI!
+> Allye plugin updated for Codex CLI.
 >
-> **Start a new Codex session** to use the updated instructions. Authentication is now via OAuth — your browser will open on first use.
+> Start a new Codex session to use the updated instructions. Codex manages Allye OAuth and refresh natively.

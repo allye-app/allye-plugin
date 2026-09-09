@@ -1,103 +1,103 @@
 ---
 name: setup
 description: First-time setup for the Allye plugin. Uses OAuth for ALL platforms — no PAT.
-version: "1.2"
+version: "1.3"
 category: bootstrap
 ---
 
 # Allye Setup
 
 <EXTREMELY_IMPORTANT>
-## Allye ALWAYS uses OAuth. Never ask for a PAT.
+## Allye MCP always uses native OAuth
 
-The setup flow depends on whether the platform supports native MCP OAuth:
-
-- **Claude Code / Claude Desktop** → OAuth is automatic via `.mcp.json`. No setup needed.
-- **All other platforms** (OpenCode, Cursor, Codex, Gemini, etc.) → Run the OAuth browser login script.
-
-**NEVER ask the user for a PAT. NEVER mention PAT as an option.**
+Configure one remote server named `allye` at `https://mcp.allye.app/mcp`. Let the
+host runtime perform discovery, dynamic client registration, authorization-code
+exchange, token storage, and refresh. Static bearer headers, PATs, fixed client
+IDs, tenant-specific URLs, and external login helpers are not part of setup.
 </EXTREMELY_IMPORTANT>
 
-## Step 1: Detect Platform
+## Step 1: Detect the platform
 
-Check which platform/agent is running. You can infer this from:
-- The environment (Claude Code has `CLAUDE_CODE` env, Claude Desktop has specific hooks)
-- The available tools and context
-- Or simply ask: "Which platform are you using?"
+Infer the current platform from the runtime when possible. Otherwise ask which
+supported agent the user wants to configure.
 
-## Step 2A: Claude Code / Claude Desktop (Native OAuth)
+## Step 2: Configure and authenticate one Allye entry
 
-If the user is on Claude Code or Claude Desktop:
+Preserve every unrelated server and credential. If an older Allye entry exists
+under another name, identify its effective config source, remove only that
+entry through the host's native management command, and keep only `allye`.
 
-> **Allye is already configured!** The plugin's `.mcp.json` handles OAuth automatically.
->
-> The first time you use a Allye tool, your browser will open for login.
-> Just start using Allye — try asking me to search memories or list work items.
+### Claude Code / Claude Desktop
 
-**Stop here. No further setup needed.**
+The plugin's `.mcp.json` already declares `allye`. Open the MCP or plugin panel,
+select **Allye**, and choose **Connect**. The browser completes consent.
 
-## Step 2B: Other Platforms (OAuth via Browser Login Script)
+For an intentional reconnect, use **Clear authentication** for Allye, then
+**Authenticate/Connect**. Do not sign out of the host account.
 
-For OpenCode, Cursor, Codex, Gemini, or any platform without native MCP OAuth:
-
-Tell the user:
-
-> I'll run the Allye OAuth login to connect your account via browser.
-
-### Run the OAuth login script:
+### Codex
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:-$(pwd)}/scripts/oauth-login.sh"
+codex mcp get allye >/dev/null 2>&1 \
+  || codex mcp add allye --url https://mcp.allye.app/mcp
+codex mcp login allye
 ```
 
-If `CLAUDE_PLUGIN_ROOT` is not set, find the script:
+If a legacy Allye entry has a different name, use `codex mcp logout <old-name>`
+and `codex mcp remove <old-name>` for that entry only before adding `allye`.
+
+### OpenCode
+
+Its effective `opencode.json` must contain:
+
+```json
+{
+  "mcp": {
+    "allye": {
+      "type": "remote",
+      "url": "https://mcp.allye.app/mcp",
+      "enabled": true
+    }
+  }
+}
+```
+
+Preserve the rest of the file, then authenticate and confirm:
 
 ```bash
-SCRIPT=$(find ~/.claude/plugins -name "oauth-login.sh" -path "*/allye*" 2>/dev/null | head -1) || SCRIPT=$(find . -name "oauth-login.sh" 2>/dev/null | head -1); echo "$SCRIPT"
+opencode mcp auth allye
+opencode mcp list
 ```
 
-Then run it:
+### Pi with pi-mcp-adapter
 
-```bash
-bash "$SCRIPT"
+Use the effective MCP source shown by `/mcp` and define an `allye` remote server
+at the canonical URL. The Allye repository installer does not write Pi's MCP
+configuration.
+
+Authenticate and connect in Pi:
+
+```text
+/mcp-auth allye
+/mcp reconnect allye
 ```
 
-The script will:
-1. Open the browser for Allye OAuth login
-2. Start a local callback server on port 9316
-3. After the user logs in and selects a team, capture the authorization code
-4. Exchange the code for tokens
-5. Output `ALLYE_ACCESS_TOKEN=...` and `ALLYE_REFRESH_TOKEN=...`
+Use `/reload` after changing the effective config source. `/mcp logout allye`
+clears only Allye's native credential when the user explicitly requests a
+reconnection.
 
-### Configure the platform with the obtained token:
+### Other native MCP clients
 
-**For OpenCode:**
-The `opencode.json` manifest uses `${ALLYE_ACCESS_TOKEN}`. Set the env var:
+Add a remote HTTP MCP server named `allye` at the canonical URL and use the
+client's native OAuth action. Preserve unrelated configuration and credentials.
 
-```bash
-export ALLYE_ACCESS_TOKEN="<the token from the script>"
-```
+## Step 3: Confirm MCP access
 
-Or update `opencode.json` directly with the token.
+Start or reload the host session, confirm the `allye` server is connected, and
+invoke a read-only Allye tool. Tenant selection happens during consent; the URL
+never contains a tenant slug.
 
-**For Cursor:**
-Add MCP server in Cursor settings (Settings → MCP Servers):
-- Name: `allye-mcp`
-- URL: `https://mcp.allye.app/mcp`
-- Headers: `Authorization: Bearer <token>`
-
-**For other platforms:**
-Configure the MCP connection with:
-- URL: `https://mcp.allye.app/mcp`
-- Authorization header: `Bearer <token>`
-
-### Confirm setup:
-
-> **Allye connected via OAuth!**
->
-> Start a new session to activate the Allye tools.
-
-## Step 3: Delivery configuration
+## Step 4: Delivery configuration
 
 Ask once, here, rather than at every dispatch. Five parallel stories would otherwise mean
 ten identical questions whose answer never varies.
@@ -210,16 +210,17 @@ Platform capability also constrains the map. OpenCode has six agent personas; Cu
 and Gemini CLI have one agent and no picker — routing a specific persona to them silently
 does nothing.
 
-## Token Refresh
+## Authentication lifecycle
 
-OAuth tokens expire. When a token expires:
-- **Claude Code/Desktop**: Automatic refresh via OAuth flow
-- **Other platforms**: Run the login script again: `bash scripts/oauth-login.sh`
+The host runtime rotates access and refresh tokens automatically. A normal
+restart, an HTTP 403 authorization result, or an HTTP 503 dependency failure
+does not require clearing credentials or opening the browser.
 
-## Error Handling
+An explicit grant revocation or the 90-day grant limit requires a new consent.
+When the user intentionally reconnects, clear only the `allye` entry:
 
-- `python3` not found → Required for the OAuth callback server. Install Python 3.
-- `openssl` not found → Required for PKCE. Install OpenSSL.
-- Browser doesn't open → Copy the URL from the terminal and open manually.
-- Port 9316 in use → Run with a different port: `bash scripts/oauth-login.sh 9317`
-- `jq` not found → `brew install jq` / `sudo apt install jq`
+- **Claude Code/Desktop:** Allye → **Clear authentication** → **Authenticate/Connect**
+- **Codex:** `codex mcp logout allye`, then `codex mcp login allye`
+- **OpenCode:** `opencode mcp logout allye`, then `opencode mcp auth allye`
+- **Pi:** `/mcp logout allye`, then `/mcp-auth allye` and `/mcp reconnect allye`
+- **Other clients:** use the host's clear/reconnect action scoped to `allye`

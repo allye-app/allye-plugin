@@ -1,26 +1,25 @@
 # Allye Plugin — OpenCode Installation Guide
 
-You are an AI agent helping the user install the Allye plugin for OpenCode. Follow these steps exactly.
+You are an AI agent helping the user install the Allye plugin for OpenCode. Preserve unrelated MCP servers, plugins, and credentials.
 
-## Step 1: Configure MCP Server and Plugin
+## Step 1: Configure MCP and the plugin
 
-Read the current OpenCode global config:
-
-```bash
-cat ~/.config/opencode/opencode.json 2>/dev/null || echo '{}'
-```
-
-Update the config with the Allye MCP server (OAuth — no PAT needed) AND the allye-opencode plugin:
+Read the effective OpenCode config, then merge the canonical Allye entry and
+plugin. If the effective config still has the legacy `allye-mcp` entry, first
+run `opencode mcp logout allye-mcp`. This clears only that obsolete Allye
+registration; do not delete OpenCode's auth store.
 
 ```bash
 CONFIG=$(cat ~/.config/opencode/opencode.json 2>/dev/null || echo '{"$schema": "https://opencode.ai/config.json"}')
 
 CONFIG=$(echo "$CONFIG" | jq '
-  .mcp["allye-mcp"] = {
-    "type": "remote",
-    "url": "https://mcp.allye.app/mcp",
-    "enabled": true
-  }
+  .mcp = (.mcp // {})
+  | del(.mcp["allye-mcp"])
+  | .mcp.allye = {
+      "type": "remote",
+      "url": "https://mcp.allye.app/mcp",
+      "enabled": true
+    }
   | .plugin = (.plugin // [])
   | if (.plugin | index("allye-opencode")) then . else .plugin += ["allye-opencode"] end
 ')
@@ -29,15 +28,20 @@ mkdir -p ~/.config/opencode
 echo "$CONFIG" | jq '.' > ~/.config/opencode/opencode.json
 ```
 
-This configures:
-- **Allye MCP server** — connects to `mcp.allye.app` with OAuth authentication
-- **allye-opencode plugin** — registers 6 specialized agents (Allye, Plan, Orchestrator, Build, Review, Deliver)
+The targeted `del` removes only the legacy Allye key. It does not clear the
+OAuth store or change any unrelated MCP entry. The `allye` entry intentionally
+contains no headers or fixed OAuth client metadata.
 
 ## Step 2: Authenticate
 
-After restarting OpenCode, the first time you use a Allye tool, your browser will open automatically for OAuth login. Sign in with your Allye account, select a team, and approve.
+Restart OpenCode, then use its native OAuth commands:
 
-Tokens are cached — you won't need to log in again unless the token expires.
+```bash
+opencode mcp auth allye
+opencode mcp list
+```
+
+OpenCode owns discovery, client registration, token storage, and refresh.
 
 ## Step 3: Confirm
 
@@ -46,15 +50,8 @@ Tell the user:
 > Allye is configured for OpenCode!
 >
 > **What was set up:**
-> - Allye MCP server connected via OAuth (mcp.allye.app)
-> - allye-opencode plugin installed — 6 specialized agents:
->   - **Allye** — orchestrator-router (detects phase, delegates)
->   - **Allye Plan** — product and technical planning
->   - **Allye Orchestrator** — delivery coordination (dispatch loop, status cascade)
->   - **Allye Build** — TDD implementation
->   - **Allye Review** — code review with context
->   - **Allye Deliver** — delivery and documentation
-> - Workflow guidance is included with the installed Allye plugin
-> - User context auto-loads at the start of every conversation
+> - `allye` MCP server at `https://mcp.allye.app/mcp`, using native OAuth
+> - `allye-opencode` plugin with Allye, Plan, Orchestrator, Build, Review, and Deliver agents
+> - Workflow guidance that loads context through the authenticated MCP tools
 >
-> **Restart OpenCode** to activate. Your browser will open for login on first use. You'll see the Allye agents in the agent picker (Ctrl+T).
+> Restart OpenCode to activate the plugin. Use `opencode mcp auth allye` if authentication has not started.

@@ -13,9 +13,11 @@ mkdir -p "$HOME/.gemini"
 CONFIG=$(cat "$GEMINI_SETTINGS" 2>/dev/null || echo '{}')
 
 CONFIG=$(echo "$CONFIG" | jq '
-  .mcpServers["allye-mcp"] = {
-    "httpUrl": "https://mcp.allye.app/mcp"
-  }
+  .mcpServers = (.mcpServers // {})
+  | del(.mcpServers["allye-mcp"])
+  | .mcpServers.allye = {
+      "httpUrl": "https://mcp.allye.app/mcp"
+    }
 ')
 
 echo "$CONFIG" | jq '.' > "$GEMINI_SETTINGS"
@@ -33,7 +35,7 @@ If the user already has a `~/.gemini/GEMINI.md`, append the Allye content instea
 
 ## Step 3: Authenticate
 
-After starting a new Gemini session, the first time you use a Allye tool, your browser will open automatically for OAuth login. Sign in with your Allye account, select a team, and approve.
+After starting a new Gemini session, the first time you use an Allye tool, your browser will open automatically for OAuth login. Sign in with your Allye account, select a tenant, and approve.
 
 ## Step 4: Confirm
 

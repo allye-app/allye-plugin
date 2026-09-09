@@ -2,28 +2,32 @@
 
 You are an AI agent helping the user update the Allye plugin for Hermes Agent. Follow these steps exactly.
 
-## Step 1: Pull the latest plugin and re-run the installer
+## Step 1: Verify the canonical MCP entry
+
+Keep one Hermes server named `allye`:
+
+```bash
+hermes mcp add allye --url https://mcp.allye.app/mcp --auth oauth
+```
+
+This native command owns the Allye connection and OAuth session. Preserve every
+unrelated server and credential.
+
+## Step 2: Inspect distribution state
 
 ```bash
 cd allye-plugin
-git pull
-./install.sh install hermes
-```
-
-`install` is additive and idempotent — it re-exports the 16 skills, refreshes the MCP block and the `allye-bootstrap` plugin's version marker, and leaves any other plugins already enabled in `~/.hermes/config.yaml` untouched.
-
-## Step 2: Verify
-
-```bash
 ./install.sh status
 ```
 
-Confirm the Hermes Agent line reports `current (v1)` — an `outdated (vN)` reading means an older marker survived and the install step above needs a re-run.
+The repository installer publishes updated skills only as part of an
+API-authorized immutable distribution operation. A direct
+`./install.sh install hermes` invocation without that context fails closed and
+does not update shared configuration. `./install.sh uninstall hermes` also
+performs no physical removal.
 
 ## Step 3: Confirm
 
-Tell the user:
-
-> Allye plugin updated for Hermes Agent!
->
-> **Start a new Hermes session** to use the updated skills and bootstrap. If the MCP server was never authenticated, run `hermes mcp add allye --url https://mcp.allye.app/mcp --auth oauth` in a terminal — that step still needs a TTY and can't be automated.
+Report the observed MCP and distribution states separately. Never turn a
+`CONFLICT_UNMANAGED` or `DISTRIBUTION_REMOVE_OWNERSHIP_UNAVAILABLE` result into
+an update or cleanup success claim.

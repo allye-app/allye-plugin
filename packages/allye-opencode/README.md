@@ -9,11 +9,11 @@ An [OpenCode](https://opencode.ai) plugin that registers 6 specialized Allye age
 - **Allye Review** — code review with full context
 - **Allye Deliver** — finalizes delivery, closes stories, updates docs
 
-It also injects live Allye account/session context into every conversation via a system-prompt transform hook.
+Account context is loaded through the configured `allye` MCP server, so OpenCode owns OAuth credentials and refresh.
 
 ## Installation
 
-This package is not typically installed standalone. It's installed automatically as part of the main [`allye-plugin`](https://github.com/allye-app/allye-plugin) install flow (`install.sh`), which detects OpenCode and adds `allye-opencode` to the `plugin` array in your `opencode.json` alongside the Allye MCP server configuration.
+This package is not typically installed standalone. Add it with the Allye MCP server by following the main plugin's OpenCode installation guide. The repository installer intentionally leaves shared runtime configuration unchanged unless an API-backed ownership operation authorizes the write.
 
 If you do need to add it manually, add it to the `plugin` array in your OpenCode config:
 

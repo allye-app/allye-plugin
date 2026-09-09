@@ -26,17 +26,21 @@ If custom content exists, append only the Allye section.
 
 ## Step 2: Verify MCP server
 
-Check that the Allye MCP server is configured with OAuth (no PAT headers):
+Check the canonical `allye` entry:
 
 ```bash
-cat ~/.gemini/settings.json | jq '.mcpServers["allye-mcp"]'
+cat ~/.gemini/settings.json | jq '.mcpServers.allye'
 ```
 
-If it has `headers.Authorization` with a PAT, update to OAuth:
+If the old Allye key, fixed headers, or a non-canonical URL remains, replace
+only the Allye entry while preserving every unrelated server:
 
 ```bash
 CONFIG=$(cat ~/.gemini/settings.json)
-CONFIG=$(echo "$CONFIG" | jq '.mcpServers["allye-mcp"] = { "httpUrl": "https://mcp.allye.app/mcp" }')
+CONFIG=$(echo "$CONFIG" | jq '
+  del(.mcpServers["allye-mcp"])
+  | .mcpServers.allye = { "httpUrl": "https://mcp.allye.app/mcp" }
+')
 echo "$CONFIG" | jq '.' > ~/.gemini/settings.json
 ```
 
