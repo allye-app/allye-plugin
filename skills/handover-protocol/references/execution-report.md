@@ -2,7 +2,7 @@
 
 **Emitted by:** `execution`
 **Received by:** `orchestrator`
-**Objective:** Return the implementation result — what the Orchestrator uses to decide whether to dispatch the Reviewer or cascade status right away.
+**Objective:** Return the implementation result — what the Orchestrator uses to decide whether to dispatch the Reviewer or complete the tasks right away.
 
 ## Before emitting, confirm
 
@@ -16,8 +16,8 @@
 ## 🔄 Allye Handover — execution-report
 **Skill to load:** orchestrator
 
-### Story implemented
-{STORY-KEY} — {title}
+### Spec implemented
+{SPEC-KEY} — {title}
 
 ### Tasks and status per acceptance criterion
 - {TASK-KEY}: {✅ done | ⚠️ partial | ❌ blocked}

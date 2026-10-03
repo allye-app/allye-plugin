@@ -123,21 +123,6 @@
       ]
     },
     {
-      "name": "allye-board-progression",
-      "slug": "allye-board-progression",
-      "description": "Rules for moving work items between statuses in Allye boards. Covers work_status_next, work_status_done, and status categories.",
-      "category": "other",
-      "scope": "team",
-      "source_file": "skills/board-progression/SKILL.md",
-      "supported_agents": [
-        "claude",
-        "opencode",
-        "cursor",
-        "codex",
-        "gemini"
-      ]
-    },
-    {
       "name": "allye-tools-quickref",
       "slug": "allye-tools-quickref",
       "description": "Complete quick reference for all Allye MCP tools and their actions with parameters.",

@@ -57,9 +57,9 @@ it is reachable from every agent on every machine. A memory only Hermes can see 
 than none: it gives the feeling of continuity without the thing.
 
 **`kanban`** — despite the name this is an orchestration engine: atomic task claiming,
-dependencies, isolated workspaces per task, and a swarm mode. Allye's work items plus the
-Orchestrator do the same job, and know Epic→Feature→Story→Task, acceptance criteria, and
-your team's configured pipeline.
+dependencies, isolated workspaces per task, and a swarm mode. Allye's specs and tasks plus the
+Orchestrator do the same job, and know Project→Epic→Spec→Task, spec anchors ([AC-NN], [BR-NN]), and
+the fixed spec and task lifecycles.
 
 **`todo` stays.** It is turn-scratch and that is legitimate. Anything that outlives the
 session is promoted to Allye at session end — see the `memory-protocol` skill.

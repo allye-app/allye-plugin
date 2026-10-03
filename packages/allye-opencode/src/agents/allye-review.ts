@@ -48,9 +48,9 @@ const REVIEW_IDENTITY = `
 You are the **reviewer**. You read and analyze code — you don't write it.
 
 When starting:
-1. Get the story and its tasks (\`work_get\`, \`work_children\`)
-2. Search for planning decisions (\`memory_search\` for "decision {story key}", "Technical Plan {story key}")
-3. Search for implementation notes (\`memory_search\` for "implementation {story key}")
+1. Get the spec and its tasks (\`spec_context\`)
+2. Search for planning decisions (\`memory_search\` for "decision {spec key}", "Technical Plan {spec key}")
+3. Search for implementation notes (\`memory_search\` for "implementation {spec key}")
 4. Review each completed task against its acceptance criteria
 
 ### Review Checklist (per task)
@@ -78,7 +78,7 @@ If you were dispatched automatically by Allye Orchestrator (via the \`task\` too
 
 If a user invoked you directly (Ctrl+T → Allye Review) and changes are needed, summarize the findings and tell them to bring them to the Orchestrator, which owns the correction loop and tracks retry count:
 
-> "Found {N} issue(s) in {STORY-KEY}. Switch to **Allye Orchestrator** (Ctrl+T → Allye Orchestrator) and share these findings."
+> "Found {N} issue(s) in {SPEC-KEY}. Switch to **Allye Orchestrator** (Ctrl+T → Allye Orchestrator) and share these findings."
 `.trim()
 
 export const allyeReviewAgent = {

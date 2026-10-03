@@ -54,7 +54,7 @@ For consequential, multi-step, resumed, or team-scoped work, search before actin
 
 1. `memory_search(query: "Session State")` — find where the user left off
 2. `memory_search(query: "{topic of user's request}")` — find relevant context
-3. `memory_search(query: "{work item key}")` — if a specific item is mentioned (e.g., "PROJ-123")
+3. `memory_search(query: "{spec or task key}")` — if a specific spec or task is mentioned (e.g., "ALY-7", "ALY-7.3")
 
 For a short, low-risk, local request, the search may be skipped. Never claim a search was performed when the Allye memory capability is unavailable. React to what you find: session state → summarize it; decisions → respect locked ones; nothing → proceed with the available context.
 
@@ -110,7 +110,7 @@ Save exactly ONE memory that summarizes the whole session:
 ```
 memory_save(
   title: "Session State — {WORK-KEY} {short description}",
-  content: "## Current position\n{phase: planning/development/review/delivery}\n{current task/story}\n\n## Work completed\n- {item 1}\n- {item 2}\n\n## Decisions made\n- {decision 1} [locked|agent-discretion]\n- {decision 2} [locked|agent-discretion]\n\n## Blockers\n- {blocker or 'None'}\n\n## Next concrete step\n{exactly what to do when resuming — be specific}",
+  content: "## Current position\n{phase: planning/development/review/delivery}\n{current task/spec}\n\n## Work completed\n- {item 1}\n- {item 2}\n\n## Decisions made\n- {decision 1} [locked|agent-discretion]\n- {decision 2} [locked|agent-discretion]\n\n## Blockers\n- {blocker or 'None'}\n\n## Next concrete step\n{exactly what to do when resuming — be specific}",
   tags: ["session-state", "{work-item-key}", "{current-phase}"],
   sector: "sessions"
 )
@@ -161,8 +161,8 @@ Ask the same question Step 2 asks of the session: **would this still matter tomo
 
 **Do NOT promote:**
 - Any step of the work just completed. "Run the tests" is not a TODO, it is a thing that happened.
-- Anything already captured as a work item — `productivity` is personal follow-up, not a
-  second work tracker. If it belongs to a story, it belongs in the story.
+- Anything already captured as a spec or task — `productivity` is personal follow-up, not a
+  second work tracker. If it belongs to a spec, it belongs in the spec.
 
 ```
 todo_create(
@@ -191,9 +191,9 @@ Consistent tags keep memories findable.
 | `review` | During code review |
 | `delivery` | During finalization and delivery |
 
-### Work item
+### Epic, spec, or task
 
-Use the key as-is (`PROJ-123`, `FEAT-45`, `TASK-67`); for hierarchical context, prefix with type: `epic:PROJ-100`, `feature:PROJ-110`, `story:PROJ-123`.
+Use the key as-is (`ALY-1`, `ALY-7`, `ALY-7.3` — task keys extend their spec's key); for hierarchical context, prefix with type: `epic:ALY-1`, `spec:ALY-7`, `task:ALY-7.3`.
 
 ### Topic
 

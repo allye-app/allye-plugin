@@ -1,22 +1,22 @@
 ---
 name: product-planning
-description: Workflow for translating business requirements into epics, features, and stories in Allye. Use when the user wants to plan a product, define scope, or create work item hierarchies.
-version: "1.3"
+description: Workflow for translating business requirements into epics and specs in Allye. Use when the user wants to plan a product, define scope, or create epics and specs.
+version: "2.0"
 category: methodology
 ---
 
 # Product Planning Workflow
 
-This skill guides you through translating business requirements into a structured work item hierarchy in Allye: **Epics → Features → Stories**.
+This skill guides you through translating business requirements into a structured hierarchy in Allye Projects: **Project → Epic → Spec** (tasks come later, in Technical Planning).
 
-Use this when the user talks about: requirements, business needs, product scope, MVP, new features, project kickoff, or wants to create epics/features/stories.
+Use this when the user talks about: requirements, business needs, product scope, MVP, new features, project kickoff, or wants to create epics and specs.
 
 ---
 
 ## Workflow Overview
 
 ```
-Understand intent → Search context when useful → Propose hierarchy when traceability helps → Get approval → Create items → Save decisions
+Understand intent → Search context when useful → Propose epics/specs when traceability helps → Get approval → Create epics and specs → Save decisions
 ```
 
 Product Planning is recommended for durable product scope, not a mandatory prerequisite for every local implementation. Never create items without explicit approval.
@@ -40,10 +40,10 @@ Before proposing or creating anything, have a conversation with the user to unde
 5. **Are there constraints?** — Timeline, tech stack, dependencies, compliance
 
 <EXTREMELY_IMPORTANT>
-Reach full understanding of the business context before creating any work item — ask questions and clarify ambiguities. The quality of planning depends on the quality of understanding.
+Reach full understanding of the business context before creating any epic or spec — ask questions and clarify ambiguities. The quality of planning depends on the quality of understanding.
 </EXTREMELY_IMPORTANT>
 
-<!-- adapted from bmad-code-org/BMAD-METHOD create-epics-and-stories (MIT) -->
+<!-- adapted from bmad-code-org/BMAD-METHOD create-epics-and-specs (MIT) -->
 Treat this as a collaboration between equal partners, not an intake form — the user knows the business, you know how to structure it. Push back on ambiguity and offer options; don't just transcribe what's said.
 
 **If the user already has clear requirements** (e.g., a PRD, a spec, a detailed description), skip the discovery questions and move to Step 2.
@@ -59,10 +59,12 @@ memory_search(query: "{product/project name} requirements")
 memory_search(query: "{product/project name} architecture")
 ```
 
-Also check existing work items:
+Also check the existing project, epics, and specs:
 
 ```
-work_list(query: "{product/project name}")
+projects.project_list(query: "{product/project name}")
+epics.epic_list(project: "{KEY}")
+specs.spec_list(project: "{KEY}", query: "{topic}")
 ```
 
 **If related items exist:**
@@ -73,157 +75,108 @@ work_list(query: "{product/project name}")
 
 ---
 
-## Step 3: Design the Work Item Hierarchy
+## Step 3: Design the Epics and Specs
 
-Plan the hierarchy before creating items. Present it to the user for approval.
+Plan the structure before creating anything. Present it to the user for approval.
 
 ### Working vocabulary: squares and quadradinhos
 
-When talking through the structure with the user, a "square" is a Feature-sized deliverable — a puzzle piece of the overall product; a "quadradinho" is a Story inside it. This is conversational shorthand, not a new formal type — it still resolves to the real Epic → Feature → Story hierarchy below.
+When talking through the structure with the user, a "square" is an epic-sized deliverable — a puzzle piece of the overall product; a "quadradinho" is a spec inside it. This is conversational shorthand, not a new formal type — it still resolves to the real Project → Epic → Spec → Task hierarchy.
 
-### Item types and when to use them
+### Levels and when to use them
 
-| Type | Purpose | Example |
+| Level | Purpose | Example |
 |------|---------|---------|
-| **Epic** | Large initiative spanning multiple features. Weeks to months of work. | "User Authentication System" |
-| **Feature** | A distinct capability within an epic. Days to weeks. | "Social Login (Google, GitHub)" |
-| **Story** | A user-facing outcome within a feature. Hours to days. Can be implemented in one session. | "As a user, I can log in with my Google account" |
+| **Project** | Groups the team's apps (repositories); its KEY prefixes every epic/spec/task key. | `ALY` |
+| **Epic** | Lightweight grouping: goal, scope, out of scope, success metrics. No detailed rules. Status is computed from its specs. | "User Authentication System" |
+| **Spec** | The single source of truth for one deliverable: business rules, acceptance criteria, decisions. Type `functional`, `technical`, or `bugfix`. May stand alone without an epic (e.g. a bugfix). | "Log in with Google" |
 
-### Hierarchy rules
+### Rules
 
 <!-- adapted from github/spec-kit story template language (MIT) -->
-- An **Epic** contains **Features**
-- A **Feature** contains **Stories**
-- Every Story must be **independently testable and deliverable** — it produces a working increment on its own, not just alongside its siblings
-- Stories should follow the format: "As a {role}, I can {action} so that {benefit}" (when applicable)
-- Prioritize so that **P1 alone is a viable increment** — if only the highest-priority stories shipped, there should still be something real to show
+- Detail lives **only in the spec** — never in the epic, never repeated in tasks
+- Every spec must be **independently testable and deliverable** — it produces a working increment on its own
+- Prioritize so that **the highest-priority specs alone are a viable increment**
 
 ### Present the plan
 
-Show the user the proposed hierarchy before creating anything:
+Show the user the proposed structure before creating anything:
 
 ```
 Epic: User Authentication System
-├── Feature: Email/Password Auth
-│   ├── Story: User can register with email and password
-│   ├── Story: User can log in with email and password
-│   └── Story: User can reset password via email
-├── Feature: Social Login
-│   ├── Story: User can log in with Google
-│   └── Story: User can log in with GitHub
-└── Feature: Session Management
-    ├── Story: User session persists across browser restarts
-    └── Story: User can log out from all devices
+├── Spec: Register with email and password
+├── Spec: Log in with email and password
+├── Spec: Reset password via email
+├── Spec: Log in with Google
+└── Spec: Log out from all devices
 ```
 
-Wait for the user to approve, modify, or add to this structure before proceeding. If the user explicitly chooses a no-work-item path for a small or local change, do not create a hierarchy; keep the scope and verification visible instead.
+Wait for the user to approve, modify, or add to this structure before proceeding. If the user explicitly chooses a no-spec path for a small or local change, do not create anything; keep the scope and verification visible instead.
 
 ---
 
-## Step 4: Check Board and Statuses
+## Step 4: Create the Epic and Specs
+
+There are no configurable statuses: a new spec always starts in `draft`, and an epic's status is computed.
+
+### Epic (if it doesn't exist yet)
 
 ```
-work_statuses()
-board_columns()
-```
-
-This surfaces the available status categories and board columns, so you know the correct status for new items — typically **backlog** or **todo**.
-
----
-
-## Step 5: Create Work Items
-
-### For the Epic (if it doesn't exist yet)
-
-Create the top-level epic first:
-
-```
-work_create(
-  work_title: "User Authentication System",
-  work_type: "epic",
-  work_category: "product",
-  work_description: "## Goal\n{business goal}\n\n## Scope\n{what's included}\n\n## Out of scope\n{what's excluded}\n\n## Success criteria\n{how we know it's done}"
+epics.epic_create(
+  project: "ALY",
+  title: "User Authentication System",
+  description: "## Goal\n{business goal}\n\n## Scope\n{what's included}\n\n## Out of scope\n{what's excluded}\n\n## Success metrics\n{how we know it's done}"
 )
 ```
 
-### For Features and Stories
-
-Use `work_bulk_create` to create the full hierarchy in one call:
+### Specs
 
 ```
-work_bulk_create(work_items: [
-  {
-    "temp_id": "feat-1",
-    "title": "Email/Password Auth",
-    "item_type": "feature",
-    "work_category": "product",
-    "parent_key": "PROJ-100",          // existing epic key
-    "description": "..."
-  },
-  {
-    "temp_id": "story-1",
-    "title": "User can register with email and password",
-    "item_type": "story",
-    "work_category": "product",
-    "parent_temp_id": "feat-1",        // references the feature above
-    "description": "..."
-  },
-  {
-    "temp_id": "story-2",
-    "title": "User can log in with email and password",
-    "item_type": "story",
-    "work_category": "product",
-    "parent_temp_id": "feat-1",
-    "description": "..."
-  }
-])
+specs.spec_create(
+  project: "ALY",
+  epic: "ALY-1",
+  title: "Log in with Google",
+  type: "functional",
+  priority: "high",
+  content: "..."
+)
 ```
 
-### `work_bulk_create` rules
+### Spec content and anchors
 
-- Each item needs: `temp_id`, `title`, `item_type`, `work_category`
-- Use `parent_key` to reference an existing item (e.g., an epic already in Allye)
-- Use `parent_temp_id` to reference another item in the same batch
-- **Maximum 50 items** per call — split into multiple calls if needed
-- The server handles ordering and key generation automatically
-
-### Story descriptions
-
-Every story should have a clear description. Write acceptance criteria as concrete scenarios when the behavior has real branches — Given/When/Then makes each one independently verifiable:
+Rules and criteria are **anchored lines** — a list item or heading that starts with `[KIND-NN]`. The server parses them; tasks reference them later. Never renumber an anchor; to drop one, remove the line (it becomes deprecated).
 
 <!-- adapted from github/spec-kit story template language (MIT) -->
 ```markdown
-## User Story
+## Context
 As a {role}, I can {action} so that {benefit}.
 
-## Acceptance Criteria
-- [ ] Given {context}, when {action}, then {outcome}
-- [ ] Given {context}, when {action}, then {outcome}
+## Business rules
+- [BR-01] {rule}
 
-## Notes
-{any additional context, constraints, or dependencies}
+## Acceptance criteria
+- [AC-01] WHEN {context/action} THE SYSTEM SHALL {outcome}
+- [AC-02] WHEN {context/action} THE SYSTEM SHALL {outcome}
+
+## Decisions
+- [D-01] {decision and why}
+
+## Non-functional
+- [NFR-01] {performance/security/etc.}
+
+## Open questions
+- [Q-01] {question}
 ```
 
-As detailed as possible beats terse — a mermaid flowchart or sequence diagram is welcome in the description when it clarifies a flow (`work_description` supports it). If the story involves a screen, offer to mock it up with the Artifact tool and carry the reference into the eventual handover — don't force it when there's no screen involved.
+Open `[Q-NN]` items and `[NEEDS CLARIFICATION]` markers block `spec_submit` — resolve them (`[Q-01] (resolved) question → answer`) or remove them before submitting. As detailed as possible beats terse — a mermaid diagram is welcome in the spec when it clarifies a flow. If the spec involves a screen, offer to mock it up with the Artifact tool and carry the reference into the eventual handover — don't force it when there's no screen involved.
+
+### Review and approval
+
+When the user is happy with a spec, `specs.spec_submit` moves it `draft → in_review`. **Approval is the user's call:** run `specs.spec_approve` only when the user explicitly asks you to approve that spec in this conversation.
 
 ---
 
-## Step 6: Set Priority and Estimates
-
-For each story, consider setting:
-
-- **Priority** — How urgent/important is this? (critical, high, medium, low)
-- **Story points** — Relative complexity estimate
-- **Sprint assignment** — If there's an active sprint, assign relevant stories
-
-Check the active sprint:
-```
-sprint_active()
-```
-
----
-
-## Step 7: Save Planning Decisions
+## Step 5: Save Planning Decisions
 
 Save key decisions as memories for future reference:
 
@@ -243,15 +196,15 @@ memory_save(
 Before considering product planning complete, verify:
 
 - [ ] Business context is understood (problem, users, scope, constraints)
-- [ ] Existing work items and memories were checked
+- [ ] Existing epics, specs, and memories were checked
 - [ ] Hierarchy was presented to and approved by the user
-- [ ] All items are created in Allye with proper parent relationships
-- [ ] Stories have acceptance criteria in their descriptions
-- [ ] Priority and estimates are set (if applicable)
+- [ ] Epics and specs are created in Allye (specs linked to their epic)
+- [ ] Specs have anchored acceptance criteria (`[AC-NN]`) and no open `[Q-NN]` before submit
+- [ ] Priority is set (if applicable)
 - [ ] Planning decisions are saved as memories
 
 ---
 
 ## What Comes Next
 
-After items are approved and created, ask the user whether to generate a **`planning-to-technical`** handover (see the `handover-protocol` skill) for Technical Planning. Fill the template's `Doc:` line with the Discovery Doc reference if one exists upstream (or "Nenhum doc adicional" if not), and list every created **and** reused key — Technical Planning has no other way to know which items are which.
+After the epics and specs are approved and created, ask the user whether to generate a **`planning-to-technical`** handover (see the `handover-protocol` skill) for Technical Planning. Fill the template's `Doc:` line with the Discovery Doc reference if one exists upstream (or "Nenhum doc adicional" if not), and list every created **and** reused epic/spec key — Technical Planning has no other way to know which are which.

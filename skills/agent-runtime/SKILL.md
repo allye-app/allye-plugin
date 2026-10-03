@@ -76,7 +76,7 @@ Runtime state is **evidence**. The verdict comes from `collect`.
 event in whatever system the Orchestrator actually lives in.** Run it as a background job
 of the host harness so its completion arrives as a notification. Polling the agent's state
 by hand works and is wrong: it makes every check an arbitrary interruption, and a finished
-agent sits unnoticed until the next one. **A dispatch without a wait registered is a story
+agent sits unnoticed until the next one. **A dispatch without a wait registered is a spec
 nobody is listening for**, so registering it is the closing step of `dispatch`, not a
 separate thing to remember.
 
@@ -86,8 +86,8 @@ A future runtime satisfies this primitive only if its wait can be bridged that w
 
 Read the result **from Allye**:
 
-- `work_children(id: "{story uuid}")` — the real status of every task
-- `memory_search("Review {STORY-KEY}")` — the review findings
+- `specs.spec_context(spec: "{SPEC-KEY}")` — the real status of every task
+- `memory_search("Review {SPEC-KEY}")` — the review findings
 - `memory_search("Implementation {TASK-KEY}")` — what was done and why
 
 The terminal is for human observation and for diagnosing a stuck agent. It is never the
@@ -110,10 +110,10 @@ through.
 
 ## The obligation on the dispatched side
 
-When a managed work item exists, the dispatched agent should leave a durable trace in
+When a managed spec or task exists, the dispatched agent should leave a durable trace in
 Allye before settling: task statuses and an implementation/review memory as applicable.
 For an explicitly approved no-task path, return a durable result through the host session
-or another agreed channel and do not invent work items merely to satisfy this contract.
+or another agreed channel and do not invent specs or tasks merely to satisfy this contract.
 
 This keeps Allye authoritative when it is in scope while allowing local, low-risk work
 to complete without a mandatory work-item workflow.

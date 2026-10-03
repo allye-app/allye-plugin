@@ -99,7 +99,7 @@ never contains a tenant slug.
 
 ## Step 4: Delivery configuration
 
-Ask once, here, rather than at every dispatch. Five parallel stories would otherwise mean
+Ask once, here, rather than at every dispatch. Five parallel specs would otherwise mean
 ten identical questions whose answer never varies.
 
 Check whether it already exists before asking anything:
@@ -124,10 +124,11 @@ Store the argument string verbatim; it is passed through unchanged.
 worktree receive?** A worktree inherits neither, and an executor that fails on a missing
 `.env` reports a bug that is not one.
 
-**Question 4 — who satisfies each stage after review?** Only ask this when the team's pipeline
-has stages between the review gate and done: run `work_statuses()` and look. A Solo or Startup
-board goes straight from review to done and needs nothing here — **skip the question entirely
-rather than asking it and recording an empty table.**
+**Question 4 — who satisfies each stage after review?** The task flow itself is fixed
+(`todo → in_progress → in_review → done`), so ask the user whether anything outside it must
+happen between review and `task_complete` (QA, a scan, a deploy). Most teams go straight from
+review to done and need nothing here — **skip the question entirely when the answer is no,
+rather than recording an empty table.**
 
 Where there are stages, offer three answers per stage:
 
@@ -177,7 +178,7 @@ Note the field is `name`, not `title` — this is the one tool in the suite that
 
 ## Concurrency
 
-Default parallel stories: 3
+Default parallel specs: 3
 
 ## Pipeline handoff
 
@@ -199,7 +200,7 @@ table stays scannable.
 
 ### Preflight before routing a phase to a non-Claude agent
 
-A dispatched agent that cannot reach Allye cannot read the story, move a status, or save the
+A dispatched agent that cannot reach Allye cannot read the spec, move a status, or save the
 memory the Orchestrator collects its result from — the dispatch will appear to succeed and
 produce nothing. Before recording a non-Claude agent for any phase, confirm that agent has
 Allye configured: the MCP connection, and for OpenCode the `allye-opencode` package. If it

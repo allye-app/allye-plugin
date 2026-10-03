@@ -14,26 +14,25 @@ This skill guides you through reviewing implemented code with full context — t
 ## Workflow Overview
 
 ```
-Get story context → Load decisions → Review each task → Document findings → Approve or request changes
+Get spec context → Load decisions → Review each task → Document findings → Approve or request changes
 ```
 
 ---
 
 ## Step 1: Gather Context
 
-### Get the story and its tasks
+### Get the spec and its tasks
 
 ```
-work_get(work_key: "{STORY-KEY}")
-work_children(id: "{story uuid}")
+specs.spec_context(spec: "{SPEC-KEY}")   // spec content, anchors, and every task with refs/status
 ```
 
 ### Load planning decisions
 
 ```
-memory_search(query: "Technical Plan {story key}")
-memory_search(query: "decision {story key}")
-memory_search(query: "implementation {story key}")
+memory_search(query: "Technical Plan {spec key}")
+memory_search(query: "decision {spec key}")
+memory_search(query: "implementation {spec key}")
 ```
 
 This gives you:
@@ -88,9 +87,9 @@ the Orchestrator — see `orchestrator` §6.
 
 ```
 memory_save(
-  title: "Review — {STORY-KEY} approved",
+  title: "Review — {SPEC-KEY} approved",
   content: "## Review Summary\nAll tasks reviewed and approved.\n\n## Tasks Reviewed\n- {TASK-1}: ✅ Criteria met, tests pass\n- {TASK-2}: ✅ Criteria met, tests pass\n\n## Notes\n{any observations for future reference}",
-  tags: ["review", "approved", "{story-key}"],
+  tags: ["review", "approved", "{spec-key}"],
   sector: "knowledge"
 )
 ```
@@ -100,7 +99,7 @@ memory_save(
 Present findings to the user clearly:
 
 ```markdown
-## Review Findings for {STORY-KEY}
+## Review Findings for {SPEC-KEY}
 
 ### TASK-1: {title} ✅
 All criteria met. No issues.
@@ -119,18 +118,17 @@ Save the review findings:
 
 ```
 memory_save(
-  title: "Review — {STORY-KEY} changes requested",
+  title: "Review — {SPEC-KEY} changes requested",
   content: "## Findings\n{detailed findings per task}\n\n## Required Changes\n- {change 1}\n- {change 2}\n\n## Approved Tasks\n- {list of tasks that passed}",
-  tags: ["review", "changes-requested", "{story-key}"],
+  tags: ["review", "changes-requested", "{spec-key}"],
   sector: "knowledge"
 )
 ```
 
-If tasks need rework, set their status back explicitly. `work_status_next` only moves **forward** (there is no `work_status_prev`), so a backward move goes through `work_update` with an explicit status id:
+If tasks need rework, send them back explicitly (`in_review → in_progress`), with the findings as the comment:
 
 ```
-work_statuses()                                        // find the id of the target status (e.g. "In Progress")
-work_update(id: "{task uuid}", work_status: "{status uuid}")
+tasks.task_request_changes(task: "{TASK-KEY}", comment: "{findings summary}")
 ```
 
 ---
@@ -147,7 +145,7 @@ If you can run the test suite, do it:
 
 ## Workflow Checklist
 
-- [ ] Story and all tasks loaded
+- [ ] Spec and all tasks loaded
 - [ ] Planning decisions and implementation memories retrieved
 - [ ] Axis 2: each task's acceptance criteria checked against its verification evidence
 - [ ] Axis 2: locked decisions verified as respected

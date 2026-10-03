@@ -10,7 +10,7 @@ category: methodology
 Implements a scoped change with discipline: read the existing code first, drive it with TDD when applicable,
 verify it actually works, and use Allye task tracking when a task exists or the user approves creating one. A small or explicitly approved no-task change still follows the same read, test, and verification discipline.
 
-**Scope, if you arrived via a `story-execution` or `correction` handover (see `handover-protocol`):** read only the one story and its tasks named in the handover — nothing else. A `correction` handover carries only the failed findings, not the whole story again; fix exactly what it lists.
+**Scope, if you arrived via a `story-execution` or `correction` handover (see `handover-protocol`):** read only the one spec and its tasks named in the handover — nothing else. A `correction` handover carries only the failed findings, not the whole story again; fix exactly what it lists.
 
 ---
 
@@ -24,27 +24,26 @@ Get task → Search context → Move to in_progress → Read code → TDD (Red �
 
 ## Step 1: Get the Task and Context
 
-If a task or handover exists, fetch it and treat its acceptance criteria and locked decisions as authoritative. If no task exists, confirm that the user approved the no-task path, define the scope and verification command locally, and continue without inventing a work item.
+If a task or handover exists, fetch it and treat its acceptance criteria and locked decisions as authoritative. If no task exists, confirm that the user approved the no-task path, define the scope and verification command locally, and continue without inventing a task.
 
 Fetch the task you're about to implement:
 
 ```
-work_get(work_key: "{TASK-KEY}")
+tasks.task_get(task: "{TASK-KEY}")
+specs.spec_context(spec: "{SPEC-KEY}")
 ```
 
-Read its description carefully — it should contain:
-- What to implement
-- Acceptance criteria
-- Files likely involved
-- Dependencies on other tasks
-- Decisions from the discussion phase
+The task is thin; the spec is the source of truth. Read:
+- The task's notes (what to implement, interfaces, decisions applied)
+- Its `refs` — the spec anchors (`[AC-NN]`, `[BR-NN]`, `[D-NN]`) it must satisfy, read **in the spec**
+- Its `files`, `verify` command, and `depends_on`
 
 ### Search for relevant memories
 
 ```
 memory_search(query: "{task key} context")
-memory_search(query: "decision {story key}")
-memory_search(query: "Technical Plan {story key}")
+memory_search(query: "decision {spec key}")
+memory_search(query: "Technical Plan {spec key}")
 ```
 
 If session state or decision memories are found, optionally traverse the graph for richer context:
@@ -58,13 +57,7 @@ memory_graph(memory_id: "{id}", depth: 2)
 
 ## Step 2: Check Dependencies
 
-If the task has dependencies (noted in its description), verify they're complete:
-
-```
-work_children(id: "{story uuid}")
-```
-
-Check that prerequisite tasks are in "review" or "done" status — either means their implementation is complete (tasks you finished earlier in this story sit at `review` until the Reviewer approves them). If a prerequisite hasn't reached at least `review`, either:
+If the task has dependencies (`depends_on`), check their status in the `spec_context` task list. `task_start` refuses a blocked task — every dependency must be `done` or `cancelled` — and names the open dependency. Tasks you finished earlier in this spec sit at `in_review` until the Reviewer's verdict is applied with `task_complete`, so a dependent task may have to wait for that. If a prerequisite is not done, either:
 - Pick a different task from the same wave (if available)
 - Inform the user that this task is blocked
 
@@ -78,10 +71,10 @@ If there are multiple independent tasks (same wave), they can be done in any ord
 
 If a task exists, signal that work has started. If no task exists, record the local scope in the implementation plan and do not make a status call.
 
-Signal that work has started:
+Signal that work has started (`todo → in_progress`; assigns you if the task has no assignee):
 
 ```
-work_status_next(id: "{task uuid}")
+tasks.task_start(task: "{TASK-KEY}")
 ```
 
 ---
@@ -130,11 +123,11 @@ paragraph rather than a branch.
 
 ### Write the plan
 
-Per task in this story:
+Per task in this spec:
 
 - **Approach** — the shape of the change, in a sentence or two.
 - **Files** — what you will create or modify. Names, never line numbers; the tree moves.
-- **Interfaces produced** — the names, types, and signatures other tasks in this story will
+- **Interfaces produced** — the names, types, and signatures other tasks in this spec will
   call. Whoever implements a neighbouring task sees only their own task description, so
   this is the only place they learn what to call.
 - **How each criterion goes green** — for every acceptance criterion, which step makes its
@@ -145,9 +138,9 @@ Save it:
 
 ```
 memory_save(
-  title: "Implementation Plan — {STORY-KEY} {story title}",
+  title: "Implementation Plan — {SPEC-KEY} {spec title}",
   content: "## Per task\n{approach, files, interfaces produced, criterion → step}\n\n## Order\n{which task first, and why}\n\n## Open questions\n{anything planning did not settle, or 'None'}",
-  tags: ["plan", "implementation", "{story-key}"],
+  tags: ["plan", "implementation", "{spec-key}"],
   sector: "plans"
 )
 ```
@@ -176,7 +169,7 @@ fired at the cheapest possible moment.
 ### Whether the approach is right
 
 The three checks above are mechanical. Whether the approach is a *good* one is judgement,
-and who supplies it follows the story's dispatch label (see `verification-loop` §4):
+and who supplies it follows the spec's dispatch label (see `verification-loop` §4):
 
 - **AFK** — self-validation is enough. Run the three checks and proceed.
 - **HITL** — put the plan in front of the user and wait before writing anything.
@@ -303,7 +296,7 @@ Examples of things that need human action:
 
 ---
 
-## Step 7: Move Task to Review
+## Step 7: Submit Task for Review
 
 For a tracked task, advance it to review only after the verification evidence is green. For an approved no-task change, report the same evidence directly and do not create or advance a status.
 
@@ -311,16 +304,16 @@ For a tracked task, advance it to review only after the verification evidence is
 **Evidence before assertions.** Don't advance a task because it looks right — run the tests, read the actual output, and confirm each acceptance criterion against that output before proceeding. "Should work" is not the same as "ran and passed."
 
 The task's verification command is what supplies that evidence. Advancing a task to
-`review` without having run it green — or without having recorded a `verification:
+`in_review` without having run it green — or without having recorded a `verification:
 manual` observation — is the assertion this rule exists to forbid.
 
 Once all acceptance criteria are verifiably met and tests pass for a tracked task:
 
 ```
-work_status_next(id: "{task uuid}")
+tasks.task_submit(task: "{TASK-KEY}")
 ```
 
-This advances the task forward to the "review" status. **Do NOT call `work_status_done` here** — passing its own tests makes a task ready for review, not done. For a no-task change, completion means the agreed scope and verification are reported; no status transition is implied.
+This moves the task `in_progress → in_review`. **Do NOT call `task_complete` here** — passing its own tests makes a task ready for review, not done. For a no-task change, completion means the agreed scope and verification are reported; no status transition is implied.
 
 ---
 
@@ -332,7 +325,7 @@ Save context that would be useful for future tasks or sessions:
 memory_save(
   title: "Implementation — {TASK-KEY} {short description}",
   content: "## What was done\n{summary of changes}\n\n## Key decisions during implementation\n{any new decisions made}\n\n## Files changed\n- {file 1}\n- {file 2}\n\n## Gotchas\n{anything surprising or non-obvious encountered}\n\n## Tests\n{what was tested, any notable test patterns}",
-  tags: ["development", "implementation", "{story-key}", "{task-key}"],
+  tags: ["development", "implementation", "{spec-key}", "{task-key}"],
   sector: "knowledge"
 )
 ```
@@ -343,22 +336,22 @@ Only save if there's genuinely useful context. Don't save trivial implementation
 
 ## Step 9: Pick Next Task
 
-After completing a task, pick the next one from the **handover's own wave-ordered task list** — not from a live API call. The `story-execution` handover already contains every task across every wave for the whole story, so it's the authoritative scope; going back to the API for *new* tasks would risk pulling in tasks added to the story after the handover was dispatched, which are out of scope (see line ~14).
+After completing a task, pick the next one from the **handover's own wave-ordered task list** — not from a live API call. The `story-execution` handover already contains every task across every wave for the whole spec, so it's the authoritative scope; going back to the API for *new* tasks would risk pulling in tasks added to the spec after the handover was dispatched, which are out of scope (see line ~14).
 
 - If there are more tasks in the current wave (per the handover's list) → pick one
 - If the current wave is done → move to the next wave (per the handover's list)
-- If every task in the story has reached `review` (implementation complete, awaiting Reviewer) → **run the story loop, then** emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator.
+- If every task in the spec has reached `in_review` (implementation complete, awaiting Reviewer) → **run the spec loop, then** emit an **`execution-report`** handover (see the `handover-protocol` skill) back to the Orchestrator.
 
-  The story loop runs the story's own acceptance criteria end to end, under the same
-  bound as the task loop. Every task green does not mean the story works — nothing
+  The spec loop runs the spec's own acceptance criteria end to end, under the same
+  bound as the task loop. Every task green does not mean the spec works — nothing
   else checks this, which is exactly why it runs here.
 
-  A red story loop is reported as red **even when every task is green**. That
+  A red spec loop is reported as red **even when every task is green**. That
   combination is a finding, not a contradiction to resolve: it usually means the task
   breakdown missed an integration, and the Orchestrator needs to see it rather than
   receive a clean report.
 
-Use `work_children(id: "{story uuid}")` only to **verify/check the status** of tasks already in the handover's list (e.g. confirming a dependency reached `review`) — never to discover new tasks to work on. If `work_children` reveals a task under this story that is **not** in the handover's task list, do not execute it — it wasn't in scope when the handover was dispatched. Instead, note it as an open question ("Open questions") in the `execution-report` handover so the Orchestrator can decide whether to bring it into scope.
+Use `specs.spec_context` only to **verify/check the status** of tasks already in the handover's list (e.g. confirming a dependency reached `done`) — never to discover new tasks to work on. If it reveals a task under this spec that is **not** in the handover's task list, do not execute it — it wasn't in scope when the handover was dispatched. Instead, note it as an open question ("Open questions") in the `execution-report` handover so the Orchestrator can decide whether to bring it into scope.
 
 ---
 
@@ -377,7 +370,7 @@ For each task, verify:
 - [ ] All acceptance criteria are met
 - [ ] Tests pass
 - [ ] The task's verification command ran green, or its manual procedure was observed and recorded
-- [ ] The story loop ran green before the report was emitted
+- [ ] The spec loop ran green before the report was emitted
 - [ ] Task moved to review (never directly to done — that's the Orchestrator's move after Reviewer ✅)
 - [ ] Implementation memory saved (if non-trivial)
 
@@ -392,5 +385,5 @@ the branch — do not merge, do not remove the worktree, do not close your own p
 branch in your `execution-report` so it knows what to land.
 
 **If you are working directly in the main checkout** and no Orchestrator is coordinating, the
-branch is yours to finish: load the `branch-landing` skill once the story's tasks are through
+branch is yours to finish: load the `branch-landing` skill once the spec's tasks are through
 review.

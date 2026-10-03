@@ -7,11 +7,11 @@ category: bootstrap
 
 # Using Allye
 
-You have access to the **Allye platform** — a project management and knowledge system with 12 MCP tools covering work items, documentation, sprints, boards, memories, skills, and more.
+You have access to the **Allye platform** — a project management and knowledge system with MCP tools covering projects (epics, specs, tasks), documentation, memories, skills, and more.
 
 This skill teaches you **when and how** to use those tools effectively. It does NOT replace the tools — it gives you portable playbooks and proportional guardrails on top of them.
 
-**Default posture:** Allye is an adaptive toolkit, not a mandatory phase chain. Use Allye MCP, filesystem, subagents, Herdr, work items, and memories when available and useful; degrade honestly when a capability is absent. Recommend traceable tasks for meaningful work, but support an explicitly approved no-task path.
+**Default posture:** Allye is an adaptive toolkit, not a mandatory phase chain. Use Allye MCP, filesystem, subagents, Herdr, specs, tasks, and memories when available and useful; degrade honestly when a capability is absent. Recommend traceable tasks for meaningful work, but support an explicitly approved no-task path.
 
 ---
 
@@ -65,24 +65,24 @@ If no handover marker is present, fall through to the decision table below as be
 | User intent | Skill to load | Slug |
 |-------------|---------------|------|
 | Explore ideas, research before committing to scope, think out loud, no direction chosen yet | Sandbox / Discovery | `sandbox` |
-| Define product requirements, create epics/features/stories | Product Planning | `allye-product-planning` |
-| Plan technical tasks for a story, discuss approach | Technical Planning | `allye-technical-planning` |
+| Define product requirements, create epics and specs | Product Planning | `allye-product-planning` |
+| Plan technical tasks for a spec, discuss approach | Technical Planning | `allye-technical-planning` |
 | Coordinate delivery of an already-planned feature — assign work, track status, drive tasks through review | Orchestrator | `orchestrator` |
-| Implement code, write tests, develop features | Technical Development or a lightweight local implementation loop | `allye-technical-development` when a task/work item exists |
+| Implement code, write tests, develop features | Technical Development or a lightweight local implementation loop | `allye-technical-development` when a task exists |
 | Review code, check implementation quality | Technical Review | `allye-technical-review` |
-| Finalize delivery, close story, update docs | Technical Delivery | `allye-technical-delivery` |
+| Finalize delivery, finalize spec, update docs | Technical Delivery | `allye-technical-delivery` |
 
 Three skills sit outside this table because no user request routes to them directly: `verification-loop` is loaded by `execution` when a task is being verified, `agent-runtime` by `orchestrator` when parallel work is being dispatched, and `branch-landing` by `delivery`, `orchestrator`, and `execution` when a branch's work is done. All three load on demand, from the skill that needs them.
 
 ### How to detect the phase
 
 - **Sandbox / Discovery** — User wants to: explore ideas, think out loud, research before deciding, hasn't committed to a direction yet
-- **Product Planning** — User talks about: requirements, business needs, features, epics, user stories, product scope, MVP
-- **Technical Planning** — User has a story and wants to: break it into tasks, discuss approach, evaluate options, plan implementation
-- **Orchestrator** — User wants to: coordinate delivery, assign work items, track story/task status, drive review for an already-planned feature
+- **Product Planning** — User talks about: requirements, business needs, epics, specs, product scope, MVP
+- **Technical Planning** — User has a spec and wants to: break it into tasks, discuss approach, evaluate options, plan implementation
+- **Orchestrator** — User wants to: coordinate delivery, assign tasks, track spec/task status, drive review for an already-planned feature
 - **Technical Development** — User wants to: write code, implement a task, fix a bug, add functionality, write tests
 - **Technical Review** — User wants to: review code, check quality, validate implementation, get feedback
-- **Technical Delivery** — User wants to: finish a story, merge, deploy, update documentation, close items
+- **Technical Delivery** — User wants to: finish a spec, merge, deploy, update documentation, close items
 
 ### How to load a skill
 
@@ -115,8 +115,8 @@ There is no universal phase gate. Choose the smallest useful loop for the user's
 
 Checkpoints may be skipped or repeated. Use this policy:
 
-- **Low-risk, local, reversible work:** proceed with a concise plan and proportionate verification. Do not create work items merely to satisfy the toolkit.
-- **Meaningful, multi-step, delegated, shared, or review-heavy work:** recommend a task or work item for traceability. Explain the benefit and ask for approval before creating it.
+- **Low-risk, local, reversible work:** proceed with a concise plan and proportionate verification. Do not create specs or tasks merely to satisfy the toolkit.
+- **Meaningful, multi-step, delegated, shared, or review-heavy work:** recommend a spec and tasks for traceability. Explain the benefit and ask for approval before creating it.
 - **No-task path:** if the user explicitly approves bypassing task creation, record that choice when useful, keep scope explicit, and verify the result proportionally.
 - **Consequential mutations** (external systems, destructive operations, publication, deployment, status changes, or broad scope): obtain explicit consent unless the user already clearly authorized that exact action. Do not create or change work items/statuses without approval.
 - **Ambiguity that changes scope, risk, or architecture:** stop and ask. Minor implementation details may use established defaults, stated assumptions, and a reversible change.
@@ -129,9 +129,10 @@ Checkpoints may be skipped or repeated. Use this policy:
 
 | Tool | What it does |
 |------|-------------|
-| `work_items` | Create, list, update, bulk-create work items (epics, features, stories, tasks, bugs). Move status. |
-| `boards` | View boards and columns. Understand status progression. |
-| `sprints` | List sprints, get active sprint, view sprint work items. |
+| `projects` | Projects and their apps (repositories). Overview KPIs. |
+| `epics` | Lightweight groupings of specs; status is computed from the specs. |
+| `specs` | Source of truth: rules and criteria with anchors (`[BR-NN]`, `[AC-NN]`, `[D-NN]`, `[NFR-NN]`, `[Q-NN]`). `spec_context`, coverage, explicit transitions (`draft → in_review → approved → in_progress → done`). |
+| `tasks` | Thin tasks that reference spec anchors. `task_next`, bulk create, explicit transitions (`todo → in_progress → in_review → done`). |
 | `docs` | Create, read, update documentation. Tree navigation. Publish and version. |
 | `intelligence` | Save and search memories (semantic, embedding-based). Core of cross-session continuity. |
 | `productivity` | Personal TODOs — create, list, update, delete. Stats, search, categories. |
@@ -155,7 +156,7 @@ If you catch yourself thinking any of these, STOP:
 | "I don't need to search memories, this is a fresh conversation." | For consequential or resumed work, prior context may prevent rework; search when useful and available, but do not pretend an unavailable capability was used. |
 | "I'll just start coding, tasks aren't necessary for something this small." | For meaningful work, tasks improve accountability; for small work, use the approved no-task path with explicit scope and verification. |
 | "I'll skip the tests, the implementation is straightforward." | Straightforward code still breaks. TDD catches assumptions. Write the test. |
-| "I'll move the story to done, the tasks are mostly complete." | "Mostly" is not "done". Verify all tasks are complete first. |
+| "I'll move the spec to done, the tasks are mostly complete." | "Mostly" is not "done". Verify all tasks are complete first. |
 | "I don't need to save memories, I covered everything in the conversation." | Save durable decisions and consequential session state when persistence is available; skip trivial noise and report when persistence is unavailable. |
 | "I'll load all skills at once to be prepared." | Skills are loaded on-demand for a reason — loading everything bloats context and degrades quality. Load only what's needed. |
 

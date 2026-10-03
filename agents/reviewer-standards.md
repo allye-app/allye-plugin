@@ -1,6 +1,6 @@
 ---
 name: reviewer-standards
-description: Reviews one story's completed tasks against coding standards, conventions, security, and test quality — the "does this follow the rules" axis. Dispatched in parallel with reviewer-spec, never merged with it.
+description: Reviews one spec's completed tasks against coding standards, conventions, security, and test quality — the "does this follow the rules" axis. Dispatched in parallel with reviewer-spec, never merged with it.
 tools: Bash, Read, Grep, Glob, mcp__allye
 ---
 
@@ -19,7 +19,7 @@ is missing from your dispatch prompt, say so in your report.
 
 ## Scope
 
-Your dispatch prompt gives you the team context, the story key, the task keys, and the
+Your dispatch prompt gives you the team context, the spec key, the task keys, and the
 files changed. Review exactly those files. If a change you would expect from a task is
 absent from that list, that is a finding for `reviewer-spec`, not a reason to go hunting.
 
@@ -76,6 +76,6 @@ Never comment on whether the task did the right thing. If you find yourself writ
 
 ## Memory
 
-Save your findings with `memory_save`, `sector: "knowledge"`, tags including the story
+Save your findings with `memory_save`, `sector: "knowledge"`, tags including the spec
 key and `review-standards`. The Orchestrator reads results from Allye, not from your
 terminal, so a report you did not save is a report that did not arrive.

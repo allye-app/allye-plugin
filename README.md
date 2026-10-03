@@ -35,7 +35,7 @@ Your AI agent has **68+ tools** but no idea when to use them. Allye adds the met
 | **TDD** | Test-driven development | Red-Green-Refactor with automatic detection of when TDD applies |
 | **Skills** | Dynamic discovery | Agents find and follow your team's standards automatically — no manual config |
 | **Standards** | Guided creation | No team standards? Agent suggests creating them with your chosen scope |
-| **Boards** | Status progression | Correct transitions: backlog → todo → in_progress → review → done |
+| **Projects** | Epic → Spec → Task | Specs hold the rules and criteria (`[BR-NN]`, `[AC-NN]` anchors); thin tasks reference them; fixed flows with explicit transitions |
 | **Context** | On-demand profile | Agents load user context, team info, and preferences through the authenticated `allye` MCP tools |
 | **Language** | Multi-language | Agent responds in your language — configs are English, conversations are yours |
 
@@ -81,7 +81,7 @@ After installing, you get:
 - **Bootstrap hook** — injects workflow methodology at session start
 - **Optional delegation** — bounded research, review, or execution subagents may be used when the runtime supports them and delegation is beneficial; local execution remains valid
 - **17 composable skills** — discovery, planning, execution, review, delivery, memory, verification, and delegation playbooks loaded as needed; no universal phase chain is required
-- **Parallel delivery, when a runtime is detected** — the Orchestrator can drive several independent stories at once, each in its own git worktree and its own watchable agent process; without a detected runtime, delivery degrades to the existing manual and automatic-subagent modes
+- **Parallel delivery, when a runtime is detected** — the Orchestrator can drive several independent specs at once, each in its own git worktree and its own watchable agent process; without a detected runtime, delivery degrades to the existing manual and automatic-subagent modes
 
 #### Tenant selection
 
@@ -218,7 +218,7 @@ distribution boundary; it does not replace these native updates.
 
 How multi-phase workflow support is implemented differs by platform, because not every platform lets a dispatched agent pause mid-task to ask you a question:
 
-- **Claude Code** ships five dispatched subagents — **Reviewer-Standards**, **Reviewer-Spec**, **Deep Search**, **Code Analyzer**, and **Executor** — for phases that never need to interrupt you (Executor only runs this way if the Orchestrator's automatic mode is chosen for a story; its default is manual). Sandbox, Product Planning, Technical Planning, Orchestrator, and manual-mode Executor run as skills loaded directly into your conversation instead, precisely so they *can* stop and ask when something's ambiguous.
+- **Claude Code** ships five dispatched subagents — **Reviewer-Standards**, **Reviewer-Spec**, **Deep Search**, **Code Analyzer**, and **Executor** — for phases that never need to interrupt you (Executor only runs this way if the Orchestrator's automatic mode is chosen for a spec; its default is manual). Sandbox, Product Planning, Technical Planning, Orchestrator, and manual-mode Executor run as skills loaded directly into your conversation instead, precisely so they *can* stop and ask when something's ambiguous.
 - **OpenCode** ships 6 agent-picker personas (Ctrl+T to switch) — Allye, Allye Plan, Allye Orchestrator, Allye Build, Allye Review, Allye Deliver — OpenCode's agent model supports switching personas interactively within a session, so all 6 can be full agents. The automatic-Executor dispatch mode is Claude-Code-only for now; OpenCode always runs Executor (Allye Build) as an interactive agent.
 - **Cursor, Codex, Gemini CLI** — a single agent handles all phases with the same workflow knowledge (no multi-agent picker on these platforms).
 - **Hermes Agent** reads skills from a directory (`~/.hermes/skills/allye/`) rather than fetching them over MCP, and gets the `using-allye` bootstrap injected by a small Python plugin at session start instead of a hook — otherwise the same single-agent, same-workflow-knowledge shape as Cursor/Codex/Gemini CLI.
@@ -241,29 +241,29 @@ Each phase runs in its own fresh, lean-context chat. When one finishes, it emits
 ```
 Sandbox → Product Planning → Technical Planning → Orchestrator ⇄ Executor → Reviewer (Standards + Spec)
                                                         ↑                       |
-                                                        └──── next story ───────┘
+                                                        └──── next spec ────────┘
 ```
 
 ### Sandbox
-Explore ideas, research before committing to scope, think out loud — no work items created here. Dispatches Deep Search / Code Analyzer subagents for research. Exits with a Discovery Doc once a direction is approved.
+Explore ideas, research before committing to scope, think out loud — no epics or specs created here. Dispatches Deep Search / Code Analyzer subagents for research. Exits with a Discovery Doc once a direction is approved.
 
 ### Product Planning
-Understand business context → discover team templates → define hierarchy (Epic → Feature → Story) → create work items with acceptance criteria.
+Understand business context → discover team templates → define epics and specs → write specs with anchored rules and acceptance criteria.
 
 ### Technical Planning
-Get story → **discussion phase** (identify gray areas, present options with trade-offs, capture locked decisions) → create tasks with dependency waves.
+Get spec → **discussion phase** (identify gray areas, present options with trade-offs, capture locked decisions) → create thin tasks that reference spec anchors, in dependency waves.
 
 ### Orchestrator
-Coordinates delivery of an already-planned feature: manages assignee and status, dispatches **Executor**, dispatches **Reviewer-Standards** and **Reviewer-Spec** in parallel once a report comes back, runs the correction loop, and cascades status up the work-item hierarchy. With a detected agent runtime (Herdr), it can dispatch several independent stories at once, each in its own git worktree and its own watchable agent process; without one, it falls back to one story at a time (manual handover, or automatic subagent dispatch — your choice per story).
+Coordinates delivery of an already-planned epic or spec: manages assignee and task transitions, dispatches **Executor**, dispatches **Reviewer-Standards** and **Reviewer-Spec** in parallel once a report comes back, runs the correction loop, and completes reviewed tasks (spec and epic status follow automatically). With a detected agent runtime (Herdr), it can dispatch several independent specs at once, each in its own git worktree and its own watchable agent process; without one, it falls back to one spec at a time (manual handover, or automatic subagent dispatch — your choice per spec).
 
 ### Executor
-Implements exactly one story's tasks with TDD (Red → Green → Refactor). Runs either as an interactive skill (manual mode, can ask you questions) or as a dispatched subagent (automatic mode — halts and reports back instead of guessing when a task is underspecified).
+Implements exactly one spec's tasks with TDD (Red → Green → Refactor). Runs either as an interactive skill (manual mode, can ask you questions) or as a dispatched subagent (automatic mode — halts and reports back instead of guessing when a task is underspecified).
 
 ### Reviewer — two axes
 Two independent passes, dispatched together and never merged: **reviewer-standards** checks how the code is written (conventions, security, test quality), **reviewer-spec** checks whether it's what was asked for (acceptance criteria against the verification evidence, locked decisions, unrequested scope). Always dispatched automatically in parallel, since review never needs to pause and ask anyone anything. A ❌ on either axis triggers a correction round — one axis passing never offsets the other failing.
 
 ### Delivery
-Once an epic's whole status cascade completes, the Orchestrator offers — never forces — a close-out: verify all tasks done, update documentation, clean up TODOs, save a delivery memory. A deliberate step, not an automatic one.
+Once every spec of an epic is done, the Orchestrator offers — never forces — a close-out: verify all tasks done, update documentation, clean up TODOs, save a delivery memory. A deliberate step, not an automatic one.
 
 ---
 
@@ -274,18 +274,17 @@ Skills are the internal knowledge base that powers the agents. Workflow skills s
 | Skill | What it teaches |
 |-------|----------------|
 | `using-allye` | Bootstrap — memory protocol, skill routing, handover detection, workflow gates |
-| `sandbox` | Explore ideas, research a direction, exit with a Discovery Doc — no work items created |
-| `product-planning` | Business requirements → Epics → Features → Stories |
-| `technical-planning` | Story → Discussion Phase → Tasks with acceptance criteria |
-| `orchestrator` | Coordinate delivery — assignee, dispatch Executor/Reviewer (both axes), correction loop, status cascade |
+| `sandbox` | Explore ideas, research a direction, exit with a Discovery Doc — no specs created |
+| `product-planning` | Business requirements → Epics → Specs (anchored rules and criteria) |
+| `technical-planning` | Spec → Discussion Phase → Thin tasks referencing spec anchors |
+| `orchestrator` | Coordinate delivery — assignee, dispatch Executor/Reviewer (both axes), correction loop, task transitions |
 | `execution` | Task → TDD → Implementation with wave execution |
 | `review` | Code review with decision context from planning |
-| `delivery` | Verify → Close story → Update docs → Save memory |
+| `delivery` | Verify → Confirm spec done → Update docs → Save memory |
 | `handover-protocol` | The shared contract for handing off context between phases as chat text |
 | `memory-protocol` | When and how to search/save memories across sessions |
 | `tdd-workflow` | Red-Green-Refactor cycle with detection heuristic |
-| `board-progression` | Status transitions and board mechanics |
-| `tools-quickref` | Complete reference for all 12 MCP tools and 68+ actions |
+| `tools-quickref` | Complete reference for the Allye MCP tools and their actions |
 | `verification-loop` | Deriving the AFK/HITL label from whether every task has a runnable verification command |
 | `agent-runtime` | The five-primitive contract for driving an external agent runtime (Herdr), for parallel dispatch |
 | `branch-landing` | Decide how a finished branch lands — merge, PR, or leave it — and tear down without losing work |
@@ -295,7 +294,7 @@ Skills are the internal knowledge base that powers the agents. Workflow skills s
 Your team can create custom skills in Allye — agents discover and follow them automatically:
 
 - **Code review checklist** → Allye Review follows it
-- **Backend story standard** → Allye Plan uses it as template
+- **Backend spec standard** → Allye Plan uses it as template
 - **Deploy checklist** → Allye Deliver follows it
 - **Coding conventions** → Allye Build applies them
 
