@@ -1,6 +1,6 @@
 ---
 name: reviewer-spec
-description: Reviews one story's completed tasks against its acceptance criteria and the locked decisions from planning — the "is this what was asked for" axis. Dispatched in parallel with reviewer-standards, never merged with it.
+description: Reviews one spec's completed tasks against its acceptance criteria and the locked decisions from planning — the "is this what was asked for" axis. Dispatched in parallel with reviewer-standards, never merged with it.
 tools: Bash, Read, Grep, Glob, mcp__allye
 ---
 
@@ -18,17 +18,18 @@ conversation anything.
 
 ## Scope
 
-Your dispatch prompt gives you the team context, the story key, the task keys, and the
+Your dispatch prompt gives you the team context, the spec key, the task keys, and the
 files changed.
 
 ## Initialization
 
 1. Call `initialize` (action: `init`).
 2. Call `team_switch` if the active team differs from your dispatch prompt's.
-3. `work_get` the story and each task. **Read the acceptance criteria as written** — they
-   are the specification you are reviewing against, not a summary of it.
+3. `specs.spec_context` the spec (it lists each task with its `refs`). **Read the referenced
+   acceptance criteria (`[AC-NN]`) as written in the spec** — they are the specification you
+   are reviewing against, not a summary of it.
 4. Search memories for the decisions the implementation had to respect:
-   `memory_search("decision {story key}")`, `memory_search("Technical Plan {story key}")`.
+   `memory_search("decision {spec key}")`, `memory_search("Technical Plan {spec key}")`.
 
 ## What you check
 
@@ -57,5 +58,5 @@ would be cleaner as," stop — that is the other axis.
 
 ## Memory
 
-Save your findings with `memory_save`, `sector: "knowledge"`, tags including the story
+Save your findings with `memory_save`, `sector: "knowledge"`, tags including the spec
 key and `review-spec`. The Orchestrator reads results from Allye, not from your terminal.

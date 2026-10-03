@@ -1,6 +1,6 @@
 ---
 name: branch-landing
-description: Decide and execute what happens to a branch once its work is done — merge, open a pull request, or leave it — then tear down the worktree and pane without losing anything. Use when a story's implementation is complete, or when another skill needs the teardown sequence.
+description: Decide and execute what happens to a branch once its work is done — merge, open a pull request, or leave it — then tear down the worktree and pane without losing anything. Use when a spec's implementation is complete, or when another skill needs the teardown sequence.
 version: "1.0"
 category: methodology
 ---
@@ -9,17 +9,17 @@ category: methodology
 
 Code that is written and reviewed is not yet delivered. It sits on a branch, and something has to decide what happens to it. This skill is that decision and the sequence that carries it out.
 
-## 1. A branch does not land ahead of its story
+## 1. A branch does not land ahead of its spec
 
 <HARD-GATE>
-Before anything else, check where the story actually is.
+Before anything else, check where the spec actually is.
 
-If the story is parked at a pipeline gate — waiting on QA, a scan, a deploy, anything the team satisfies outside this session (see `board-progression` §3.1) — **the branch waits with it.** Do not merge, do not open a pull request, do not remove the worktree.
+If the spec's tasks are not done — still `in_review`, or waiting on QA, a scan, a deploy, anything the team satisfies outside this session — **the branch waits with it.** Do not merge, do not open a pull request, do not remove the worktree.
 
-Landing code whose story never passed its gates is the same defect as closing a story to tidy the board, one layer down. Say which gate the story waits at, and stop.
+Landing code whose spec never passed its gates is the same defect as completing tasks just to finish the spec, one layer down. Say which gate the spec waits at, and stop.
 </HARD-GATE>
 
-The work item is the authority on whether the work is done. The branch follows it; it never leads.
+The spec and its tasks are the authority on whether the work is done. The branch follows it; it never leads.
 
 ## 2. Ask how the work should land
 
@@ -37,7 +37,7 @@ The base branch is per-repo and comes from the `Allye Delivery Configuration` Co
 
 ## 3. The sequence, when merging locally
 
-Every step is a gate. One story at a time; do not batch.
+Every step is a gate. One spec at a time; do not batch.
 
 ```
 1. GATE:  git -C <worktree> status --porcelain   must be EMPTY
@@ -64,7 +64,7 @@ Each exists because it prevents one specific way work disappears. They look skip
 
 ### When merging is not the choice
 
-**Pull request:** push, open the PR against the base, and stop. Worktree and pane stay — review feedback arrives there. Record the PR reference on the story so the next session finds it.
+**Pull request:** push, open the PR against the base, and stop. Worktree and pane stay — review feedback arrives there. Record the PR reference on the spec so the next session finds it.
 
 **Leave it:** push, and change nothing else. Say plainly what is standing: branch, worktree, pane.
 
@@ -77,7 +77,7 @@ Each exists because it prevents one specific way work disappears. They look skip
 
 ## 5. Abandoned work
 
-A story that failed, was cancelled, or stalled gets **no cleanup at all**. Worktree, branch, and pane all stay.
+A spec that failed, was cancelled, or stalled gets **no cleanup at all**. Worktree, branch, and pane all stay.
 
 Visible litter costs far less than deleted work, and an abandoned branch is often the only record of an approach that was tried and rejected — which is worth more than the disk it occupies.
 
@@ -85,4 +85,4 @@ Visible litter costs far less than deleted work, and an abandoned branch is ofte
 
 Once the work has landed, the branch may be the only durable trace outside the diff. Carry the reference into the delivery memory (`memory_save`, `sector: "knowledge"`): the branch name, the merge commit or PR reference, and the base it landed on.
 
-A memory that says a story was delivered, without saying where the code went, is a memory that sends the next reader searching.
+A memory that says a spec was delivered, without saying where the code went, is a memory that sends the next reader searching.

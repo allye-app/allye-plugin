@@ -2,7 +2,7 @@
 
 **Emitted by:** `sandbox` (once approved by the user)
 **Received by:** `product-planning`
-**Objective:** Turn the direction approved during Sandbox into a deliverable structure (squares/sub-squares → Epic/Feature/Story).
+**Objective:** Turn the direction approved during Sandbox into a deliverable structure (squares/sub-squares → Epic/Spec).
 
 ## Before emitting, confirm
 

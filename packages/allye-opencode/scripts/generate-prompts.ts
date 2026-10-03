@@ -28,7 +28,6 @@ const SKILL_SOURCES: Record<string, string> = {
   TECHNICAL_DELIVERY: "delivery/SKILL.md",
   MEMORY_PROTOCOL: "memory-protocol/SKILL.md",
   TDD_WORKFLOW: "tdd-workflow/SKILL.md",
-  BOARD_PROGRESSION: "board-progression/SKILL.md",
   TOOLS_QUICKREF: "tools-quickref/SKILL.md",
 }
 

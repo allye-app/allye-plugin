@@ -208,7 +208,7 @@ export function inspectTeamSelection(initText: string): StartupContext {
   const hasActiveTeam = Boolean(activeTeam && typeof activeTeam === "object" && typeof (activeTeam as Record<string, unknown>).id === "string");
   const teamSelectionRequired = teams.length > 1 && !hasActiveTeam;
   const instruction = teamSelectionRequired
-    ? `## Allye team selection required\nThis account has multiple teams and no active team. Do not call team-scoped work_items or intelligence operations yet. Ask the user to choose one of: ${teams.map((team) => `${team.name}${team.prefix ? ` [${team.prefix}]` : ""} (${team.id})`).join(", ")}. Then use allye_team action team_switch with the chosen team_query. Never choose a team silently.`
+    ? `## Allye team selection required\nThis account has multiple teams and no active team. Do not call team-scoped projects/specs/tasks or intelligence operations yet. Ask the user to choose one of: ${teams.map((team) => `${team.name}${team.prefix ? ` [${team.prefix}]` : ""} (${team.id})`).join(", ")}. Then use allye_team action team_switch with the chosen team_query. Never choose a team silently.`
     : "";
   return { text: instruction, teamSelectionRequired, allyeUnavailable: false, teams };
 }
@@ -238,7 +238,7 @@ export function formatWaitEvent(event: WaitEvent): string {
   const prefix = event.kind === "intervened" ? "Herdr agent intervention detected" : "Herdr wait settled";
   return `${prefix} for agent ${event.name}. Outcome: ${event.outcome}. `
     + `This is delegation evidence only, not a completion verdict. `
-    + `Use allye_herdr collect when a managed work item exists: read work_children for the story and search Allye memories for Review and Implementation evidence before declaring completion.\n\n`
+    + `Use allye_herdr collect when a managed spec exists: read spec_context for the spec and search Allye memories for Review and Implementation evidence before declaring completion.\n\n`
     + `timeout_ms=${event.timeoutMs} code=${event.code ?? "n/a"} killed=${event.killed ?? false} timestamp=${event.timestamp}\n`
     + `stdout:\n${output}\nerror/stderr:\n${error}`;
 }
@@ -296,7 +296,7 @@ export function deliverWaitEvent(
 
 export function invalidStartupContext(message: string): StartupContext {
   return {
-    text: `## Allye optional context unavailable\n${message}\nDo not call team-scoped work_items or intelligence operations until Allye connectivity and team context are available. Continue with local, non-team-scoped work when appropriate.`,
+    text: `## Allye optional context unavailable\n${message}\nDo not call team-scoped projects/specs/tasks or intelligence operations until Allye connectivity and team context are available. Continue with local, non-team-scoped work when appropriate.`,
     teamSelectionRequired: false,
     allyeUnavailable: true,
     teams: [],
@@ -358,10 +358,10 @@ function toolkitInstructions(): string {
   return `## Allye Pi toolkit
 ${adaptiveInstructions(describeCapabilities())}
 - Use canonical Allye skills as composable playbooks and choose the smallest useful next step for the user's intent.
-- Discovery and Product Planning may produce research, documents, memories, or proposed work items; do not create work items until the user approves the proposal.
+- Discovery and Product Planning may produce research, documents, memories, or proposed specs and tasks; do not create specs or tasks until the user approves the proposal.
 - Tasks are recommended for meaningful, delegated, multi-step, or review-heavy work, not universally required. If the user approves a no-task path, record the choice when useful and verify the result.
 - Use subagents when available and beneficial. Use Herdr only when available and beneficial; never require either one.
-- Use Allye for durable context, decisions, work items, and verification evidence. Ask before consequential mutations.`;
+- Use Allye for durable context, decisions, specs, tasks, and verification evidence. Ask before consequential mutations.`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -689,14 +689,14 @@ async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<
   }
 
   if (operation === "collect") {
-    const storyId = params.storyId;
-    if (typeof storyId !== "string" || storyId.length === 0) throw new Error("collect requires the story UUID as storyId");
-    const story = await callAllye("allye_work_items", { action: "work_children", id: storyId });
-    const reviewQuery = typeof params.storyKey === "string" ? `Review ${params.storyKey}` : `Review ${storyId}`;
+    const specId = params.specId;
+    if (typeof specId !== "string" || specId.length === 0) throw new Error("collect requires the spec UUID or key as specId");
+    const spec = await callAllye("allye_specs", { action: "spec_context", spec: specId });
+    const reviewQuery = typeof params.specKey === "string" ? `Review ${params.specKey}` : `Review ${specId}`;
     const review = await callAllye("allye_intelligence", { action: "memory_search", query: reviewQuery, limit: 10, return_content: true });
-    const implementationQuery = typeof params.taskKey === "string" ? `Implementation ${params.taskKey}` : `Implementation ${storyId}`;
+    const implementationQuery = typeof params.taskKey === "string" ? `Implementation ${params.taskKey}` : `Implementation ${specId}`;
     const implementation = await callAllye("allye_intelligence", { action: "memory_search", query: implementationQuery, limit: 10, return_content: true });
-    return { storyChildren: story, review, implementation, cleanupAvailable: typeof params.executionId === "string" };
+    return { specContext: spec, review, implementation, cleanupAvailable: typeof params.executionId === "string" };
   }
 
   throw new Error(`Unknown runtime operation: ${String(operation)}`);
@@ -718,11 +718,11 @@ function registerRuntimeTool(pi: ExtensionAPI, getCapabilities: () => AllyeCapab
       pane: Type.Optional(Type.String({ description: "Pane id returned by Herdr" })),
       name: Type.Optional(Type.String({ description: "Stable Herdr agent name" })),
       kind: Type.Optional(Type.String({ description: "Herdr agent kind, normally pi" })),
-      briefing: Type.Optional(Type.String({ description: "Complete story briefing, including the absolute worktree path" })),
+      briefing: Type.Optional(Type.String({ description: "Complete spec briefing, including the absolute worktree path" })),
       timeoutMs: Type.Optional(Type.Number({ description: "Bounded wait timeout in milliseconds" })),
       executionId: Type.Optional(Type.String({ description: "Caller execution id for status/intervention/cleanup" })),
-      storyId: Type.Optional(Type.String({ description: "Allye story UUID for collect" })),
-      storyKey: Type.Optional(Type.String({ description: "Story key for review memory search" })),
+      specId: Type.Optional(Type.String({ description: "Allye spec UUID or key for collect" })),
+      specKey: Type.Optional(Type.String({ description: "Spec key for review memory search" })),
       taskKey: Type.Optional(Type.String({ description: "Task key for implementation memory search" })),
     }),
     async execute(_toolCallId, params) {

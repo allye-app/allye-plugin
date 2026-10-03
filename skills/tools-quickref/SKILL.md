@@ -1,7 +1,7 @@
 ---
 name: tools-quickref
 description: Complete quick reference for all Allye MCP tools and their actions with parameters, plus the concrete gotchas that cause silent failures or confusing errors. Use when you need to know how to call a specific Allye tool, or you hit an unexpected error/behavior from one.
-version: "2.3"
+version: "3.0"
 category: reference
 ---
 
@@ -13,84 +13,91 @@ category: reference
 
 <!-- mined directly from the allye-mcp source, not guessed — see allye_mcp/application/tools/*.py -->
 
-- **`work_create`/`work_bulk_create` require `work_category`**, even though it looks optional next to `item_type`. Omit it and the call fails, listing the full valid-category enum back to you (see below).
-- **Item types include more than the obvious five**: `epic`, `feature`, `story`, `bug`, `hotfix`, `task`, `spike`, `subtask` — not just epic/feature/story/task/bug.
-- **Assigning to someone else is two calls, not one.** `work_assign_to_me` only covers yourself. For anyone else: `team_members` (via `team`) to resolve their user id, then `work_update(id, assignee_id: "<their id>")`.
-- **`work_update(id, work_status: "<status uuid>")` jumps directly to any status in one call** — not limited to one step forward. Fixed in allye-mcp commit `b9b6281` (2026-06-15, `develop`) after being a silent no-op; if a memory or doc claims status/assignee can't be set via `work_update`, that's stale. `work_status_next`/`work_status_done` remain valid for stepwise or done-jump flows; `work_update` is the direct alternative when you already know the target status id.
-- **`work_update` still does NOT accept `parent_key`/`parent_id`.** Re-parenting is create-time only (`work_create`, `work_bulk_create`) — the `work_update` action in `work_items.py` never reads `payload.parent_key`, so passing it is silently ignored, not an error. Don't assume the 2026-06-15 status/assignee fix extended to parent.
-- **`work_status_next` moves forward only.** It errors if the item is already at the last status in the board's progression, and there's no `work_status_prev`. Use `work_status_done` to jump straight to done regardless of current position, or `work_update(work_status: ...)` to jump to any specific status. See the `allye-board-progression` skill for the full resolution logic.
-- **`work_bulk_create` caps at 50 items per call**, and each item takes `parent_temp_id` (reference another item in the same batch) **or** `parent_key` (reference an existing item) — never both on the same item.
+- **No free status changes on epics, specs, or tasks.** Only explicit transitions exist (`spec_submit`, `task_start`, `task_submit`, `task_complete`, …). A guard failure comes back as an actionable message (e.g. `task ALY-7.3 blocked by ALY-7.1 (in_progress)`); fix the cause instead of retrying.
+- **Every task passes through `in_review`.** There is no `in_progress → done` shortcut: `task_submit`, then `task_complete` (or `task_request_changes`).
+- **`spec_approve` only when the user explicitly asks** (`user_requested: true`). Never approve as a step of a larger flow.
+- **Open `[Q-NN]` anchors and `[NEEDS CLARIFICATION]` markers block `spec_submit`.** Resolve or remove them first.
+- **Task `refs` must be existing, non-deprecated spec anchors** (`AC-03`, `BR-02`). Unknown refs are rejected. Never renumber anchors; removing a line deprecates it.
+- **Uncovered ACs never block.** Responses carry a `Warning: uncovered ACs: …` line; check `spec_coverage` before calling a spec done.
+- **`task_bulk_create` caps at 50 tasks per call** and is idempotent by title within the spec (`temp_id` + `depends_on_temp_ids`).
+- **Nothing in Projects can be deleted.** Use `epic_cancel` / `spec_cancel` / `task_cancel`, and `app_archive` for apps.
 - **`doc_create` needs `doc_emoji`** for every type except `folder` — check `doc_full_tree` for placement before creating, always; don't guess a parent location.
 - **`memory_save` never silently fails or duplicates.** Every save resolves to one of four outcomes (`created`/`updated`/`superseded`/`noop` — see §intelligence). Treat `noop` as "already known," not an error to reword-and-retry past.
-- **`memory_save` does not link a memory to a work item.** There is no `work_item_id` or `sprint_id` parameter — not on the MCP tool (`IntelligenceRequest`), not in its domain layer, and not on the backend's `SaveMemoryDto`. Passing them is silently discarded, not an error. To make a memory findable from a work item, put the key in `tags` and in the `title`.
+- **`memory_save` does not link a memory to a spec or task.** There is no entity-id parameter — not on the MCP tool (`IntelligenceRequest`), not in its domain layer, and not on the backend's `SaveMemoryDto`. To make a memory findable from a spec or task, put its key (`ALY-7`, `ALY-7.3`) in `tags` and in the `title`.
 - **Memory `sector` determines scope automatically — you never set scope directly** (mapping in §intelligence). Passing it wrong is the #1 way a memory ends up invisible to the rest of the team.
 - **The memory relocation flow is one-time per user, ever** — always check `alreadyPrompted` on `memory_relocation_candidates` before offering it; offering it twice is exactly the nagging behavior the guard exists to prevent.
 - **`initialize` returns `profile.user.id`** — the reliable way to know "who's currently logged in" when deciding self-assignment vs. assigning to someone else.
-- **`work_statuses` omits `position`, `pipeline`, and `description`.** All three exist on the
-  record — `allye-api/prisma/seed-workflow.ts` writes them — but the MCP formatter
-  (`allye_mcp/application/tools/work_items.py:590-597`) emits only name, key, id, and colour.
-  You therefore cannot compute a status's place in the pipeline, nor tell a `product` status
-  from an `engineering` one, from this call.
-- **`board_columns` gives no status mapping and no ordering.** Names and ids only. Since
-  `work_status_next` walks the board's visible ordered statuses, the transition it will make
-  cannot be predicted from the MCP surface. **Move one status, then read the item back.**
-- **`team_switch` does not stick for every tool.** It reports that subsequent calls will use
-  the chosen team, but `work_children` still errors with "Team selection required", and
-  `work_list` returns items across teams. Pass `team_id` explicitly on any call whose result
+- **`team_switch` does not stick for every tool.** Pass `team_id` explicitly on any call whose result
   must be team-scoped.
 
 For the full memory methodology (when to search, when to save, sector selection, the `/save` protocol, graph traversal), see the `allye-memory-protocol` skill — this file only covers the action-level API surface.
 
 ---
 
-## work_items
+## projects
 
-Manage work items: epics, features, stories, tasks, bugs, hotfixes, spikes, subtasks.
+Top level of the Projects module (Project → Epic → Spec → Task). A project belongs to one team, has a KEY (e.g. `ALY`) that prefixes every epic/spec/task key, and groups Apps (repositories).
 
 | Action | Description | Key Parameters |
 |--------|-------------|----------------|
-| `work_create` | Create a single work item | `work_title`*, `work_type`*, `work_category`*, `work_description`, `parent_key`, `work_priority`, `story_points` |
-| `work_list` | List/search work items | `query`, `work_type`, `work_status` (status UUID — look up via `work_statuses()` first), `limit`, `offset` |
-| `work_get` | Get a work item by ID or key | `id` or `work_key`* |
-| `work_update` | Update a work item | `id`*, `work_title`, `work_description`, `work_priority`, `story_points`, `assignee_id`, `work_status` (status UUID — jumps straight to that status, any distance, not just one step), `work_due_date`, `work_tags`. **Not accepted:** `parent_key`/`parent_id` — re-parenting is create-time only |
-| `work_children` | List child items of a parent | `id`* |
-| `work_assign_to_me` | Assign a work item to yourself | `id`* |
-| `work_status_next` | Move to next status in board progression (forward-only, errors at the last status) | `id`* |
-| `work_status_done` | Move directly to done status | `id`* |
-| `work_mine` | List items assigned to you | `limit`, `offset` (no status or item-type filter — not exposed by this action) |
-| `work_bulk_create` | Create multiple items at once (max 50) | `work_items`* (array with `temp_id`, `title`, `item_type`, `work_category`, `parent_temp_id` **or** `parent_key`) |
-| `work_statuses` | List all available statuses | — |
+| `project_list` / `project_get` / `project_overview` | Read projects, apps, and KPIs | `project` (KEY or UUID), `query`, `status` |
+| `project_create` / `project_update` | Create or edit a project (KEY immutable) | `name`*, `key`*, `description` |
+| `app_list` / `app_create` / `app_update` | Manage the project's apps | `project`*, `app`, `name`, `repository_url`, `default_branch`, `include_archived` |
+| `app_archive` / `app_unarchive` | Hide / restore an app | `project`*, `app`* |
 
-**Item types:** `epic`, `feature`, `story`, `bug`, `hotfix`, `task`, `spike`, `subtask`
+---
+
+## epics
+
+Lightweight groupings of specs (goal, scope, out of scope, success metrics). Status is **calculated** from the specs (`planned → in_progress → done`); only `epic_cancel` / `epic_reopen` are manual.
+
+| Action | Description | Key Parameters |
+|--------|-------------|----------------|
+| `epic_list` / `epic_get` | Read epics (with specs and progress) | `project`, `epic` (key `ALY-3` or UUID), `status` |
+| `epic_create` / `epic_update` | Create or edit an epic | `project`*, `title`*, `description` |
+| `epic_cancel` / `epic_reopen` | Cancel or reactivate an epic | `epic`*, `reason` |
+
+---
+
+## specs
+
+The single source of truth: rules, acceptance criteria, design, code references. Anchored lines start with `[BR-NN]` (business rule), `[AC-NN]` (acceptance criterion), `[D-NN]` (decision), `[NFR-NN]` (non-functional), `[Q-NN]` (open question).
+
+Lifecycle (fixed): `draft → in_review → approved → in_progress → done` (+ `cancelled`). `approved → in_progress → done` happen automatically from task progress.
+
+| Action | Description | Key Parameters |
+|--------|-------------|----------------|
+| `spec_list` / `spec_get` | List or read specs | `project`, `epic`, `status`, `type`, `query`, `spec` |
+| `spec_context` | **Entry point for implementation:** spec content, anchors, tasks, apps, dependencies, epic in one call | `spec`* |
+| `spec_create` / `spec_update` | Create or edit a spec (each save is a version; `change_note` required while `in_progress`) | `project`*, `title`*, `type` (`functional`/`technical`/`bugfix`), `content`, `epic`, `apps`, `change_note` |
+| `spec_submit` / `spec_back_to_draft` | `draft ⇄ in_review` | `spec`* |
+| `spec_approve` / `spec_remove_approval` | Approve (only when the user explicitly asks) / remove your own approval | `spec`*, `user_requested` |
+| `spec_cancel` / `spec_reopen` | Cancel; reopen (`done → in_progress`, `cancelled → draft`) | `spec`*, `reason` |
+| `spec_versions` / `spec_diff` | Version history and diff | `spec`*, `from_version`, `to_version` |
+| `spec_anchors` / `spec_coverage` | Anchors; which ACs are covered by tasks | `spec`*, `kind` |
+| `spec_dependency_add` / `spec_dependency_remove` | Spec-to-spec dependencies | `spec`*, `depends_on`* |
+| `spec_stale` | `in_progress` specs with no activity for N days | `project`, `days` |
+
+---
+
+## tasks
+
+Thin, executable units of a spec. A task never restates rules: it points to anchors (`refs: ["AC-03","BR-02"]`), lists `files`, a `verify` command, and short `notes`. Keys follow the spec: `ALY-7.1`, `ALY-7.2`.
+
+Lifecycle (fixed): `todo → in_progress → in_review → done` (+ `cancelled`). "Blocked" is calculated from dependencies, not a status.
+
+| Action | Description | Key Parameters |
+|--------|-------------|----------------|
+| `task_list` / `task_mine` / `task_get` | Read tasks | `project`, `spec`, `status`, `assignee`, `task` |
+| `task_next` | Next ready task (spec approved/in_progress, `todo`, not blocked) | `project`, `spec`, `assignee` |
+| `task_create` / `task_update` | Create or edit one task | `spec`*, `title`*, `refs`, `files`, `verify`, `notes`, `depends_on`, `assignee_id`, `branch_name`, `pr_url` |
+| `task_bulk_create` | Up to 50 tasks; idempotent by title | `spec`*, `tasks`* (`temp_id`, `title`, `refs`, `depends_on_temp_ids`, …) |
+| `task_start` / `task_stop` | `todo ⇄ in_progress` (start assigns you if unassigned; refused while blocked) | `task`* |
+| `task_submit` | `in_progress → in_review` (run `verify` first) | `task`* |
+| `task_complete` / `task_request_changes` | `in_review → done` / back to `in_progress` | `task`*, `comment` |
+| `task_cancel` / `task_reopen` | Cancel; reopen (`done → in_progress`, `cancelled → todo`) | `task`*, `reason` |
+
 **Priority values:** `critical`, `high`, `medium`, `low`
-**Status categories:** `backlog`, `todo`, `in_progress`, `testing`, `review`, `deploying`, `done`, `cancelled`
-**`work_category` is required on every create call** — values: `backend`, `frontend`, `mobile`, `fullstack`, `devops`, `infra`, `platform`, `sre`, `database`, `security`, `data`, `analytics`, `ai_ml`, `qa`, `automation`, `design`, `research`, `product`, `project`, `agile`, `support`, `operations`, `documentation`, `training`, `architecture`, `planning`, `development`
-
----
-
-## boards
-
-View boards and understand status progression.
-
-| Action | Description | Key Parameters |
-|--------|-------------|----------------|
-| `board_list` | List all boards | `limit`, `offset` |
-| `board_favorites` | List favorite boards | — |
-| `board_get` | Get board details | `board_id`* |
-| `board_columns` | Get board columns with statuses | `board_id`* |
-
----
-
-## sprints
-
-Manage sprint cycles.
-
-| Action | Description | Key Parameters |
-|--------|-------------|----------------|
-| `sprint_list` | List all sprints | `limit`, `offset` (no `status` filter — not exposed by this action) |
-| `sprint_active` | Get the currently active sprint | — |
-| `sprint_get` | Get sprint details | `sprint_id`* |
-| `sprint_work_items` | List work items in a sprint | `sprint_id`* |
 
 ---
 
@@ -220,7 +227,7 @@ Team management, switching, and member lookup.
 | `team_switch` | Switch active team | `team_query`* (name, prefix, or ID — partial match supported) |
 | `team_list` | List available teams | — |
 | `team_current` | Show current active team | — |
-| `team_members` | List active members of a team — **the way to resolve a user id for `work_update(assignee_id: ...)`** | `team_query` (optional — defaults to the active team) |
+| `team_members` | List active members of a team — **the way to resolve a user id for `task_update(assignee_id: ...)`** | `team_query` (optional — defaults to the active team) |
 
 ---
 
@@ -273,30 +280,32 @@ Bootstrap Allye environment.
 
 ## Common Patterns
 
-### Create a full work item hierarchy
+### Plan an epic with specs and tasks
 
 ```
-1. work_create(work_title: "Epic", work_type: "epic")   → get epic key
-2. work_bulk_create(work_items: [features + stories])    → parent_key: epic key
+1. epic_create(project: "ALY", title: "...")                  → epic key (ALY-1)
+2. spec_create(project: "ALY", epic: "ALY-1", title, content) → spec key (ALY-2), anchors parsed
+3. task_bulk_create(spec: "ALY-2", tasks: [{temp_id, title, refs: ["AC-01"]}, ...])
+4. spec_submit(spec: "ALY-2")                                 → in_review (approval is the user's call)
 ```
 
-### Track progress on a task
+### Work a task
 
 ```
-1. work_get(work_key: "TASK-123")                        → read task details
-2. work_status_next(id: "...")                           → move to in_progress
-3. ... do the work ...
-4. work_status_done(id: "...")                           → mark complete
+1. task_next()                                           → next ready task
+2. spec_context(spec: "ALY-2")                           → rules, anchors, tasks, apps
+3. task_start(task: "ALY-2.1")                           → in_progress
+4. ... implement, run the task's verify command ...
+5. task_submit(task: "ALY-2.1")                          → in_review
+6. task_complete(task: "ALY-2.1")                        → done (after review passes)
 ```
-
-Stepwise `work_status_next` is still the right default while work is actually progressing through each stage. To jump straight to a known target instead — correcting a status that's out of sync, for example — use `work_update(id: "...", work_status: "<target status uuid>")` from `work_statuses()` (see the Gotchas entry above).
 
 ### Find and resume previous work
 
 ```
 1. memory_search(query: "Session State")                → find last session
-2. work_mine()                                           → find active items (no status/type filter available)
-3. work_get(id: "...")                                   → load item details
+2. task_mine()                                           → your tasks
+3. spec_context(spec: "...")                             → reload the spec
 ```
 
 ### Create documentation for a feature

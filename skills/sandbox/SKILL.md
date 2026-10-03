@@ -1,17 +1,17 @@
 ---
 name: sandbox
-description: Open-ended ideation and research before committing to scope. Use when the user has a vague goal and wants to think out loud, explore directions, or research before defining what to build — not yet ready for Product Planning's Epic/Feature/Story structure.
+description: Open-ended ideation and research before committing to scope. Use when the user has a vague goal and wants to think out loud, explore directions, or research before defining what to build — not yet ready for Product Planning's epic/spec structure.
 version: "1.3"
 category: methodology
 ---
 
 # Sandbox / Discovery
 
-This is the entry point for ideas that aren't ready to become work items yet. Use it when the user wants to explore, not commit — Product Planning already assumes a direction has been chosen; this skill is where that direction gets found.
+This is the entry point for ideas that aren't ready to become epics or specs yet. Use it when the user wants to explore, not commit — Product Planning already assumes a direction has been chosen; this skill is where that direction gets found.
 
 <!-- adapted from superpowers:brainstorming (MIT) -->
 <HARD-GATE>
-Do not create any Allye work item, and do not treat any direction as decided, until the user has explicitly approved it. This skill's default output is a Discovery Doc and a handover, but a user may explicitly choose an informal local research note or no persistence when that is sufficient. If you catch yourself about to call `work_create`, stop and ask for approval first.
+Do not create any Allye epic, spec, or task, and do not treat any direction as decided, until the user has explicitly approved it. This skill's default output is a Discovery Doc and a handover, but a user may explicitly choose an informal local research note or no persistence when that is sufficient. If you catch yourself about to call `work_create`, stop and ask for approval first.
 </HARD-GATE>
 
 ## 1. The core rule: ask, don't decide
@@ -59,4 +59,4 @@ When a direction is approved — explicitly, by the user, not inferred — synth
 
 ## 4. What this skill is not
 
-This is not Technical Planning — no stack decisions, no architecture, no tasks here. It is not Product Planning — no Epic/Feature/Story structure gets created here without approval. If the user arrives already knowing exactly what they want and just needs it turned into work items, recommend `product-planning`; if they only need a small local change, the adaptive toolkit may proceed without forcing a planning phase.
+This is not Technical Planning — no stack decisions, no architecture, no tasks here. It is not Product Planning — no epic/spec structure gets created here without approval. If the user arrives already knowing exactly what they want and just needs it turned into work items, recommend `product-planning`; if they only need a small local change, the adaptive toolkit may proceed without forcing a planning phase.

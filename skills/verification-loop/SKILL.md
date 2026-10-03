@@ -1,6 +1,6 @@
 ---
 name: verification-loop
-description: Bounded test-fix-test loop that proves a task or story actually works. Use when implementing a task, before reporting anything as done, or when a verification command fails and needs another pass.
+description: Bounded test-fix-test loop that proves a task or spec actually works. Use when implementing a task, before reporting anything as done, or when a verification command fails and needs another pass.
 version: "1.0"
 category: methodology
 ---
@@ -9,7 +9,7 @@ category: methodology
 
 <!-- adapted from mattpocock/skills diagnosing-bugs (MIT) — the tight-loop completion criterion and the loop-construction ladder -->
 
-A task passes its own tests and still does not do what the story asked. Tasks all go green and the feature is broken. Both happen because "done" is asserted from reading code rather than observed from running it.
+A task passes its own tests and still does not do what the spec asked. Tasks all go green and the feature is broken. Both happen because "done" is asserted from reading code rather than observed from running it.
 
 This skill defines the loop that observes it. A loop goes **red** on the failure, or it does not — and if it cannot go red, it is not verification, whatever else it is.
 
@@ -31,7 +31,7 @@ Take the first option on this ladder that works. Reach further down only when th
 3. **A CLI invocation with an observable exit code** — a build, a typecheck, a lint, a migration.
 4. **An HTTP call with an asserted response** — `curl` piped through `jq` to an assertion.
 5. **A script that exercises the flow and prints a verdict** — when several of the above must combine.
-6. **A human-verified procedure** — the escape hatch. See §4; it is not a loop, and declaring it changes how the story is dispatched.
+6. **A human-verified procedure** — the escape hatch. See §4; it is not a loop, and declaring it changes how the spec is dispatched.
 
 ## 3. Running one
 
@@ -67,7 +67,7 @@ verification: manual
 That declaration carries a consequence beyond the task:
 
 <HARD-GATE>
-A task declaring `verification: manual` makes its whole story **HITL** — human in the loop. The Orchestrator does not dispatch a HITL story to an unattended runtime pane. A story whose every task has an automatable command is **AFK** and may be dispatched unattended.
+A task declaring `verification: manual` makes its whole spec **HITL** — human in the loop. The Orchestrator does not dispatch a HITL spec to an unattended runtime pane. A spec whose every task has an automatable command is **AFK** and may be dispatched unattended.
 
 The label is derived here, at planning time. It is never the Orchestrator's guess.
 </HARD-GATE>
@@ -76,9 +76,9 @@ The label is derived here, at planning time. It is never the Orchestrator's gues
 
 **Per task**, during implementation: run that task's command after each change until it is green. Cheap and local — this is what stops a trivial failure from consuming one of the two correction rounds the Orchestrator allows.
 
-**Per story**, before reporting anything: run the command that exercises the story's own acceptance criteria end to end. Every task green does not mean the story works; nothing else checks this.
+**Per spec**, before reporting anything: run the command that exercises the spec's own acceptance criteria end to end. Every task green does not mean the spec works; nothing else checks this.
 
-A red story loop is reported as such even when every task is green. "All tasks passed but the story does not work" is a finding, and a valuable one — it usually means the task breakdown missed an integration.
+A red spec loop is reported as such even when every task is green. "All tasks passed but the spec does not work" is a finding, and a valuable one — it usually means the task breakdown missed an integration.
 
 ## 6. Relationship to TDD
 

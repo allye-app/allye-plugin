@@ -28,7 +28,7 @@ After initialization, search for relevant memories:
 
 1. \`memory_search(query: "Session State")\` — find where the user left off
 2. \`memory_search(query: "{topic of user's request}")\` — find relevant context
-3. \`memory_search(query: "{work item key}")\` — if a specific item is mentioned
+3. \`memory_search(query: "{spec or task key}")\` — if a specific spec/task is mentioned
 
 If session state is found, summarize it for the user. If decisions are found, respect locked decisions.
 
@@ -61,8 +61,7 @@ Before ending your work, save session state:
 memory_save(
   title: "Session State — {WORK-KEY} {description}",
   content: "## Current position\\n{phase, current task}\\n\\n## Work completed\\n- {items}\\n\\n## Decisions made\\n- {decisions}\\n\\n## Next step\\n{what to do next}",
-  tags: ["session-state", "{work-item-key}", "{phase}"],
-  work_item_id: "{uuid if applicable}"
+  tags: ["session-state", "{spec-or-task-key}", "{phase}"]
 )
 \`\`\`
 
@@ -77,7 +76,7 @@ export const DYNAMIC_SKILL_LOADING = `
 
 Before starting meaningful work, search for team-specific skills when Allye MCP is available and the task benefits from team standards:
 
-1. Call \`skill_list\` with queries matching your task domain (e.g., "planning", "code review", "development standards", "story template", "task template")
+1. Call \`skill_list\` with queries matching your task domain (e.g., "planning", "code review", "development standards", "spec template", "task template")
 2. For each relevant skill found, call \`skill_get\` to read its full content
 3. Follow any team-specific guidelines found in these skills — they take priority over your defaults
 
@@ -113,9 +112,10 @@ export const TOOLS_QUICKREF = `
 
 | Tool | What it does |
 |------|-------------|
-| \`work_items\` | Create, list, update, bulk-create work items (epics, features, stories, tasks, bugs). Move status. |
-| \`boards\` | View boards and columns. Understand status progression. |
-| \`sprints\` | List sprints, get active sprint, view sprint work items. |
+| \`projects\` | List, get, create, update projects and their apps (repositories). Project overview. |
+| \`epics\` | List, get, create, update, cancel, reopen epics (status is computed from their specs). |
+| \`specs\` | Specs are the source of truth (rules/criteria with anchors like [BR-01], [AC-01]). Create, update, \`spec_context\`, coverage, and explicit transitions (submit, approve, cancel, reopen). |
+| \`tasks\` | Thin tasks that reference spec anchors. Create, bulk-create, \`task_next\`, and explicit transitions (start, submit, complete, request_changes, cancel, reopen). |
 | \`docs\` | Create, read, update documentation. Tree navigation. |
 | \`intelligence\` | Save memories, semantic search, and graph traversal (BFS neighborhood, direct relations). |
 | \`productivity\` | Personal TODOs — create, list, update, delete. |

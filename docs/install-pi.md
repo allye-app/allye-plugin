@@ -95,8 +95,8 @@ locally. Herdr and subagents are capabilities, not prerequisites.
 Tasks are recommended for meaningful, delegated, multi-step, or review-heavy
 work, but an explicitly approved no-task path is supported.
 
-The adapter does not create work items or change statuses automatically. When a
-work item exists, Allye remains the source of truth for scope, decisions, and
+The adapter does not create specs or tasks or run transitions automatically. When a
+spec or task exists, Allye remains the source of truth for scope, decisions, and
 evidence; otherwise the user can proceed with proportional verification.
 
 ## Existing Pi startup extension
@@ -139,8 +139,8 @@ When `allye_herdr dispatch` registers a wait, the wait runs inside the Pi
 process through managed `pi.exec`. On settlement it persists a durable session
 entry, shows a UI notification/message when available, and queues a follow-up
 turn to the current Pi session. That message is evidence only and explicitly
-tells the agent to run `allye_herdr collect` when a managed work item exists and
-inspect Allye `work_children`, Review memories, and Implementation memories
+tells the agent to run `allye_herdr collect` when a managed spec exists and
+inspect Allye `spec_context`, Review memories, and Implementation memories
 before declaring completion. Normal completion, timeout, error, and abort are
 distinguished.
 Manual `herdr agent wait` commands started outside this Pi session (for example
