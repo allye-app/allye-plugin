@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/allye-app/allye-plugin/compare/v1.9.0...v1.9.1) (2026-10-04)
+
+
+### Bug Fixes
+
+* **marketplace:** install the plugin over HTTPS instead of SSH ([6c8c43c](https://github.com/allye-app/allye-plugin/commit/6c8c43c9b0cf5ded15f29a1a4f7d127f350ab728))
+
 # [1.9.0](https://github.com/allye-app/allye-plugin/compare/v1.8.0...v1.9.0) (2026-10-04)
 
 
