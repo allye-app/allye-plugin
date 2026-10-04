@@ -34,7 +34,7 @@ You make sure the requested mode has every capability it needs before the Mother
 4. **Agent types → crew roles.** Map what the harness offers before declaring anything missing:
    - native reviewer → Medic, Optimizer, Watcher;
    - native security reviewer → Shield (else a native reviewer with Shield's mandate);
-   - explorer/scout (read-only) → Recon;
+   - read-only explorer → Recon;
    - general worker → Pilot, Copilot, Strategist, Architect, Dispatcher, and any role without a better type.
    A role with no dedicated type is satisfied by a general worker carrying the same mandate and limits.
 5. **Local tools.** `git` (required for code-changing modes), `gh` (optional: needed only to open the PR after approval), and the repo's test/build/lint commands derived from its config and instructions. Check each is installed and resolvable (`--version`, `command -v`, or the package manager's script list) — do not run the test suite.

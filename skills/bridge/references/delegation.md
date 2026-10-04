@@ -18,7 +18,7 @@ Agents are mandates, not persistent processes. The Mothership dispatches each on
 | Shield | reviewer | read-only | Security veto by severity |
 | Watcher | reviewer | read-only | Full diff, never a sample |
 
-Use the role map from Armorer's preflight: native reviewer → Medic, Optimizer, Watcher; native security reviewer → Shield; explorer/scout → Recon; general worker → Pilot, Copilot, Strategist, Architect, Dispatcher. If a specialized type is missing, use a general worker with the same mandate and limits; read-only roles stay read-only by mandate. Per-agent skills will live at `skills/bridge-<agent>/SKILL.md`; tell the subagent to read its skill and include the full packet.
+Use the role map from Armorer's preflight: native reviewer → Medic, Optimizer, Watcher; native security reviewer → Shield; read-only explorer → Recon; general worker → Pilot, Copilot, Strategist, Architect, Dispatcher. If a specialized type is missing, use a general worker with the same mandate and limits; read-only roles stay read-only by mandate. Per-agent skills will live at `skills/bridge-<agent>/SKILL.md`; tell the subagent to read its skill and include the full packet.
 
 ## Task packet
 
