@@ -1,3 +1,10 @@
+## [2.1.1](https://github.com/allye-app/allye-plugin/compare/v2.1.0...v2.1.1) (2026-10-04)
+
+
+### Bug Fixes
+
+* define spec anchors once and lint specs before publishing ([10da072](https://github.com/allye-app/allye-plugin/commit/10da072f11a022bd976d2599bf0da42fe7faf110))
+
 # [2.1.0](https://github.com/allye-app/allye-plugin/compare/v2.0.0...v2.1.0) (2026-10-04)
 
 
