@@ -1,6 +1,6 @@
-# Publish to Allye
+# Publish to Allye, branch, push and PR
 
-The single step that turns a confirmed design into server state, used by `blueprint`, `blueprint --auto`, `dispatch`, and any route that needs a new spec (`repair` bugfix, approved `optimize`/`shield` items). There is no separate publishing skill. The Mothership runs the reads, the confirmation and the status transitions; the author (Architect or Dispatcher) performs the creations it authored, only from the confirmed list (see `delegation.md` → Allye MCP access).
+Two hand-offs live here: turning a confirmed design into server state (§1–5), used by `blueprint`, `blueprint --auto`, `dispatch` and any route that needs a new spec (`repair` bugfix, approved `optimize`/`shield` items, `mission` without a spec); and turning a gated branch into a push and PR (§6–7). There is no separate publishing skill. The Mothership runs the reads, the confirmation and the status transitions; the author (Architect or Dispatcher) performs the creations it authored, only from the confirmed list (rights: `delegation.md` → Allye MCP access).
 
 ## 1. Resolve project and app (read-only)
 
@@ -10,9 +10,9 @@ The single step that turns a confirmed design into server state, used by `bluepr
 
 ## 2. Look for overlaps (read-only)
 
-Search before creating: `specs.spec_list` with `query` (title, domain terms, synonyms) and `app`, plus `epics.epic_list`; open candidates with `specs.spec_get` / `epics.epic_get`. Classify each, with its key and the evidence:
+Search before creating: `specs.spec_list` with the required `project` plus `query` (title, domain terms, synonyms) and `app`, and `epics.epic_list` with the required `project`; open candidates with `specs.spec_get` / `epics.epic_get`. Classify each, with its key and the evidence:
 
-- **same scope** — propose editing the existing spec (`spec_update`, with `change_note` when `in_progress`) instead of creating a duplicate;
+- **same scope** — propose editing the existing spec (`spec_update`, with `change_note` when `in_progress`; an edit to an `approved` spec sends it back to `in_review`) instead of creating a duplicate;
 - **partial overlap** — state the boundary between the two in the new spec's scope and non-goals;
 - **dependency** — plan a `specs.spec_dependency_add`;
 - **unrelated** — no action.
@@ -34,20 +34,40 @@ Ask once. No yes → create nothing. A change to any item after the yes (title, 
 
 ## 4. Create, in order
 
-Dispatch the author (Architect for blueprint, Dispatcher for dispatch) with the confirmed list; if subagents cannot see the Allye MCP tools, the Mothership makes the same calls itself.
+Dispatch the author (Architect for blueprint, Dispatcher otherwise) with the confirmed list in `mcp.confirmed`; if subagents cannot see the Allye MCP tools, the Mothership makes the same calls itself.
 
-1. `epics.epic_create` (project, title, description) when needed.
+1. `epics.epic_create` (project, title, description) when the confirmed list includes an epic.
 2. `specs.spec_create` per spec (project, title, `type`, `content` with anchors, `apps` = that single app, `epic`) — or `specs.spec_update` for a same-scope spec.
 3. `tasks.task_bulk_create` per spec (thin: `temp_id`, title, `refs`, `files`, `verify`, `notes` ≤2000, `depends_on_temp_ids`). Map temp ids to the returned keys; never map by position.
 4. `specs.spec_dependency_add` for each cross-spec dependency.
 
-The author reports every write (tool, action, returned id/key). The Mothership then re-reads (`specs.spec_context`, `specs.spec_coverage`) to confirm what exists, and itself calls `specs.spec_submit` for each spec with no open `[Q-NN]`. Never `specs.spec_approve` unless the user explicitly asks in this conversation (`user_requested=true`).
+The author reports every write (tool, action, returned id/key). The Mothership then re-reads (`specs.spec_context`, `specs.spec_coverage`) to confirm what exists, and itself calls `specs.spec_submit` for each spec with no open `[Q-NN]`.
 
-Once a spec key exists, the Mothership may open `.allye/missions/<slug>/log.md` and record `publish` (and, for blueprint, `spec-challenge`) entries; before that, design work keeps no local state.
+Once a spec key exists, the Mothership opens `.allye/missions/<slug>/log.md` and records `publish` (and, for blueprint, `spec-challenge`) entries; before that, design work keeps no local state other than `.allye/armorer.json` (`state-contract.md`).
 
-## 5. Partial failure
+## 5. Approval
 
-Stop at the first failed write. Re-read what exists (`spec_list`, `spec_context`, `epic_get`), report created vs. missing with real keys, and propose how to finish. No blind retry, no recreation, no destructive rollback (nothing can be deleted; `spec_cancel`/`epic_cancel` only if the user asks).
+- `blueprint`, `blueprint --auto`, `dispatch`: stop at `in_review` with `next` (e.g. "ask a reviewer to approve <KEY>, then `/bridge launch <KEY>`"). Approve only if the user explicitly asks.
+- Routes that publish a spec in order to implement it (`repair`, `optimize`, `shield`, `mission` without a spec): show the spec summary (title, anchors, tasks, decisions marked `(proposed)`) and ask "approve <KEY> now?". Only on an explicit yes call `specs.spec_approve` with `spec=<KEY>` and `user_requested=true`, log it, and continue the route. Anything else → stop with `next` naming the approval still needed.
+
+## 6. Mission branch
+
+- Default name: `bridge/<spec-key-lower>-<short-slug>` (e.g. `bridge/proj-12-session-expiry`), where the slug is 2–5 lowercase words from the spec title, `[a-z0-9-]` only.
+- If the repository documents its own branch convention (CONTRIBUTING, AGENTS.md, CLAUDE.md, PR template), follow it instead and log which one applied.
+- Create it from the fixed base after the plan is accepted (`workflow.md` §4); on resume, reuse the logged branch.
+
+## 7. Push and PR
+
+Present one exact proposal: branch, remote, commits, PR title/base/body/draft-or-ready, validation results, gates with their commit, resolved findings, residual risks, and what is explicitly not included (merge, deploy, reviewers). A yes authorizes only that list, in that order. Refuse the proposal if a gate does not match the current reviewed point. The spec may already be `done` on the server by now (tasks are completed slice by slice); that does not replace this approval.
+
+- `gh` available → push, then `gh pr create` with the approved title, base and body; record the PR on the tasks (`tasks.task_update pr_url`).
+- `gh` missing → offer the push only, plus a compare URL built from the remote's web URL when the host's pattern is known (e.g. `<repo web url>/compare/<base>...<branch>`); otherwise give the branch name and let the user open the PR. Never invent a URL; record `pr_url` only once the user gives the real one.
+
+Never deploy. Merge into any branch only when the person commanding the chat explicitly asks.
+
+## 8. Partial failure
+
+Stop at the first failed write. Re-read what exists (`specs.spec_list` with `project`, `spec_context`, `epic_get`), report created vs. missing with real keys, and propose how to finish. No blind retry, no recreation, no destructive rollback (nothing can be deleted; `spec_cancel`/`epic_cancel` only if the user asks).
 
 ## Output
 

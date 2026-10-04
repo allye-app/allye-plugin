@@ -68,4 +68,4 @@ When the frontier is empty, the author writes the proposal: Architect (`author` 
 
 ## Closing
 
-When the frontier is empty and the proposal is ready, follow `publish.md`: resolve project/app, search overlaps, present **one consolidated summary** (problem, chosen design, anchor ledger, epic/spec/task breakdown with spec order, challenge result, exactly what will be created) and ask **one confirmation**. Without a yes, create nothing. On yes, the author creates the confirmed items, you re-read them and `spec_submit` each spec with no open `[Q-NN]`. Never approve unless the user explicitly asks. A failure midway stops, re-reads and reconciles; never recreate blindly.
+When the frontier is empty and the proposal is ready, follow `publish.md` §1–5: one consolidated summary (problem, chosen design, anchor ledger, epic/spec/task breakdown with spec order, challenge result, exactly what will be created) and one confirmation. Without a yes, create nothing.
