@@ -1,43 +1,27 @@
-# Allye Plugin — Codex CLI Update Guide
+# Allye — Codex CLI update guide
 
-You are an AI agent helping the user update the Allye plugin for Codex CLI. Preserve unrelated MCP servers, credentials, and instructions.
+You are an AI agent helping the user update Allye for Codex CLI. Preserve unrelated MCP servers, credentials, skills and instructions.
 
-## Step 1: Update AGENTS.md
+## Step 1: Update the Bridge skill
 
-Download the latest Allye instructions to a temporary file:
+Repeat Step 2 of [install-codex.md](install-codex.md): download the latest repository archive and replace `~/.codex/skills/bridge*` with the `skills/bridge*` directories it contains.
+
+## Step 2: Update AGENTS.md
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/allye-app/allye-plugin/main/manifests/codex/AGENTS.md > /tmp/allye-AGENTS.md
 ```
 
-Merge the Allye content into `~/.codex/AGENTS.md` without overwriting user
-instructions.
+Replace the previous Allye section of `~/.codex/AGENTS.md` with this file, keeping the user's own instructions. Older versions installed an Allye workflow section (handovers, workflow skills such as `sandbox` or `allye-product-planning`); remove that section entirely.
 
-## Step 2: Verify the canonical MCP entry
+## Step 3: Verify the MCP entry
 
 ```bash
 codex mcp get allye
 ```
 
-The entry must be named `allye`, point to `https://mcp.allye.app/mcp`, and have
-no fixed headers or OAuth client metadata. If that Allye entry is stale, replace
-only it:
+The entry must be named `allye`, point to `https://mcp.allye.app/mcp`, and have no fixed headers or OAuth client metadata. If it is stale, replace only it (see Step 1 of the install guide) and run `codex mcp login allye`.
 
-```bash
-codex mcp logout allye
-codex mcp remove allye
-codex mcp add allye --url https://mcp.allye.app/mcp
-codex mcp login allye
-```
+## Step 4: Confirm
 
-If the legacy server is registered under another name, run logout/remove with
-that exact old name before adding `allye`. Never delete Codex's global credential
-store or unrelated MCP entries.
-
-## Step 3: Confirm
-
-Tell the user:
-
-> Allye plugin updated for Codex CLI.
->
-> Start a new Codex session to use the updated instructions. Codex manages Allye OAuth and refresh natively.
+> Allye updated for Codex. Start a new Codex session to use the new bootstrap and Bridge.

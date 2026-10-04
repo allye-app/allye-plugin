@@ -1,108 +1,50 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { dirname, resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
-import { Type } from "typebox";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const execFileAsync = promisify(execFile);
+/**
+ * Allye extension for Pi and OMP (oh-my-pi reads the same `pi` manifest).
+ *
+ * - Exposes the repository's skills/ directory (Bridge) through resources_discover.
+ * - Adds the shared bootstrap (bootstrap/allye.md) to the system prompt.
+ * - Preloads Allye context through the configured MCP bridge when one is
+ *   available, and gates team-scoped work until an active team is set.
+ */
+
 const MCP_SERVER = "allye";
 const MAX_CONTEXT_CHARS = 12_000;
-const RUNTIME_TIMEOUT_MS = 30_000;
-const AGENT_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
 
-export type AllyeCapabilities = {
-  piSession: true;
-  allyeMcp: boolean;
-  filesystem: true;
-  subagents: boolean;
-  herdr: boolean;
-};
 type McpResult = { content?: Array<{ type?: string; text?: string }> };
-type StartupContext = {
+export type StartupContext = {
   text: string;
   teamSelectionRequired: boolean;
   allyeUnavailable: boolean;
   teams: Array<{ id: string; name: string; prefix?: string }>;
 };
-type WaitRegistrar = (name: string, timeoutMs: number, execution?: DelegationExecution) => Record<string, unknown>;
-type WaitCanceller = (name: string) => void;
-export type WaitOutcome = "completed" | "blocked" | "unknown" | "timeout" | "error" | "aborted";
-export type WaitExecutionResult = {
-  code: number;
-  killed: boolean;
-  stdout: string;
-  stderr: string;
+type ActiveMcpToolCaller = (
+  serverName: string,
+  toolName: string,
+  args?: Record<string, unknown>,
+  signal?: AbortSignal,
+) => Promise<unknown>;
+type McpBridgeRuntime = typeof globalThis & {
+  __piMcpAdapterActiveToolCaller?: ActiveMcpToolCaller | null;
 };
-export type WaitEvent = {
-  kind?: "settled" | "intervened";
-  executionId?: string;
-  name: string;
-  timeoutMs: number;
-  outcome: WaitOutcome;
-  code?: number;
-  killed?: boolean;
-  stdout?: string;
-  stderr?: string;
-  error?: string;
-  timestamp: string;
-};
-export type WaitEventDelivery = {
-  appendEntry: (customType: string, event: WaitEvent) => void;
-  notify?: (message: string, level: "info" | "warning" | "error") => void;
-  sendMessage?: (
-    message: { customType: string; content: string; display: boolean; details: WaitEvent },
-    options: { triggerTurn: true; deliverAs: "followUp" },
-  ) => void;
-};
-export type WaitEventDeliveryResult = {
-  delivered: boolean;
-  persisted: boolean;
-  notified: boolean;
-  sent: boolean;
-  errors: string[];
-};
-export type OwnedPane = {
-  workspaceId: string;
-  tabId: string;
-  paneId: string;
-  agentName?: string;
-  resourceId?: string;
-};
-export type OwnedResource = {
-  resourceId: string;
-  level: "pane" | "tab" | "workspace";
-  workspaceId: string;
-  tabId?: string;
-  paneId?: string;
-  createdAt: string;
-};
-export type DelegationExecution = {
-  executionId: string;
-  callerPaneId?: string;
-  workspaceId: string;
-  tabId: string;
-  paneId: string;
-  resourceLevel: "pane" | "tab" | "workspace";
-  resourceId?: string;
-  worktree: string;
-  agentName?: string;
-  status: "created" | "working" | "settled" | "blocked" | "unknown" | "intervened" | "cleaned";
-  runtimeState?: "working" | "idle" | "done" | "blocked" | "unknown";
-  manualIntervention: boolean;
-  createdAt: string;
-  settledAt?: string;
-};
-export type DelegationState = {
-  panes: OwnedPane[];
-  resources: Map<string, OwnedResource>;
-  waits: Set<string>;
-  executions: Map<string, DelegationExecution>;
-};
-const WAIT_EVENT_TYPE = "allye-herdr-wait";
-const RUNTIME_TOOL_NAME = "allye_herdr";
+
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+export function skillsPath(): string {
+  return resolve(packageRoot, "skills");
+}
+
+export function loadBootstrap(): string {
+  try {
+    return readFileSync(resolve(packageRoot, "bootstrap", "allye.md"), "utf8");
+  } catch {
+    return "";
+  }
+}
 
 function resultText(result: unknown): string {
   const content = (result as McpResult | null)?.content;
@@ -117,66 +59,16 @@ function limitText(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n[context truncated]`;
 }
 
-type McpBridgeRuntime = typeof globalThis & {
-  __piMcpAdapterActiveToolCaller?: ActiveMcpToolCaller | null;
-};
-
-export function describeCapabilities(
-  env: NodeJS.ProcessEnv = process.env,
-  mcpAvailable = Boolean((globalThis as McpBridgeRuntime).__piMcpAdapterActiveToolCaller),
-): AllyeCapabilities {
-  return {
-    piSession: true,
-    allyeMcp: env.ALLYE_PI_MCP !== "0" && mcpAvailable,
-    filesystem: true,
-    subagents: env.ALLYE_PI_SUBAGENTS === "1",
-    herdr: env.HERDR_ENV === "1",
-  };
-}
-
-export function adaptiveInstructions(capabilities: AllyeCapabilities): string {
-  const available = [
-    capabilities.allyeMcp ? "Allye/MCP" : "no Allye/MCP",
-    capabilities.filesystem ? "filesystem" : "no filesystem",
-    capabilities.subagents ? "subagents" : "no subagents",
-    capabilities.herdr ? "Herdr" : "no Herdr",
-  ].join(", ");
-  return `Allye is an adaptive toolkit, not a mandatory workflow. Available capabilities: ${available}. Use each only when it helps; continue locally when an optional capability is absent. Recommend tasks when they add traceability, delegation, review, or coordination value; if the user explicitly approves working without a task, proceed and verify proportionally. Ask for consent before consequential mutations and keep Allye as the source of truth.`;
-}
-
-export function loadUsingAllyeSkill(): string {
-  try {
-    return readFileSync(resolve(canonicalSkillsPath(), "using-allye", "SKILL.md"), "utf8");
-  } catch {
-    return "";
-  }
-}
-
-function canonicalSkillsPath(): string {
-  // The package lives at packages/allye-pi; skills/ is the repository's one
-  // canonical source and is intentionally not copied into this adapter.
-  return resolve(dirname(fileURLToPath(import.meta.url)), "../../../skills");
-}
-
-type ActiveMcpToolCaller = (
-  serverName: string,
-  toolName: string,
-  args?: Record<string, unknown>,
-  signal?: AbortSignal,
-) => Promise<unknown>;
-
-async function configuredMcpCall(toolName: string, args: Record<string, unknown>): Promise<unknown> {
-  // pi-mcp-adapter intentionally exposes its cooperating-extension bridge on
-  // the in-process runtime. There is no public callMcpTool export in the
-  // supported package version, so do not dynamically import its TypeScript
-  // source from node_modules. A missing bridge is a hard bootstrap failure.
-  const globalBridge = (globalThis as McpBridgeRuntime).__piMcpAdapterActiveToolCaller;
-  if (!globalBridge) throw new Error("pi-mcp-adapter is not initialized; start the configured MCP adapter before using Allye");
-  return globalBridge(MCP_SERVER, toolName, args);
+export function mcpBridgeAvailable(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.ALLYE_PI_MCP !== "0" && Boolean((globalThis as McpBridgeRuntime).__piMcpAdapterActiveToolCaller);
 }
 
 async function callAllye(toolName: string, args: Record<string, unknown>): Promise<string> {
-  return resultText(await configuredMcpCall(toolName, args));
+  // pi-mcp-adapter may expose an in-process bridge for cooperating extensions.
+  // Without it, the agent still reaches Allye through its own MCP tools.
+  const bridge = (globalThis as McpBridgeRuntime).__piMcpAdapterActiveToolCaller;
+  if (!bridge) throw new Error("no in-process MCP bridge is available to preload Allye context");
+  return resultText(await bridge(MCP_SERVER, toolName, args));
 }
 
 function parseJsonBlock(text: string): Record<string, unknown> | null {
@@ -190,146 +82,45 @@ function parseJsonBlock(text: string): Record<string, unknown> | null {
   }
 }
 
-export function inspectTeamSelection(initText: string): StartupContext {
-  const payload = parseJsonBlock(initText);
-  const profile = payload?.profile as Record<string, unknown> | undefined;
-  if (!payload || !profile || !Array.isArray(profile.teams)) {
-    return invalidStartupContext("Allye initialize returned a payload that the Pi adapter could not interpret.");
-  }
-  const rawTeams = Array.isArray(profile?.teams) ? profile.teams : [];
-  const teams = rawTeams.flatMap((team) => {
-    if (!team || typeof team !== "object") return [];
-    const value = team as Record<string, unknown>;
-    return typeof value.id === "string" && typeof value.name === "string"
-      ? [{ id: value.id, name: value.name, ...(typeof value.prefix === "string" ? { prefix: value.prefix } : {}) }]
-      : [];
-  });
-  const activeTeam = profile?.team;
-  const hasActiveTeam = Boolean(activeTeam && typeof activeTeam === "object" && typeof (activeTeam as Record<string, unknown>).id === "string");
-  const teamSelectionRequired = teams.length > 1 && !hasActiveTeam;
-  const instruction = teamSelectionRequired
-    ? `## Allye team selection required\nThis account has multiple teams and no active team. Do not call team-scoped projects/specs/tasks or intelligence operations yet. Ask the user to choose one of: ${teams.map((team) => `${team.name}${team.prefix ? ` [${team.prefix}]` : ""} (${team.id})`).join(", ")}. Then use allye_team action team_switch with the chosen team_query. Never choose a team silently.`
-    : "";
-  return { text: instruction, teamSelectionRequired, allyeUnavailable: false, teams };
-}
-
-export function classifyWaitResult(result?: WaitExecutionResult, timeoutMs = 0, error?: unknown): WaitOutcome {
-  const errorText = error instanceof Error ? error.message : String(error ?? "");
-  if (/abort/i.test(errorText)) return "aborted";
-  if (/timeout|timed out/i.test(errorText) || Boolean(result?.killed && timeoutMs > 0)) return "timeout";
-  if (/blocked/i.test(errorText)) return "blocked";
-  if (/unknown/i.test(errorText)) return "unknown";
-  const runtimeState = result ? extractAgentLifecycleState(parseJson(result.stdout)) ?? extractAgentLifecycleState(parseJson(result.stderr)) : null;
-  if (runtimeState === "blocked") return "blocked";
-  if (runtimeState === "unknown") return "unknown";
-  if (!result || result.code !== 0) return "error";
-  return "completed";
-}
-
-export function shouldEmitWaitEvent(shuttingDown: boolean, settledWaits: Set<string>, name: string): boolean {
-  if (shuttingDown || settledWaits.has(name)) return false;
-  settledWaits.add(name);
-  return true;
-}
-
-export function formatWaitEvent(event: WaitEvent): string {
-  const output = event.stdout?.trim() || "(no stdout)";
-  const error = event.error || event.stderr?.trim() || "(none)";
-  const prefix = event.kind === "intervened" ? "Herdr agent intervention detected" : "Herdr wait settled";
-  return `${prefix} for agent ${event.name}. Outcome: ${event.outcome}. `
-    + `This is delegation evidence only, not a completion verdict. `
-    + `Use allye_herdr collect when a managed spec exists: read spec_context for the spec and search Allye memories for Review and Implementation evidence before declaring completion.\n\n`
-    + `timeout_ms=${event.timeoutMs} code=${event.code ?? "n/a"} killed=${event.killed ?? false} timestamp=${event.timestamp}\n`
-    + `stdout:\n${output}\nerror/stderr:\n${error}`;
-}
-
-export function waitEventNotificationLevel(event: WaitEvent): "info" | "warning" | "error" {
-  if (event.outcome === "error" || event.outcome === "blocked" || event.outcome === "unknown") return "error";
-  if (event.outcome === "timeout") return "warning";
-  return "info";
-}
-
-export function deliverWaitEvent(
-  event: WaitEvent,
-  shuttingDown: boolean,
-  settledWaits: Set<string>,
-  delivery: WaitEventDelivery,
-): WaitEventDeliveryResult {
-  const empty: WaitEventDeliveryResult = {
-    delivered: false,
-    persisted: false,
-    notified: false,
-    sent: false,
-    errors: [],
-  };
-  if (!shouldEmitWaitEvent(shuttingDown, settledWaits, event.name)) return empty;
-
-  const message = formatWaitEvent(event);
-  const result: WaitEventDeliveryResult = { ...empty, delivered: true };
-  try {
-    delivery.appendEntry("allye-runtime-wait", event);
-    result.persisted = true;
-  } catch (error) {
-    result.errors.push(`appendEntry: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (delivery.notify) {
-    try {
-      delivery.notify(message, waitEventNotificationLevel(event));
-      result.notified = true;
-    } catch (error) {
-      result.errors.push(`notify: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  if (delivery.sendMessage) {
-    try {
-      delivery.sendMessage(
-        { customType: WAIT_EVENT_TYPE, content: message, display: true, details: event },
-        { triggerTurn: true, deliverAs: "followUp" },
-      );
-      result.sent = true;
-    } catch (error) {
-      result.errors.push(`sendMessage: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  return result;
-}
-
-export function invalidStartupContext(message: string): StartupContext {
+export function unavailableStartupContext(reason: string): StartupContext {
   return {
-    text: `## Allye optional context unavailable\n${message}\nDo not call team-scoped projects/specs/tasks or intelligence operations until Allye connectivity and team context are available. Continue with local, non-team-scoped work when appropriate.`,
+    text: `## Allye context not preloaded\n${reason}\nUse the Allye MCP tools directly when the task needs them: call \`initialize\` first and, if no team is active, ask the user which team to use before any team-scoped call.`,
     teamSelectionRequired: false,
     allyeUnavailable: true,
     teams: [],
   };
 }
 
-export function canUseOwnedPane(state: DelegationState, paneId: string): boolean {
-  return state.panes.some((pane) => pane.paneId === paneId);
+export function inspectTeamSelection(initText: string): StartupContext {
+  const payload = parseJsonBlock(initText);
+  const profile = payload?.profile as Record<string, unknown> | undefined;
+  if (!payload || !profile || !Array.isArray(profile.teams)) {
+    return unavailableStartupContext("Allye `initialize` returned a payload this extension could not interpret.");
+  }
+  const teams = profile.teams.flatMap((team) => {
+    if (!team || typeof team !== "object") return [];
+    const value = team as Record<string, unknown>;
+    return typeof value.id === "string" && typeof value.name === "string"
+      ? [{ id: value.id, name: value.name, ...(typeof value.prefix === "string" ? { prefix: value.prefix } : {}) }]
+      : [];
+  });
+  const activeTeam = profile.team;
+  const hasActiveTeam = Boolean(activeTeam && typeof activeTeam === "object" && typeof (activeTeam as Record<string, unknown>).id === "string");
+  const teamSelectionRequired = teams.length > 1 && !hasActiveTeam;
+  const text = teamSelectionRequired
+    ? `## Allye team selection required\nThis account has several teams and none is active. Do not call team-scoped projects, epics, specs, tasks or intelligence operations yet. Ask the user to choose one of: ${teams.map((team) => `${team.name}${team.prefix ? ` [${team.prefix}]` : ""} (${team.id})`).join(", ")}. Then call the \`team\` tool with action \`team_switch\` and the chosen \`team_query\`. Never choose a team silently.`
+    : "";
+  return { text, teamSelectionRequired, allyeUnavailable: false, teams };
 }
 
-async function loadStartupContext(allyeMcp = true): Promise<StartupContext> {
-  if (!allyeMcp) return invalidStartupContext("Allye/MCP is disabled for this Pi session.");
-  const sections: string[] = [];
+async function loadStartupContext(): Promise<StartupContext> {
+  if (!mcpBridgeAvailable()) return unavailableStartupContext("No in-process MCP bridge is available in this session.");
   try {
-    const initialization = await callAllye("allye_initialize", {
-      action: "init",
-      include_user_docs: true,
-    });
+    const initialization = await callAllye("initialize", { action: "init", include_user_docs: true });
     const teamState = inspectTeamSelection(initialization);
-    sections.push(initialization, teamState.text);
-    if (!teamState.allyeUnavailable) {
-      sections.push(await callAllye("allye_intelligence", {
-        action: "memory_preferences",
-      }));
-    }
-    if (!teamState.teamSelectionRequired && !teamState.allyeUnavailable) {
-      sections.push(await callAllye("allye_intelligence", {
-        action: "memory_search",
-        query: "Pi Allye adapter workflow context",
-        limit: 5,
-        return_content: true,
-      }));
-    }
+    if (teamState.allyeUnavailable) return teamState;
+    const sections = [initialization, teamState.text];
+    sections.push(await callAllye("intelligence", { action: "memory_preferences" }));
     return {
       text: sections.filter(Boolean).map((section) => limitText(section, MAX_CONTEXT_CHARS)).join("\n\n"),
       teamSelectionRequired: teamState.teamSelectionRequired,
@@ -337,13 +128,13 @@ async function loadStartupContext(allyeMcp = true): Promise<StartupContext> {
       teams: teamState.teams,
     };
   } catch (error) {
-    return invalidStartupContext(`Allye is unavailable or initialize returned an unreadable payload: ${error instanceof Error ? error.message : String(error)}`);
+    return unavailableStartupContext(`Allye context could not be preloaded: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 async function loadPromptContext(prompt: string): Promise<string> {
   try {
-    return limitText(await callAllye("allye_intelligence", {
+    return limitText(await callAllye("intelligence", {
       action: "memory_search",
       query: prompt,
       limit: 5,
@@ -354,532 +145,49 @@ async function loadPromptContext(prompt: string): Promise<string> {
   }
 }
 
-function toolkitInstructions(): string {
-  return `## Allye Pi toolkit
-${adaptiveInstructions(describeCapabilities())}
-- Use canonical Allye skills as composable playbooks and choose the smallest useful next step for the user's intent.
-- Discovery and Product Planning may produce research, documents, memories, or proposed specs and tasks; do not create specs or tasks until the user approves the proposal.
-- Tasks are recommended for meaningful, delegated, multi-step, or review-heavy work, not universally required. If the user approves a no-task path, record the choice when useful and verify the result.
-- Use subagents when available and beneficial. Use Herdr only when available and beneficial; never require either one.
-- Use Allye for durable context, decisions, specs, tasks, and verification evidence. Ask before consequential mutations.`;
+export function buildSystemSections(bootstrap: string, startup: StartupContext, firstPrompt: boolean, nativeBootstrap = true): string[] {
+  const sections: string[] = [];
+  if (bootstrap) sections.push(`<allye-bootstrap>\n${bootstrap.trim()}\n</allye-bootstrap>`);
+  if (startup.teamSelectionRequired) sections.push(`<allye-team-gate>\n${startup.text}\n</allye-team-gate>`);
+  else if (firstPrompt && nativeBootstrap && startup.text) sections.push(`<allye-startup-context>\n${startup.text}\n</allye-startup-context>`);
+  return sections;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function runHerdr(args: string[], timeout = RUNTIME_TIMEOUT_MS): Promise<string> {
-  const result = await execFileAsync("herdr", args, {
-    timeout,
-    maxBuffer: 512 * 1024,
-    env: process.env,
-  });
-  return result.stdout || result.stderr || "";
-}
-
-function parseJson(text: string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
-  } catch {
-    return null;
-  }
-}
-
-function herdrResult(text: string): unknown {
-  const json = parseJson(text);
-  return json?.result ?? json ?? text.trim();
-}
-
-function collectValues(value: unknown, key: string, output: string[] = []): string[] {
-  if (!value || typeof value !== "object") return output;
-  if (Array.isArray(value)) {
-    for (const item of value) collectValues(item, key, output);
-    return output;
-  }
-  const object = value as Record<string, unknown>;
-  if (typeof object[key] === "string") output.push(object[key] as string);
-  for (const child of Object.values(object)) collectValues(child, key, output);
-  return output;
-}
-
-export function collectPaneRecords(value: unknown, output: OwnedPane[] = []): OwnedPane[] {
-  if (!value || typeof value !== "object") return output;
-  if (Array.isArray(value)) {
-    for (const item of value) collectPaneRecords(item, output);
-    return output;
-  }
-  const object = value as Record<string, unknown>;
-  const layout = object.layout && typeof object.layout === "object" ? object.layout as Record<string, unknown> : object;
-  const workspaceId = typeof layout.workspace_id === "string" ? layout.workspace_id : undefined;
-  const tabId = typeof layout.tab_id === "string" ? layout.tab_id : undefined;
-  const panes = Array.isArray(layout.panes) ? layout.panes : [];
-  if (workspaceId && tabId) {
-    for (const pane of panes) {
-      if (pane && typeof pane === "object" && typeof (pane as Record<string, unknown>).pane_id === "string") {
-        output.push({ workspaceId, tabId, paneId: (pane as Record<string, unknown>).pane_id as string });
-      }
-    }
-    return output;
-  }
-  for (const child of Object.values(object)) collectPaneRecords(child, output);
-  return output;
-}
-
-async function waitForInteractiveShell(pane: string): Promise<void> {
-  const shellNames = new Set(["bash", "zsh", "sh", "fish"]);
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    try {
-      const info = herdrResult(await runHerdr(["pane", "process-info", "--pane", pane], 5_000));
-      const foreground = collectValues(info, "name")[0];
-      if (foreground && shellNames.has(foreground)) return;
-    } catch {
-      // The pane may still be initializing; the bounded loop below is the gate.
-    }
-    if (attempt < 9) await sleep(3_000);
-  }
-  throw new Error(`Herdr pane ${pane} did not reach an interactive shell within 30 seconds`);
-}
-
-export function activeToolsForCapabilities(activeTools: string[], capabilities: AllyeCapabilities): string[] {
-  const next = new Set(activeTools);
-  if (capabilities.herdr) next.add(RUNTIME_TOOL_NAME);
-  else next.delete(RUNTIME_TOOL_NAME);
-  return [...next];
-}
-
-export type AgentLifecycleState = "working" | "idle" | "done" | "blocked" | "unknown";
-
-export function extractAgentLifecycleState(value: unknown): AgentLifecycleState | null {
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const state = extractAgentLifecycleState(item);
-      if (state) return state;
-    }
-    return null;
-  }
-  const object = value as Record<string, unknown>;
-  const raw = object.agent_status;
-  if (raw === "working" || raw === "idle" || raw === "done" || raw === "blocked" || raw === "unknown") return raw;
-  for (const child of Object.values(object)) {
-    const state = extractAgentLifecycleState(child);
-    if (state) return state;
-  }
-  return null;
-}
-
-export function dispatchStateIsAcceptable(stateText: string): boolean {
-  const state = extractAgentLifecycleState(parseJson(stateText));
-  return state === "working" || state === "idle" || state === "done";
-}
-
-function requireHerdr(capabilities: AllyeCapabilities): void {
-  if (!capabilities.herdr) throw new Error("Herdr is not available in this Pi session; use another available capability or continue locally.");
-}
-
-function requireAbsolutePath(value: unknown, name: string): string {
-  if (typeof value !== "string" || !value.startsWith("/")) {
-    throw new Error(`${name} must be an absolute path`);
-  }
-  return value;
-}
-
-async function cleanupExecution(execution: DelegationExecution, ownership: DelegationState): Promise<unknown> {
-  if (execution.status === "working" || execution.status === "blocked" || execution.status === "unknown" || execution.manualIntervention) {
-    throw new Error(`execution ${execution.executionId} is not safe to clean up while status=${execution.status}`);
-  }
-  const resourceId = execution.resourceId;
-  if (!resourceId) return { cleaned: false, reason: "execution has no owned resource" };
-  const resource = ownership.resources.get(resourceId);
-  if (!resource) return { cleaned: false, reason: "owned resource is already absent" };
-  if (resource.level === "pane" && resource.paneId) await runHerdr(["pane", "close", resource.paneId]);
-  else if (resource.level === "tab" && resource.tabId) await runHerdr(["tab", "close", resource.tabId]);
-  else if (resource.level === "workspace") await runHerdr(["workspace", "close", resource.workspaceId]);
-  execution.status = "cleaned";
-  ownership.resources.delete(resourceId);
-  ownership.panes = ownership.panes.filter((pane) => pane.resourceId !== resourceId);
-  return { cleaned: true, resource };
-}
-
-async function runtimeOperation(capabilities: AllyeCapabilities, params: Record<string, unknown>, registerWait: WaitRegistrar, cancelWait: WaitCanceller, ownership: DelegationState): Promise<unknown> {
-  const operation = params.operation;
-  if (operation === "detect") {
-    if (process.env.HERDR_ENV !== "1") return { available: false, reason: "HERDR_ENV is not 1" };
-    try {
-      const output = await runHerdr(["status"]);
-      return { available: /compatible:\s*yes/i.test(output), output: output.trim() };
-    } catch (error) {
-      return { available: false, reason: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  requireHerdr(capabilities);
-
-  if (operation === "workspace") {
-    const cwd = requireAbsolutePath(params.cwd, "cwd");
-    if (typeof params.worktree === "string" && params.worktree !== cwd) throw new Error("workspace cwd must match the requested worktree; use worktree management before creating a workspace");
-    const label = typeof params.label === "string" && params.label.trim() ? params.label.trim() : `allye-${randomUUID().slice(0, 8)}`;
-    const focus = params.focus === true ? "--focus" : "--no-focus";
-    const resource = herdrResult(await runHerdr(["workspace", "create", "--cwd", cwd, "--label", label, focus]));
-    const record = resource as Record<string, unknown>;
-    const workspace = record.workspace as Record<string, unknown> | undefined;
-    const tab = record.tab as Record<string, unknown> | undefined;
-    const rootPane = record.root_pane as Record<string, unknown> | undefined;
-    const workspaceId = typeof workspace?.workspace_id === "string" ? workspace.workspace_id : "";
-    const tabId = typeof tab?.tab_id === "string" ? tab.tab_id : "";
-    const paneId = typeof rootPane?.pane_id === "string" ? rootPane.pane_id : "";
-    if (!workspaceId || !tabId || !paneId) throw new Error("Herdr workspace response did not include workspace, tab, and root pane identifiers");
-    ownership.resources.set(workspaceId, { resourceId: workspaceId, level: "workspace", workspaceId, tabId, paneId, createdAt: new Date().toISOString() });
-    ownership.panes.push({ workspaceId, tabId, paneId, resourceId: workspaceId });
-    return { created: true, level: "workspace", resource };
-  }
-
-  if (operation === "tab") {
-    const workspace = typeof params.workspaceId === "string" ? params.workspaceId : "";
-    const cwd = requireAbsolutePath(params.cwd, "cwd");
-    const label = typeof params.label === "string" && params.label.trim() ? params.label.trim() : `task-${randomUUID().slice(0, 8)}`;
-    const focus = params.focus === true ? "--focus" : "--no-focus";
-    const args = ["tab", "create", "--workspace", workspace, "--cwd", cwd, "--label", label, focus];
-    if (!workspace) throw new Error("tab creation requires workspaceId");
-    const resource = herdrResult(await runHerdr(args));
-    const record = resource as Record<string, unknown>;
-    const tab = record.tab as Record<string, unknown> | undefined;
-    const rootPane = record.root_pane as Record<string, unknown> | undefined;
-    const tabId = typeof tab?.tab_id === "string" ? tab.tab_id : "";
-    const paneId = typeof rootPane?.pane_id === "string" ? rootPane.pane_id : "";
-    if (!tabId || !paneId) throw new Error("Herdr tab response did not include tab and root pane identifiers");
-    const resourceId = `${workspace}:${tabId}`;
-    ownership.resources.set(resourceId, { resourceId, level: "tab", workspaceId: workspace, tabId, paneId, createdAt: new Date().toISOString() });
-    ownership.panes.push({ workspaceId: workspace, tabId, paneId, resourceId });
-    return { created: true, level: "tab", resource };
-  }
-
-  if (operation === "spawn") {
-    const cwd = requireAbsolutePath(params.cwd, "cwd");
-    const worktree = requireAbsolutePath(params.worktree, "worktree");
-    if (!existsSync(worktree)) throw new Error(`worktree does not exist: ${worktree}`);
-    if (worktree === cwd) throw new Error("worktree must be isolated from the pane cwd");
-    const pane = process.env.HERDR_PANE_ID;
-    if (!pane) throw new Error("HERDR_PANE_ID is missing; cannot spawn safely");
-    const direction = params.direction === "down" ? "down" : "right";
-    const beforeLayout = herdrResult(await runHerdr(["pane", "layout", "--pane", pane]));
-    const beforePanes = new Set(collectValues(beforeLayout, "pane_id"));
-    await runHerdr(["pane", "split", "--pane", pane, "--direction", direction, "--cwd", cwd, "--no-focus"]);
-    const afterLayout = herdrResult(await runHerdr(["pane", "layout", "--pane", pane]));
-    const newPane = collectValues(afterLayout, "pane_id").find((id) => !beforePanes.has(id));
-    if (!newPane) throw new Error("Herdr split completed but no new pane id was returned");
-    const paneRecords = collectPaneRecords(afterLayout);
-    const layoutMetadata = afterLayout as Record<string, unknown>;
-    const record = paneRecords.find((candidate) => candidate.paneId === newPane
-      && candidate.workspaceId === String(layoutMetadata.workspace_id ?? candidate.workspaceId)
-      && candidate.tabId === String(layoutMetadata.tab_id ?? candidate.tabId));
-    if (!record) throw new Error("Herdr returned a pane without workspace/tab ownership metadata");
-    const resourceId = `${record.workspaceId}:${record.tabId}:${record.paneId}`;
-    ownership.resources.set(resourceId, { resourceId, level: "pane", workspaceId: record.workspaceId, tabId: record.tabId, paneId: record.paneId, createdAt: new Date().toISOString() });
-    ownership.panes.push({ ...record, resourceId });
-    await waitForInteractiveShell(newPane);
-    return { pane: newPane, worktree, cwd, direction, ready: true, ownership: { ...record, resourceId } };
-  }
-
-  if (operation === "dispatch") {
-    const name = params.name;
-    if (typeof name !== "string" || !AGENT_NAME.test(name)) {
-      throw new Error("name must match [a-z][a-z0-9_-]{0,31}");
-    }
-    const kind = typeof params.kind === "string" ? params.kind : "pi";
-    const pane = typeof params.pane === "string" ? params.pane : "";
-    const briefing = params.briefing;
-    const worktree = requireAbsolutePath(params.worktree, "worktree");
-    if (!existsSync(worktree)) throw new Error(`worktree does not exist: ${worktree}`);
-    if (!pane || typeof briefing !== "string" || briefing.trim().length === 0) {
-      throw new Error("dispatch requires pane and a non-empty briefing");
-    }
-    const ownedPane = ownership.panes.find((candidate) => candidate.paneId === pane);
-    if (!ownedPane) throw new Error(`pane ${pane} is not owned by this Pi orchestration run`);
-    const currentLayout = herdrResult(await runHerdr(["pane", "layout", "--pane", pane]));
-    const currentRecord = collectPaneRecords(currentLayout).find((candidate) => candidate.paneId === pane);
-    if (!currentRecord || currentRecord.workspaceId !== ownedPane.workspaceId || currentRecord.tabId !== ownedPane.tabId) {
-      throw new Error(`pane ${pane} ownership metadata no longer matches this Pi orchestration run`);
-    }
-    await waitForInteractiveShell(pane);
-    if (!briefing.includes(worktree)) {
-      throw new Error("dispatch briefing must contain the absolute worktree path");
-    }
-    const start = await runHerdr(["agent", "start", name, "--kind", kind, "--pane", pane, "--timeout", "120000", "--"]);
-    await runHerdr(["agent", "prompt", name, briefing]);
-    // A fast agent can already be idle/done by the time it is inspected. The
-    // server-owned wait is registered immediately so that completion is not
-    // lost and a fast, successful turn is not falsely rejected.
-    const execution: DelegationExecution = {
-      executionId: randomUUID(),
-      callerPaneId: process.env.HERDR_PANE_ID,
-      workspaceId: ownedPane.workspaceId,
-      tabId: ownedPane.tabId,
-      paneId: ownedPane.paneId,
-      resourceLevel: "pane",
-      resourceId: ownedPane.resourceId,
-      worktree,
-      agentName: name,
-      status: "working",
-      runtimeState: "working",
-      manualIntervention: false,
-      createdAt: new Date().toISOString(),
-    };
-    ownership.executions.set(execution.executionId, execution);
-    const wait = registerWait(name, 3_600_000, execution);
-    let agentState: unknown;
-    try {
-      agentState = herdrResult(await runHerdr(["agent", "get", name]));
-    } catch (error) {
-      cancelWait(name);
-      throw error;
-    }
-    if (!dispatchStateIsAcceptable(JSON.stringify(agentState))) {
-      cancelWait(name);
-      throw new Error(`Herdr agent ${name} entered an unsupported state after prompt submission`);
-    }
-    ownedPane.agentName = name;
-    ownership.waits.add(name);
-    return {
-      started: herdrResult(start),
-      state: agentState,
-      wait,
-      execution,
-      ownership: ownedPane,
-    };
-  }
-
-  if (operation === "status") {
-    const executionId = params.executionId;
-    if (typeof executionId !== "string") throw new Error("status requires executionId");
-    const execution = ownership.executions.get(executionId);
-    if (!execution) throw new Error(`execution ${executionId} is not owned by this Pi session`);
-    if (execution.agentName) {
-      const current = extractAgentLifecycleState(herdrResult(await runHerdr(["agent", "get", execution.agentName])));
-      if (current) execution.runtimeState = current;
-    }
-    return execution;
-  }
-
-  if (operation === "mark_intervened") {
-    const executionId = params.executionId;
-    if (typeof executionId !== "string") throw new Error("mark_intervened requires executionId");
-    const execution = ownership.executions.get(executionId);
-    if (!execution) throw new Error(`execution ${executionId} is not owned by this Pi session`);
-    execution.manualIntervention = true;
-    execution.status = "intervened";
-    return execution;
-  }
-
-  if (operation === "wait") {
-    const name = params.name;
-    if (typeof name !== "string" || !AGENT_NAME.test(name)) throw new Error("valid agent name is required");
-    const timeout = typeof params.timeoutMs === "number" ? params.timeoutMs : 3_600_000;
-    if (!ownership.waits.has(name)) throw new Error(`agent ${name} is not owned by this Pi orchestration run`);
-    return registerWait(name, timeout);
-  }
-
-  if (operation === "cleanup") {
-    const executionId = params.executionId;
-    if (typeof executionId !== "string") throw new Error("cleanup requires executionId");
-    const execution = ownership.executions.get(executionId);
-    if (!execution) throw new Error(`execution ${executionId} is not owned by this Pi session`);
-    return cleanupExecution(execution, ownership);
-  }
-
-  if (operation === "collect") {
-    const specId = params.specId;
-    if (typeof specId !== "string" || specId.length === 0) throw new Error("collect requires the spec UUID or key as specId");
-    const spec = await callAllye("allye_specs", { action: "spec_context", spec: specId });
-    const reviewQuery = typeof params.specKey === "string" ? `Review ${params.specKey}` : `Review ${specId}`;
-    const review = await callAllye("allye_intelligence", { action: "memory_search", query: reviewQuery, limit: 10, return_content: true });
-    const implementationQuery = typeof params.taskKey === "string" ? `Implementation ${params.taskKey}` : `Implementation ${specId}`;
-    const implementation = await callAllye("allye_intelligence", { action: "memory_search", query: implementationQuery, limit: 10, return_content: true });
-    return { specContext: spec, review, implementation, cleanupAvailable: typeof params.executionId === "string" };
-  }
-
-  throw new Error(`Unknown runtime operation: ${String(operation)}`);
-}
-
-function registerRuntimeTool(pi: ExtensionAPI, getCapabilities: () => AllyeCapabilities, registerWait: WaitRegistrar, cancelWait: WaitCanceller, state: DelegationState): void {
-  pi.registerTool({
-    name: RUNTIME_TOOL_NAME,
-    label: "Allye Runtime",
-    description: "Use optional Herdr capabilities for delegation, waiting, and collecting results when available.",
-    parameters: Type.Object({
-      operation: Type.String({ description: "detect | workspace | tab | spawn | dispatch | status | mark_intervened | wait | collect | cleanup" }),
-      cwd: Type.Optional(Type.String({ description: "Absolute plugin-enabled repository root for spawn" })),
-      worktree: Type.Optional(Type.String({ description: "Absolute isolated worktree path; required for spawn/dispatch" })),
-      workspaceId: Type.Optional(Type.String({ description: "Workspace id for tab creation" })),
-      label: Type.Optional(Type.String({ description: "Human-readable workspace/tab label" })),
-      focus: Type.Optional(Type.Boolean({ description: "Focus newly created workspace/tab" })),
-      direction: Type.Optional(Type.String({ description: "right or down" })),
-      pane: Type.Optional(Type.String({ description: "Pane id returned by Herdr" })),
-      name: Type.Optional(Type.String({ description: "Stable Herdr agent name" })),
-      kind: Type.Optional(Type.String({ description: "Herdr agent kind, normally pi" })),
-      briefing: Type.Optional(Type.String({ description: "Complete spec briefing, including the absolute worktree path" })),
-      timeoutMs: Type.Optional(Type.Number({ description: "Bounded wait timeout in milliseconds" })),
-      executionId: Type.Optional(Type.String({ description: "Caller execution id for status/intervention/cleanup" })),
-      specId: Type.Optional(Type.String({ description: "Allye spec UUID or key for collect" })),
-      specKey: Type.Optional(Type.String({ description: "Spec key for review memory search" })),
-      taskKey: Type.Optional(Type.String({ description: "Task key for implementation memory search" })),
-    }),
-    async execute(_toolCallId, params) {
-      try {
-        const result = await runtimeOperation(getCapabilities(), params as Record<string, unknown>, registerWait, cancelWait, state);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return { content: [{ type: "text", text: `Allye runtime error: ${message}` }], isError: true, details: { error: message } };
-      }
-    },
-  });
-}
-
-export default function allyePiAdapter(pi: ExtensionAPI): void {
-  const capabilities = describeCapabilities();
-  let startupContext: StartupContext = { text: "", teamSelectionRequired: false, allyeUnavailable: true, teams: [] };
+export default function allyePiExtension(pi: ExtensionAPI): void {
+  const nativeBootstrap = process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0";
+  let startupContext = unavailableStartupContext("Allye context has not been loaded yet.");
+  let bootstrap = "";
   let firstPrompt = true;
-  let usingAllyeBootstrap = "";
-  let shuttingDown = false;
-  let activeContext: ExtensionContext | undefined;
-  const waits = new Map<string, AbortController>();
-  const settledWaits = new Set<string>();
-  const ownership: DelegationState = { panes: [], resources: new Map(), waits: new Set(), executions: new Map() };
 
-  const registerWait: WaitRegistrar = (name, timeoutMs, execution) => {
-    if (settledWaits.has(name)) return { registered: false, name, timeoutMs, duplicate: true, settled: true };
-    const existing = waits.get(name);
-    if (existing) return { registered: true, name, timeoutMs, duplicate: true };
-    const controller = new AbortController();
-    waits.set(name, controller);
-    void pi.exec("herdr", ["agent", "wait", name, "--timeout", String(timeoutMs)], {
-      timeout: timeoutMs + 5_000,
-      signal: controller.signal,
-    }).then((result) => {
-      const event: WaitEvent = {
-        kind: execution?.manualIntervention ? "intervened" : "settled",
-        executionId: execution?.executionId,
-        name,
-        timeoutMs,
-        outcome: classifyWaitResult(result, timeoutMs),
-        code: result.code,
-        killed: result.killed,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        timestamp: new Date().toISOString(),
-      };
-      if (execution) {
-        execution.status = execution.manualIntervention ? "intervened" : event.outcome === "blocked" ? "blocked" : event.outcome === "completed" ? "settled" : "unknown";
-        execution.runtimeState = event.outcome === "completed" ? "done" : event.outcome === "blocked" ? "blocked" : "unknown";
-        execution.settledAt = event.timestamp;
-      }
-      deliverWaitEvent(event, shuttingDown, settledWaits, {
-        appendEntry: (customType, value) => pi.appendEntry(customType, value),
-        notify: activeContext?.hasUI ? (message, level) => activeContext?.ui.notify(message, level) : undefined,
-        sendMessage: (message, options) => pi.sendMessage(message, options),
-      });
-    }).catch((error) => {
-      const event: WaitEvent = {
-        kind: execution?.manualIntervention ? "intervened" : "settled",
-        executionId: execution?.executionId,
-        name,
-        timeoutMs,
-        outcome: classifyWaitResult(undefined, timeoutMs, error),
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: new Date().toISOString(),
-      };
-      if (execution) {
-        execution.status = execution.manualIntervention ? "intervened" : event.outcome === "blocked" ? "blocked" : event.outcome === "completed" ? "settled" : "unknown";
-        execution.runtimeState = event.outcome === "completed" ? "done" : event.outcome === "blocked" ? "blocked" : "unknown";
-        execution.settledAt = event.timestamp;
-      }
-      deliverWaitEvent(event, shuttingDown, settledWaits, {
-        appendEntry: (customType, value) => pi.appendEntry(customType, value),
-        notify: activeContext?.hasUI ? (message, level) => activeContext?.ui.notify(message, level) : undefined,
-        sendMessage: (message, options) => pi.sendMessage(message, options),
-      });
-    }).finally(() => {
-      waits.delete(name);
-    });
-    return {
-      registered: true,
-      name,
-      timeoutMs,
-      diagnostic: "Wait runs through Pi's managed exec, is bounded, and records stdout/stderr in the session log.",
-    };
-  };
-
-  const cancelWait: WaitCanceller = (name) => {
-    waits.get(name)?.abort();
-    waits.delete(name);
-  };
-
-  const syncCapabilityTools = () => {
-    pi.setActiveTools(activeToolsForCapabilities(pi.getActiveTools(), capabilities));
-  };
-
-  pi.registerMessageRenderer(WAIT_EVENT_TYPE, () => undefined);
-
-  pi.on("resources_discover", () => ({ skillPaths: [canonicalSkillsPath()] }));
+  pi.on("resources_discover", () => ({ skillPaths: [skillsPath()] }));
 
   pi.on("session_start", async (_event, ctx) => {
-    shuttingDown = false;
-    activeContext = ctx;
     firstPrompt = true;
-    usingAllyeBootstrap = loadUsingAllyeSkill();
-    syncCapabilityTools();
-    if (ctx.hasUI) ctx.ui.setStatus("allye-pi", "loading Allye context…");
-    if (process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0") startupContext = await loadStartupContext(capabilities.allyeMcp);
-    if (startupContext.teamSelectionRequired && ctx.hasUI) {
-      ctx.ui.notify("Allye has multiple teams and no active team. Use /allye-team <name|prefix|id> before team-scoped work.", "warning");
+    bootstrap = loadBootstrap();
+    if (nativeBootstrap) {
+      if (ctx.hasUI) ctx.ui.setStatus("allye", "loading Allye context…");
+      startupContext = await loadStartupContext();
+      if (ctx.hasUI) ctx.ui.setStatus("allye", startupContext.allyeUnavailable ? "Allye: context not preloaded" : "Allye ready");
     }
-    if (ctx.hasUI) ctx.ui.setStatus("allye-pi", "Allye ready");
-  });
-
-  pi.on("session_shutdown", () => {
-    shuttingDown = true;
-    activeContext = undefined;
-    for (const controller of waits.values()) controller.abort();
-    waits.clear();
-    ownership.waits.clear();
-    // Owned Herdr resources intentionally remain open across a Pi shutdown.
-    // Cleanup requires an explicit, verified cleanup operation and never runs
-    // implicitly while the caller cannot inspect its final state.
+    if (startupContext.teamSelectionRequired && ctx.hasUI) {
+      ctx.ui.notify("Allye has several teams and none is active. Use /allye-team <name|prefix|id> before team-scoped work.", "warning");
+    }
   });
 
   pi.on("before_agent_start", async (event) => {
-    const sections = [
-      `<allye-pi-adapter>\n${toolkitInstructions()}\n\nCanonical Allye skills are loaded from ${canonicalSkillsPath()} — do not create copies.\n${startupContext.teamSelectionRequired ? "\n" + startupContext.text : ""}\n</allye-pi-adapter>`,
-    ];
+    const sections = buildSystemSections(bootstrap, startupContext, firstPrompt, nativeBootstrap);
     if (firstPrompt) {
       firstPrompt = false;
-      if (usingAllyeBootstrap) sections.push(`<allye-using-allye-bootstrap>\n${usingAllyeBootstrap}\n</allye-using-allye-bootstrap>`);
-      if (process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0" && startupContext.text) sections.push(`<allye-pi-startup-context>\n${startupContext.text}\n</allye-pi-startup-context>`);
-      if (!startupContext.teamSelectionRequired && !startupContext.allyeUnavailable) {
+      if (nativeBootstrap && !startupContext.teamSelectionRequired && !startupContext.allyeUnavailable) {
         const relevant = await loadPromptContext(event.prompt);
-        if (relevant) sections.push(`<allye-pi-relevant-memory>\n${relevant}\n</allye-pi-relevant-memory>`);
+        if (relevant) sections.push(`<allye-relevant-memory>\n${relevant}\n</allye-relevant-memory>`);
       }
     }
-    return { systemPrompt: `${event.systemPrompt}\n\n${sections.join("\n\n")}` };
-  });
-
-  pi.registerCommand("allye-capabilities", {
-    description: "Show capabilities available to the Allye toolkit in this Pi session",
-    handler: async (_args, ctx) => {
-      const available = [
-        `Allye/MCP: ${capabilities.allyeMcp ? "available" : "unavailable"}`,
-        "filesystem: available",
-        `subagents: ${capabilities.subagents ? "available" : "unavailable"}`,
-        `Herdr: ${capabilities.herdr ? "available" : "unavailable"}`,
-      ].join("; ");
-      ctx.ui.notify(`${available}. Tasks are recommended, not mandatory.`, "info");
-    },
+    return sections.length ? { systemPrompt: `${event.systemPrompt}\n\n${sections.join("\n\n")}` } : undefined;
   });
 
   pi.registerCommand("allye-team", {
-    description: "Select the active Allye team without choosing one silently",
+    description: "Select the active Allye team (never chosen silently)",
     handler: async (args, ctx) => {
       const teamQuery = args?.trim();
       if (!teamQuery) {
@@ -887,14 +195,12 @@ export default function allyePiAdapter(pi: ExtensionAPI): void {
         return;
       }
       try {
-        const result = await callAllye("allye_team", { action: "team_switch", team_query: teamQuery });
+        const result = await callAllye("team", { action: "team_switch", team_query: teamQuery });
         startupContext = await loadStartupContext();
         ctx.ui.notify(`Allye team selection: ${result}`, "info");
       } catch (error) {
-        ctx.ui.notify(`Allye team selection failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+        ctx.ui.notify(`Allye team selection failed: ${error instanceof Error ? error.message : String(error)}. Ask the agent to call the \`team\` tool with action team_switch instead.`, "error");
       }
     },
   });
-
-  registerRuntimeTool(pi, () => capabilities, registerWait, cancelWait, ownership);
 }

@@ -1,37 +1,29 @@
 #!/bin/bash
+# Checks the installer's canonical hash and artifact checks against the shared
+# canonical-skill fixture (test/fixtures/canonical-skills.json).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-node - "$ROOT/test/fixtures/canonical-skills.json" <<'NODE'
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const source = fs.readFileSync(process.argv[2]);
-if (crypto.createHash('sha256').update(source).digest('hex') !== 'ebbb4633529737eb3a0bc05938fb03db2677e2ae13a1c4a7cd3802606d9963f2') throw new Error('fixture mismatch');
-const cases = JSON.parse(source).cases;
-const expected = {
-  'valid-with-resources': { valid: true, issues: [] },
-  'unicode-canonical-order': { valid: true, issues: [] },
-  'script-static-warning': { valid: true, issues: [['warning','CANONICAL_SKILL_SCRIPT_STATIC_ANALYSIS','scripts/setup.sh']] },
-  'unsafe-entries': { valid: false, issues: [
-    ['error','CANONICAL_SKILL_MISSING_ROOT','SKILL.md'], ['error','CANONICAL_SKILL_PATH_TRAVERSAL','../escape.md'],
-    ['error','CANONICAL_SKILL_SYMLINK_FORBIDDEN','shortcut'], ['error','CANONICAL_SKILL_BINARY_FORBIDDEN','assets/blob.bin'] ] },
-};
-for (const testCase of cases) {
-  const contract = expected[testCase.id]; if (!contract || testCase.valid !== contract.valid) throw new Error(`semantic valid mismatch: ${testCase.id}`);
-  const actual = testCase.issues.map(({severity,code,path}) => [severity,code,path]);
-  if (JSON.stringify(actual) !== JSON.stringify(contract.issues)) throw new Error(`semantic issues mismatch: ${testCase.id}`);
-  for (const file of testCase.files) if (file.path.startsWith('scripts/') && !String(file.bytes).includes('NEVER_EXECUTE')) throw new Error('script sentinel missing');
-  if (testCase.snapshot) {
-    if (testCase.valid !== true || testCase.snapshot.materialized !== true) throw new Error(`invalid materialized snapshot: ${testCase.id}`);
-    if (!testCase.snapshot.origin || typeof testCase.snapshot.origin.url !== 'string') throw new Error(`snapshot origin missing: ${testCase.id}`);
-    const digest = crypto.createHash('sha256');
-    // Must exactly match the API's code-point lexical comparator; localeCompare
-    // changes the order (and therefore digest) for accepted Unicode paths.
-    for (const file of [...testCase.files].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) {
-      digest.update(file.path, 'utf8'); digest.update('\0', 'utf8');
-      digest.update(Array.isArray(file.bytes) ? Buffer.from(file.bytes) : file.bytes, 'utf8'); digest.update('\0', 'utf8');
-    }
-    if (digest.digest('hex') !== testCase.snapshot.origin_hash) throw new Error(`snapshot origin hash mismatch: ${testCase.id}`);
+node --input-type=module - "$ROOT" <<'NODE'
+import { readFileSync } from "node:fs";
+const root = process.argv[2];
+const { canonicalHash, checkArtifact } = await import(`${root}/install/skill-tool.mjs`);
+const { createHash } = await import("node:crypto");
+const cases = JSON.parse(readFileSync(`${root}/test/fixtures/canonical-skills.json`, "utf8")).cases;
+const bytesOf = (file) => Array.isArray(file.bytes) ? Buffer.from(file.bytes) : Buffer.from(file.bytes, "utf8");
+let checked = 0;
+for (const c of cases) {
+  const files = c.files.map((f) => ({ path: f.path, bytes: bytesOf(f) }));
+  if (c.snapshot) {
+    if (canonicalHash(files) !== c.snapshot.origin_hash) throw new Error(`canonical hash mismatch: ${c.id}`);
+    checked++;
   }
+  const hash = canonicalHash(files);
+  const artifact = { skill_id: "s", release_id: "r", version: "1.0.0", canonical_hash: hash, integrity: { valid: true },
+    manifest: { sha256: hash, files: files.map((f) => ({ path: f.path, bytes: f.bytes.length, sha256: createHash("sha256").update(f.bytes).digest("hex") })) },
+    files: files.map((f) => ({ path: f.path, kind: "file", bytes_base64: f.bytes.toString("base64") })) };
+  let accepted = true;
+  try { checkArtifact(artifact, { skill_id: "s", release_id: "r", canonical_hash: hash }); } catch { accepted = false; }
+  if (accepted !== c.valid) throw new Error(`artifact acceptance mismatch for ${c.id}: accepted=${accepted}, fixture valid=${c.valid}`);
 }
-console.log('Canonical skill fixture semantic conformance passed');
+console.log(`canonical skill fixture: ok (${cases.length} cases, ${checked} hash vectors)`);
 NODE
