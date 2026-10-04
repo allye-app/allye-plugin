@@ -8,7 +8,7 @@ Agents are mandates, not persistent processes. The Mothership dispatches each on
 |---|---|---|---|
 | Armorer | checker | read; installs only with approval | Verifies capabilities; never designs or publishes |
 | Recon | explorer | read-only | Maps repo/platform; no edits |
-| Strategist | planner | read-only | Runs alone; Mothership waits for it before any Pilot |
+| Strategist | planner | read-only by mandate | Runs alone; Mothership waits for it before any Pilot |
 | Architect | designer | read-only | Designs options A/B; never writes code; never talks to the user directly |
 | Dispatcher | writer | code guide only | Drafts a quick spec (returned, not published); maintains the code guide |
 | Pilot | writer | edits its slice paths | One task/slice; standard test/build + packet verify commands only |
@@ -18,7 +18,7 @@ Agents are mandates, not persistent processes. The Mothership dispatches each on
 | Shield | reviewer | read-only | Security veto by severity |
 | Watcher | reviewer | read-only | Full diff, never a sample |
 
-Pick the harness agent type by capability (read-only explorer vs. general worker), not by name. If a specialized type is missing, use a general worker with the same mandate and limits. Per-agent skills will live at `skills/bridge-<agent>/SKILL.md`; tell the subagent to read its skill and include the full packet.
+Use the role map from Armorer's preflight: native reviewer → Medic, Optimizer, Watcher; native security reviewer → Shield; explorer/scout → Recon; general worker → Pilot, Copilot, Strategist, Architect, Dispatcher. If a specialized type is missing, use a general worker with the same mandate and limits; read-only roles stay read-only by mandate. Per-agent skills will live at `skills/bridge-<agent>/SKILL.md`; tell the subagent to read its skill and include the full packet.
 
 ## Task packet
 
@@ -110,11 +110,11 @@ Send concrete findings and the round number to the same Pilot (resume the same s
 
 ## Harness adapters
 
-The contracts above are identical everywhere; only the dispatch mechanism changes. Detect what the current harness offers at preflight (Armorer) and log it.
+The contracts above are identical everywhere; only the dispatch mechanism changes. Armorer detects what the current harness offers at preflight; the Mothership logs it and dispatches per its role map.
 
 | Harness | Dispatch | Parallel batch | Asking the user |
 |---|---|---|---|
-| Claude Code | `Agent` tool: read-only explorer type for Recon/Strategist/reviewers, general-purpose for Pilot/Dispatcher; `run_in_background` for Recon/Architect during interviews; `SendMessage` to continue the same Pilot on corrections | several `Agent` calls in one message | `AskUserQuestion` |
+| Claude Code | `Agent` tool: explorer type for Recon, general-purpose for the other roles (reviewers read-only by mandate); `run_in_background` for Recon/Architect during interviews; `SendMessage` to continue the same Pilot on corrections | several `Agent` calls in one message | `AskUserQuestion` |
 | Codex | native subagents when enabled in the session | as supported; otherwise sequential | numbered markdown |
 | OpenCode | `task` tool with a subagent (explore for read-only, general for writers) | several `task` calls in one turn | its question tool if available, else numbered markdown |
 | Pi | subagent extension if installed; otherwise sequential fallback | extension-dependent | numbered markdown |

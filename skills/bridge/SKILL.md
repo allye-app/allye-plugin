@@ -31,7 +31,7 @@ Read before acting:
 - decisions already recorded in the spec (`[D-NN]`, resolved `[Q-NN]`) — binding, never re-asked;
 - existing `.allye/missions/<slug>/log.md` when resuming.
 
-Before every route, run the **Armorer** preflight: check that the Allye MCP tools respond, the active team is set, the harness can delegate (or fall back to sequential), and the toolchain the repo needs is present. Armorer reports gaps; it installs nothing without approval and never designs the feature.
+Before every route, run the **Armorer** preflight (`skills/bridge-armorer/SKILL.md`): you probe Allye (`initialize`, `allye_health_check`) and pass the results in its packet; it checks the active team, harness delegation and question tool, maps native agent types to crew roles, and checks the local toolchain. Reuse `.allye/armorer.json` when plugin and harness versions match. No active team → ask which and call `team.team_switch`. A missing required capability → show Armorer's exact proposal and wait for approval. Armorer installs nothing without approval and never designs the feature.
 
 If a mode needs no implementation, run only its route and return its result. Do not fabricate mission state.
 

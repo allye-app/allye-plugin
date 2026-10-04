@@ -11,7 +11,12 @@
 
 ## 1. Preflight and routing
 
-Run Armorer first. It checks: Allye MCP reachable and the active team set (otherwise `team.team_switch` after asking which team); the harness can delegate (else sequential fallback, see `delegation.md`); the repo toolchain needed by the verify commands exists. Missing capability → report and stop, or provision only with approval.
+Run Armorer first (`skills/bridge-armorer/SKILL.md`). The Mothership probes Allye (`initialize`, `allye_health_check`; `skills.skill_list` for the optional team-skills check) and passes the observed results; Armorer checks the active team, delegation (parallel or sequential fallback, see `delegation.md`), the question channel, the native agent type for each crew role, and the repo toolchain needed by the verify commands. Its result is cached in `.allye/armorer.json` (git-ignored, written by the Mothership) keyed by plugin version + harness id + harness version.
+
+- No active team → ask which, `team.team_switch`, rerun the check.
+- Missing required capability → present Armorer's exact official command, wait for approval, run it, and have Armorer verify the post-condition. No verifiable command → blocked.
+- Optional gaps (e.g. `gh`, outdated team skills) are reported and never block.
+- Log the result (`preflight`) and use its role map for every dispatch.
 
 Then classify the mode:
 
