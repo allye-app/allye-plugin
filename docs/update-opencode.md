@@ -1,41 +1,28 @@
-# Allye Plugin — OpenCode Update Guide
+# Allye — OpenCode update guide
 
-You are an AI agent helping the user update the Allye plugin for OpenCode. Follow these steps exactly.
+You are an AI agent helping the user update the `allye-opencode` plugin.
 
 ## Step 1: Update the npm package
 
-Run this command to update allye-opencode to the latest version:
-
 ```bash
-cd ~/.config/opencode && bun update allye-opencode 2>/dev/null || npm update allye-opencode 2>/dev/null
+cd ~/.config/opencode && (bun update allye-opencode 2>/dev/null || npm update allye-opencode)
 ```
 
-If that doesn't work, force a clean reinstall:
+If that does not pick up the new version, reinstall it:
 
 ```bash
-cd ~/.config/opencode && rm -rf node_modules/allye-opencode && bun install 2>/dev/null || npm install 2>/dev/null
+cd ~/.config/opencode && rm -rf node_modules/allye-opencode && (bun install 2>/dev/null || npm install)
 ```
 
-## Step 2: Verify the update
-
-Check the installed version:
+## Step 2: Verify
 
 ```bash
-cat ~/.config/opencode/node_modules/allye-opencode/package.json 2>/dev/null | jq -r '.version'
-```
-
-Check the latest version on npm:
-
-```bash
+jq -r '.version' ~/.config/opencode/node_modules/allye-opencode/package.json
 npm view allye-opencode version
 ```
 
-If both match, the update is complete.
+Both versions must match. Earlier versions registered six Allye agents (Allye, Plan, Orchestrator, Build, Review, Deliver); they disappear after the update, replaced by the Bridge skill.
 
 ## Step 3: Confirm
 
-Tell the user:
-
-> Allye plugin updated to version **{version}**!
->
-> **Restart OpenCode** to activate the new version.
+> Allye plugin updated to version **{version}**. Restart OpenCode to load it.
