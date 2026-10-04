@@ -1,3 +1,18 @@
+# [2.0.0](https://github.com/allye-app/allye-plugin/compare/v1.9.1...v2.0.0) (2026-10-04)
+
+
+### Features
+
+* Bridge rewrite is the new major line ([6ce79dd](https://github.com/allye-app/allye-plugin/commit/6ce79ddc82b750adb31588c6a9b4b0126291a65c)), closes [#2](https://github.com/allye-app/allye-plugin/issues/2)
+
+
+### BREAKING CHANGES
+
+* the legacy workflow skills, agents and Cursor/Gemini/Hermes support were removed and replaced by the Bridge skill set.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HUgZTeBNyULPjFFbE9xywq
+
 ## [1.9.1](https://github.com/allye-app/allye-plugin/compare/v1.9.0...v1.9.1) (2026-10-04)
 
 
