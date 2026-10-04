@@ -34,6 +34,7 @@ You make sure the requested mode has every capability it needs before the Mother
 3. **MCP for subagents.** If you run as a subagent, check whether the `allye` MCP tools are in your own tool list — that is direct evidence of what other subagents get. Present → `subagentMcp: available` (crew members read and write Allye within their roles, see `../bridge/references/delegation.md`); absent → `unavailable` (satisfied by the fallback: the Mothership makes those calls on their behalf and embeds content in packets). In sequential fallback, `n/a`. When this check cannot be observed directly, report `unavailable` until a subagent shows otherwise — never assume access.
 4. **Question channel.** Native question tool present (e.g. Claude Code `AskUserQuestion`) → native; otherwise numbered markdown rounds (satisfied).
 5. **Agent types → crew roles.** Map what the harness offers before declaring anything missing:
+   - native crew agent `bridge-<agent>` (Claude Code: `allye:bridge-<agent>` in the `Agent` tool's agent types; OpenCode: `bridge-<agent>` among the `task` tool's subagents) → that role, always first. List each one you see in `nativeCrewAgents`; a role without one falls through to the types below (`../bridge/references/delegation.md` → Native crew agents);
    - native reviewer → Medic, Optimizer, Watcher;
    - native security reviewer → Shield (else a native reviewer with Shield's mandate);
    - read-only explorer → Recon;
@@ -71,6 +72,7 @@ harness:
   delegation: parallel|sequential
   subagentMcp: available|unavailable|n/a
   questions: native|markdown
+  nativeCrewAgents: [<observed type names, e.g. allye:bridge-pilot; [] when none>]
   roleMap: { recon: <type>, strategist: <type>, pilot: <type>, copilot: <type>, medic: <type>, optimizer: <type>, shield: <type>, watcher: <type>, architect: <type>, dispatcher: <type> }
 pluginVersion: <version>
 allye: { connected: true|false, activeTeam: <name|null> }

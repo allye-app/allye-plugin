@@ -12,7 +12,7 @@ Thumbs.db
 .env
 .env.*
 
-# Node (caso venha a ter tooling)
+# Node tooling
 node_modules/
 
 .worktrees/
