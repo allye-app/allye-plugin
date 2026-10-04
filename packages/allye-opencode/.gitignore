@@ -1,4 +1,4 @@
 node_modules/
 dist/
-src/prompts/skills-content.ts
-# allye-opencode
+skills/
+src/bootstrap.generated.ts
