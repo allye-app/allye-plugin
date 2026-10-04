@@ -45,6 +45,10 @@ Claude Code `AskUserQuestion`:
 ---
 ```
 
+## Multi-app features
+
+When Recon or the answers show the feature spans several apps, settle in the same interview: which apps are involved, the contract between them (API shape, events, shared types) and which side goes first. Plan one spec per app under one epic. Record the cross-app contract as one decision and copy it, with the same `[D-NN]` number and text, into every spec that shares it; keep `[D]` numbering aligned so the shared ids do not collide with app-specific ones.
+
 ## Recording the outcome
 
 As answers arrive, keep a running ledger that will become spec anchors:
@@ -60,8 +64,8 @@ As answers arrive, keep a running ledger that will become spec anchors:
 
 When the frontier is empty:
 
-1. Present **one consolidated summary**: the problem, the chosen design, the anchor ledger, the epic/spec/task breakdown (Strategist's DAG), and what will be created on the server.
+1. Present **one consolidated summary**: the problem, the chosen design, the anchor ledger, the epic/spec/task breakdown (Strategist's DAG; one spec per app with the dependency order between specs), and what will be created on the server.
 2. Ask **one confirmation**. Without a yes, create nothing; stay in the interview or stop.
-3. On yes, create directly via MCP, in this order: epic when needed (`epics.epic_create`), spec (`specs.spec_create` with anchors in content, `type`, `apps`), tasks (`tasks.task_bulk_create`, thin: refs, files, verify, notes), spec dependencies when relevant. If no `[Q-NN]` remains open, `specs.spec_submit` (draft → in_review).
+3. On yes, create directly via MCP, in this order: epic when needed — always for a multi-app feature (`epics.epic_create`); one spec per app (`specs.spec_create` with anchors in content, `type`, `apps` set to that single app, `epic`); tasks per spec (`tasks.task_bulk_create`, thin: refs, files, verify, notes); then the cross-app links (`specs.spec_dependency_add`, e.g. Web spec depends on API spec). For each spec with no open `[Q-NN]`, `specs.spec_submit` (draft → in_review).
 4. Do not approve. `specs.spec_approve` happens only when the user explicitly asks for it.
 5. If a creation fails midway, stop, read what exists, and propose how to reconcile; never recreate blindly.

@@ -54,13 +54,17 @@ Composed routes never skip preflight or gates. Architect designs and never write
 
 ## Launch (summary — full rules in `workflow.md`)
 
-1. **Preflight, read-only.** `specs.spec_context` the spec: status must be `approved` (or `in_progress` when resuming), no open `[Q-NN]`, dependencies done, apps include the current repo. Read repo instructions, base branch, test commands, the code guide, and `git status`. No server or git mutation yet.
+1. **Preflight, read-only.** `specs.spec_context` the spec: status must be `approved` (or `in_progress` when resuming), no open `[Q-NN]`, apps include the current repo. If a spec it depends on is not `done`, warn and stop unless the user says to proceed. Read repo instructions, base branch, test commands, the code guide, and `git status`. No server or git mutation yet.
 2. **Working tree.** Record pre-existing changes. Non-overlapping ones are excluded from packets and from the reviewed diff; overlapping or ambiguous ones stop the run and go to the human.
 3. **Strategist, alone.** Dispatch one Strategist and wait. Validate its DAG before any Pilot: no cycles, no orphan tasks, every `[AC-NN]` mapped (cross-check with `specs.spec_coverage`), overlapping writers explicitly ordered. Reconcile the DAG with the server tasks (`tasks.task_bulk_create` / `task_update` for missing ones or dependencies).
 4. **Mission state.** Create or resume `.allye/missions/<slug>/` per `state-contract.md`; log preflight and every transition.
 5. **Slices.** Dispatch only independent slices of the unblocked frontier in one batch; never two writers on overlapping paths. `tasks.task_start` as each Pilot begins. Per slice: Pilot → Copilot reruns the declared `verify` commands itself → Medic + Shield (Optimizer when planned). Commit the slice locally, then `tasks.task_submit`.
 6. **Corrections.** Return concrete findings to the same Pilot; at most 2 correction rounds per slice, then block the slice and all its descendants, keeping evidence.
 7. **Final gates.** Aggregate validation, Medic on the whole change, Shield on the final diff, Watcher on the full diff against spec anchors, then your mechanical check → `MISSION_COMPLETE`. Then `tasks.task_complete` the passed tasks.
+
+## Multi-app work
+
+One spec per app, all under the same epic, linked with `specs.spec_dependency_add` (e.g. the Web spec depends on the API spec). One `launch` = one spec, one repo, one branch, at most one PR. The cross-app contract is the same `[D-NN]` in every spec that shares it.
 
 ## Mission mode
 

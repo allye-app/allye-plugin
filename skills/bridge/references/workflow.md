@@ -3,7 +3,8 @@
 ## Invariants
 
 - The Allye server is the plan. Epic, spec, anchors, tasks, dependencies and statuses are read and written through MCP only; `.allye/missions/<slug>/` holds the local journal and crew findings (see `state-contract.md`).
-- One `launch` = one spec, one repository, one branch, at most one PR. If the spec's apps include another repository, only the tasks whose `files` belong to this repo run here; the rest are reported, never silently widened into this branch.
+- One `launch` = one spec, one repository, one branch, at most one PR.
+- Multi-app work = one spec per app, all under the same epic, linked with `specs.spec_dependency_add` (e.g. the Web spec depends on the API spec). The cross-app contract (API shape, event format, shared types) is recorded as the same `[D-NN]` in every spec that shares it. A spec never carries work for another app's repository.
 - Decisions recorded in the spec (`[D-NN]`, `[Q-NN] … (resolved)`) are binding inputs. Ask only about gaps that block execution; never re-ask an answered question.
 - The Mothership is the only process that calls Allye MCP tools, commits, pushes or touches the git remote. Subagents get minimal sanitized packets, no credentials, no external writes.
 - No push or PR without `SHIELD_CLEAR` and `WATCHER_APPROVED` for the current reviewed point and an explicit human yes to the proposal.
@@ -35,11 +36,12 @@ Before creating a branch, editing code or changing any status:
 
 1. Resolve the spec by its real key (`specs.spec_get` / `spec_context`); refuse placeholders.
 2. Confirm status `approved` (or `in_progress` on resume). `draft`/`in_review` → stop and say what is missing; never approve on your own.
-3. Confirm no open `[Q-NN]` or `[NEEDS CLARIFICATION]`, and that spec dependencies (`spec_dependency_*`) are done. Distinguish a start blocker from a deploy-time dependency.
-4. Confirm this repository is one of the spec's apps (`projects.app_list`: `repository_url`, `default_branch`).
-5. Read repo instructions, conventions, the code guide, base branch, test/build commands and PR template.
-6. Inspect `git status` and record pre-existing changes.
-7. Check for an existing `.allye/missions/<slug>/` (resume) and that it belongs to this spec.
+3. Confirm no open `[Q-NN]` or `[NEEDS CLARIFICATION]`.
+4. Check the specs this one depends on (from `spec_context`/`spec_get`). If any is not `done`, warn — naming each dependency, its status and the shared `[D-NN]` contract — and stop unless the user says to proceed. Log the warning and the user's answer.
+5. Confirm this repository is the spec's app (`projects.app_list`: `repository_url`, `default_branch`). A spec whose tasks touch another app's repo is a planning error: stop and route to Architect to split it.
+6. Read repo instructions, conventions, the code guide, base branch, test/build commands and PR template.
+7. Inspect `git status` and record pre-existing changes.
+8. Check for an existing `.allye/missions/<slug>/` (resume) and that it belongs to this spec.
 
 No server or git mutation happens in preflight.
 
@@ -110,4 +112,4 @@ Follow `state-contract.md` → Resume. Rebuild the frontier from server dependen
 
 ## 10. Scope control
 
-A small adjustment strictly needed for an acceptance criterion may proceed if logged. A material change — new requirement, new public contract, another app/repo, a product decision — stops the slice: route to Architect, then update the spec (`specs.spec_update` with a `change_note`, mandatory while `in_progress`), invalidate gates, and re-plan. Never hide new work inside the same PR.
+A small adjustment strictly needed for an acceptance criterion may proceed if logged. A material change — new requirement, new public contract, another app/repo, a product decision — stops the slice: route to Architect, then update the spec (`specs.spec_update` with a `change_note`, mandatory while `in_progress`), invalidate gates, and re-plan. A change to a cross-app `[D-NN]` contract updates every spec that shares it, each with its own `change_note`. Work for another app becomes (or goes into) that app's spec under the same epic. Never hide new work inside the same PR.
