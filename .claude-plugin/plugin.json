@@ -1,7 +1,7 @@
 {
   "name": "allye",
   "description": "Allye for Claude Code: the Allye MCP (projects, epics, specs, tasks, team) and the Bridge skill (/bridge <mode>) that designs specs and drives them to reviewed branches.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": {
     "name": "Allye Assistant",
     "email": "faq@devshire.app"

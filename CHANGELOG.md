@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/allye-app/allye-plugin/compare/v2.0.0...v2.1.0) (2026-10-04)
+
+
+### Features
+
+* ship native Bridge crew subagents for Claude Code and OpenCode ([56b37d5](https://github.com/allye-app/allye-plugin/commit/56b37d5035244b90e40d3e72c9a6058f450b1492))
+
 # [2.0.0](https://github.com/allye-app/allye-plugin/compare/v1.9.1...v2.0.0) (2026-10-04)
 
 
