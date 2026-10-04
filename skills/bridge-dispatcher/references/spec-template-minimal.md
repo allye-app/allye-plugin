@@ -1,6 +1,6 @@
 # Minimal spec template
 
-For a known, bounded change in one app. It uses the same anchors as the full template (`[BR]`, `[AC]`, `[D]`, `[NFR]`, `[Q]`, numbered from `01`) so the server can track coverage and block submission on open questions. Drop an optional section only when it truly does not apply.
+For a known, bounded change in one app. It uses the same anchors as the full template (`[BR]`, `[AC]`, `[D]`, `[NFR]`, `[Q]`, numbered from `01`) so the server can track coverage and block submission on open questions. Every anchor id is **defined exactly once per spec** — one list item or heading starting with it; everywhere else it is referenced inline ("see [D-01]"), never at the start of a list item or heading (the server rejects a repeated anchor with `SPEC_DUPLICATE_ANCHOR`). A contract decision lives in Decisions only; the Contract section refers to it inline. Drop an optional section only when it truly does not apply.
 
 ```markdown
 # <Outcome-oriented title>
@@ -50,4 +50,4 @@ For a known, bounded change in one app. It uses the same anchors as the full tem
 - [Q-02] <open blocker — owner and impact>     ← blocks spec_submit
 ```
 
-Rules: English throughout; every `[BR-NN]` covered by an `[AC-NN]`; no secrets or unnecessary personal data. If filling this template needs a Technical section of its own (data migration, cross-app contract, security model), the change belongs to the Architect.
+Rules: one definition per anchor id, every other mention inline; the anchor lint (`../../bridge/references/spec-lint.md`) passes before the spec is returned and again before it is published; English throughout; every `[BR-NN]` covered by an `[AC-NN]`; no secrets or unnecessary personal data. If filling this template needs a Technical section of its own (data migration, cross-app contract, security model), the change belongs to the Architect.

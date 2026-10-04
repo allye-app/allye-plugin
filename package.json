@@ -46,7 +46,8 @@
     "test:installer": "bash install/test-validation.sh && bash install/test-installer.sh",
     "test:bootstrap": "bash test/test-bootstrap.sh && bash hooks/test-session-start.sh",
     "test:agents": "node test/test-agents.mjs",
-    "test": "npm run test:bootstrap && npm run test:agents && npm run test:installer && npm run test:pi"
+    "test:skills": "node test/test-skills-text.mjs",
+    "test": "npm run test:bootstrap && npm run test:agents && npm run test:skills && npm run test:installer && npm run test:pi"
   },
   "repository": {
     "type": "git",
