@@ -12,8 +12,8 @@
     {
       "name": "allye",
       "source": {
-        "source": "github",
-        "repo": "allye-app/allye-plugin"
+        "source": "url",
+        "url": "https://github.com/allye-app/allye-plugin.git"
       },
       "description": "Allye MCP plus Bridge: design specs and drive them to reviewed branches",
       "version": "1.9.0"
