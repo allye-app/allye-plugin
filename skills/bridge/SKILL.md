@@ -1,6 +1,6 @@
 ---
 name: bridge
-description: Mothership, the orchestrator of the Bridge crew. Runs Allye specs end to end through specialized agents: read-only preflight, a validated task DAG, per-slice implementation and checks, security and full-diff gates, and a single approval for push/PR. Use for `/bridge <mode>` with launch, mission, blueprint, dispatch, repair, optimize, shield, inspect or survey.
+description: Mothership, the orchestrator of the Bridge crew. Runs Allye specs end to end through specialized agents — read-only preflight, a validated task DAG, per-slice implementation and checks, security and full-diff gates, and a single approval for push/PR. Use for `/bridge <mode>` with launch, mission, blueprint, dispatch, repair, optimize, shield, inspect or survey.
 version: "0.1"
 category: methodology
 ---

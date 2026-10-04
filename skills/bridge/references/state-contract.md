@@ -70,7 +70,7 @@ Event types (extend only when none fits): `preflight`, `publish`, `spec-challeng
 
 1. **Explicit, never watched.** The Mothership appends an entry right after each transition it performed or observed. No watchers, polling loops, background tailers or shell loops.
 2. **Re-read before writing.** Read `log.md` immediately before every write, preserve its content, and append. All writes to `log.md` are serialized through the Mothership.
-3. **Timestamps from the system.** Get the current UTC time from the shell (`date -u +%Y-%m-%dT%H:%M:%SZ` on POSIX, the equivalent elsewhere, e.g. `Get-Date -AsUTC -Format yyyy-MM-ddTHH:mm:ssZ` in PowerShell); never infer or invent a time.
+3. **Timestamps from the system.** Get the current UTC time from the shell (`date -u +%Y-%m-%dT%H:%M:%SZ` on POSIX, the equivalent elsewhere, e.g. `Get-Date -AsUTC -Format 'yyyy-MM-ddTHH:mm:ssZ'` in PowerShell 7+); never infer or invent a time.
 4. **Start before, result after.** For an action with side effects (external action, slice start), log `pending`/`running` before and the outcome after. If resume finds only the start, treat the outcome as unknown and inspect reality (git, MCP reads) before repeating anything.
 5. **Reject incomplete events.** An entry without actor, state, or (when applicable) commit is not written; fix the input first.
 6. **A report is not proof.** What an agent says it ran is logged as `(report)`. A verify result counts only when the Copilot reran it (or, in sequential fallback, the Mothership reran it in its Copilot turn).
