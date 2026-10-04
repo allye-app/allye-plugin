@@ -11,7 +11,7 @@ The repo also holds `install.sh`, which is **not** the plugin installer: it inst
 ## Single sources
 
 - `bootstrap/allye.md` — the session-start text for every harness (Allye MCP tools, active-team rule, Bridge modes). Keep it under 40 lines, English, and free of work items, boards and sprints. After editing it run `scripts/sync-bootstrap.sh` (it refreshes `manifests/codex/AGENTS.md`); `test/test-bootstrap.sh` fails while the copy is stale.
-- `skills/bridge/` (and future `skills/bridge-*`) — the Bridge skill. Claude Code loads it as a plugin skill, Pi/OMP through the `allye-pi` package, OpenCode through the `allye-opencode` package (copied at build time), Codex by copying it into `~/.codex/skills/`.
+- `skills/bridge/` and the crew skills `skills/bridge-*/` — the Bridge skill (the Mothership) and one skill per crew agent; `skills/bridge/references/crew.md` lists them. Claude Code loads them as plugin skills, Pi/OMP through the `allye-pi` package, OpenCode through the `allye-opencode` package (copied at build time), Codex by copying them into `~/.codex/skills/`.
 
 ## How each harness gets the bootstrap
 

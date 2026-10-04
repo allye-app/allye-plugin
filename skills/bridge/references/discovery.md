@@ -5,7 +5,7 @@ One protocol for every mode that has to learn intent from the user: `blueprint` 
 ## Who does what
 
 - **The Mothership asks**, in the main thread. Subagents cannot talk to the user.
-- **Recon and Architect investigate in the background** while the interview runs. Each independent factual question gets its own Recon (at most 3 in parallel; sequential without subagents), which answers from code, docs and logs. The Mothership does the Allye MCP reads itself and embeds what Recon needs. For a multi-app feature, the Mothership passes the local path of each sibling app's clone so Recon can check the contract; an app not cloned locally is reported as a gap. Architect drafts options. Their findings feed the next round.
+- **Recon and Architect investigate in the background** while the interview runs. Each independent factual question gets its own Recon (at most 3 in parallel; sequential without subagents), which answers from code, docs and logs. Recon reads related specs and tasks through Allye MCP itself (or gets them embedded when subagents have no MCP access). For a multi-app feature, the Mothership passes the local path of each sibling app's clone so Recon can check the contract; an app not cloned locally is reported as a gap. Architect (`options` mode) drafts A/B options for frontier decisions and may ask for more Recon through you; in `dispatch`, the Dispatcher plays this role. Their findings feed the next round.
 - **Facts are researched, never asked.** If a question can be answered from the code, the server, docs, logs or telemetry, find the answer. A fact still under investigation is an open prerequisite: ask the independent questions now, hold the dependent ones.
 - **Decisions belong to the user.** Present alternatives, implications and a recommendation; wait for the answer before assuming a choice.
 
@@ -21,7 +21,7 @@ Work in rounds:
 4. Fold them into the tree: resolved decisions push the frontier outward and unlock dependent questions. A question that depends on another one still open in the current round belongs to a later round.
 5. Repeat until the frontier is empty — every branch visited and no relevant decision silently assumed — and the user confirms that you share the same understanding.
 
-`dispatch`: ask only the ≤3 questions that most change scope or risk; take recommended defaults for the rest and record them as decisions the user can override in the summary.
+`dispatch`: ask only the Dispatcher's ≤3 questions (behavior and trigger, scope and failure limits, contract or done criterion), skipping any already answered or verifiable; take recommended defaults for the rest and record them as `[D-NN] (proposed)` the user can override in the summary. If the Dispatcher escalates (multi-app, systemic), switch to `blueprint`.
 
 ## Asking format
 
@@ -53,19 +53,19 @@ When Recon or the answers show the feature spans several apps, settle in the sam
 
 As answers arrive, keep a running ledger that will become spec anchors:
 
-- a decision the user made (or accepted from your recommendation) → `[D-NN] <decision> — <rationale>`;
-- a question that was asked and answered → `[Q-NN] <question> (resolved) — <answer>`;
+- a decision, tagged with its origin → `[D-NN] (user) <decision> — <rationale>` (the user decided or accepted it), `[D-NN] (source: <path or doc>) …` (established by evidence), `[D-NN] (proposed) …` (the author's recommendation, not yet confirmed);
+- a question that was asked and answered → `[Q-NN] (resolved) <question> → <answer>` (the server's resolved form);
 - a question still open → `[Q-NN] <question>` (blocks `spec_submit` until resolved);
 - business rules and acceptance criteria surfaced → `[BR-NN]`, `[AC-NN]` (EARS or Given/When/Then), quality constraints → `[NFR-NN]`.
 
-`blueprint --auto`: Architect picks the recommended option at each branch; record each as `[D-NN] … (auto) — <rationale>`. A decision that is high-impact and genuinely the user's (product, cost, irreversible data change) stays an open `[Q-NN]` instead of being guessed.
+`blueprint --auto`: Architect (`auto` mode) picks the recommended option at each branch; record each as `[D-NN] (proposed) … — <rationale>`. A decision that is high-impact and genuinely the user's (product, cost, irreversible data change) stays an open `[Q-NN]` instead of being guessed.
+
+## Authoring and challenge
+
+When the frontier is empty, the author writes the proposal: Architect (`author` mode, full template, one spec per app, thin tasks) for `blueprint`; Dispatcher (`spec` mode, minimal template, thin tasks) for `dispatch`. Gaps the author still finds come back as one numbered round.
+
+`blueprint` and `blueprint --auto` then run the **challenge round**: Strategist, Medic, Optimizer and Shield in `challenge` mode, in parallel, on the draft spec(s) and decisions. The Architect folds the findings in; only affected challenges rerun, at most 2 rounds. A CRITICAL/HIGH finding still unresolved becomes an open `[Q-NN]` (so the spec stays `draft`); MEDIUM/LOW are incorporated or listed, never dropped silently. `dispatch` skips the round. The result is shown in the closing summary and, once the spec key exists, logged as `spec-challenge` in the mission log.
 
 ## Closing
 
-When the frontier is empty:
-
-1. Present **one consolidated summary**: the problem, the chosen design, the anchor ledger, the epic/spec/task breakdown (Strategist's DAG; one spec per app with the dependency order between specs), and what will be created on the server.
-2. Ask **one confirmation**. Without a yes, create nothing; stay in the interview or stop.
-3. On yes, create directly via MCP, in this order: epic when needed — always for a multi-app feature (`epics.epic_create`); one spec per app (`specs.spec_create` with anchors in content, `type`, `apps` set to that single app, `epic`); tasks per spec (`tasks.task_bulk_create`, thin: refs, files, verify, notes); then the cross-app links (`specs.spec_dependency_add`, e.g. Web spec depends on API spec). For each spec with no open `[Q-NN]`, `specs.spec_submit` (draft → in_review).
-4. Do not approve. `specs.spec_approve` happens only when the user explicitly asks for it.
-5. If a creation fails midway, stop, read what exists, and propose how to reconcile; never recreate blindly.
+When the frontier is empty and the proposal is ready, follow `publish.md`: resolve project/app, search overlaps, present **one consolidated summary** (problem, chosen design, anchor ledger, epic/spec/task breakdown with spec order, challenge result, exactly what will be created) and ask **one confirmation**. Without a yes, create nothing. On yes, the author creates the confirmed items, you re-read them and `spec_submit` each spec with no open `[Q-NN]`. Never approve unless the user explicitly asks. A failure midway stops, re-reads and reconciles; never recreate blindly.

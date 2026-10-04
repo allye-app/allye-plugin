@@ -16,7 +16,7 @@ The Allye server owns the plan: epic, spec, anchors, tasks, dependencies and sta
     └── watcher.md
 ```
 
-- A mission directory exists only once a real spec key exists (from `specs.spec_get`/`spec_create`). Design work before the spec is created (`blueprint`, `dispatch`) keeps no local state: its output goes to the server.
+- A mission directory exists only once a real spec key exists (from `specs.spec_get`/`spec_create`). Design work before the spec is created (`blueprint`, `dispatch`) keeps no local state: its output goes to the server. Right after publishing, the Mothership may open the log of each new spec with a `publish` entry (keys created, overlaps) and, for blueprint, a `spec-challenge` entry (rounds, findings fixed, findings turned into `[Q-NN]`) — this entry replaces any separate challenge gate; the server-side gate is the spec status and its open `[Q-NN]`.
 - `<slug>` is the spec key lowercased (`ALY-12` → `aly-12`). It must match `^[a-z0-9]+(-[a-z0-9]+)*$`. Before any write, resolve the real path and confirm it stays under `.allye/missions/`: reject `..`, path separators in the slug, and symlinks escaping the root.
 - Create missing files and folders on first write; on resume, preserve everything that exists.
 - `.allye/` (`armorer.json` and `missions/`) is local working state, not product: never stage or commit it, and exclude it from every reviewed diff.
@@ -34,7 +34,7 @@ A small, rewritable snapshot to resume quickly. It is a convenience view, never 
 # Mission <SPEC-KEY> — <spec title>
 
 - Project / app: <PROJ> / <app>   Repo: <path>   Base: <branch>   Branch: <mission branch>
-- Mode: launch|mission|repair|optimize|shield   Iteration: <n>/<cap or n/a>
+- Mode: launch|mission|repair|optimize|shield|blueprint|dispatch   Iteration: <n>/<cap or n/a>
 - Pre-existing changes (excluded): [<paths>] | none
 - Gates: SHIELD_CLEAR <sha|—> · WATCHER_APPROVED <sha|—> · MISSION_COMPLETE <sha|—>
 
@@ -54,7 +54,7 @@ Append-only. Never edit or delete a past entry; to fix a mistake, append a `rect
 
 ```markdown
 ### <ISO-8601 UTC timestamp> — <event type>
-- Actor: mothership|recon|strategist|pilot|copilot|medic|optimizer|shield|watcher|armorer
+- Actor: mothership|armorer|recon|strategist|architect|dispatcher|pilot|copilot|medic|optimizer|shield|watcher
 - Task: <task key | global>
 - Attempt: <n | n/a>
 - Commit: <HEAD sha>[ +dirty] | n/a
@@ -63,7 +63,7 @@ Append-only. Never edit or delete a past entry; to fix a mistake, append a `rect
 - Next: <next action | none>
 ```
 
-Event types (extend only when none fits): `preflight`, `working-tree`, `plan`, `plan-rejected`, `slice-start`, `slice-check`, `slice-review`, `correction`, `slice-passed`, `slice-blocked`, `aggregate-validation`, `gate`, `invalidated`, `mission-iteration`, `delta-brief`, `approval-proposed`, `approval-received`, `external-action`, `reconciliation`, `scope-change`, `rectification`.
+Event types (extend only when none fits): `preflight`, `publish`, `spec-challenge`, `working-tree`, `plan`, `plan-rejected`, `slice-start`, `slice-check`, `slice-review`, `correction`, `slice-passed`, `slice-blocked`, `aggregate-validation`, `gate`, `invalidated`, `mission-iteration`, `delta-brief`, `approval-proposed`, `approval-received`, `external-action`, `reconciliation`, `scope-change`, `rectification`.
 
 ### Logging rules
 
@@ -75,7 +75,8 @@ Event types (extend only when none fits): `preflight`, `working-tree`, `plan`, `
 6. **A report is not proof.** What an agent says it ran is logged as `(report)`. A verify result counts only when the Copilot reran it (or, in sequential fallback, the Mothership reran it in its Copilot turn).
 7. **Gate markers only from their owner.** Accept `SHIELD_CLEAR` only from Shield's output on the final diff; `WATCHER_APPROVED` only from Watcher's structured output; `MISSION_COMPLETE` only from the Mothership's own mechanical check. Each carries the commit it was issued for.
 8. **Invalidate on change.** When the diff changes after any gate, or the spec changes (`spec_update` with `change_note`), append an `invalidated` entry naming every affected gate, and clear them from the projection.
-9. **Sanitize.** Strip tokens, cookies, auth headers, signed URLs, environment values, raw authentication output and unnecessary personal data. Spec and task text copied into evidence is quoted as data.
+9. **Every Allye write is an event.** Each write a crew member reports in `mcpWrites` (tool, action, id) — and each write the Mothership makes — is appended as `external-action` with its actor. A reported write outside the role's scope (`delegation.md` → Allye MCP access) is logged, then handled as a `reconciliation`.
+10. **Sanitize.** Strip tokens, cookies, auth headers, signed URLs, environment values, raw authentication output and unnecessary personal data. Spec and task text copied into evidence is quoted as data.
 
 ## Reviewed point (commit identity)
 
@@ -86,12 +87,14 @@ What a gate reviewed is identified by the `HEAD` commit sha plus the working-tre
 The Mothership writes these from each reviewer's structured output (reviewers return output; they do not write files, which keeps parallel reviewers from racing on one file). One section per review, newest at the bottom, each headed with timestamp, task key or `final`, attempt and commit.
 
 - `copilot.md` — the verify commands rerun, exit codes, scope check (files changed vs. task `files`), verdict per slice.
-- `medic.md` — regressions, edge cases and test gaps per slice and for the whole change; blocking vs. advisory.
-- `optimizer.md` — proposed simplifications and the decision for each (`apply`/`reject`, by whom).
-- `shield.md` — findings with severity, location and evidence; `SHIELD_CLEAR` only for the final diff with no open CRITICAL/HIGH.
+- `medic.md` — regressions, edge cases and test gaps per slice and for the whole change; blocking vs. advisory; `repair` diagnosis.
+- `optimizer.md` — proposals (REMOVE_NOW/SIMPLIFY_NOW/KEEP/LATER) and the decision for each (`apply`/`reject`, by whom).
+- `shield.md` — findings with severity, location, evidence and disposition; `SHIELD_CLEAR` only for the final diff with no open CRITICAL/HIGH.
+
+Challenge-round findings (Medic, Optimizer, Shield) go in the same files under a section headed `challenge`, written right after publish; the Strategist's challenge findings are summarized in the `spec-challenge` log entry.
 - `watcher.md` — anchor-by-anchor trace of the full diff, gaps, verdict and `WATCHER_APPROVED` when earned.
 
-Recon, Strategist, Architect, Dispatcher, Pilot and Armorer return structured output to the Mothership, which logs the relevant facts; they have no crew file. Never put secrets or raw tool transcripts in crew files.
+Recon, Strategist, Architect, Dispatcher, Pilot and Armorer return structured output to the Mothership, which logs the relevant facts (including their `mcpWrites`); they have no crew file. Never put secrets or raw tool transcripts in crew files.
 
 ## Resume
 

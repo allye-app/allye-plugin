@@ -93,6 +93,8 @@ Each install downloads the skill's approved release, verifies every file and the
 ```
 bootstrap/allye.md          shared bootstrap text (single source)
 skills/bridge/              the Bridge skill and its references
+skills/bridge-*/            the crew skills (Armorer, Recon, Strategist, Architect, Dispatcher,
+                            Pilot, Copilot, Medic, Optimizer, Shield, Watcher)
 hooks/                      Claude Code SessionStart hook
 .claude-plugin/, .mcp.json  Claude Code plugin and marketplace manifests
 manifests/codex/AGENTS.md   Codex copy of the bootstrap (synced)
