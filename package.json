@@ -45,7 +45,8 @@
     "test:pi": "node --experimental-strip-types --test packages/allye-pi/src/index.test.ts",
     "test:installer": "bash install/test-validation.sh && bash install/test-installer.sh",
     "test:bootstrap": "bash test/test-bootstrap.sh && bash hooks/test-session-start.sh",
-    "test": "npm run test:bootstrap && npm run test:installer && npm run test:pi"
+    "test:agents": "node test/test-agents.mjs",
+    "test": "npm run test:bootstrap && npm run test:agents && npm run test:installer && npm run test:pi"
   },
   "repository": {
     "type": "git",

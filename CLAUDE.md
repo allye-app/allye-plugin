@@ -12,6 +12,7 @@ The repo also holds `install.sh`, which is **not** the plugin installer: it inst
 
 - `bootstrap/allye.md` — the session-start text for every harness (Allye MCP tools, active-team rule, Bridge modes). Keep it under 40 lines, English, and free of work items, boards and sprints. After editing it run `scripts/sync-bootstrap.sh` (it refreshes `manifests/codex/AGENTS.md`); `test/test-bootstrap.sh` fails while the copy is stale.
 - `skills/bridge/` and the crew skills `skills/bridge-*/` — the Bridge skill (the Mothership) and one skill per crew agent; `skills/bridge/references/crew.md` lists them. Claude Code loads them as plugin skills, Pi/OMP through the `allye-pi` package, OpenCode through the `allye-opencode` package (copied at build time), Codex by copying them into `~/.codex/skills/`.
+- `agents/bridge-<role>.md` — one native crew subagent per crew skill (Claude Code plugin agents, dispatched as `allye:bridge-<role>`). Each only loads its skill and sets the role's tool allowlist; behavior lives in the skill, Allye rights in `skills/bridge/references/delegation.md`. The description is copied verbatim from the skill. `test/test-agents.mjs` enforces the pairing, the description, and that read-only roles get no Edit/Write. OpenCode registers equivalent subagents from these files; Codex, Pi and OMP use a generic worker plus the skill.
 
 ## How each harness gets the bootstrap
 
@@ -19,14 +20,14 @@ The repo also holds `install.sh`, which is **not** the plugin installer: it inst
 |---|---|
 | Claude Code | `hooks/hooks.json` → `hooks/session-start.sh` prints `bootstrap/allye.md` as `additionalContext` (offline, no credentials) |
 | Codex | `manifests/codex/AGENTS.md` (synced copy), merged into `~/.codex/AGENTS.md` by `docs/install-codex.md` |
-| OpenCode | `packages/allye-opencode`: `experimental.chat.system.transform` adds the bootstrap; the `config` hook adds the bundled skills path |
+| OpenCode | `packages/allye-opencode`: `experimental.chat.system.transform` adds the bootstrap; the `config` hook adds the bundled skills path and registers the crew subagents generated from `agents/*.md` |
 | Pi, OMP | `packages/allye-pi/src/index.ts`: `before_agent_start` adds the bootstrap, `resources_discover` exposes `skills/`, optional MCP context preload and the multi-team gate (`/allye-team`) |
 
 ## Commands
 
-- `npm test` — offline: bootstrap checks, hook test, installer tests (loopback fake API) and Pi extension tests. Individually: `npm run test:bootstrap`, `npm run test:installer`, `npm run test:pi`.
+- `npm test` — offline: bootstrap checks, hook test, crew agent checks (`npm run test:agents`), installer tests (loopback fake API) and Pi extension tests. Individually: `npm run test:bootstrap`, `npm run test:agents`, `npm run test:installer`, `npm run test:pi`.
 - `npm run typecheck` — Pi extension.
-- `packages/allye-opencode`: `bun install`, `bun run typecheck`, `bun run build` (`scripts/prepare.ts` copies the bootstrap and `skills/bridge*` into the package first; the copies are gitignored).
+- `packages/allye-opencode`: `bun install`, `bun run typecheck`, `bun run build` (`scripts/prepare.ts` copies the bootstrap, `skills/bridge*` and the crew agents from `agents/*.md` into the package first; the copies are gitignored).
 - `./install.sh list|install <runtime> <skill>...|status` — organization skills installer (needs `ALLYE_PAT`; `status` is offline).
 
 ## Installer contract (install.sh, install/)

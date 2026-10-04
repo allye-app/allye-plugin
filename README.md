@@ -95,6 +95,8 @@ bootstrap/allye.md          shared bootstrap text (single source)
 skills/bridge/              the Bridge skill and its references
 skills/bridge-*/            the crew skills (Armorer, Recon, Strategist, Architect, Dispatcher,
                             Pilot, Copilot, Medic, Optimizer, Shield, Watcher)
+agents/bridge-*.md          native crew subagents (Claude Code; OpenCode registers them from here):
+                            load the matching crew skill under a per-role tool allowlist
 hooks/                      Claude Code SessionStart hook
 .claude-plugin/, .mcp.json  Claude Code plugin and marketplace manifests
 manifests/codex/AGENTS.md   Codex copy of the bootstrap (synced)
@@ -110,7 +112,7 @@ docs/                       per-harness install and update guides
 
 ```bash
 npm install
-npm test            # bootstrap, hook, installer and Pi extension tests (offline)
+npm test            # bootstrap, hook, crew agents, installer and Pi extension tests (offline)
 npm run typecheck   # Pi extension
 cd packages/allye-opencode && bun install && bun run typecheck && bun run build
 ```

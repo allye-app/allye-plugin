@@ -2,3 +2,4 @@ node_modules/
 dist/
 skills/
 src/bootstrap.generated.ts
+src/agents.generated.ts

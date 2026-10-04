@@ -1,6 +1,6 @@
 # Delegation
 
-Agents are mandates, not persistent processes. The Mothership dispatches each one with a task packet through the harness's native subagent mechanism, or plays the role itself when the harness has none. Never create persistent custom agents, watchers or shell wrappers to emulate delegation.
+Agents are mandates, not persistent processes. The Mothership dispatches each one with a task packet through the harness's native subagent mechanism, or plays the role itself when the harness has none. Never create persistent custom agents, watchers or shell wrappers to emulate delegation; the native crew agents the plugin ships (below) are the only typed agents you use.
 
 ## Roles
 
@@ -18,9 +18,27 @@ Agents are mandates, not persistent processes. The Mothership dispatches each on
 | Shield | reviewer | read-only | Security veto by severity |
 | Watcher | reviewer | read-only | Full diff, never a sample |
 
-Use the role map from Armorer's preflight: native reviewer → Medic, Optimizer, Watcher; native security reviewer → Shield; read-only explorer → Recon; general worker → Pilot, Copilot, Strategist, Architect, Dispatcher. If a specialized type is missing, use a general worker with the same mandate and limits; read-only roles stay read-only by mandate.
+Use the role map from Armorer's preflight. A native crew agent for the role (see Native crew agents) always wins. Otherwise: native reviewer → Medic, Optimizer, Watcher; native security reviewer → Shield; read-only explorer → Recon; general worker → Pilot, Copilot, Strategist, Architect, Dispatcher. If a specialized type is missing, use a general worker with the same mandate and limits; read-only roles stay read-only by mandate.
 
-Tell each subagent to load skill `bridge-<agent>` by name, or — if the harness has no skill loader — to read `../bridge-<agent>/SKILL.md` relative to the `bridge` skill's directory (give the resolved absolute path in the packet), and include the full packet.
+Tell each subagent to load skill `bridge-<agent>` by name, or — if the harness has no skill loader — to read `../bridge-<agent>/SKILL.md` relative to the `bridge` skill's directory (give the resolved absolute path in the packet), and include the full packet. Native crew agents are already told to load their skill; the packet still carries `skill`.
+
+## Native crew agents
+
+Where the plugin can ship typed subagents, each crew role has one, named `bridge-<agent>`, that loads skill `bridge-<agent>` and enforces the role's mandate with a tool allowlist. The skill stays the single source of behavior; the agent file adds only the tool ceiling. Dispatch the native agent when Armorer lists it in `nativeCrewAgents` (for Armorer itself, which runs before any role map, when the type is visible in your own dispatch tool); otherwise use the generic worker and tell it to load the skill (above). Never mix: a role is dispatched either as its native agent or as a generic worker carrying the full mandate.
+
+| Harness | Native crew agents | Dispatch |
+|---|---|---|
+| Claude Code | `agents/bridge-<agent>.md` in the plugin (auto-discovered) | `Agent` with `subagent_type: allye:bridge-<agent>` |
+| OpenCode | registered by the `allye-opencode` plugin's `config` hook from the same `agents/*.md` (`mode: subagent`; permissions deny every tool, then allow the role's allowlist) | `task` with `subagent_type: bridge-<agent>` |
+| Codex | none: Codex reads custom agents only from `~/.codex/agents/` and `.codex/agents/`, and its plugins cannot ship them; its agent files have no tool allowlist | generic worker + skill |
+| Pi | none: core Pi has no subagents, and packages cannot ship agent definitions | generic worker + skill (or sequential fallback) |
+| OMP | none yet: OMP can discover a plugin's `agents/*.md`, but its frontmatter and tool names differ from this format, so `allye-pi` does not ship them | built-in agent types + skill |
+
+Tool ceilings, from `agents/*.md`:
+
+- Read-only roles (Armorer, Recon, Strategist, Architect, Copilot, Medic, Optimizer, Shield, Watcher) never get file-editing tools. Bash only where the role must run commands: Armorer (tool checks), Recon (reproduce, git history), Copilot (rerun verify, scope check), Medic (run covering tests), Optimizer, Shield and Watcher (read the diff at the reviewed point with git). Strategist, Architect and Dispatcher have no shell; Architect may read primary sources on the web.
+- Dispatcher may edit files only to write `docs/code-guide.md` in `guide` mode; Pilot edits its slice paths. Path limits come from the packet and the skill, not from the tool list.
+- Allye MCP tools are granted per tool, not per action: every role except Armorer gets `projects`, `epics`, `specs` and `tasks`, which also expose write actions. The Allye MCP access table below still decides which actions each role may call. Armorer gets only its probes (`initialize`, `allye_health_check`, `skills`). No crew agent gets `team` or any subagent-dispatch tool.
 
 ## Task packet
 
@@ -155,9 +173,9 @@ The contracts above are identical everywhere; only the dispatch mechanism change
 
 | Harness | Dispatch | Parallel batch | Asking the user |
 |---|---|---|---|
-| Claude Code | `Agent` tool: explorer type for Recon, general-purpose for the other roles (reviewers read-only by mandate); `run_in_background` for Recon/Architect during interviews; `SendMessage` to continue the same Pilot on corrections | several `Agent` calls in one message | `AskUserQuestion` |
+| Claude Code | `Agent` tool: `subagent_type: allye:bridge-<agent>` when Armorer lists the native crew agents; otherwise explorer type for Recon, general-purpose for the other roles (reviewers read-only by mandate); `run_in_background` for Recon/Architect during interviews; `SendMessage` to continue the same Pilot on corrections | several `Agent` calls in one message | `AskUserQuestion` |
 | Codex | native subagents when this session's tool list exposes a subagent/spawn tool; if none is listed, sequential fallback | as supported; otherwise sequential | numbered markdown |
-| OpenCode | `task` tool with a subagent (explore for read-only, general for writers) | several `task` calls in one turn | its question tool if available, else numbered markdown |
+| OpenCode | `task` tool: `bridge-<agent>` when Armorer lists the native crew agents; otherwise a subagent (explore for read-only, general for writers) | several `task` calls in one turn | its question tool if available, else numbered markdown |
 | Pi | subagent extension if installed; otherwise sequential fallback | extension-dependent | numbered markdown |
 | OMP | native `task` tool with its built-in agent types; its messaging tool for short handoffs | batch in one `task` call | numbered markdown |
 
