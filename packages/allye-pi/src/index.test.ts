@@ -36,12 +36,12 @@ test("unavailable context points at the MCP tools instead of blocking work", () 
 });
 
 test("multi-team initialization requires an explicit team only when none is active", () => {
-  const state = inspectTeamSelection("```json\n{\"profile\":{\"teams\":[{\"id\":\"team-a\",\"name\":\"Development\",\"prefix\":\"TEMA\"},{\"id\":\"team-b\",\"name\":\"BeachApp\",\"prefix\":\"BEAC\"}]}}\n```");
+  const state = inspectTeamSelection("```json\n{\"profile\":{\"teams\":[{\"id\":\"team-a\",\"name\":\"Platform\",\"prefix\":\"PLAT\"},{\"id\":\"team-b\",\"name\":\"Mobile\",\"prefix\":\"MOBI\"}]}}\n```");
   assert.equal(state.teamSelectionRequired, true);
   assert.match(state.text, /team_switch/);
-  assert.match(state.text, /Development \[TEMA\]/);
+  assert.match(state.text, /Platform \[PLAT\]/);
 
-  const active = inspectTeamSelection("```json\n{\"profile\":{\"teams\":[{\"id\":\"team-a\",\"name\":\"Development\"},{\"id\":\"team-b\",\"name\":\"BeachApp\"}],\"team\":{\"id\":\"team-a\"}}}\n```");
+  const active = inspectTeamSelection("```json\n{\"profile\":{\"teams\":[{\"id\":\"team-a\",\"name\":\"Platform\"},{\"id\":\"team-b\",\"name\":\"Mobile\"}],\"team\":{\"id\":\"team-a\"}}}\n```");
   assert.equal(active.teamSelectionRequired, false);
 
   assert.equal(inspectTeamSelection("not json").allyeUnavailable, true);
