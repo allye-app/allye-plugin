@@ -5,8 +5,8 @@
     "email": "faq@devshire.app"
   },
   "metadata": {
-    "description": "Allye plugin \u2014 the Allye MCP and the Bridge skill for AI coding agents",
-    "version": "1.8.0"
+    "description": "Allye plugin — the Allye MCP and the Bridge skill for AI coding agents",
+    "version": "1.9.0"
   },
   "plugins": [
     {
@@ -16,7 +16,7 @@
         "repo": "allye-app/allye-plugin"
       },
       "description": "Allye MCP plus Bridge: design specs and drive them to reviewed branches",
-      "version": "1.8.0"
+      "version": "1.9.0"
     }
   ]
 }

@@ -1,3 +1,19 @@
+# [1.9.0](https://github.com/allye-app/allye-plugin/compare/v1.8.0...v1.9.0) (2026-10-04)
+
+
+### Features
+
+* **bridge:** add Architect spec-author skill and full spec template ([9b9f0e4](https://github.com/allye-app/allye-plugin/commit/9b9f0e4e74697b67b023b5f34b180e80b0abc059))
+* **bridge:** add Armorer capability preflight skill ([43c5b77](https://github.com/allye-app/allye-plugin/commit/43c5b77d76b39a76ce4fe0fb3732737786f664ad))
+* **bridge:** add Copilot, Medic, Optimizer, Shield and Watcher review skills ([87372fd](https://github.com/allye-app/allye-plugin/commit/87372fdace130a1c9a550536a7f88a069da0e491))
+* **bridge:** add Dispatcher quick-spec and code-guide skill with minimal template ([8a6de31](https://github.com/allye-app/allye-plugin/commit/8a6de31996f7f4468b447b0f671cd3af8f5e4660))
+* **bridge:** add Mothership orchestrator skill and references ([3a89e29](https://github.com/allye-app/allye-plugin/commit/3a89e290d23dbe7189760fe8aee59a95b51bedb2))
+* **bridge:** add Pilot slice implementer skill with test-first references ([b459699](https://github.com/allye-app/allye-plugin/commit/b45969902a28c2309d1d8b279298be30fde7daf9))
+* **bridge:** add Recon read-only investigation skill ([3624756](https://github.com/allye-app/allye-plugin/commit/3624756ec8c37954e16f02b56edca554a9a371ea))
+* **bridge:** add Strategist planning and spec-challenge skill ([7302c52](https://github.com/allye-app/allye-plugin/commit/7302c524eaef2c53a40dddf4cff124085d81bcf0))
+* **bridge:** let crew members use the Allye MCP within their roles; add publish step ([435ce25](https://github.com/allye-app/allye-plugin/commit/435ce250a6b429f712ecaed524e11167f1213e75))
+* **bridge:** one spec per app linked by spec dependencies ([88c41bd](https://github.com/allye-app/allye-plugin/commit/88c41bd6b2252eeaf3621ba737b5f0ae56bd6c06))
+
 # [1.8.0](https://github.com/allye-app/allye-plugin/compare/v1.7.1...v1.8.0) (2026-09-09)
 
 
