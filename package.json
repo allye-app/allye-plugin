@@ -1,18 +1,22 @@
 {
   "name": "allye-pi",
   "version": "1.8.0",
-  "description": "Pi package adapter for the canonical Allye workflow",
+  "description": "Allye extension for Pi and OMP: the Allye bootstrap, the Bridge skill and the team gate",
   "type": "module",
   "keywords": [
     "pi-package",
+    "omp-plugin",
     "allye",
-    "workflow"
+    "bridge",
+    "mcp"
   ],
   "files": [
     "packages/allye-pi/src/index.ts",
     "packages/allye-pi/tsconfig.json",
     "skills",
+    "bootstrap",
     "docs/install-pi.md",
+    "docs/install-omp.md",
     "LICENSE"
   ],
   "pi": {

@@ -1,122 +1,62 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 import {
-  activeToolsForCapabilities,
-  adaptiveInstructions,
-  dispatchStateIsAcceptable,
-  extractAgentLifecycleState,
-  classifyWaitResult,
-  deliverWaitEvent,
-  describeCapabilities,
-  formatWaitEvent,
+  buildSystemSections,
   inspectTeamSelection,
-  invalidStartupContext,
-  loadUsingAllyeSkill,
-  shouldEmitWaitEvent,
-  waitEventNotificationLevel,
+  loadBootstrap,
+  mcpBridgeAvailable,
+  skillsPath,
+  unavailableStartupContext,
 } from "./index.ts";
 
-test("using-allye remains available as the startup bootstrap skill", () => {
-  assert.match(loadUsingAllyeSkill(), /Default posture/);
-  assert.match(loadUsingAllyeSkill(), /adaptive toolkit/);
+test("bootstrap is the shared bootstrap/allye.md text", () => {
+  const shared = readFileSync(resolve(import.meta.dirname, "../../../bootstrap/allye.md"), "utf8");
+  assert.equal(loadBootstrap(), shared);
+  assert.match(loadBootstrap(), /\/bridge <mode>/);
+  assert.match(loadBootstrap(), /team_switch/);
 });
 
-test("adaptive capabilities expose optional Herdr without a workflow mode", () => {
-  assert.deepEqual(describeCapabilities({ HERDR_ENV: "1", ALLYE_PI_MCP: "1", ALLYE_PI_SUBAGENTS: "1" }, true), { piSession: true, allyeMcp: true, filesystem: true, subagents: true, herdr: true });
-  assert.deepEqual(describeCapabilities({ ALLYE_PI_MCP: "0" }, true), { piSession: true, allyeMcp: false, filesystem: true, subagents: false, herdr: false });
-  assert.match(adaptiveInstructions({ piSession: true, allyeMcp: false, filesystem: true, subagents: false, herdr: false }), /not a mandatory workflow/i);
-  assert.deepEqual(activeToolsForCapabilities(["read", "allye_herdr"], { piSession: true, allyeMcp: true, filesystem: true, subagents: false, herdr: false }), ["read"]);
-  assert.deepEqual(activeToolsForCapabilities(["read"], { piSession: true, allyeMcp: true, filesystem: true, subagents: false, herdr: true }), ["read", "allye_herdr"]);
+test("skills path exposes the Bridge skill", () => {
+  assert.equal(existsSync(resolve(skillsPath(), "bridge", "SKILL.md")), true);
 });
 
-test("dispatch lifecycle accepts exact settled states and rejects blocked/unknown", () => {
-  assert.equal(dispatchStateIsAcceptable('{"agent_status":"working"}'), true);
-  assert.equal(dispatchStateIsAcceptable('{"agent_status":"idle"}'), true);
-  assert.equal(dispatchStateIsAcceptable('{"agent_status":"done"}'), true);
-  assert.equal(dispatchStateIsAcceptable('{"agent_status":"blocked"}'), false);
-  assert.equal(dispatchStateIsAcceptable('{"agent_status":"unknown"}'), false);
-  assert.equal(extractAgentLifecycleState({ result: { agent: { agent_status: "done" } } }), "done");
-  assert.equal(extractAgentLifecycleState({ result: { agent: { agent_status: "blocked" } } }), "blocked");
+test("MCP preload is optional and can be disabled", () => {
+  assert.equal(mcpBridgeAvailable({ ALLYE_PI_MCP: "0" }), false);
+  assert.equal(mcpBridgeAvailable({}), false, "no bridge is registered in the test process");
 });
 
-test("wait events classify outcomes and require collection before a verdict", () => {
-  assert.equal(classifyWaitResult({ code: 0, killed: false, stdout: "done", stderr: "" }, 1000), "completed");
-  assert.equal(classifyWaitResult({ code: 1, killed: false, stdout: "", stderr: "failed" }, 1000), "error");
-  assert.equal(classifyWaitResult({ code: 1, killed: true, stdout: "", stderr: "" }, 1000), "timeout");
-  assert.equal(classifyWaitResult(undefined, 1000, new Error("aborted by shutdown")), "aborted");
-  assert.equal(classifyWaitResult(undefined, 1000, new Error("blocked waiting for approval")), "blocked");
-  assert.equal(classifyWaitResult(undefined, 1000, new Error("unknown lifecycle state")), "unknown");
-  const text = formatWaitEvent({ name: "agent-a", timeoutMs: 1000, outcome: "completed", timestamp: "now" });
-  assert.match(text, /delegation evidence only/i);
-  assert.match(text, /allye_herdr collect/i);
-  assert.match(formatWaitEvent({ kind: "intervened", executionId: "exec-1", name: "agent-a", timeoutMs: 1000, outcome: "blocked", timestamp: "now" }), /intervention detected/i);
-});
-
-test("wait settlement persists, notifies, and queues a follow-up", () => {
-  const event = { name: "agent-a", timeoutMs: 1000, outcome: "completed" as const, timestamp: "now" };
-  const entries: unknown[] = [];
-  const notifications: Array<{ message: string; level: string }> = [];
-  const messages: unknown[] = [];
-  const result = deliverWaitEvent(event, false, new Set(), {
-    appendEntry: (_type, value) => entries.push(value),
-    notify: (message, level) => notifications.push({ message, level }),
-    sendMessage: (message, options) => messages.push({ message, options }),
-  });
-  assert.deepEqual(result, { delivered: true, persisted: true, notified: true, sent: true, errors: [] });
-  assert.deepEqual(entries, [event]);
-  assert.equal(notifications[0]?.level, "info");
-  assert.equal(messages.length, 1);
-  assert.deepEqual((messages[0] as { options: unknown }).options, { triggerTurn: true, deliverAs: "followUp" });
-});
-
-test("wait settlement is suppressed after shutdown and duplicate settlement", () => {
-  const settled = new Set<string>();
-  assert.equal(shouldEmitWaitEvent(false, settled, "agent-a"), true);
-  assert.equal(shouldEmitWaitEvent(false, settled, "agent-a"), false);
-  assert.equal(shouldEmitWaitEvent(true, settled, "agent-b"), false);
-  assert.equal(deliverWaitEvent(
-    { name: "agent-c", timeoutMs: 1000, outcome: "timeout", timestamp: "now" },
-    true,
-    new Set(),
-    { appendEntry: () => undefined },
-  ).delivered, false);
-  assert.equal(waitEventNotificationLevel({ name: "x", timeoutMs: 1, outcome: "timeout", timestamp: "now" }), "warning");
-});
-
-test("wait delivery remains durable when optional channels fail", () => {
-  const result = deliverWaitEvent(
-    { name: "agent-b", timeoutMs: 1000, outcome: "error", timestamp: "now" },
-    false,
-    new Set(),
-    {
-      appendEntry: () => undefined,
-      notify: () => { throw new Error("ui unavailable"); },
-      sendMessage: () => { throw new Error("session unavailable"); },
-    },
-  );
-  assert.equal(result.persisted, true);
-  assert.equal(result.notified, false);
-  assert.equal(result.sent, false);
-  assert.equal(result.errors.length, 2);
-});
-
-test("unavailable Allye context does not block local work", () => {
-  const state = invalidStartupContext("network down");
+test("unavailable context points at the MCP tools instead of blocking work", () => {
+  const state = unavailableStartupContext("network down");
   assert.equal(state.teamSelectionRequired, false);
   assert.equal(state.allyeUnavailable, true);
-  assert.match(state.text, /optional context unavailable/i);
-  assert.match(state.text, /continue with local/i);
+  assert.match(state.text, /network down/);
+  assert.match(state.text, /`initialize`/);
 });
 
 test("multi-team initialization requires an explicit team only when none is active", () => {
-  const state = inspectTeamSelection(`\`\`\`json
-{"profile":{"teams":[{"id":"team-a","name":"Development","prefix":"TEMA"},{"id":"team-b","name":"BeachApp","prefix":"BEAC"}]}}
-\`\`\``);
+  const state = inspectTeamSelection("```json\n{\"profile\":{\"teams\":[{\"id\":\"team-a\",\"name\":\"Development\",\"prefix\":\"TEMA\"},{\"id\":\"team-b\",\"name\":\"BeachApp\",\"prefix\":\"BEAC\"}]}}\n```");
   assert.equal(state.teamSelectionRequired, true);
   assert.match(state.text, /team_switch/);
+  assert.match(state.text, /Development \[TEMA\]/);
 
-  const active = inspectTeamSelection(`\`\`\`json
-{"profile":{"teams":[{"id":"team-a","name":"Development"},{"id":"team-b","name":"BeachApp"}],"team":{"id":"team-a"}}}
-\`\`\``);
+  const active = inspectTeamSelection("```json\n{\"profile\":{\"teams\":[{\"id\":\"team-a\",\"name\":\"Development\"},{\"id\":\"team-b\",\"name\":\"BeachApp\"}],\"team\":{\"id\":\"team-a\"}}}\n```");
   assert.equal(active.teamSelectionRequired, false);
+
+  assert.equal(inspectTeamSelection("not json").allyeUnavailable, true);
+});
+
+test("system sections always carry the bootstrap and keep the team gate on every prompt", () => {
+  const gate = inspectTeamSelection("```json\n{\"profile\":{\"teams\":[{\"id\":\"a\",\"name\":\"A\"},{\"id\":\"b\",\"name\":\"B\"}]}}\n```");
+  const first = buildSystemSections("BOOT", gate, true);
+  const later = buildSystemSections("BOOT", gate, false);
+  assert.equal(first.length, 2);
+  assert.equal(later.length, 2);
+  assert.match(later[1], /allye-team-gate/);
+
+  const ready = { text: "ctx", teamSelectionRequired: false, allyeUnavailable: false, teams: [] };
+  assert.deepEqual(buildSystemSections("BOOT", ready, true).map((s) => s.split("\n")[0]), ["<allye-bootstrap>", "<allye-startup-context>"]);
+  assert.deepEqual(buildSystemSections("BOOT", ready, false).map((s) => s.split("\n")[0]), ["<allye-bootstrap>"]);
+  assert.deepEqual(buildSystemSections("BOOT", ready, true, false).map((s) => s.split("\n")[0]), ["<allye-bootstrap>"]);
 });
