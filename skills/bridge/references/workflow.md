@@ -27,11 +27,11 @@ Then classify the mode:
 | `blueprint` | Recon + Architect in background, Mothership interviews → confirmation → Strategist plans tasks | No | epic/spec/tasks create, `spec_submit` |
 | `blueprint --auto` | Recon + Architect decide autonomously, choices as `[D-NN]` → confirmation → Strategist plans tasks | No | as `blueprint` |
 | `dispatch` | Recon + Dispatcher, ≤3 questions → confirmation; code guide refreshed | Code guide only | spec/tasks create |
-| `repair` | Recon reproduces → Medic finds cause → (change) Strategist → Pilot → Copilot → Shield → final gates | Yes | bugfix spec if none, task transitions |
+| `repair` | Recon reproduces first (expected vs. observed) → Medic finds cause → (change) Strategist → Pilot → Copilot → Shield → final gates | Yes | bugfix spec if none, task transitions |
 | `optimize` | Recon → Optimizer proposals → user picks → Pilot → Copilot → Shield → Watcher | Yes | tasks for approved items |
 | `shield` | Shield → user confirms findings → Pilot fixes → Copilot → Shield again | Yes, if approved | optional |
 | `inspect` | Medic, Optimizer when relevant, Shield, Watcher on the target diff | No | none |
-| `survey` | Recon → Dispatcher writes/updates the code guide | Code guide only | none |
+| `survey` | Recon maps the codebase (its `guideCandidates` are the raw material) → Dispatcher writes/updates the code guide | Code guide only | none |
 
 Composed routes never skip preflight or gates. `repair`/`optimize`/`shield` changes that need tracking go through a spec: use the existing one when given, otherwise Dispatcher drafts a small one (type `bugfix` for repair) and the normal confirmation applies.
 

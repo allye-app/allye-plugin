@@ -6,7 +6,7 @@ The Mothership is the only agent that talks to the user, calls Allye MCP tools, 
 |---|---|---|---|
 | **Mothership** | Orchestrates every mode, owns the interview, server state, `log.md`, approvals and `MISSION_COMPLETE`. | Commits only | Yes |
 | **Armorer** | Read-only capability preflight before any mode: Allye connection and team (from the Mothership's probes), delegation and question tools, native agent types → crew roles, local toolchain, optional team-skills check; provisions only with approval. | No | Yes (missing required capability) |
-| **Recon** | Read-only map of repo and platform: structure, conventions, commands, relevant code for the request. | No | No |
+| **Recon** | Read-only investigation with evidence: execution paths, invariants, tests/seams; reproduces bugs first; answers factual interview questions; may read a sibling app's local clone for cross-app contracts; feeds the code guide in `survey`. | No | No |
 | **Strategist** | Turns an approved spec into a brief and a task DAG (slices, deps, files, verify), guided by the code guide ("read X when Y", max 3 files). Runs alone. | No | Yes (spec not plannable) |
 | **Architect** | Socratic design with silent prior research; offers option A (minimal) and B (complete) with trade-offs; never writes code. | No | No |
 | **Dispatcher** | Quick spec in ≤3 questions; creates and maintains the code guide. | Code guide only | No |
@@ -17,4 +17,4 @@ The Mothership is the only agent that talks to the user, calls Allye MCP tools, 
 | **Shield** | Security review with veto: open CRITICAL/HIGH blocks slice, gates and PR. Issues `SHIELD_CLEAR` on the final diff. | No | Yes (veto) |
 | **Watcher** | Final review of the full diff against spec anchors, tasks and evidence. Issues `WATCHER_APPROVED`. | No | Yes |
 
-Per-agent skills live at `skills/bridge-<agent>/SKILL.md` (written so far: `bridge-armorer`). For agents without one yet, the mandates above and the packet contract in `delegation.md` govern.
+Per-agent skills live at `skills/bridge-<agent>/SKILL.md` (written so far: `bridge-armorer`, `bridge-recon`). For agents without one yet, the mandates above and the packet contract in `delegation.md` govern.

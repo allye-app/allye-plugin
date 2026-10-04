@@ -7,7 +7,7 @@ Agents are mandates, not persistent processes. The Mothership dispatches each on
 | Agent | Kind | Access | Rule |
 |---|---|---|---|
 | Armorer | checker | read; installs only with approval | Verifies capabilities; never designs or publishes |
-| Recon | explorer | read-only | Maps repo/platform; no edits |
+| Recon | explorer | read-only | Evidence only; never calls MCP; sibling-app repo only via a local path from the Mothership |
 | Strategist | planner | read-only by mandate | Runs alone; Mothership waits for it before any Pilot |
 | Architect | designer | read-only | Designs options A/B; never writes code; never talks to the user directly |
 | Dispatcher | writer | code guide only | Drafts a quick spec (returned, not published); maintains the code guide |
@@ -98,7 +98,7 @@ Before each batch, declare cross-slice contracts (interfaces, formats), write pa
 - a slice's reviews before its Copilot check;
 - final Shield/Watcher before the final diff is stable.
 
-Reviewers of one slice (Medic, Shield, Optimizer) may run in parallel with each other. Recon and Architect run in the background while the Mothership interviews. Do not sit idle behind a single agent when safe independent work exists.
+Reviewers of one slice (Medic, Shield, Optimizer) may run in parallel with each other. Recon and Architect run in the background while the Mothership interviews: one Recon per independent factual question, at most 3 Recons in parallel (one at a time in sequential fallback). Do not sit idle behind a single agent when safe independent work exists.
 
 ## Authority
 
