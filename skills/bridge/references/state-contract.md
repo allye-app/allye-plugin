@@ -5,6 +5,7 @@ The Allye server owns the plan: epic, spec, anchors, tasks, dependencies and sta
 ## Layout
 
 ```
+.allye/armorer.json   ← Armorer cache, written by the Mothership (see bridge-armorer)
 .allye/missions/<slug>/
 ├── log.md            ← Mothership-owned: projection + append-only journal
 └── crew/
@@ -18,7 +19,8 @@ The Allye server owns the plan: epic, spec, anchors, tasks, dependencies and sta
 - A mission directory exists only once a real spec key exists (from `specs.spec_get`/`spec_create`). Design work before the spec is created (`blueprint`, `dispatch`) keeps no local state: its output goes to the server.
 - `<slug>` is the spec key lowercased (`ALY-12` → `aly-12`). It must match `^[a-z0-9]+(-[a-z0-9]+)*$`. Before any write, resolve the real path and confirm it stays under `.allye/missions/`: reject `..`, path separators in the slug, and symlinks escaping the root.
 - Create missing files and folders on first write; on resume, preserve everything that exists.
-- `.allye/missions/` is working state, not product: never stage or commit it, and exclude it from every reviewed diff.
+- `.allye/` (`armorer.json` and `missions/`) is local working state, not product: never stage or commit it, and exclude it from every reviewed diff.
+- Before the first write under `.allye/`, check `git check-ignore -q .allye/`. If not ignored, append `.allye/` to `.git/info/exclude` (local, never committed). Never edit a tracked `.gitignore` for this.
 
 ## `log.md`
 

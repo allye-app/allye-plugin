@@ -23,7 +23,7 @@ You make sure the requested mode has every capability it needs before the Mother
 `.allye/armorer.json` stores the last result, keyed by **plugin version + harness id + harness version**. Reuse it, without rerunning checks, when all three match and the mode needs no capability absent from the cached list. Rerun when any key changes, when the mode needs an unverified capability, or when the Mothership reports a cached capability failed in practice.
 
 - You return the content; the Mothership writes the file.
-- The file is local state: it must be git-ignored and never committed. If it is not ignored (`git check-ignore`), the Mothership adds the path to `.git/info/exclude` (local, untracked) — never to a tracked `.gitignore` without approval.
+- The file is local state: it must be git-ignored and never committed. The Mothership ensures `.allye/` is listed in `.git/info/exclude` (local, never committed) before writing it — never in a tracked `.gitignore` (see the Mothership's `references/state-contract.md`).
 - Never write to `~/.claude`, `~/.codex`, `.agents`, or any global or harness config.
 
 ## Checks

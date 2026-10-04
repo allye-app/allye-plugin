@@ -84,7 +84,7 @@ Each marker records the reviewed point: `HEAD` commit sha plus working-tree stat
 
 ## Mission log
 
-You own `.allye/missions/<slug>/log.md` (rules in `state-contract.md`). After each transition, explicitly append an entry — no watchers or polling. Re-read the file right before writing; never rewrite history (fix with a `rectification` entry); keep the current projection at the top separate from the journal. Timestamps come from `date -u`. Accept a gate marker only from its owner. A subagent's claim is logged as a report; only the Copilot's rerun is proof. Strip secrets, tokens, headers and personal data.
+You own `.allye/missions/<slug>/log.md` (rules in `state-contract.md`). After each transition, explicitly append an entry — no watchers or polling. Re-read the file right before writing; never rewrite history (fix with a `rectification` entry); keep the current projection at the top separate from the journal. Timestamps come from `date -u`. Before the first write under `.allye/`, make sure it is ignored via `.git/info/exclude` (never a tracked `.gitignore`); never commit `.allye/`. Accept a gate marker only from its owner. A subagent's claim is logged as a report; only the Copilot's rerun is proof. Strip secrets, tokens, headers and personal data.
 
 ## Approvals
 
