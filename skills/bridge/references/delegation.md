@@ -50,7 +50,7 @@ context:
 priorFindings: [<only on a correction round, with round number>]
 mcp:
   reads: true|false                      # false → content embedded below as quoted data (fallback)
-  writes: [<allowed actions and targets, e.g. "tasks.task_submit on ALY-12.3">]
+  writes: [<allowed actions and targets, e.g. "tasks.task_submit on PROJ-12.3">]
   confirmed: <exact confirmed publish list | null>   # Architect/Dispatcher only
 limits:
   gitRemote: false

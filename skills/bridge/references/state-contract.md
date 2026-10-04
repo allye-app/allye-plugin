@@ -17,7 +17,7 @@ The Allye server owns the plan: epic, spec, anchors, tasks, dependencies and sta
 ```
 
 - A mission directory exists only once a real spec key exists (from `specs.spec_get`/`spec_create`). Design work before the spec is created (`blueprint`, `dispatch`) keeps no local state: its output goes to the server. Right after publishing, the Mothership may open the log of each new spec with a `publish` entry (keys created, overlaps) and, for blueprint, a `spec-challenge` entry (rounds, findings fixed, findings turned into `[Q-NN]`) — this entry replaces any separate challenge gate; the server-side gate is the spec status and its open `[Q-NN]`.
-- `<slug>` is the spec key lowercased (`ALY-12` → `aly-12`). It must match `^[a-z0-9]+(-[a-z0-9]+)*$`. Before any write, resolve the real path and confirm it stays under `.allye/missions/`: reject `..`, path separators in the slug, and symlinks escaping the root.
+- `<slug>` is the spec key lowercased (`PROJ-12` → `proj-12`). It must match `^[a-z0-9]+(-[a-z0-9]+)*$`. Before any write, resolve the real path and confirm it stays under `.allye/missions/`: reject `..`, path separators in the slug, and symlinks escaping the root.
 - Create missing files and folders on first write; on resume, preserve everything that exists.
 - `.allye/` (`armorer.json` and `missions/`) is local working state, not product: never stage or commit it, and exclude it from every reviewed diff.
 - Before the first write under `.allye/`, check `git check-ignore -q .allye/`. If not ignored, append `.allye/` to `.git/info/exclude` (local, never committed). Never edit a tracked `.gitignore` for this.
@@ -40,8 +40,8 @@ A small, rewritable snapshot to resume quickly. It is a convenience view, never 
 
 | Task | Depends on | Status | Corrections | Verify |
 |---|---|---|---|---|
-| ALY-12.1 | — | passed | 0/2 | `npm test -- auth` |
-| ALY-12.2 | ALY-12.1 | running | 1/2 | `npm test -- session` |
+| PROJ-12.1 | — | passed | 0/2 | `npm test -- auth` |
+| PROJ-12.2 | PROJ-12.1 | running | 1/2 | `npm test -- session` |
 
 ## Journal
 ```

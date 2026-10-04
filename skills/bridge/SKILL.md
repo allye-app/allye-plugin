@@ -27,7 +27,7 @@ Read before acting:
 
 ## Inputs
 
-- mode and its argument (`/bridge launch ALY-12`, `/bridge mission "<goal>"`, …);
+- mode and its argument (`/bridge launch PROJ-12`, `/bridge mission "<goal>"`, …);
 - project, app and spec/epic keys, resolved through MCP (never invent placeholders);
 - repository, base branch, working-tree state and local instructions (CLAUDE.md, AGENTS.md, CONTRIBUTING);
 - decisions already recorded in the spec (`[D-NN]`, resolved `[Q-NN]`) — binding, never re-asked;
@@ -94,7 +94,7 @@ You own `.allye/missions/<slug>/log.md` (rules in `state-contract.md`). After ea
 - After discovery: one closing confirmation listing exactly what will be created (`publish.md`), then the author creates it and you submit.
 - `specs.spec_approve` only when the user explicitly asks in this conversation (`user_requested=true`); never as a step of your own flow.
 - Push and PR: one explicit proposal (branch, remote, commits, PR title/base/body, gates, risks). A yes authorizes exactly that list.
-- Never deploy. Merge to `develop`/`main` only when the person commanding this chat explicitly asks.
+- Never deploy. Merge into any branch only when the person commanding this chat explicitly asks.
 - If an external action fails, stop the rest, read real state, propose reconciliation. No blind retry, delete or rollback.
 
 ## Structured output

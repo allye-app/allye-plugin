@@ -94,7 +94,7 @@ Any later change to the diff invalidates all three markers. Findings are never a
 
 Present one exact proposal: branch, remote, commits, PR title/base/body/draft-or-ready, validation results, gates with their commit, resolved findings, residual risks, and what is explicitly not included (merge, deploy, reviewers). A yes authorizes only that list, in that order. After the PR exists, record it on the tasks (`tasks.task_update pr_url`). Refuse the PR if a gate does not match the current reviewed point.
 
-Never deploy. Merge to `develop`/`main` only when the person commanding the chat explicitly asks.
+Never deploy. Merge into any branch only when the person commanding the chat explicitly asks.
 
 ## 7. Mission mode
 
