@@ -1,10 +1,10 @@
 #!/bin/bash
-# Assertions for hooks/session-start.sh runtime detection.
-# No test framework in this repo — this script IS the harness.
+# Assertions for hooks/session-start.sh. No framework: this script is the harness.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOK="$SCRIPT_DIR/session-start.sh"
+BOOTSTRAP="$SCRIPT_DIR/../bootstrap/allye.md"
 PASS=0
 FAIL=0
 
@@ -17,20 +17,15 @@ check() {
   fi
 }
 
-echo "test: no runtime when HERDR_ENV is unset"
-OUT=$(echo '{"source":"startup"}' | env -u HERDR_ENV -u HERDR_PANE_ID bash "$HOOK" 2>/dev/null)
-HAS=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext' | grep -c '^Agent runtime:' || true)
-check "absent runtime emits no runtime line" "0" "$HAS"
-
-echo "test: no runtime when HERDR_ENV set but herdr binary missing"
-OUT=$(echo '{"source":"startup"}' | env HERDR_ENV=1 PATH=/nonexistent bash "$HOOK" 2>/dev/null)
-HAS=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext' | grep -c '^Agent runtime:' || true)
-check "missing binary emits no runtime line" "0" "$HAS"
-
-echo "test: output is always valid JSON"
-OUT=$(echo '{"source":"startup"}' | env -u HERDR_ENV bash "$HOOK" 2>/dev/null)
+OUT=$(echo '{"source":"startup"}' | bash "$HOOK" 2>/dev/null)
 echo "$OUT" | jq -e . >/dev/null 2>&1 && VALID=0 || VALID=1
-check "hook emits parseable JSON without a runtime" "0" "$VALID"
+check "hook emits parseable JSON" "0" "$VALID"
+check "hook event name" "SessionStart" "$(echo "$OUT" | jq -r '.hookSpecificOutput.hookEventName')"
+CTX=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext')
+check "context is the shared bootstrap verbatim" "$(cat "$BOOTSTRAP")" "$CTX"
+
+# Offline: the hook never calls the network or reads credentials.
+check "hook makes no network calls" "0" "$(grep -cE 'curl|wget|ALLYE_PAT' "$HOOK")"
 
 echo
 echo "passed: $PASS  failed: $FAIL"

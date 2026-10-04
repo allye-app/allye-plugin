@@ -5,7 +5,7 @@
     "email": "faq@devshire.app"
   },
   "metadata": {
-    "description": "Allye Agent Plugin — methodology and workflow layer for AI coding agents",
+    "description": "Allye plugin \u2014 the Allye MCP and the Bridge skill for AI coding agents",
     "version": "1.8.0"
   },
   "plugins": [
@@ -15,7 +15,7 @@
         "source": "github",
         "repo": "allye-app/allye-plugin"
       },
-      "description": "Structured workflows, memory protocol, and TDD discipline for the Allye platform",
+      "description": "Allye MCP plus Bridge: design specs and drive them to reviewed branches",
       "version": "1.8.0"
     }
   ]

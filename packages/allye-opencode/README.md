@@ -1,28 +1,23 @@
 # allye-opencode
 
-An [OpenCode](https://opencode.ai) plugin that registers 6 specialized Allye agents for the guided delivery workflow:
+An [OpenCode](https://opencode.ai) plugin for [Allye](https://allye.app). It:
 
-- **Allye — Router** — initializes context, detects the workflow phase, and delegates to the agent below
-- **Allye Plan** — product planning (epics/features/stories) and technical planning (discussion phase, trade-offs, tasks)
-- **Allye Orchestrator** — coordinates delivery of an already-planned feature: assigns work, tracks status, drives review
-- **Allye Build** — TDD implementation of tasks
-- **Allye Review** — code review with full context
-- **Allye Deliver** — finalizes delivery, closes stories, updates docs
+- registers the **Bridge** skill (`/bridge <mode>`) bundled in this package as an extra OpenCode skill path;
+- adds the shared Allye bootstrap to the system prompt, so the agent knows the Allye MCP (`projects`, `epics`, `specs`, `tasks`, `team`) and Bridge are available.
 
-Account context is loaded through the configured `allye` MCP server, so OpenCode owns OAuth credentials and refresh.
+The Allye MCP server is configured separately in `opencode.json`; OpenCode owns its OAuth credentials and refresh. The plugin never reads tokens.
 
 ## Installation
 
-This package is not typically installed standalone. Add it with the Allye MCP server by following the main plugin's OpenCode installation guide. The repository installer intentionally leaves shared runtime configuration unchanged unless an API-backed ownership operation authorizes the write.
-
-If you do need to add it manually, add it to the `plugin` array in your OpenCode config:
+Follow the main repository's guide: [docs/install-opencode.md](https://github.com/allye-app/allye-plugin/blob/main/docs/install-opencode.md). Manually, add the plugin and the server to your OpenCode config:
 
 ```json
 {
+  "mcp": { "allye": { "type": "remote", "url": "https://mcp.allye.app/mcp", "enabled": true } },
   "plugin": ["allye-opencode"]
 }
 ```
 
-## Documentation
+## Development
 
-For full workflow documentation — the guided delivery methodology, the phase skills, and the handover protocol this plugin implements — see the main repo: [github.com/allye-app/allye-plugin](https://github.com/allye-app/allye-plugin).
+The package is built from the repository's single sources: `bootstrap/allye.md` and `skills/bridge*`. `bun run build` copies them in (`scripts/prepare.ts`) and bundles `dist/index.js`; `bun run typecheck` runs the same preparation and `tsc --noEmit`.

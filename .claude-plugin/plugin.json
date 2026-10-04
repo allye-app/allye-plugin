@@ -1,6 +1,6 @@
 {
   "name": "allye",
-  "description": "Allye Agent Plugin — methodology and workflow layer for AI coding agents using the Allye platform. Adds structured workflows, memory protocol, and TDD discipline on top of Allye MCP tools.",
+  "description": "Allye for Claude Code: the Allye MCP (projects, epics, specs, tasks, team) and the Bridge skill (/bridge <mode>) that designs specs and drives them to reviewed branches.",
   "version": "1.8.0",
   "author": {
     "name": "Allye Assistant",
@@ -11,11 +11,10 @@
   "license": "MIT",
   "keywords": [
     "allye",
-    "workflow",
-    "project-management",
-    "memory",
-    "tdd",
-    "planning",
+    "mcp",
+    "bridge",
+    "specs",
+    "orchestration",
     "skills"
   ]
 }

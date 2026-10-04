@@ -1,127 +1,24 @@
 #!/bin/bash
-set -e
+# Allye — Claude Code SessionStart hook.
+# Injects the shared bootstrap (bootstrap/allye.md) as additionalContext so the
+# agent knows the Allye MCP and the Bridge skill are available. Offline: it
+# reads only the bundled file and never calls the network.
+set -euo pipefail
 
-# Allye Plugin — Claude Code SessionStart Hook
-# Injects the using-allye bootstrap skill at the start of every session.
-#
-# How it works:
-# 1. Checks if ALLYE_PAT is configured
-# 2. Tries to fetch the skill from Allye API
-# 3. Falls back to the local bundled skill file
-# 4. Outputs JSON with additionalContext for Claude to consume
+cat >/dev/null || true  # hook input (unused)
 
-# Read hook input from stdin
-INPUT=$(cat)
-SOURCE=$(echo "$INPUT" | jq -r '.source // "startup"')
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BOOTSTRAP="$PLUGIN_ROOT/bootstrap/allye.md"
 
-# Config
-ALLYE_API_URL="https://api.allye.app"
-ALLYE_PAT="${ALLYE_PAT:-}"
-SKILL_SLUG="using-allye"
-
-# Plugin root — always derive from script location (most reliable)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-LOCAL_SKILL="$PLUGIN_ROOT/skills/using-allye/SKILL.md"
-
-# Check if PAT is configured — OAuth users won't have PAT set, that's OK
-# The .mcp.json handles OAuth automatically. PAT is only for CI/CD fallback.
-if [ -z "$ALLYE_PAT" ]; then
-  # Check if .mcp.json exists (OAuth mode — no PAT needed)
-  MCP_JSON="$PLUGIN_ROOT/.mcp.json"
-  if [ -f "$MCP_JSON" ]; then
-    # OAuth mode — proceed to load skill without PAT
-    ALLYE_PAT=""
-  else
-    # No PAT and no .mcp.json — need setup
-    SETUP_MSG="# Allye Plugin — Setup Required
-
-Welcome to the Allye Agent Plugin! To get started, run:
-
-\`\`\`
-/allye:setup
-\`\`\`
-
-This will guide you through connecting your Allye account."
-
-    jq -n --arg ctx "$SETUP_MSG" '{
-      "hookSpecificOutput": {
-        "hookEventName": "SessionStart",
-        "additionalContext": $ctx
-      }
-    }'
-    exit 0
-  fi
+if [ -f "$BOOTSTRAP" ]; then
+  CONTEXT=$(cat "$BOOTSTRAP")
+else
+  CONTEXT="Allye bootstrap file is missing at $BOOTSTRAP; reinstall the plugin with /plugin update allye."
 fi
 
-# Function: fetch skill from Allye API
-fetch_from_api() {
-  HTTP_RESULT=$(curl -s --max-time 10 -w "\n%{http_code}" \
-    -H "Authorization: Bearer $ALLYE_PAT" \
-    -H "Content-Type: application/json" \
-    "$ALLYE_API_URL/api/skills/export?slug=$SKILL_SLUG&format=claude" 2>/dev/null) || return 1
-
-  HTTP_CODE=$(echo "$HTTP_RESULT" | tail -1)
-  RESPONSE=$(echo "$HTTP_RESULT" | sed '$d')
-
-  # Only accept 200 responses with non-empty content
-  if [ "$HTTP_CODE" != "200" ] || [ -z "$RESPONSE" ] || [ "$RESPONSE" = "null" ]; then
-    return 1
-  fi
-
-  echo "$RESPONSE"
-}
-
-# Function: read local skill file
-read_local() {
-  if [ -f "$LOCAL_SKILL" ]; then
-    cat "$LOCAL_SKILL"
-  else
-    echo "# Allye Plugin"
-    echo ""
-    echo "Bootstrap skill not found. Try reinstalling the plugin."
-  fi
-}
-
-# Try API first, fall back to local file
-SKILL_CONTENT=$(fetch_from_api || read_local)
-
-# Persist the plugin marker for the session.
-if [ -n "$CLAUDE_ENV_FILE" ]; then
-  echo 'export ALLYE_PLUGIN_LOADED=true' >> "$CLAUDE_ENV_FILE"
-fi
-
-# Agent runtime detection — emits one line, or nothing at all.
-# A user without a runtime pays zero context for this feature.
-detect_runtime() {
-  [ "${HERDR_ENV:-}" = "1" ] || return 1
-  command -v herdr >/dev/null 2>&1 || return 1
-
-  local status version
-  status=$(herdr status 2>/dev/null) || return 1
-  echo "$status" | grep -q 'compatible: yes' || return 1
-
-  version=$(echo "$status" | awk '/^client:/{f=1} f&&/version:/{print $2; exit}')
-  [ -n "$version" ] || version="unknown"
-
-  echo "Agent runtime: herdr ${version} (pane ${HERDR_PANE_ID:-unknown}, workspace ${HERDR_WORKSPACE_ID:-unknown})"
-}
-
-if RUNTIME_LINE=$(detect_runtime); then
-  SKILL_CONTENT="${SKILL_CONTENT}
-
----
-
-${RUNTIME_LINE}
-A story-parallel dispatch runtime is available. Load the \`agent-runtime\` skill before dispatching work in parallel."
-fi
-
-# Output structured JSON for Claude Code
-jq -n --arg ctx "$SKILL_CONTENT" '{
-  "hookSpecificOutput": {
-    "hookEventName": "SessionStart",
-    "additionalContext": $ctx
+jq -n --arg ctx "$CONTEXT" '{
+  hookSpecificOutput: {
+    hookEventName: "SessionStart",
+    additionalContext: $ctx
   }
 }'
-
-exit 0
