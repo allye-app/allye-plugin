@@ -61,7 +61,7 @@ Composed routes never skip preflight or gates. Every code change runs on a track
 | Mode | References |
 |---|---|
 | `launch`, `mission` | `workflow.md`, `delegation.md`, `state-contract.md`, `publish.md` (§6–7 branch, push and PR) |
-| `blueprint`, `blueprint --auto`, `dispatch` | `discovery.md`, `publish.md`, `delegation.md`, `state-contract.md` (log after publish) |
+| `blueprint`, `blueprint --auto`, `dispatch` | `discovery.md`, `publish.md`, `spec-lint.md` (before any spec write), `delegation.md`, `state-contract.md` (log after publish) |
 | `repair`, `optimize`, `shield` | `workflow.md`, `delegation.md`, `state-contract.md`, `publish.md` |
 | `inspect`, `survey` | `delegation.md`, `workflow.md` (§11) |
 

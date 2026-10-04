@@ -44,6 +44,7 @@ No target app or too little context → `blocked` with what is missing; never pr
    Rules and criteria become `[BR-NN]` and `[AC-NN]` (EARS or Given/When/Then).
 4. **Write** the spec with `references/spec-template-minimal.md`, in English.
 5. **Tasks.** Draft thin tasks: `tempId`, unique imperative title, `refs` to anchors, `files`, `verify` derived from the repo's scripts, `dependsOn` by temp id, short `notes` (≤2000 chars, never restating rules). Every `[AC-NN]` referenced by at least one task.
+6. **Anchor lint.** Run `../bridge/references/spec-lint.md` (relative to this skill's directory) over the spec and its tasks — unique anchor definitions, well-formed ids, open `[Q-NN]`/`[NEEDS CLARIFICATION]` listed, task refs resolve, every `[AC-NN]` covered, notes ≤2000 chars, shared `[D-NN]` identical. Fail → fix before returning; never return content that fails it.
 
 **Hand back to the Architect** (`status: escalate`) when the change spans several apps, needs a cross-app contract, is systemic (architecture, migrations across services, security model), or needs more than three questions to bound.
 
@@ -66,7 +67,7 @@ No target app or too little context → `blocked` with what is missing; never pr
 
 ## Allye MCP
 
-Your rights are the Dispatcher row of `../bridge/references/delegation.md` → Allye MCP access (the single source): the common reads; writes only the items in the packet's `mcp.confirmed` list (content they authored, confirmed by the user): `epics.epic_create`/`epic_update`, `specs.spec_create`/`spec_update`, `tasks.task_bulk_create`/`task_create`/`task_update`, `specs.spec_dependency_add`. The Dispatcher creates an epic only when the confirmed list includes one. You write only in `publish` mode, in order: `epics.epic_create` (only when confirmed) → `specs.spec_create` (or `spec_update` when revising) → `tasks.task_bulk_create` (map temp ids to returned keys, never by position) → `specs.spec_dependency_add` (only when confirmed). Stop at the first failure and report what exists. Report every write in `mcpWrites`.
+Your rights are the Dispatcher row of `../bridge/references/delegation.md` → Allye MCP access (the single source): the common reads; writes only the items in the packet's `mcp.confirmed` list (content they authored, confirmed by the user): `epics.epic_create`/`epic_update`, `specs.spec_create`/`spec_update`, `tasks.task_bulk_create`/`task_create`/`task_update`, `specs.spec_dependency_add`. The Dispatcher creates an epic only when the confirmed list includes one. You write only in `publish` mode. Before the first write, rerun the anchor lint (`../bridge/references/spec-lint.md`) over all confirmed specs and tasks; any failure → write nothing and return `blocked` with the failures. Then, in order: `epics.epic_create` (only when confirmed) → `specs.spec_create` (or `spec_update` when revising) → `tasks.task_bulk_create` (map temp ids to returned keys, never by position) → `specs.spec_dependency_add` (only when confirmed). Stop at the first failure and report what exists. Report every write in `mcpWrites`.
 
 ## Structured output
 

@@ -36,6 +36,8 @@ Ask once. No yes → create nothing. A change to any item after the yes (title, 
 
 Dispatch the author (Architect for blueprint, Dispatcher otherwise) with the confirmed list in `mcp.confirmed`; if subagents cannot see the Allye MCP tools, the Mothership makes the same calls itself.
 
+**Lint gate — no partial publish.** Before the first write, the anchor lint (`spec-lint.md`) must pass for **all** specs and tasks in the confirmed list — whoever makes the calls (author or Mothership) runs it. One failure anywhere → create nothing (no epic, no spec, no task), report the failures, fix the content and, if the fix changes a confirmed item, ask for a new confirmation (§3).
+
 1. `epics.epic_create` (project, title, description) when the confirmed list includes an epic.
 2. `specs.spec_create` per spec (project, title, `type`, `content` with anchors, `apps` = that single app, `epic`) — or `specs.spec_update` for a same-scope spec.
 3. `tasks.task_bulk_create` per spec (thin: `temp_id`, title, `refs`, `files`, `verify`, `notes` ≤2000, `depends_on_temp_ids`). Map temp ids to the returned keys; never map by position.
@@ -68,6 +70,14 @@ Never deploy. Merge into any branch only when the person commanding the chat exp
 ## 8. Partial failure
 
 Stop at the first failed write. Re-read what exists (`specs.spec_list` with `project`, `spec_context`, `epic_get`), report created vs. missing with real keys, and propose how to finish. No blind retry, no recreation, no destructive rollback (nothing can be deleted; `spec_cancel`/`epic_cancel` only if the user asks).
+
+Resuming after a partial failure (once the user confirms the plan to finish):
+
+1. Fix the cause (e.g. the content that failed the lint or the server's validation) and rerun the anchor lint over every spec still to be written.
+2. Never re-create an epic or spec that already exists: reuse its key (`epic` on the remaining `spec_create` calls); change an existing spec only with `spec_update`.
+3. Create only the missing specs, in the original order.
+4. `tasks.task_bulk_create` is idempotent by title within a spec, so rerunning it for a spec whose tasks were partly created adds only the missing ones; map temp ids to the returned keys as usual.
+5. Add only the missing `spec_dependency_add` links, then continue at the re-read and submit step of §4.
 
 ## Output
 
