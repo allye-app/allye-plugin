@@ -13,7 +13,7 @@ done
 for tool in projects epics specs tasks team project_resolve team_set_default; do
   grep -qw -- "$tool" "$SRC" || fail "bootstrap does not mention MCP tool/action: $tool"
 done
-for phrase in 'team follows the project' 'pass `team_id` on memory writes' 'without credentials' 'ask the user once' 'never pick a project or team'; do
+for phrase in 'team follows the project' 'pass `team_id` on memory writes' 'without credentials' 'userinfo before `@`' 'the query' 'the fragment' 'ask the user once' 'never pick a project or team'; do
   grep -qiF -- "$phrase" "$SRC" || fail "bootstrap does not say: $phrase"
 done
 grep -qiE '`ambiguous`.*`not_found`' "$SRC" || fail "bootstrap does not cover ambiguous/not_found resolutions"
