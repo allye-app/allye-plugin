@@ -16,7 +16,7 @@ How a spec becomes a reviewed branch. Routes are defined in the Mothership's `SK
 
 Run Armorer first (skill `bridge-armorer`) and use its role map for every dispatch.
 
-- No active team → ask which, `team.team_switch`, rerun the check.
+- Armorer's `defaultTeam` is information only; a missing team never gates a route. When about to create a project with no default team set, ask the user which team and pass `team_id` on the project creation; call `team.team_set_default` only when the user asks to set a new default (it persists across sessions).
 - Missing required capability → present Armorer's exact official command, wait for approval, run it, and have Armorer verify the post-condition. No verifiable command → blocked.
 - Optional gaps (e.g. `gh`, outdated team skills) are reported and never block.
 - Write its cache to `.allye/armorer.json` per `state-contract.md`.

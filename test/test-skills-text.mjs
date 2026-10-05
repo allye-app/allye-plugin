@@ -235,8 +235,66 @@ else {
   if (!bullets.some((l) => /earlier Bridge `\.allye\/` entry/.test(l) && /\.git\/info\/exclude/.test(l) && /replace/.test(l) && l.includes("`.allye/armorer.json`") && l.includes("`.allye/missions/`"))) fail(`${SC}: must replace an earlier Bridge .allye/ entry in .git/info/exclude with the two specific paths`);
 }
 
+// ALY-17 [AC-09] [BR-06] [BR-08]: a missing team never blocks a route (the Armorer reports
+// defaultTeam for information only), and only .allye/armorer.json and .allye/missions/** are
+// local state; .allye/project.json is committed product state.
+{
+  const ARM = "skills/bridge-armorer/SKILL.md";
+  const SKILL = "skills/bridge/SKILL.md";
+  const WF = "skills/bridge/references/workflow.md";
+  const DEL = "skills/bridge/references/delegation.md";
+  for (const file of [ARM, SKILL, WF]) {
+    const text = read(file);
+    for (const re of [/no active team/i, /active team is set/i, /team_switch/, /(missing|no) (default |active )?team[^.\n]*(→|blocked)/i, /ask[s]? (for|which) (a |the )?(default )?team[^.\n]*before/i])
+      if (re.test(text)) fail(`${file}: must not block on, or ask for, a missing team before routes (${re})`);
+  }
+  const arm = read(ARM);
+  if (!/allye: \{ connected: true\|false, defaultTeam: <name\|null> \}/.test(arm)) fail(`${ARM}: output must report \`allye: { connected, defaultTeam: <name|null> }\``);
+  const allyeCheck = (arm.split("\n## Checks")[1] ?? "").split("\n").find((l) => /^1\. \*\*Allye/.test(l)) ?? "";
+  if (!/`defaultTeam`/.test(allyeCheck) || !/information only/.test(allyeCheck) || !/never blocks/.test(allyeCheck)) fail(`${ARM}: the Allye check must report \`defaultTeam\` for information only and say a missing team never blocks`);
+  if (!/blocks? only when Allye is not connected or authenticated/.test(allyeCheck)) fail(`${ARM}: the Allye check must block only when Allye is not connected or authenticated`);
+  if (/which (default |active )?team/.test(arm)) fail(`${ARM}: must not list "which team" as an open question`);
+  for (const file of [SKILL, WF]) {
+    const text = read(file);
+    const teamLine = text.split("\n").find((l) => /team_set_default/.test(l)) ?? "";
+    if (!/a missing team never gates a route/.test(teamLine)) fail(`${file}: must state that a missing team never gates a route`);
+    if (!/create a project with no default team set[^\n]*ask the user which team[^\n]*pass `team_id` on the project creation/.test(teamLine)) fail(`${file}: when creating a project with no default team, must ask which team and prefer passing \`team_id\` on the project creation`);
+    if (!/`team\.team_set_default` only when the user asks to set a new default/.test(teamLine)) fail(`${file}: must call \`team.team_set_default\` only when the user asks to set a new default`);
+  }
+  const del = read(DEL);
+  const reserved = del.split("\n").find((l) => l.startsWith("Reserved to the Mothership:")) ?? "";
+  if (!reserved.includes("`team.team_set_default`")) fail(`${DEL}: the Reserved paragraph must contain \`team.team_set_default\``);
+  if (!/`team\.team_set_default` \([^)]*only when the user asks[^)]*only with the user's answer[^)]*`team_id`/.test(reserved)) fail(`${DEL}: the reserved \`team.team_set_default\` must say "only when the user asks", "only with the user's answer", and prefer \`team_id\``);
+  if (/team_switch/.test(del)) fail(`${DEL}: must not reserve or mention \`team.team_switch\``);
+  const reads = del.split("\n").find((l) => l.startsWith("**Reads (every role except Armorer):**")) ?? "";
+  if (!reads.includes("`projects.project_resolve`")) fail(`${DEL}: the common Reads line must grant \`projects.project_resolve\``);
+
+  // BR-08: no crew text treats the whole .allye/ (bare `.allye/` or `.allye/**`) as local state.
+  const crew = ["armorer", "copilot", "watcher", "strategist", "pilot", "recon", "medic", "shield", "optimizer", "architect", "dispatcher"].map((r) => `skills/bridge-${r}/SKILL.md`);
+  for (const file of [...crew, DEL, SKILL, WF]) {
+    read(file).split("\n").forEach((l, i) => {
+      if (/\.allye\/(\*\*)?(?![\w.*<])/.test(l)) fail(`${file}:${i + 1}: must name \`.allye/armorer.json\` / \`.allye/missions/**\`, not the whole \`.allye/\``);
+    });
+  }
+  if (!/`\.allye\/armorer\.json`[^\n]*`\.allye\/missions\/`[^\n]*\.git\/info\/exclude/.test(arm)) fail(`${ARM}: the Mothership must exclude \`.allye/armorer.json\` and \`.allye/missions/\` in .git/info/exclude`);
+  const scopeLine = (file, re) => read(file).split("\n").find((l) => re.test(l)) ?? "";
+  for (const [file, re] of [["skills/bridge-copilot/SKILL.md", /\*\*Scope\.\*\*/], ["skills/bridge-watcher/SKILL.md", /\*\*Scope\.\*\*/]]) {
+    const l = scopeLine(file, re);
+    if (!l.includes("`.allye/armorer.json`") || !l.includes("`.allye/missions/**`") || !l.includes("`.allye/project.json`") || !/user-confirmed link-file change/.test(l)) fail(`${file}: Scope must exclude only \`.allye/armorer.json\` and \`.allye/missions/**\` and keep \`.allye/project.json\` in scope (expected only as the user-confirmed link-file change)`);
+    if (file.includes("copilot") && !/`\.allye\/project\.json` stays in scope/.test(l)) fail(`${file}: Scope must say \`.allye/project.json\` stays in scope`);
+    if (file.includes("watcher") && !/`\.allye\/project\.json` is product state/.test(l) && !/expected only when it is the user-confirmed link-file change/.test(l)) fail(`${file}: Scope must call \`.allye/project.json\` product state, expected only as the user-confirmed link-file change`);
+  }
+  for (const [file, re] of [[DEL, /forbiddenPaths:/], ["skills/bridge-strategist/SKILL.md", /\*\*Paths\.\*\*/], ["skills/bridge-pilot/SKILL.md", /^Do not edit outside your paths/]]) {
+    const l = scopeLine(file, re);
+    for (const p of ["`.allye/armorer.json`", "`.allye/missions/**`", "`.allye/project.json`"]) {
+      const bare = p.replaceAll("`", "");
+      if (!l.includes(p) && !l.includes(bare)) fail(`${file}: ${file === DEL ? "the packet's forbiddenPaths" : file.includes("strategist") ? "the Strategist's per-slice forbidden paths" : "the Pilot's Limits"} must list ${bare}`);
+    }
+  }
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);
 }
-console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; publish resolves via project_resolve and a verified link file; .allye/project.json committed)");
+console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; publish resolves via project_resolve and a verified link file; .allye/project.json committed; a missing team never blocks; only armorer.json and missions/ are local state)");
