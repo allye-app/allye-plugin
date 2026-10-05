@@ -89,9 +89,10 @@ fi
 # remote is dropped and never echoed.
 URL_CHARS="^[A-Za-z0-9._~:/?#@!\$&'()*+,;=%-]+\$"
 [[ "$REMOTE" =~ $URL_CHARS ]] || REMOTE=""
-# Strip credentials: query and fragment, userinfo of scheme URLs, and scp
-# userinfo that carries a password (a ':' before its last '@').
-REMOTE=${REMOTE%%[?#]*}
+# Strip credentials: userinfo first (up to the last '@' before the first '/'),
+# for scheme URLs always and for the scp form only when it carries a password
+# (a ':'), then the query and fragment. Userinfo goes first so an unencoded
+# '?' or '#' inside a password cannot leave part of it behind.
 if [ -n "$REMOTE" ]; then
   if [[ "$REMOTE" =~ ^([A-Za-z][A-Za-z0-9+.-]*://)([^/]*@)(.*)$ ]]; then
     REMOTE="${BASH_REMATCH[1]}${BASH_REMATCH[3]}"
@@ -103,6 +104,7 @@ if [ -n "$REMOTE" ]; then
     fi
   fi
 fi
+REMOTE=${REMOTE%%[?#]*}
 
 # Link file: validated by jq; raw values are never echoed.
 CLAIM=""

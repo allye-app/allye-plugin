@@ -291,6 +291,30 @@ run "$TMP/scp2"
 check "scp user:password stripped" "yes" "$(contains 'git remote: github.com:org/scp2.git'$'\n' "$CTX")"
 check "scp password never appears (simple)" "no" "$(contains 'SECRETS' "$OUT")"
 
+echo "SHD-S01: userinfo stripped before the query and fragment"
+mkrepo "$TMP/hashpw" 'https://u:pa#ss@host/r'
+run "$TMP/hashpw"
+check "scheme '#' password: exit 0" "0" "$RC"
+check "scheme '#' password: valid JSON" "0" "$VALID"
+check "scheme '#' password: userinfo stripped" "yes" "$(contains 'git remote: https://host/r'$'\n' "$CTX")"
+check "scheme '#' password: no 'pa#ss'" "no" "$(contains 'pa#ss' "$OUT")"
+check "scheme '#' password: no 'ss@'" "no" "$(contains 'ss@' "$OUT")"
+check "scheme '#' password: no 'u:pa' in the repo block" "no" "$(contains 'u:pa' "${CTX:${#BOOT}}")"
+mkrepo "$TMP/scphash" 'u:p#w@host:o/r'
+run "$TMP/scphash"
+check "scp '#' password: exit 0" "0" "$RC"
+check "scp '#' password: valid JSON" "0" "$VALID"
+check "scp '#' password: userinfo stripped" "yes" "$(contains 'git remote: host:o/r'$'\n' "$CTX")"
+check "scp '#' password: no 'p#w'" "no" "$(contains 'p#w' "$OUT")"
+check "scp '#' password: no 'u:p' in the repo block" "no" "$(contains 'u:p' "${CTX:${#BOOT}}")"
+mkrepo "$TMP/qpw" 'https://u:pa?ss@host/q?x=1'
+run "$TMP/qpw"
+check "scheme '?' password: userinfo and query stripped" "yes" "$(contains 'git remote: https://host/q'$'\n' "$CTX")"
+check "scheme '?' password: no 'ss@'" "no" "$(contains 'ss@' "$OUT")"
+mkrepo "$TMP/gitat" 'git@github.com:org/plain.git'
+run "$TMP/gitat"
+check "git@host:path unchanged" "yes" "$(contains 'git remote: git@github.com:org/plain.git'$'\n' "$CTX")"
+
 echo "SHD-03: link file must be a regular, non-symlink file of at most 4096 bytes"
 mkrepo "$TMP/link" "https://github.com/org/link.git"
 mkdir -p "$TMP/link/.allye" "$TMP/elsewhere"
