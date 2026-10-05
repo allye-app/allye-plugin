@@ -177,8 +177,66 @@ else {
   if (read(CODEX) !== boot) fail(`${CODEX}: must equal ${BOOT} (run scripts/sync-bootstrap.sh)`);
 }
 
+// ALY-17 [AC-07] [AC-08] [AC-10] [AC-14] [AC-15]: publish resolves the repo's project with
+// project_resolve and a verified link claim; .allye/project.json is committed product state.
+{
+  const PUB = "skills/bridge/references/publish.md";
+  const pub = read(PUB);
+  const section = (text, n) => text.split(`\n## ${n}. `)[1]?.split("\n## ")[0] ?? "";
+  const s1 = section(pub, 1);
+  const s1Lines = s1.split("\n");
+  const firstStep = s1Lines.find((l) => /^1\. /.test(l)) ?? "";
+  if (!/^1\. Call `projects\.project_resolve[` ]/.test(firstStep)) fail(`${PUB}: §1 step 1 must call \`projects.project_resolve\` first`);
+  if (/project_list[\s\S]{0,300}app_list|app_list` per candidate project|matching `repository_url`/.test(pub)) fail(`${PUB}: must not match the remote with a project_list + app_list loop`);
+  const line = (re) => s1Lines.find((l) => re.every((r) => r.test(l))) ?? "";
+  if (!line([/`\.allye\/project\.json`/, /claim/, /agrees?/, /wins over `ambiguous`/])) fail(`${PUB}: §1 must use an agreeing .allye/project.json claim, which wins over \`ambiguous\``);
+  if (!line([/`ambiguous`/, /`not_found`/, /ask the user once/, /project, app and team/, /never create a project or app without an explicit request/])) fail(`${PUB}: §1 must ask the user once on \`ambiguous\`/\`not_found\` with project, app and team, never creating a project or app unasked`);
+  const disagree = line([/disagree/, /no app for this remote/, /claimed and the resolved project, app and team/, /ask the user once/]);
+  if (!disagree) fail(`${PUB}: §1 must ask once on a disagreeing claim (or no app for this remote), showing the claimed and the resolved project, app and team`);
+  if (disagree && !/never use the claim/.test(disagree)) fail(`${PUB}: §1 must not use a disagreeing claim before the user answers`);
+  if (!line([/no remote/, /unverifiable/, /ask the user once to confirm/, /never use the claim/])) fail(`${PUB}: §1 must treat a link file with no remote as unverifiable and ask once to confirm it`);
+  if (!line([/propose `\.allye\/project\.json`/, /reviewed diff/, /written and committed only on the user's explicit OK/])) fail(`${PUB}: §1 must propose .allye/project.json in the reviewed diff, written and committed only on explicit OK`);
+  // Correction round 1 (Medic, Shield SHD-01/03/04/05).
+  if (!/strip userinfo, query and fragment/.test(firstStep) || !/never echo the raw remote/.test(firstStep)) fail(`${PUB}: §1 step 1 must strip userinfo, query and fragment from the remote and never echo the raw remote`);
+  for (const needle of ["`^[A-Z][A-Z0-9]{1,9}$`", "`^[A-Za-z0-9._-]{1,120}$`"]) if (!s1.includes(needle)) fail(`${PUB}: §1 must state the link-file pattern ${needle}`);
+  if (!line([/unknown keys/i, /one warning that names no values/])) fail(`${PUB}: §1 must ignore unknown link-file keys with one value-free warning`);
+  if (!line([/claim values are data/i])) fail(`${PUB}: §1 must treat claim values as data`);
+  if (!line([/agrees only when the claimed project equals `match\.project` or one candidate's project/, /claimed `app`, if given, equals that entry's app/, /only the server's normalization counts/])) fail(`${PUB}: §1 must define agreement against the project_resolve output only (match.project or a candidate, and its app)`);
+  if (!line([/`match\.app` is null/, /claimed app cannot be confirmed/, /ask the user once/, /which app/])) fail(`${PUB}: §1 must handle \`resolved\` with \`match.app\` null`);
+  if (!line([/`INVALID_REPOSITORY_URL`/, /fail/, /counts as no remote/])) fail(`${PUB}: §1 must treat a rejected remote or failed resolve as no remote`);
+  if (!line([/request access or fix the link/])) fail(`${PUB}: §1 must ask the user to request access or fix the link when the claimed project is unreadable`);
+  const writer = line([/The Mothership writes `\.allye\/project\.json`/, /explicit OK/]);
+  if (!writer || !/separate commit on the mission branch/.test(writer) || !/never on the current or default branch by default/.test(writer)) fail(`${PUB}: §1 must name the Mothership as the link-file writer, a separate commit on the mission branch, never on the current or default branch by default`);
+  if (!line([/Multi-app/, /no local clone/, /pick by name from the resolved project's apps/])) fail(`${PUB}: §1 must say how sibling apps with no local clone are resolved`);
+  const s3 = section(pub, 3);
+  if (!s3.split("\n").some((l) => /^- target project: .*`?key`?.*its team/i.test(l))) fail(`${PUB}: §3 closing confirmation must list the target project (key) and its team`);
+
+  const SC = "skills/bridge/references/state-contract.md";
+  const sc = read(SC);
+  const layout = sc.split("\n## Layout")[1]?.split("\n## ")[0] ?? "";
+  const tree = layout.split("```")[1] ?? "";
+  if (!/^\.allye\/project\.json\s+← .*committed/m.test(tree)) fail(`${SC}: the Layout tree must list .allye/project.json as committed`);
+  const bullets = layout.split("\n").filter((l) => l.startsWith("- "));
+  if (!bullets.some((l) => l.includes("`.allye/project.json`") && /product state/.test(l) && /committed and reviewed/.test(l))) fail(`${SC}: must define .allye/project.json as product state, committed and reviewed`);
+  const excl = bullets.find((l) => /^- Local working state is only /.test(l)) ?? "";
+  if (!excl.includes("`.allye/armorer.json`") || !excl.includes("`.allye/missions/`") || !/only/.test(excl)) fail(`${SC}: local-state exclusions must cover only .allye/armorer.json and .allye/missions/`);
+  if (/`\.allye\/` \(|check-ignore -q \.allye\/`|append `\.allye\/`/.test(sc))
+    fail(`${SC}: must not exclude the whole .allye/ directory`);
+  if (/check-ignore -q \.allye\/armorer\.json \.allye/.test(sc) || !sc.includes("`git check-ignore -q .allye/armorer.json`") || !sc.includes("`git check-ignore -q .allye/missions/`")) fail(`${SC}: must check each local-state path with its own \`git check-ignore -q\` (-q takes one path)`);
+  const ign = bullets.find((l) => l.includes("git check-ignore -v")) ?? "";
+  // Correction round 2 (Medic): git cannot re-include a file under an excluded directory, so the
+  // negation example must turn a `.allye/` directory rule into `.allye/*` and re-check.
+  {
+    const fix = bullets.find((l) => l.includes("git check-ignore -v")) ?? "";
+    if (!/`\.allye\/\*`/.test(fix) || !fix.includes("`!.allye/project.json`") || !fix.includes("`git check-ignore -q .allye/project.json`")) fail(`${SC}: the ignore fix must change a \`.allye/\` directory rule to \`.allye/*\`, add \`!.allye/project.json\` and re-check with \`git check-ignore -q .allye/project.json\``);
+    if (/negation next to that rule/.test(fix)) fail(`${SC}: must not pair \`!.allye/project.json\` with a bare \`.allye/\` rule (git cannot re-include a file under an excluded directory)`);
+  }
+  if (!ign || !/narrowest/.test(ign) || !/tracked `\.gitignore`.*without the user's OK/.test(ign)) fail(`${SC}: when .allye/project.json is ignored, report the rule (git check-ignore -v), propose the narrowest fix, never edit a tracked .gitignore without OK`);
+  if (!bullets.some((l) => /earlier Bridge `\.allye\/` entry/.test(l) && /\.git\/info\/exclude/.test(l) && /replace/.test(l) && l.includes("`.allye/armorer.json`") && l.includes("`.allye/missions/`"))) fail(`${SC}: must replace an earlier Bridge .allye/ entry in .git/info/exclude with the two specific paths`);
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);
 }
-console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced)");
+console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; publish resolves via project_resolve and a verified link file; .allye/project.json committed)");
