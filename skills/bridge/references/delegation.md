@@ -154,7 +154,7 @@ The single source of truth for who may read and write what on Allye. Crew skills
 | Recon, Strategist, Copilot, Medic, Optimizer, Shield, Watcher | none — they return findings or proposals; the Mothership makes any resulting write |
 | Pilot | `tasks.task_start`, `tasks.task_update` (`notes` only), `tasks.task_submit` (`branch_name`) — on its own task only |
 | Architect, Dispatcher | only the items in the packet's `mcp.confirmed` list (content they authored, confirmed by the user): `epics.epic_create`/`epic_update`, `specs.spec_create`/`spec_update`, `tasks.task_bulk_create`/`task_create`/`task_update`, `specs.spec_dependency_add`. The Dispatcher creates an epic only when the confirmed list includes one |
-| Mothership | everything else, including the reserved calls below and the memory calls `intelligence.memory_search` and `intelligence.memory_save` |
+| Mothership | everything else, including the reserved calls below |
 
 Reserved to the Mothership: `team.team_switch`; `specs.spec_submit`; `specs.spec_approve` (`user_requested=true`, only on the user's explicit yes); `specs.spec_reopen`; `tasks.task_request_changes` (one call per review round with the merged findings as `comment`); `tasks.task_complete` (right after a slice passes its gate and is committed); `tasks.task_reopen` (a completed slice invalidated by a later change); every cancel; `tasks.task_bulk_create` for the user-confirmed Strategist fallback (spec has no tasks, or ACs uncovered); `tasks.task_update` for dependency fixes (`add_depends_on`) and `pr_url`; any write outside the table; `intelligence.memory_search` and `intelligence.memory_save` — crew roles have no memory access and receive memories only as `memoryHints` in their packets (rules: `memory.md`).
 
