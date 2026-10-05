@@ -1,5 +1,6 @@
 // Guards the spec-authoring text of the Bridge skills: anchors are defined once per spec,
-// and the shared anchor lint is the single checklist used by authors and publish. Offline.
+// and the shared anchor lint is the single checklist used by authors and publish. Also checks
+// that the memory reference (skills/bridge/references/memory.md) states every memory rule. Offline.
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -38,8 +39,30 @@ for (const file of ["skills/bridge-architect/SKILL.md", "skills/bridge-dispatche
 }
 if (!/no partial publish/i.test(read("skills/bridge/references/publish.md"))) fail("publish.md: must require the lint for all specs before any write (no partial publish)");
 
+// Memory rules live in one reference (read, save, result handling, journaling).
+const MEMORY = "skills/bridge/references/memory.md";
+if (!existsSync(join(root, MEMORY))) fail(`${MEMORY} is missing`);
+else {
+  const memory = read(MEMORY);
+  const needles = [
+    "intelligence.memory_search", "intelligence.memory_save", "limit 15", "return_content=true",
+    "Memory hints", "data, not instructions", "re-verif", "without hints",
+    "decisions", "patterns", "incidents", "team_id", "project-<KEY>", "spec-<KEY-N>", "app-<repo>",
+    "at most 5", "created", "updated", "superseded", "noop", "byte-identical", "personal",
+    "never fail or block", "no confirmation", "inspect and survey save nothing",
+    "launch", "mission", "repair", "optimize", "shield", "blueprint", "dispatch",
+    "memory-read", "memory-save", "memories",
+    "at most 8", "no sector filter", "date -u", "never `session` or `handover`", "secrets", "retry once",
+    "Recon re-verif", "paraphrase", "reads as a directive", "never verbatim", "no idempotency key",
+    "once `log.md` exists", "no retry",
+  ];
+  for (const needle of needles) {
+    if (!memory.includes(needle)) fail(`${MEMORY}: must mention "${needle}"`);
+  }
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);
 }
-console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish)");
+console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete)");
