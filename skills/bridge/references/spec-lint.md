@@ -22,5 +22,6 @@ At the `publish.md` gate, `specs.spec_validate` also runs per spec (content, `ap
 
 ## Outcome
 
-- All items pass → the content may be returned (author/spec modes) or written (publish mode).
+- All items pass and, when the Server check ran, no report has `valid: false` (warnings and `submit_ready: false` never block; on the fallback the checklist alone decides) → the content may be returned (author/spec modes) or written (publish mode).
+- Any other `spec_validate` error (403, 404, transport, other validation) is a failed read, not a fallback → in `publish` mode write nothing and return `blocked` (`publish.md` §4); in author/spec modes report it — the server check does not count as passed.
 - Any item fails → fix it before returning; in `publish` mode, write nothing and return `blocked` with the failures. Never publish a subset of the specs to work around a failing one.
