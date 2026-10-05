@@ -157,8 +157,28 @@ else {
   if (!read(MEM).includes("the read and any save")) fail(`${MEM}: §6 fallback must report "the read and any save" in the final output`);
 }
 
+// ALY-22 [AC-02] [AC-08]: the Armorer reports memory as optional; the bootstrap names the memory loop.
+{
+  const ARM = "skills/bridge-armorer/SKILL.md";
+  const arm = read(ARM);
+  const checks = arm.split("\n## Checks")[1]?.split("\n## ")[0] ?? "";
+  const memCheck = checks.split("\n").find((l) => /^\d+\. \*\*Memory/.test(l)) ?? "";
+  if (!memCheck) fail(`${ARM}: Checks must include a numbered "Memory" check`);
+  for (const needle of ["intelligence", "optional", "memory.md", "never blocks"]) {
+    if (memCheck && !memCheck.includes(needle)) fail(`${ARM}: the Memory check must mention "${needle}"`);
+  }
+  if (!arm.includes("Never treat optional as required.")) fail(`${ARM}: must keep "Never treat optional as required."`);
+
+  const BOOT = "bootstrap/allye.md";
+  const boot = read(BOOT);
+  const memLines = boot.split("\n").filter((l) => /memories.*start.*distilled lessons.*end/.test(l));
+  if (memLines.length !== 1) fail(`${BOOT}: exactly one line must state that Bridge reads memories at the start and saves distilled lessons at the end (found ${memLines.length})`);
+  const CODEX = "manifests/codex/AGENTS.md";
+  if (read(CODEX) !== boot) fail(`${CODEX}: must equal ${BOOT} (run scripts/sync-bootstrap.sh)`);
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);
 }
-console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled)");
+console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced)");

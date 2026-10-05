@@ -23,6 +23,8 @@ Load the `bridge` skill when the user runs `/bridge` (`/allye:bridge` in Claude 
 - `inspect` — read-only review of a diff.
 - `survey` — map the codebase and create or update the code guide.
 
+Bridge reads Allye memories at the start of a mode and saves distilled lessons at the end.
+
 ## Rules
 
 - Ask before consequential changes; never push, open a PR or deploy without explicit approval.

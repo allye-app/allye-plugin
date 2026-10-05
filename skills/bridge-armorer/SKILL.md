@@ -42,6 +42,7 @@ You make sure the requested mode has every capability it needs before the Mother
    A role with no dedicated type is satisfied by a general worker carrying the same mandate and limits.
 6. **Local tools.** `git` (required for code-changing modes), `gh` (optional: needed only to open the PR after approval), and the repo's test/build/lint commands derived from its config and instructions. Check each is installed and resolvable (`--version`, `command -v`, or the package manager's script list) — do not run the test suite.
 7. **Marketplace (optional, never blocks).** Compare the team's and organization's skills on Allye (`skills.skill_list` with `scope: team` / `organization`, `skills.skill_list_revisions` with `skill_id` for currency) with the skills installed in this harness (read its skill directories; do not modify them). Report each as `installed`, `missing` or `outdated`. If any is missing or outdated, propose the plugin's skills installer only when its exact subcommand is verifiable from `install.sh` usage/help; otherwise report the gap without a command.
+8. **Memory (optional, never blocks).** Check whether the Mothership has the `intelligence` tool, from its tool list (passed in your packet, or seen directly in the sequential fallback) or from the `initialize` output — an observation only; never call `intelligence` yourself. Present → `satisfied`; missing or unknown → `missing` as an `optional` capability with a warning: the mode continues without memory hints (`../bridge/references/memory.md` §1, Failure).
 
 ## Classification
 
