@@ -16,7 +16,7 @@ Allye keeps your projects, epics, specs and tasks on the server. This plugin con
 
 - **Allye MCP** (`https://mcp.allye.app/mcp`, OAuth 2.1) — `projects`, `epics`, `specs`, `tasks` and `team` tools, plus context, memory and your organization's skills.
 - **Bridge** (`/bridge <mode>`) — a skill that designs specs with you and drives an approved spec to a reviewed branch and, with your approval, one PR, through a crew of specialized agents with security and review gates.
-- **Bootstrap** — a short session-start note telling the agent that the MCP and Bridge are available and that it must ask you for a team when none is active.
+- **Bootstrap** — a short session-start note telling the agent that the MCP and Bridge are available, that the team follows the project (identified with `project_resolve`), and that a default team is only needed to create projects and for memory, todo and doc calls without a `team_id`.
 
 **[Create a free Allye account →](https://allye.app/)**
 

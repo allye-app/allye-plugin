@@ -60,4 +60,4 @@ Tell the user:
 
 > Allye is configured for Codex: the `allye` MCP server, the Bridge skill and the Allye bootstrap in `~/.codex/AGENTS.md`.
 >
-> Start a new Codex session and run `/bridge survey` (or another mode) to begin. If no Allye team is active, the agent will ask which one to use.
+> Start a new Codex session and run `/bridge survey` (or another mode) to begin. The agent identifies the repository's project with `project_resolve`; it asks for a team only when it needs to create a project and you have no default team.

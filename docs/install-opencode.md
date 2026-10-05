@@ -42,4 +42,4 @@ Tell the user:
 > - the `allye` MCP server at `https://mcp.allye.app/mcp`, using native OAuth;
 > - the `allye-opencode` plugin, which adds the Allye bootstrap and the Bridge skill (`/bridge <mode>`).
 >
-> Restart OpenCode to load the plugin. If no Allye team is active, the agent will ask which one to use.
+> Restart OpenCode to load the plugin. The agent identifies the repository's project with `project_resolve`; it asks for a team only when it needs to create a project and you have no default team.
