@@ -1,3 +1,13 @@
+# [2.2.0](https://github.com/allye-app/allye-plugin/compare/v2.1.1...v2.2.0) (2026-10-05)
+
+
+### Features
+
+* **bridge:** add the memory reference ([356d780](https://github.com/allye-app/allye-plugin/commit/356d78019f383d9d0bf474c75782275618562731))
+* **bridge:** grant memory access to the Mothership and journal it ([e54d0d0](https://github.com/allye-app/allye-plugin/commit/e54d0d099277a5fdf7a87c10de55a88da9fc8bb0))
+* **bridge:** report memory as an optional Armorer capability ([0128b53](https://github.com/allye-app/allye-plugin/commit/0128b53a044dcee80b69ed81aa9e2838b01079c3))
+* **bridge:** wire memory read and save into the Mothership flow ([4133812](https://github.com/allye-app/allye-plugin/commit/413381257edd16f1624eb43ad406e741229959e1))
+
 ## [2.1.1](https://github.com/allye-app/allye-plugin/compare/v2.1.0...v2.1.1) (2026-10-04)
 
 
