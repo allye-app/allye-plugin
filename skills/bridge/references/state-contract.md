@@ -5,6 +5,7 @@ The Allye server owns the plan: epic, spec, anchors, tasks, dependencies and sta
 ## Layout
 
 ```
+.allye/project.json   ← repo → project link claim: product state, committed (publish.md §1)
 .allye/armorer.json   ← Armorer cache, written by the Mothership (skill bridge-armorer → Cache)
 .allye/missions/<slug>/
 ├── log.md            ← Mothership-owned: projection + append-only journal
@@ -20,8 +21,11 @@ The Allye server owns the plan: epic, spec, anchors, tasks, dependencies and sta
 - A mission directory exists only once a real spec key exists (from `specs.spec_context`/`spec_create`). In `launch`, `mission`, `repair`, `optimize` and `shield` the Mothership opens `log.md` at the end of the read-only preflight (`workflow.md` §2), so every later transition and Allye write is logged. Design work before the spec is created (`blueprint`, `dispatch`) keeps no other local state: its output goes to the server. Right after publishing, the Mothership may open the log of each new spec with a `publish` entry (keys created, overlaps) and, for blueprint, a `spec-challenge` entry (rounds, findings fixed, findings turned into `[Q-NN]`) — this entry replaces any separate challenge gate; the server-side gate is the spec status and its open `[Q-NN]`.
 - `<slug>` is the spec key lowercased (`PROJ-12` → `proj-12`). It must match `^[a-z0-9]+(-[a-z0-9]+)*$`. Before any write, resolve the real path and confirm it stays under `.allye/missions/`: reject `..`, path separators in the slug, and symlinks escaping the root.
 - Create missing files and folders on first write; on resume, preserve everything that exists.
-- `.allye/` (`armorer.json` and `missions/`) is local working state, not product: never stage or commit it, and exclude it from every reviewed diff.
-- Before the first write under `.allye/`, check `git check-ignore -q .allye/`. If not ignored, append `.allye/` to `.git/info/exclude` (local, never committed). Never edit a tracked `.gitignore` for this.
+- `.allye/project.json` is product state, committed and reviewed: it is proposed in the reviewed diff and written and committed only on the user's explicit OK (`publish.md` §1). It is never excluded.
+- Local working state is only `.allye/armorer.json` and `.allye/missions/`: never stage or commit them, and exclude them from every reviewed diff. Nothing else under `.allye/` is local state.
+- Before the first write of local state, check each path on its own (`-q` takes one pathname): `git check-ignore -q .allye/armorer.json`, then `git check-ignore -q .allye/missions/`. Append to `.git/info/exclude` (local, never committed) only the paths that are not ignored. Never edit a tracked `.gitignore` for this.
+- If an earlier Bridge `.allye/` entry is in `.git/info/exclude`, replace it there with the two specific paths, `.allye/armorer.json` and `.allye/missions/`, so the link file is no longer ignored.
+- When git would ignore `.allye/project.json` (`git check-ignore -v .allye/project.json` matches), report the matching rule (file, line, pattern) and propose the narrowest fix: git cannot re-include a file whose parent directory is excluded, so if the rule is a directory pattern such as `.allye/`, change it to `.allye/*` and add `!.allye/project.json` after it, then re-run `git check-ignore -q .allye/project.json` to confirm the file is no longer ignored; never edit a tracked `.gitignore` without the user's OK.
 
 ## `log.md`
 

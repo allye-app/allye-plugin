@@ -32,7 +32,7 @@ To dispatch or play a crew role, load skill `bridge-<agent>` by name (e.g. `brid
 - decisions already recorded in the spec (`[D-NN]`, resolved `[Q-NN]`) — binding, never re-asked;
 - an existing `.allye/missions/<slug>/log.md` when resuming.
 
-Before every route, run the **Armorer** preflight (skill `bridge-armorer`). No active team → ask which and call `team.team_switch`. A missing required capability → show Armorer's exact proposal and wait for approval. Then, in every mode, run the memory read (`intelligence.memory_search`, `references/memory.md` §1) before dispatching Recon, the author or the Strategist, and pass the kept hits as Memory hints in their packets. If a mode needs no implementation, run only its route and return its result. Do not fabricate mission state.
+Before every route, run the **Armorer** preflight (skill `bridge-armorer`). Its `defaultTeam` is information only: a missing team never gates a route. When about to create a project with no default team set, ask the user which team and pass `team_id` on the project creation; call `team.team_set_default` only when the user asks to set a new default (it persists across sessions). A missing required capability → show Armorer's exact proposal and wait for approval. Then, in every mode, run the memory read (`intelligence.memory_search`, `references/memory.md` §1) before dispatching Recon, the author or the Strategist, and pass the kept hits as Memory hints in their packets. If a mode needs no implementation, run only its route and return its result. Do not fabricate mission state.
 
 ## Routing
 

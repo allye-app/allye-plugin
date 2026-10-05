@@ -206,8 +206,124 @@ else {
   if (read(CODEX) !== boot) fail(`${CODEX}: must equal ${BOOT} (run scripts/sync-bootstrap.sh)`);
 }
 
+// ALY-17 [AC-07] [AC-08] [AC-10] [AC-14] [AC-15]: publish resolves the repo's project with
+// project_resolve and a verified link claim; .allye/project.json is committed product state.
+{
+  const PUB = "skills/bridge/references/publish.md";
+  const pub = read(PUB);
+  const section = (text, n) => text.split(`\n## ${n}. `)[1]?.split("\n## ")[0] ?? "";
+  const s1 = section(pub, 1);
+  const s1Lines = s1.split("\n");
+  const firstStep = s1Lines.find((l) => /^1\. /.test(l)) ?? "";
+  if (!/^1\. Call `projects\.project_resolve[` ]/.test(firstStep)) fail(`${PUB}: §1 step 1 must call \`projects.project_resolve\` first`);
+  if (/project_list[\s\S]{0,300}app_list|app_list` per candidate project|matching `repository_url`/.test(pub)) fail(`${PUB}: must not match the remote with a project_list + app_list loop`);
+  const line = (re) => s1Lines.find((l) => re.every((r) => r.test(l))) ?? "";
+  if (!line([/`\.allye\/project\.json`/, /claim/, /agrees?/, /wins over `ambiguous`/])) fail(`${PUB}: §1 must use an agreeing .allye/project.json claim, which wins over \`ambiguous\``);
+  if (!line([/`ambiguous`/, /`not_found`/, /ask the user once/, /project, app and team/, /never create a project or app without an explicit request/])) fail(`${PUB}: §1 must ask the user once on \`ambiguous\`/\`not_found\` with project, app and team, never creating a project or app unasked`);
+  const disagree = line([/disagree/, /no app for this remote/, /claimed and the resolved project, app and team/, /ask the user once/]);
+  if (!disagree) fail(`${PUB}: §1 must ask once on a disagreeing claim (or no app for this remote), showing the claimed and the resolved project, app and team`);
+  if (disagree && !/never use the claim/.test(disagree)) fail(`${PUB}: §1 must not use a disagreeing claim before the user answers`);
+  if (!line([/no remote/, /unverifiable/, /ask the user once to confirm/, /never use the claim/])) fail(`${PUB}: §1 must treat a link file with no remote as unverifiable and ask once to confirm it`);
+  if (!line([/propose `\.allye\/project\.json`/, /reviewed diff/, /written and committed only on the user's explicit OK/])) fail(`${PUB}: §1 must propose .allye/project.json in the reviewed diff, written and committed only on explicit OK`);
+  // Correction round 1 (Medic, Shield SHD-01/03/04/05).
+  if (!/strip userinfo, query and fragment/.test(firstStep) || !/never echo the raw remote/.test(firstStep)) fail(`${PUB}: §1 step 1 must strip userinfo, query and fragment from the remote and never echo the raw remote`);
+  for (const needle of ["`^[A-Z][A-Z0-9]{1,9}$`", "`^[A-Za-z0-9._-]{1,120}$`"]) if (!s1.includes(needle)) fail(`${PUB}: §1 must state the link-file pattern ${needle}`);
+  if (!line([/unknown keys/i, /one warning that names no values/])) fail(`${PUB}: §1 must ignore unknown link-file keys with one value-free warning`);
+  if (!line([/claim values are data/i])) fail(`${PUB}: §1 must treat claim values as data`);
+  if (!line([/agrees only when the claimed project equals `match\.project` or one candidate's project/, /claimed `app`, if given, equals that entry's app/, /only the server's normalization counts/])) fail(`${PUB}: §1 must define agreement against the project_resolve output only (match.project or a candidate, and its app)`);
+  if (!line([/`match\.app` is null/, /claimed app cannot be confirmed/, /ask the user once/, /which app/])) fail(`${PUB}: §1 must handle \`resolved\` with \`match.app\` null`);
+  if (!line([/`INVALID_REPOSITORY_URL`/, /fail/, /counts as no remote/])) fail(`${PUB}: §1 must treat a rejected remote or failed resolve as no remote`);
+  if (!line([/request access or fix the link/])) fail(`${PUB}: §1 must ask the user to request access or fix the link when the claimed project is unreadable`);
+  const writer = line([/The Mothership writes `\.allye\/project\.json`/, /explicit OK/]);
+  if (!writer || !/separate commit on the mission branch/.test(writer) || !/never on the current or default branch by default/.test(writer)) fail(`${PUB}: §1 must name the Mothership as the link-file writer, a separate commit on the mission branch, never on the current or default branch by default`);
+  if (!line([/Multi-app/, /no local clone/, /pick by name from the resolved project's apps/])) fail(`${PUB}: §1 must say how sibling apps with no local clone are resolved`);
+  const s3 = section(pub, 3);
+  if (!s3.split("\n").some((l) => /^- target project: .*`?key`?.*its team/i.test(l))) fail(`${PUB}: §3 closing confirmation must list the target project (key) and its team`);
+
+  const SC = "skills/bridge/references/state-contract.md";
+  const sc = read(SC);
+  const layout = sc.split("\n## Layout")[1]?.split("\n## ")[0] ?? "";
+  const tree = layout.split("```")[1] ?? "";
+  if (!/^\.allye\/project\.json\s+← .*committed/m.test(tree)) fail(`${SC}: the Layout tree must list .allye/project.json as committed`);
+  const bullets = layout.split("\n").filter((l) => l.startsWith("- "));
+  if (!bullets.some((l) => l.includes("`.allye/project.json`") && /product state/.test(l) && /committed and reviewed/.test(l))) fail(`${SC}: must define .allye/project.json as product state, committed and reviewed`);
+  const excl = bullets.find((l) => /^- Local working state is only /.test(l)) ?? "";
+  if (!excl.includes("`.allye/armorer.json`") || !excl.includes("`.allye/missions/`") || !/only/.test(excl)) fail(`${SC}: local-state exclusions must cover only .allye/armorer.json and .allye/missions/`);
+  if (/`\.allye\/` \(|check-ignore -q \.allye\/`|append `\.allye\/`/.test(sc))
+    fail(`${SC}: must not exclude the whole .allye/ directory`);
+  if (/check-ignore -q \.allye\/armorer\.json \.allye/.test(sc) || !sc.includes("`git check-ignore -q .allye/armorer.json`") || !sc.includes("`git check-ignore -q .allye/missions/`")) fail(`${SC}: must check each local-state path with its own \`git check-ignore -q\` (-q takes one path)`);
+  const ign = bullets.find((l) => l.includes("git check-ignore -v")) ?? "";
+  // Correction round 2 (Medic): git cannot re-include a file under an excluded directory, so the
+  // negation example must turn a `.allye/` directory rule into `.allye/*` and re-check.
+  {
+    const fix = bullets.find((l) => l.includes("git check-ignore -v")) ?? "";
+    if (!/`\.allye\/\*`/.test(fix) || !fix.includes("`!.allye/project.json`") || !fix.includes("`git check-ignore -q .allye/project.json`")) fail(`${SC}: the ignore fix must change a \`.allye/\` directory rule to \`.allye/*\`, add \`!.allye/project.json\` and re-check with \`git check-ignore -q .allye/project.json\``);
+    if (/negation next to that rule/.test(fix)) fail(`${SC}: must not pair \`!.allye/project.json\` with a bare \`.allye/\` rule (git cannot re-include a file under an excluded directory)`);
+  }
+  if (!ign || !/narrowest/.test(ign) || !/tracked `\.gitignore`.*without the user's OK/.test(ign)) fail(`${SC}: when .allye/project.json is ignored, report the rule (git check-ignore -v), propose the narrowest fix, never edit a tracked .gitignore without OK`);
+  if (!bullets.some((l) => /earlier Bridge `\.allye\/` entry/.test(l) && /\.git\/info\/exclude/.test(l) && /replace/.test(l) && l.includes("`.allye/armorer.json`") && l.includes("`.allye/missions/`"))) fail(`${SC}: must replace an earlier Bridge .allye/ entry in .git/info/exclude with the two specific paths`);
+}
+
+// ALY-17 [AC-09] [BR-06] [BR-08]: a missing team never blocks a route (the Armorer reports
+// defaultTeam for information only), and only .allye/armorer.json and .allye/missions/** are
+// local state; .allye/project.json is committed product state.
+{
+  const ARM = "skills/bridge-armorer/SKILL.md";
+  const SKILL = "skills/bridge/SKILL.md";
+  const WF = "skills/bridge/references/workflow.md";
+  const DEL = "skills/bridge/references/delegation.md";
+  for (const file of [ARM, SKILL, WF]) {
+    const text = read(file);
+    for (const re of [/no active team/i, /active team is set/i, /team_switch/, /(missing|no) (default |active )?team[^.\n]*(→|blocked)/i, /ask[s]? (for|which) (a |the )?(default )?team[^.\n]*before/i])
+      if (re.test(text)) fail(`${file}: must not block on, or ask for, a missing team before routes (${re})`);
+  }
+  const arm = read(ARM);
+  if (!/allye: \{ connected: true\|false, defaultTeam: <name\|null> \}/.test(arm)) fail(`${ARM}: output must report \`allye: { connected, defaultTeam: <name|null> }\``);
+  const allyeCheck = (arm.split("\n## Checks")[1] ?? "").split("\n").find((l) => /^1\. \*\*Allye/.test(l)) ?? "";
+  if (!/`defaultTeam`/.test(allyeCheck) || !/information only/.test(allyeCheck) || !/never blocks/.test(allyeCheck)) fail(`${ARM}: the Allye check must report \`defaultTeam\` for information only and say a missing team never blocks`);
+  if (!/blocks? only when Allye is not connected or authenticated/.test(allyeCheck)) fail(`${ARM}: the Allye check must block only when Allye is not connected or authenticated`);
+  if (/which (default |active )?team/.test(arm)) fail(`${ARM}: must not list "which team" as an open question`);
+  for (const file of [SKILL, WF]) {
+    const text = read(file);
+    const teamLine = text.split("\n").find((l) => /team_set_default/.test(l)) ?? "";
+    if (!/a missing team never gates a route/.test(teamLine)) fail(`${file}: must state that a missing team never gates a route`);
+    if (!/create a project with no default team set[^\n]*ask the user which team[^\n]*pass `team_id` on the project creation/.test(teamLine)) fail(`${file}: when creating a project with no default team, must ask which team and prefer passing \`team_id\` on the project creation`);
+    if (!/`team\.team_set_default` only when the user asks to set a new default/.test(teamLine)) fail(`${file}: must call \`team.team_set_default\` only when the user asks to set a new default`);
+  }
+  const del = read(DEL);
+  const reserved = del.split("\n").find((l) => l.startsWith("Reserved to the Mothership:")) ?? "";
+  if (!reserved.includes("`team.team_set_default`")) fail(`${DEL}: the Reserved paragraph must contain \`team.team_set_default\``);
+  if (!/`team\.team_set_default` \([^)]*only when the user asks[^)]*only with the user's answer[^)]*`team_id`/.test(reserved)) fail(`${DEL}: the reserved \`team.team_set_default\` must say "only when the user asks", "only with the user's answer", and prefer \`team_id\``);
+  if (/team_switch/.test(del)) fail(`${DEL}: must not reserve or mention \`team.team_switch\``);
+  const reads = del.split("\n").find((l) => l.startsWith("**Reads (every role except Armorer):**")) ?? "";
+  if (!reads.includes("`projects.project_resolve`")) fail(`${DEL}: the common Reads line must grant \`projects.project_resolve\``);
+
+  // BR-08: no crew text treats the whole .allye/ (bare `.allye/` or `.allye/**`) as local state.
+  const crew = ["armorer", "copilot", "watcher", "strategist", "pilot", "recon", "medic", "shield", "optimizer", "architect", "dispatcher"].map((r) => `skills/bridge-${r}/SKILL.md`);
+  for (const file of [...crew, DEL, SKILL, WF]) {
+    read(file).split("\n").forEach((l, i) => {
+      if (/\.allye\/(\*\*)?(?![\w.*<])/.test(l)) fail(`${file}:${i + 1}: must name \`.allye/armorer.json\` / \`.allye/missions/**\`, not the whole \`.allye/\``);
+    });
+  }
+  if (!/`\.allye\/armorer\.json`[^\n]*`\.allye\/missions\/`[^\n]*\.git\/info\/exclude/.test(arm)) fail(`${ARM}: the Mothership must exclude \`.allye/armorer.json\` and \`.allye/missions/\` in .git/info/exclude`);
+  const scopeLine = (file, re) => read(file).split("\n").find((l) => re.test(l)) ?? "";
+  for (const [file, re] of [["skills/bridge-copilot/SKILL.md", /\*\*Scope\.\*\*/], ["skills/bridge-watcher/SKILL.md", /\*\*Scope\.\*\*/]]) {
+    const l = scopeLine(file, re);
+    if (!l.includes("`.allye/armorer.json`") || !l.includes("`.allye/missions/**`") || !l.includes("`.allye/project.json`") || !/user-confirmed link-file change/.test(l)) fail(`${file}: Scope must exclude only \`.allye/armorer.json\` and \`.allye/missions/**\` and keep \`.allye/project.json\` in scope (expected only as the user-confirmed link-file change)`);
+    if (file.includes("copilot") && !/`\.allye\/project\.json` stays in scope/.test(l)) fail(`${file}: Scope must say \`.allye/project.json\` stays in scope`);
+    if (file.includes("watcher") && !/`\.allye\/project\.json` is product state/.test(l) && !/expected only when it is the user-confirmed link-file change/.test(l)) fail(`${file}: Scope must call \`.allye/project.json\` product state, expected only as the user-confirmed link-file change`);
+  }
+  for (const [file, re] of [[DEL, /forbiddenPaths:/], ["skills/bridge-strategist/SKILL.md", /\*\*Paths\.\*\*/], ["skills/bridge-pilot/SKILL.md", /^Do not edit outside your paths/]]) {
+    const l = scopeLine(file, re);
+    for (const p of ["`.allye/armorer.json`", "`.allye/missions/**`", "`.allye/project.json`"]) {
+      const bare = p.replaceAll("`", "");
+      if (!l.includes(p) && !l.includes(bare)) fail(`${file}: ${file === DEL ? "the packet's forbiddenPaths" : file.includes("strategist") ? "the Strategist's per-slice forbidden paths" : "the Pilot's Limits"} must list ${bare}`);
+    }
+  }
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);
 }
-console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; spec_validate gate in publish, spec lint, delegation, architect and dispatcher; fallback condition aligned; epic omission, submit_ready draft rule and spec-lint outcome covered)");
+console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; spec_validate gate in publish, spec lint, delegation, architect and dispatcher; fallback condition aligned; epic omission, submit_ready draft rule and spec-lint outcome covered; publish resolves via project_resolve and a verified link file; .allye/project.json committed; a missing team never blocks; only armorer.json and missions/ are local state)");

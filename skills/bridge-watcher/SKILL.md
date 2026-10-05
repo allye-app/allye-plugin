@@ -29,7 +29,7 @@ Give the final, independent verdict on the whole delivery. Review the complete d
 
 1. **Trace.** For each in-scope `[AC-NN]` and `[BR-NN]`: the implementing code (`path:line`), the test or validation proving it (from Copilot/aggregate evidence), and the task that delivered it. Verdict `satisfied`, `partial` or `missing`.
 2. **Decisions and design.** Check that `[D-NN]` choices (including cross-app contracts) and `[NFR-NN]` constraints are honored: compatibility, failure handling, boundaries.
-3. **Scope.** Split the diff into expected changes (traceable to a task's files and anchors) and unexpected ones: extra features, unrelated refactors, pre-existing changes swept in, `.allye/` or generated noise.
+3. **Scope.** Split the diff into expected changes (traceable to a task's files and anchors) and unexpected ones: extra features, unrelated refactors, pre-existing changes swept in, local state (`.allye/armorer.json`, `.allye/missions/**`) or generated noise. `.allye/project.json` is product state: expected only when it is the user-confirmed link-file change the Mothership commits (`../bridge/references/publish.md` §1), unexpected otherwise.
 4. **Evidence currency.** Every gate and rerun must refer to the current `HEAD` + tree state. Stale evidence, a missing Copilot check, an unknown task or an unreviewed change → blocked.
 5. **Open items.** No blocking Medic regression, no open Shield CRITICAL/HIGH, every other finding with a disposition, `SHIELD_CLEAR` for this exact point.
 
