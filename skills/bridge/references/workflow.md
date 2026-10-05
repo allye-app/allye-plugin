@@ -34,6 +34,7 @@ Before creating a branch, editing code or changing any status:
 7. Inspect `git status` and record pre-existing changes.
 8. Check for an existing `.allye/missions/<slug>/` (resume) and that it belongs to this spec.
 9. **Open the log.** The spec key now exists: create or resume `.allye/missions/<slug>/log.md` (`state-contract.md`) and append `preflight` (with Armorer's result and any warning). Every later transition and Allye write is logged from here on.
+10. **Journal the memory read.** The `intelligence.memory_search` of `memory.md` §1 runs once per mode, once the spec or goal is known and before any Recon (`SKILL.md` → Inputs); append it as `memory-read` (held until now when it ran before the log existed, `memory.md` §6).
 
 Apart from opening the log, no server, git or file mutation happens in preflight.
 
@@ -46,7 +47,7 @@ Apart from opening the log, no server, git or file mutation happens in preflight
 
 ## 3. Recon
 
-Dispatch Recon in `launch` mode with the spec key, anchors in scope and the code guide entries. Its map (entry points, patterns, likely files, tests and seams, build/test commands) goes into the Strategist's packet. Log its result as a report.
+Dispatch Recon in `launch` mode with the spec key, anchors in scope, the code guide entries and the relevant Memory hints (`memory.md` §1). Its map (entry points, patterns, likely files, tests and seams, build/test commands) goes into the Strategist's packet, with the Memory hints relevant to planning. Log its result as a report.
 
 ## 4. Planning, alone
 
@@ -118,11 +119,12 @@ A change to a cross-app `[D-NN]` contract updates every spec that shares it, eac
 
 ## 11. Other routes
 
-- **repair** — Recon reproduces first (expected vs. observed); Medic (`diagnose`) names the cause, the smallest fix and the regression test. No spec given → Dispatcher drafts a `bugfix` spec with tasks and the publish step applies, followed by the approval question (`publish.md` §5). Then §2–§7.
-- **optimize** — Recon lists invariants; Optimizer (`optimize`) proposes. The user picks REMOVE_NOW/SIMPLIFY_NOW items (LATER is never applied). The approved items become a spec (given, or new via Dispatcher → publish → approval question), then §2–§7.
-- **shield** — Shield (`final` mode, `mcp.writes: []`) reviews the target; its result is a report, not a kept gate. The user confirms which findings to fix; those become a spec (given, or new via Dispatcher → publish → approval question), then §2–§7. Shield runs again in the slices and the final gates.
+- **repair** — Recon reproduces first (expected vs. observed); Medic (`diagnose`) names the cause, the smallest fix and the regression test. No spec given → Dispatcher drafts a `bugfix` spec with tasks and the publish step applies, followed by the approval question (`publish.md` §5). Then §2–§7 and §13.
+- **optimize** — Recon lists invariants; Optimizer (`optimize`) proposes. The user picks REMOVE_NOW/SIMPLIFY_NOW items (LATER is never applied). The approved items become a spec (given, or new via Dispatcher → publish → approval question), then §2–§7 and §13.
+- **shield** — Shield (`final` mode, `mcp.writes: []`) reviews the target; its result is a report, not a kept gate. The user confirms which findings to fix; those become a spec (given, or new via Dispatcher → publish → approval question), then §2–§7 and §13. Shield runs again in the slices and the final gates.
 - **inspect** — read-only on the given diff: Medic (`task: global`), Shield (`final`), Optimizer when relevant; with a spec key, Watcher against its anchors; without one, Watcher in `scope` mode (expected vs. unexpected changes for the stated intent, no gate). Every packet carries `mcp.writes: []`; no mission state is created and no marker is kept or used for a push.
 - **survey** — Recon maps the codebase (its `guideCandidates` are the raw material); Dispatcher (`guide`) writes or updates `docs/code-guide.md`. Show the diff. Never commit it on the current or default branch on your own: propose a branch name and commit there only with the user's OK, or leave the change uncommitted for the user.
+- **inspect and survey save nothing** (`memory.md` §2); they still run the memory read.
 
 ## 12. Partial failure
 
@@ -130,3 +132,8 @@ A change to a cross-app `[D-NN]` contract updates every spec that shares it, eac
 - Subagent failure does not transfer ownership: log it and dispatch a replacement with the same packet and the minimal history.
 - Local write error: preserve files and evidence; never revert user work.
 - Failed external action (MCP write, push, PR): stop further actions, read real state, log, propose reconciliation. No blind retry, delete or rollback.
+- Memory saves are the one exception: single retry per `memory.md` §4.
+
+## 13. End of route: save memories
+
+At the end of `launch` and `mission` (and of `repair`, `optimize`, `shield` via §11), whether complete or blocked, save with `intelligence.memory_save` per `memory.md` §2–4, with no user confirmation. Journal each save as `memory-save` and list the results in the final output's `memories`.

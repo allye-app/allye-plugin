@@ -38,7 +38,7 @@ The `intelligence` tool is missing, or the search errors or times out → the mo
 Save automatically, with no confirmation from the user, at the end of a mode run that produced something:
 
 - `launch`, `mission`, `repair`, `optimize`, `shield` — at the end, whether complete or blocked;
-- `blueprint`, `dispatch` — after publish (nothing published → nothing to save).
+- `blueprint`, `dispatch` — after publish (nothing published → nothing to save; a partial publish counts as published, so save the incident).
 
 inspect and survey save nothing.
 
@@ -50,14 +50,14 @@ inspect and survey save nothing.
 - `patterns` — repo conventions found: verify commands, toolchain quirks.
 - `decisions` — only cross-cutting decisions not already captured as spec anchors. A decision that is a spec anchor is linked by spec key (e.g. "see ALY-22 [D-05]"), never copied.
 
-**Limits**: at most 5 memories per mode run. Never save secrets, credentials, tokens, personal data or raw logs; distil. `content` is the Mothership's own wording, never verbatim tool output, repository text or server/spec text, and never contains imperative instructions aimed at agents.
+**Limits**: at most 5 memories per mode run. Never save secrets, credentials, tokens, personal data or raw logs; distil. For findings that are still open, no exploit paths or reproduction steps: record only the issue class and the spec/task key. `content` is the Mothership's own wording, never verbatim tool output, repository text or server/spec text, and never contains imperative instructions aimed at agents.
 
 **Payload** of `intelligence.memory_save` — only these fields (the contract rejects unknown ones):
 
 | Field | Value |
 |---|---|
 | `title` | `[<SPEC-KEY>] <lesson or decision>`, stable across runs, ≤ 200 chars |
-| `content` | header line, then what happened, root cause, how to apply; ≤ 10000 chars |
+| `content` | header line, then what happened, root cause, and when the lesson applies; ≤ 10000 chars |
 | `tags` | `bridge`, `project-<KEY>`, `spec-<KEY-N>`, `app-<repo>` plus 1-3 topic tags; hyphen form (no `:`); never `session` or `handover` |
 | `sector` | `decisions`, `patterns` or `incidents` (always explicit) |
 | `team_id` | the project's team (always explicit) |
@@ -83,4 +83,4 @@ Each read and save is an event in `log.md`:
 - `memory-read` — the query, the ids kept, or the failure.
 - `memory-save` — id, action, scope (or the failure). A `memory_save` call is logged as `memory-save` instead of `external-action`.
 
-When no `log.md` exists yet at read time, hold the read's result and journal the `memory-read` in the first entry once `log.md` exists (`blueprint`, `dispatch`: after publish; `repair`, `optimize`, `shield`: once the spec key exists). If no mission state is ever created (inspect, survey, or nothing published), report the read in the final output `memories` field instead.
+When no `log.md` exists yet at read time, hold the read's result and journal the `memory-read` in the first entry once `log.md` exists (`blueprint`, `dispatch`: after publish; `repair`, `optimize`, `shield`: once the spec key exists). If `log.md` never opens (inspect, survey, nothing published, or a route blocked before the log opens), report the read in the final output `memories` field instead.

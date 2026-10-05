@@ -32,7 +32,7 @@ To dispatch or play a crew role, load skill `bridge-<agent>` by name (e.g. `brid
 - decisions already recorded in the spec (`[D-NN]`, resolved `[Q-NN]`) — binding, never re-asked;
 - an existing `.allye/missions/<slug>/log.md` when resuming.
 
-Before every route, run the **Armorer** preflight (skill `bridge-armorer`). No active team → ask which and call `team.team_switch`. A missing required capability → show Armorer's exact proposal and wait for approval. If a mode needs no implementation, run only its route and return its result. Do not fabricate mission state.
+Before every route, run the **Armorer** preflight (skill `bridge-armorer`). No active team → ask which and call `team.team_switch`. A missing required capability → show Armorer's exact proposal and wait for approval. Then, in every mode, run the memory read (`intelligence.memory_search`, `references/memory.md` §1) before dispatching Recon, the author or the Strategist, and pass the kept hits as Memory hints in their packets. If a mode needs no implementation, run only its route and return its result. Do not fabricate mission state.
 
 ## Routing
 
@@ -60,10 +60,10 @@ Composed routes never skip preflight or gates. Every code change runs on a track
 
 | Mode | References |
 |---|---|
-| `launch`, `mission` | `workflow.md`, `delegation.md`, `state-contract.md`, `publish.md` (§6–7 branch, push and PR) |
-| `blueprint`, `blueprint --auto`, `dispatch` | `discovery.md`, `publish.md`, `spec-lint.md` (before any spec write), `delegation.md`, `state-contract.md` (log after publish) |
-| `repair`, `optimize`, `shield` | `workflow.md`, `delegation.md`, `state-contract.md`, `publish.md` |
-| `inspect`, `survey` | `delegation.md`, `workflow.md` (§11) |
+| `launch`, `mission` | `memory.md`, `workflow.md`, `delegation.md`, `state-contract.md`, `publish.md` (§6–7 branch, push and PR) |
+| `blueprint`, `blueprint --auto`, `dispatch` | `memory.md`, `discovery.md`, `publish.md`, `spec-lint.md` (before any spec write), `delegation.md`, `state-contract.md` (log after publish) |
+| `repair`, `optimize`, `shield` | `memory.md`, `workflow.md`, `delegation.md`, `state-contract.md`, `publish.md` |
+| `inspect`, `survey` | `memory.md` (§1 read only), `delegation.md`, `workflow.md` (§11) |
 
 `crew.md` is the roster (one line per agent) when you need it.
 
@@ -77,6 +77,8 @@ Composed routes never skip preflight or gates. Every code change runs on a track
 - Push and PR: one explicit proposal (branch, remote, commits, PR title/base/body, gates, risks). A yes authorizes exactly that list.
 - Never deploy. Merge into any branch only when the person commanding this chat explicitly asks.
 - If an external action fails, stop the rest, read real state, propose reconciliation. No blind retry, delete or rollback.
+- Memory saves follow `memory.md` §4, including its single-retry exception to the rule above.
+- Memory reads and memory saves are automatic, with no user confirmation (`memory.md` §1–2).
 
 ## Structured output
 
@@ -93,6 +95,7 @@ validation: [<command → observed result>]
 gates: { shield: SHIELD_CLEAR|null, watcher: WATCHER_APPROVED|null, mothership: MISSION_COMPLETE|null }
 approval: { proposal: <exact summary|null>, approved: true|false }
 external: { done: [<operations>], pending: [<operations>] }
+memories: [{ id: <memory id>, action: <action>, scope: <scope> }]|none  # plus warnings and failures, memory.md §5
 mission: .allye/missions/<slug>|null
 risks: [<residual risk>]
 next: <action|none>
