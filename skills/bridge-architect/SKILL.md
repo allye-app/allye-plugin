@@ -90,7 +90,7 @@ filesRead: [<paths>]
 filesChanged: []
 ```
 
-`ready` means both self-checks, the anchor lint and `specs.spec_validate` passed (or was skipped by the recorded unknown- or unsupported-action fallback, or deferred because the MCP or project is unavailable) and the challenge round ended with no open CRITICAL/HIGH outside an open `[Q-NN]`. Anything else is `needs-input` (questions, Recon or challenge pending) or `blocked` (with the smallest question that would unblock it).
+`ready` means both self-checks, the anchor lint and `specs.spec_validate` passed (or was skipped by the recorded unknown- or unsupported-action fallback, or deferred because the MCP or project is unavailable; any other `spec_validate` error does not count as passed) and the challenge round ended with no open CRITICAL/HIGH outside an open `[Q-NN]`. Anything else is `needs-input` (questions, Recon or challenge pending) or `blocked` (with the smallest question that would unblock it).
 
 ## Limits
 
