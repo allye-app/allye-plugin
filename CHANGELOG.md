@@ -1,3 +1,20 @@
+# [2.4.0](https://github.com/allye-app/allye-plugin/compare/v2.3.0...v2.4.0) (2026-10-05)
+
+
+### Bug Fixes
+
+* **bootstrap:** drop the query and fragment from the resolved remote ([3ae6fb5](https://github.com/allye-app/allye-plugin/commit/3ae6fb5a7b33c40a4114bd434ac6bc5848d6211a))
+* **hooks:** strip remote userinfo before cutting the query and fragment ([8f5afad](https://github.com/allye-app/allye-plugin/commit/8f5afad985785e5083250cd8ad528a4cd18b46d8))
+* **pi:** sanitize remotes like the hook and word unconfirmable app claims ([fc6957b](https://github.com/allye-app/allye-plugin/commit/fc6957b43be9f1b1b94faff8b9ccbff35bce8d1a))
+
+
+### Features
+
+* **bridge:** resolve the publish project via project_resolve and a verified link ([07ab22b](https://github.com/allye-app/allye-plugin/commit/07ab22ba0eb311fa78a96febba1827eac9c2f1fb))
+* **bridge:** stop blocking on a missing team ([6bdd74c](https://github.com/allye-app/allye-plugin/commit/6bdd74c76b03f84e2081683fdabb28f1433ff97a))
+* **hooks:** inject the repo-to-project block at session start ([31e6fc4](https://github.com/allye-app/allye-plugin/commit/31e6fc4da003bf7ecebc1847382f990d32f18d80))
+* **pi:** resolve the repo project and drop the team gate ([dfc6902](https://github.com/allye-app/allye-plugin/commit/dfc69022d34103e70a6f4fa4bdf5ddcae3cf17e0))
+
 # [2.3.0](https://github.com/allye-app/allye-plugin/compare/v2.2.0...v2.3.0) (2026-10-05)
 
 
