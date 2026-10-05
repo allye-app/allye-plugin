@@ -13,9 +13,14 @@ const LINT = "skills/bridge/references/spec-lint.md";
 if (!existsSync(join(root, LINT))) fail(`${LINT} is missing`);
 else {
   const lint = read(LINT);
-  for (const needle of ["SPEC_DUPLICATE_ANCHOR", "defined exactly once", "[NEEDS CLARIFICATION]", "2000", "identical text"]) {
+  for (const needle of ["SPEC_DUPLICATE_ANCHOR", "defined exactly once", "[NEEDS CLARIFICATION]", "2000", "identical text", "## Server check", "specs.spec_validate"]) {
     if (!lint.includes(needle)) fail(`${LINT}: must mention "${needle}"`);
   }
+  // ALY-20: the Server check names the same fallback condition as publish §4; the Outcome covers the server result.
+  const server = lint.split("\n## Server check")[1]?.split("\n## ")[0] ?? "";
+  if (!server.includes("unknown or unsupported action")) fail(`${LINT}: Server check must limit the fallback to an "unknown or unsupported action" rejection`);
+  const outcome = lint.split("\n## Outcome")[1]?.split("\n## ")[0] ?? "";
+  for (const needle of ["valid: false", "failed read"]) if (!outcome.includes(needle)) fail(`${LINT}: Outcome must mention "${needle}"`);
 }
 
 const templates = ["skills/bridge-architect/references/spec-template.md", "skills/bridge-dispatcher/references/spec-template-minimal.md"];
@@ -36,6 +41,14 @@ for (const file of templates) {
 
 for (const file of ["skills/bridge-architect/SKILL.md", "skills/bridge-dispatcher/SKILL.md", "skills/bridge/references/publish.md"]) {
   if (!read(file).includes("spec-lint.md")) fail(`${file}: must reference the anchor lint (spec-lint.md)`);
+}
+// ALY-20 [AC-06]: authors self-check with specs.spec_validate (publish.md is checked with its §3/§4 below).
+for (const file of ["skills/bridge-architect/SKILL.md", "skills/bridge-dispatcher/SKILL.md"]) {
+  const text = read(file);
+  if (!text.includes("specs.spec_validate")) fail(`${file}: must call specs.spec_validate in the anchor lint self-check`);
+  for (const needle of ["unknown or unsupported action", "input validation"]) {
+    if (!text.includes(needle)) fail(`${file}: the spec_validate fallback must use the publish §4 condition ("${needle}")`);
+  }
 }
 if (!/no partial publish/i.test(read("skills/bridge/references/publish.md"))) fail("publish.md: must require the lint for all specs before any write (no partial publish)");
 
@@ -117,6 +130,21 @@ else {
   else if (!savePara.includes("no user confirmation")) fail(`${PUB}: the "Save memories" step must say no user confirmation`);
   const pub8 = pub.split("\n## 8.")[1]?.split("\n## ")[0] ?? "";
   if (!pub8.includes("memory.md` §2–4")) fail(`${PUB}: §8 must point to the memory save (memory.md §2–4)`);
+
+  // ALY-20 [AC-06]: publish is gated on specs.spec_validate for every confirmed spec.
+  for (const needle of ["specs.spec_validate", "valid: false"]) if (!pub4.includes(needle)) fail(`${PUB}: §4 gate must mention "${needle}"`);
+  const pub3 = pub.split("\n## 3.")[1]?.split("\n## 4.")[0] ?? "";
+  if (!pub3.includes("submit_ready")) fail(`${PUB}: §3 closing confirmation must show submit_ready per spec`);
+  for (const needle of ["**Fallback:**", "unknown or unsupported action", "input validation"]) {
+    if (!pub4.includes(needle)) fail(`${PUB}: §4 gate must define the spec_validate fallback ("${needle}")`);
+  }
+  // AC-04: an epic created in this same publish is not passed to spec_validate.
+  for (const needle of ["epic created in this publish", "without `epic`"]) if (!pub4.includes(needle)) fail(`${PUB}: §4 must state the epic-omission rule ("${needle}")`);
+  // submit_ready: false never blocks but keeps the spec draft, and spec_submit skips it.
+  for (const needle of ["`submit_ready: false` do not block", "stays `draft`"]) if (!pub4.includes(needle)) fail(`${PUB}: §4 must say "${needle}"`);
+  const submitLine = pub4.split("\n").find((l) => l.includes("specs.spec_submit")) ?? "";
+  if (!submitLine.includes("not `submit_ready: false`")) fail(`${PUB}: §4 must restrict specs.spec_submit to specs whose report is not \`submit_ready: false\``);
+  if (!pub.split("\n").some((l) => l.startsWith("- Validation:"))) fail(`${PUB}: Output must include a "- Validation:" line`);
 }
 
 // ALY-22 [AC-06] [AC-07]: memory access is the Mothership's only; memory events are journaled.
@@ -132,6 +160,7 @@ else {
   const readsLine = lines.find((l) => l.startsWith("**Reads")) ?? "";
   if (!readsLine) fail(`${DEL}: Reads line not found`);
   if (readsLine.includes("memory_")) fail(`${DEL}: the Reads line must not grant memory_ calls`);
+  if (!readsLine.includes("spec_validate")) fail(`${DEL}: the Reads line must grant spec_validate (ALY-20 [AC-06])`);
   const rows = lines.filter((l) => l.startsWith("| ") && !l.startsWith("| Agent") && !l.startsWith("|---"));
   const firstCell = (l) => l.split("|")[1].trim();
   for (const row of rows) {
@@ -181,4 +210,4 @@ if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);
 }
-console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced)");
+console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; spec_validate gate in publish, spec lint, delegation, architect and dispatcher; fallback condition aligned; epic omission, submit_ready draft rule and spec-lint outcome covered)");
