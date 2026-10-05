@@ -83,4 +83,4 @@ Each read and save is an event in `log.md`:
 - `memory-read` — the query, the ids kept, or the failure.
 - `memory-save` — id, action, scope (or the failure). A `memory_save` call is logged as `memory-save` instead of `external-action`.
 
-When no `log.md` exists yet at read time, hold the read's result and journal the `memory-read` in the first entry once `log.md` exists (`blueprint`, `dispatch`: after publish; `repair`, `optimize`, `shield`: once the spec key exists). If `log.md` never opens (inspect, survey, nothing published, or a route blocked before the log opens), report the read in the final output `memories` field instead.
+When no `log.md` exists yet at read time, hold the read's result and journal the `memory-read` in the first entry once `log.md` exists (`blueprint`, `dispatch`: after publish; `repair`, `optimize`, `shield`: once the spec key exists). If `log.md` never opens (inspect, survey, nothing published, or a route blocked before the log opens), report the read and any save in the final output `memories` field instead.

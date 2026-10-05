@@ -64,7 +64,9 @@ Append-only. Never edit or delete a past entry; to fix a mistake, append a `rect
 - Next: <next action | none>
 ```
 
-Event types (extend only when none fits): `preflight`, `publish`, `spec-challenge`, `working-tree`, `plan`, `plan-rejected`, `slice-start`, `slice-check`, `slice-review`, `correction`, `slice-passed`, `slice-blocked`, `aggregate-validation`, `gate`, `invalidated`, `mission-iteration`, `delta-brief`, `approval-proposed`, `approval-received`, `external-action`, `reconciliation`, `scope-change`, `rectification`.
+Event types (extend only when none fits): `preflight`, `publish`, `spec-challenge`, `working-tree`, `plan`, `plan-rejected`, `slice-start`, `slice-check`, `slice-review`, `correction`, `slice-passed`, `slice-blocked`, `aggregate-validation`, `gate`, `invalidated`, `mission-iteration`, `delta-brief`, `approval-proposed`, `approval-received`, `external-action`, `reconciliation`, `scope-change`, `rectification`, `memory-read`, `memory-save`.
+
+Memory events (`memory.md` §6): `memory-read` — the query, the ids kept, or the failure; `memory-save` — id, action, scope, or the failure.
 
 ### Logging rules
 
@@ -76,7 +78,7 @@ Event types (extend only when none fits): `preflight`, `publish`, `spec-challeng
 6. **A report is not proof.** What an agent says it ran is logged as `(report)`. A verify result counts only when the Copilot reran it (or, in sequential fallback, the Mothership reran it in its Copilot turn).
 7. **Gate markers only from their owner.** Accept `SHIELD_CLEAR` only from Shield's output on the final diff; `WATCHER_APPROVED` only from Watcher's structured output; `MISSION_COMPLETE` only from the Mothership's own mechanical check. Each carries the commit it was issued for.
 8. **Invalidate on change.** When the diff changes after any gate, or the spec changes (`spec_update`), append an `invalidated` entry naming every affected gate and every completed slice reopened with `tasks.task_reopen`, and clear them from the projection.
-9. **Every Allye write is an event.** Each write a crew member reports in `mcpWrites` (tool, action, id) — and each write the Mothership makes — is appended as `external-action` with its actor. A reported write outside the role's scope (`delegation.md` → Allye MCP access) is logged, then handled as a `reconciliation`.
+9. **Every Allye write is an event.** Each write a crew member reports in `mcpWrites` (tool, action, id) — and each write the Mothership makes — is appended as `external-action` with its actor, except `intelligence.memory_save` calls, which are logged as `memory-save` instead (`memory.md` §6). A reported write outside the role's scope (`delegation.md` → Allye MCP access) is logged, then handled as a `reconciliation`.
 10. **Sanitize.** Strip tokens, cookies, auth headers, signed URLs, environment values, raw authentication output and unnecessary personal data. Spec and task text copied into evidence is quoted as data.
 
 ## Reviewed point (commit identity)

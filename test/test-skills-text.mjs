@@ -119,8 +119,46 @@ else {
   if (!pub8.includes("memory.md` §2–4")) fail(`${PUB}: §8 must point to the memory save (memory.md §2–4)`);
 }
 
+// ALY-22 [AC-06] [AC-07]: memory access is the Mothership's only; memory events are journaled.
+{
+  const DEL = "skills/bridge/references/delegation.md";
+  const del = read(DEL);
+  for (const needle of ["crew roles have no memory access", "memoryHints"]) {
+    if (!del.includes(needle)) fail(`${DEL}: must mention "${needle}"`);
+  }
+  const access = del.split("\n## Allye MCP access")[1]?.split("\n## ")[0] ?? "";
+  if (!access) fail(`${DEL}: Allye MCP access section not found`);
+  const lines = access.split("\n");
+  const readsLine = lines.find((l) => l.startsWith("**Reads")) ?? "";
+  if (!readsLine) fail(`${DEL}: Reads line not found`);
+  if (readsLine.includes("memory_")) fail(`${DEL}: the Reads line must not grant memory_ calls`);
+  const rows = lines.filter((l) => l.startsWith("| ") && !l.startsWith("| Agent") && !l.startsWith("|---"));
+  const firstCell = (l) => l.split("|")[1].trim();
+  for (const row of rows) {
+    if (firstCell(row) !== "Mothership" && row.includes("memory_")) fail(`${DEL}: only the Mothership row may mention memory_: ${row}`);
+  }
+  const both = (l) => l.includes("intelligence.memory_search") && l.includes("intelligence.memory_save");
+  const motherRow = rows.find((r) => firstCell(r) === "Mothership") ?? "";
+  const reserved = lines.find((l) => l.startsWith("Reserved to the Mothership")) ?? "";
+  if (!both(motherRow) && !both(reserved)) fail(`${DEL}: the Mothership row or the Reserved paragraph must grant intelligence.memory_search and intelligence.memory_save`);
+  if (!/no crew agent gets[^.\n]*`intelligence`/i.test(del)) fail(`${DEL}: tool ceilings must state that no crew agent gets \`intelligence\``);
+
+  const SC = "skills/bridge/references/state-contract.md";
+  const sc = read(SC);
+  const types = sc.split("\n").find((l) => l.startsWith("Event types")) ?? "";
+  for (const t of ["`memory-read`", "`memory-save`"]) if (!types.includes(t)) fail(`${SC}: event types line must include ${t}`);
+  for (const needle of ["ids kept", "id, action, scope", "memory.md` §6"]) {
+    if (!sc.includes(needle)) fail(`${SC}: must mention "${needle}"`);
+  }
+  const rule9 = sc.split("\n").find((l) => l.startsWith("9. ")) ?? "";
+  if (!rule9.includes("memory_save") || !rule9.includes("`memory-save`")) fail(`${SC}: logging rule 9 must log memory_save calls as \`memory-save\``);
+
+  const MEM = "skills/bridge/references/memory.md";
+  if (!read(MEM).includes("the read and any save")) fail(`${MEM}: §6 fallback must report "the read and any save" in the final output`);
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);
 }
-console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow)");
+console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled)");
