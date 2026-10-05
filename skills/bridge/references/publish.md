@@ -47,6 +47,8 @@ The author reports every write (tool, action, returned id/key). The Mothership t
 
 Once a spec key exists, the Mothership opens `.allye/missions/<slug>/log.md` and records `publish` (and, for blueprint, `spec-challenge`) entries; before that, design work keeps no local state other than `.allye/armorer.json` (`state-contract.md`).
 
+**Save memories.** `blueprint`, `blueprint --auto` and `dispatch` end after publish: save with `intelligence.memory_save` per `memory.md` §2–4, with no user confirmation, and journal the `memory-read` held from the start and each `memory-save` (`memory.md` §6). Routes that go on to implement save at their end instead (`workflow.md` §13).
+
 ## 5. Approval
 
 - `blueprint`, `blueprint --auto`, `dispatch`: stop at `in_review` with `next` (e.g. "ask a reviewer to approve <KEY>, then `/bridge launch <KEY>`"). Approve only if the user explicitly asks.
@@ -69,7 +71,7 @@ Never deploy. Merge into any branch only when the person commanding the chat exp
 
 ## 8. Partial failure
 
-Stop at the first failed write. Re-read what exists (`specs.spec_list` with `project`, `spec_context`, `epic_get`), report created vs. missing with real keys, and propose how to finish. No blind retry, no recreation, no destructive rollback (nothing can be deleted; `spec_cancel`/`epic_cancel` only if the user asks).
+Stop at the first failed write. Re-read what exists (`specs.spec_list` with `project`, `spec_context`, `epic_get`), report created vs. missing with real keys, and propose how to finish. No blind retry, no recreation, no destructive rollback (nothing can be deleted; `spec_cancel`/`epic_cancel` only if the user asks). After reporting, save per `memory.md` §2–4.
 
 Resuming after a partial failure (once the user confirms the plan to finish):
 
@@ -89,6 +91,7 @@ Resuming after a partial failure (once the user confirms the plan to finish):
 - Tasks: <KEYs per spec>
 - Dependencies: <KEY depends on KEY>
 - Overlaps: <KEY — classification>
+- Memories: <id — action — scope | none — reason>
 
 ## Pending or failed
 - <item — reason>

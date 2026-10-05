@@ -5,6 +5,7 @@ One protocol for every mode that has to learn intent from the user: `blueprint` 
 ## Who does what
 
 - **The Mothership asks**, in the main thread. Subagents cannot talk to the user.
+- **The Mothership reads memories first.** Before dispatching Recon, the Architect or the Dispatcher, it runs `intelligence.memory_search` (`memory.md` §1) and puts the relevant Memory hints in their packets.
 - **Recon and Architect investigate in the background** while the interview runs. Each independent factual question gets its own Recon (at most 3 in parallel; sequential without subagents), which answers from code, docs and logs. Recon reads related specs and tasks through Allye MCP itself (or gets them embedded when subagents have no MCP access). For a multi-app feature, the Mothership passes the local path of each sibling app's clone so Recon can check the contract; an app not cloned locally is reported as a gap. Architect (`options` mode) drafts A/B options for frontier decisions and may ask for more Recon through you; in `dispatch`, the Dispatcher plays this role. Their findings feed the next round.
 - **Facts are researched, never asked.** If a question can be answered from the code, the server, docs, logs or telemetry, find the answer. A fact still under investigation is an open prerequisite: ask the independent questions now, hold the dependent ones.
 - **Decisions belong to the user.** Present alternatives, implications and a recommendation; wait for the answer before assuming a choice.
