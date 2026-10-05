@@ -1,7 +1,7 @@
 {
   "name": "allye-pi",
   "version": "2.2.0",
-  "description": "Allye extension for Pi and OMP: the Allye bootstrap, the Bridge skill and the team gate",
+  "description": "Allye extension for Pi and OMP: the Allye bootstrap, the Bridge skill and the repository-to-project link",
   "type": "module",
   "keywords": [
     "pi-package",
