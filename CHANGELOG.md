@@ -1,3 +1,11 @@
+# [2.3.0](https://github.com/allye-app/allye-plugin/compare/v2.2.0...v2.3.0) (2026-10-05)
+
+
+### Features
+
+* **bridge:** allow spec_validate as a read and call it in author self-checks ([f9e2841](https://github.com/allye-app/allye-plugin/commit/f9e28417310b201a0087a223324bc664c1a965ac))
+* **bridge:** gate publish on specs.spec_validate for every confirmed spec ([3310e36](https://github.com/allye-app/allye-plugin/commit/3310e36d8b8ee22a05f145c71a5ca57ecb58d014))
+
 # [2.2.0](https://github.com/allye-app/allye-plugin/compare/v2.1.1...v2.2.0) (2026-10-05)
 
 
