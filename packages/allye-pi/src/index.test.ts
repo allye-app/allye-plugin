@@ -346,3 +346,46 @@ test("remote query, fragment and every userinfo '@' are stripped", async () => {
     assert.doesNotMatch(prompt, /ss@/);
   });
 });
+
+test("SHD-F02: scp remotes drop query/fragment and password-bearing userinfo; git@host:path is kept", async () => {
+  await withSession({ remote: "user:s3cr3t@github.com:org/repo.git" }, ({ calls, prompt }) => {
+    assert.equal(calls.find((call) => call.tool === "projects")?.args.repository_url, "github.com:org/repo.git");
+    assert.doesNotMatch(prompt, /s3cr3t/);
+  });
+  await withSession({ remote: "git@github.com:org/repo.git?token=abc#frag" }, ({ calls, prompt }) => {
+    assert.equal(calls.find((call) => call.tool === "projects")?.args.repository_url, "git@github.com:org/repo.git");
+    assert.doesNotMatch(prompt, /token=abc|#frag/);
+  });
+  await withSession({ remote: "git@github.com:org/repo.git" }, ({ calls }) => {
+    assert.equal(calls.find((call) => call.tool === "projects")?.args.repository_url, "git@github.com:org/repo.git");
+  });
+});
+
+test("a resolved project with no single app cannot confirm a claimed app and asks the user once", async () => {
+  await withSession({
+    link: JSON.stringify({ project: "ALY", app: "allye-api" }),
+    resolve: resolveText({ status: "resolved", match: entry("ALY", "Development", "TEMA", null), candidates: [] }),
+  }, ({ prompt }) => {
+    assert.doesNotMatch(prompt, /this repo = /);
+    assert.doesNotMatch(prompt, /disagrees/);
+    assert.match(prompt, /project agrees; the claimed app cannot be confirmed \(several apps share this remote\) — ask the user once/);
+    assert.match(prompt, /claims project ALY \/ app allye-api; the remote resolves to project ALY \(several apps share this remote\) \(team Development \[TEMA\]\)/);
+  });
+});
+
+test("SHD-S01: an unencoded '#' or '?' in a password never leaks part of the credential", async () => {
+  await withSession({ remote: "https://u:pa#ss@host/r" }, ({ calls, prompt }) => {
+    const url = calls.find((call) => call.tool === "projects")?.args.repository_url;
+    assert.equal(url, "https://host/r");
+    for (const leak of [/u:pa/, /ss@/, /pa#ss/]) assert.doesNotMatch(prompt, leak);
+  });
+  await withSession({ remote: "u:p#w@host:o/r" }, ({ calls, prompt }) => {
+    const url = calls.find((call) => call.tool === "projects")?.args.repository_url;
+    assert.equal(url, "host:o/r");
+    for (const leak of [/u:p/, /p#w/, /w@host/]) assert.doesNotMatch(prompt, leak);
+  });
+  await withSession({ remote: "https://u:pa?ss@host/r" }, ({ calls, prompt }) => {
+    assert.equal(calls.find((call) => call.tool === "projects")?.args.repository_url, "https://host/r");
+    assert.doesNotMatch(prompt, /u:pa|pa\?ss/);
+  });
+});

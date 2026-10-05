@@ -22,7 +22,7 @@ OMP has a native MCP client (no `pi-mcp-adapter`). Add the server once, at user 
 
 OMP also loads servers from a project `.mcp.json`. Do not add tokens or OAuth client metadata: OMP discovers the OAuth endpoints and opens the browser on first use.
 
-Because OMP's MCP client is not the in-process `pi-mcp-adapter` bridge, the extension does not preload Allye context in OMP. It injects only the git remote and any unverified `.allye/project.json` claim; the bootstrap tells the agent to call `initialize` and `projects.project_resolve` itself. The team follows the project, so no team selection is needed.
+Because OMP's MCP client is not the in-process `pi-mcp-adapter` bridge, the extension does not preload Allye context in OMP. It injects only the git remote and any unverified `.allye/project.json` claim; the bootstrap tells the agent to call `projects.project_resolve` itself. The team follows the project, so no team selection is needed.
 
 ## Confirm
 

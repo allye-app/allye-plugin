@@ -32,7 +32,7 @@ Do not pass headers, bearer tokens or OAuth client ids: Pi discovers the OAuth e
 
 On older Pi versions without `pi mcp`, install `pi-mcp-adapter` (`pi install npm:pi-mcp-adapter`), define one server named `allye` (`{"type": "http", "url": "https://mcp.allye.app/mcp"}` under `mcpServers`) in the effective source shown by `/mcp` — for example `~/.pi/agent/mcp.json` or `~/.config/mcp/mcp.json` — then run `/mcp-auth allye` and `/mcp reconnect allye`.
 
-The extension preloads Allye context only when `pi-mcp-adapter` exposes its in-process bridge. Otherwise it injects only the git remote and any unverified link claim, and the bootstrap tells the agent to call `initialize` and `projects.project_resolve` itself.
+The extension preloads Allye context only when `pi-mcp-adapter` exposes its in-process bridge. Otherwise it injects only the git remote and any unverified link claim, and the bootstrap tells the agent to call `projects.project_resolve` itself.
 
 ## Teams
 

@@ -103,15 +103,22 @@ function clean(value: unknown): string {
 }
 
 /**
- * Drops a remote containing whitespace, control characters or tag/code delimiters. For scheme URLs,
- * strips userinfo (up to the last '@' before the host/path), the query and the fragment.
+ * Drops a remote containing whitespace, control characters or tag/code delimiters. Strips the userinfo
+ * first, so an unencoded '?' or '#' in a password cannot survive: for scheme URLs everything up to the
+ * last '@' before the first '/' after '://'; for scp remotes up to the last '@' before the first '/',
+ * only when that userinfo carries a password (a ':'), so `git@host:path` is kept. Then drops the query
+ * and fragment.
  */
 function sanitizeRemote(raw: string): string | null {
-  const remote = raw.trim();
-  if (!remote || /[\s\u0000-\u001f\u007f<>`]/.test(remote)) return null;
-  const scheme = /^[a-z][a-z0-9+.-]*:\/\//i;
-  if (!scheme.test(remote)) return remote;
-  return remote.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/]*@/i, "$1").replace(/[?#].*$/, "");
+  const trimmed = raw.trim();
+  if (!trimmed || /[\s\u0000-\u001f\u007f<>`]/.test(trimmed)) return null;
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(trimmed)?.[0] ?? "";
+  const rest = trimmed.slice(scheme.length);
+  const head = rest.split("/")[0];
+  const at = head.lastIndexOf("@");
+  const strip = at >= 0 && (scheme !== "" || (!rest.includes("://") && head.slice(0, at).includes(":")));
+  const remote = (scheme + (strip ? rest.slice(at + 1) : rest)).replace(/[?#].*$/, "");
+  return remote || null;
 }
 
 function git(cwd: string, args: string[]): Promise<string> {
@@ -251,9 +258,13 @@ function describeRepo(remote: string, link: LinkState, resolution: Resolution): 
   const claim = link.claim;
   if (claim) {
     const agreeing = entries.filter((entry) => agrees(claim, entry));
+    const match = resolution.status === "resolved" ? resolution.match : null;
     if (agreeing.length) {
       const identity = agreeing.length === 1 ? describeEntry(agreeing[0]) : describeProject(agreeing);
       lines.push(`this repo = ${identity}, confirmed by ${LINK_FILE}.`);
+    } else if (match && !match.app && claim.app !== undefined && match.project.key === claim.project) {
+      lines.push(`${LINK_FILE} claims ${describeClaim(claim)}; the remote resolves to ${describeEntry(match)}.`);
+      lines.push("The project agrees; the claimed app cannot be confirmed (several apps share this remote) — ask the user once which app this repo is.");
     } else {
       lines.push(`${LINK_FILE} claims ${describeClaim(claim)}, which disagrees with the remote's resolution.`);
       lines.push(entries.length
