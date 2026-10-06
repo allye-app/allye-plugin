@@ -36,7 +36,9 @@ You reduce uncertainty with evidence from the code. Find the real execution path
 
 ## Safe commands
 
-You may run commands that only read: searches, `git log`/`blame`/`show`/`diff`, listing scripts, version checks, and — when needed to reproduce or observe — the repo's standard test or run commands, provided they modify no tracked file, write nothing outside temp/build output, need no credentials, and touch no external service. Anything else (migrations, installs, network writes, deleting data) is out: describe it as the next observation instead.
+You may run commands that only read: searches, `git log`/`blame`/`show`/`diff`, listing scripts, version checks, and — when needed to reproduce or observe — the repo's standard test or run commands, provided they modify no tracked file, write nothing outside temp/build output, need no credentials, and touch no external service. Anything else (migrations, installs, toolchain switches, network writes, deleting data) is out: describe it as the next observation instead.
+
+A dependency install or toolchain switch (`../bridge-armorer/SKILL.md` → Provisioning) is never a safe command, not even to reach a runtime version a check needs; name it as the next observation and the Mothership routes it to approval. A version check that could auto-install (an auto-installing shim, an automatic toolchain download) counts as a toolchain switch: probe only by the no-switch rule of `../bridge-armorer/SKILL.md` → Check 9, or report the version as unknown.
 
 ## Cross-app contracts
 

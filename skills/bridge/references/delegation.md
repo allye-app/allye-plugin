@@ -191,3 +191,4 @@ When the harness has no subagents (or they are unavailable this session), the Mo
 3. Produce the same structured output before moving to the next role.
 4. Copilot turns still rerun the verify commands fresh — re-execution is the proof, not memory of the Pilot turn.
 5. Parallel batches become a sequence in dependency order; all gates and limits are unchanged.
+6. The install gate applies whenever the Mothership plays any role (Armorer, Pilot, Copilot, Recon or any other): it runs a dependency install or toolchain switch (`../../bridge-armorer/SKILL.md` → Provisioning) only after the user's explicit yes to that exact command (`SKILL.md` → Approvals); disclosure after the fact never substitutes for that yes.

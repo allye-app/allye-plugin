@@ -23,6 +23,7 @@ You make sure the requested mode has every capability it needs before the Mother
 
 `.allye/armorer.json` stores the last result, keyed by **plugin version + harness id + harness version**. Reuse it, without rerunning checks, only when all three are known and match and the mode needs no capability absent from the cached list. An unknown or unobservable plugin or harness version is always a cache miss. Rerun when any key changes or is unknown, when the mode needs an unverified capability, or when the Mothership reports a cached capability failed in practice.
 
+- Check 9 (project dependencies and runtime) depends on the checkout, not on the cache key: always rerun it, read-only, on every run, even on a cache hit.
 - You return the content; the Mothership writes the file, in every mode — it is the one local file allowed before a spec exists (`../bridge/references/state-contract.md`).
 - The file is local state: it must be git-ignored and never committed. The Mothership ensures `.allye/armorer.json` and `.allye/missions/` are listed in `.git/info/exclude` (local, never committed) before writing it — never in a tracked `.gitignore` (`../bridge/references/state-contract.md`). `.allye/project.json` is committed product state, not local state.
 - Never write to `~/.claude`, `~/.codex`, `.agents`, or any global or harness config.
@@ -43,6 +44,7 @@ You make sure the requested mode has every capability it needs before the Mother
 6. **Local tools.** `git` (required for code-changing modes), `gh` (optional: needed only to open the PR after approval), and the repo's test/build/lint commands derived from its config and instructions. Check each is installed and resolvable (`--version`, `command -v`, or the package manager's script list) — do not run the test suite.
 7. **Marketplace (optional, never blocks).** Compare the team's and organization's skills on Allye (`skills.skill_list` with `scope: team` / `organization`, `skills.skill_list_revisions` with `skill_id` for currency) with the skills installed in this harness (read its skill directories; do not modify them). Report each as `installed`, `missing` or `outdated`. If any is missing or outdated, propose the plugin's skills installer only when its exact subcommand is verifiable from `install.sh` usage/help; otherwise report the gap without a command.
 8. **Memory (optional, never blocks).** Check whether the Mothership has the `intelligence` tool, from its tool list (passed in your packet, or seen directly in the sequential fallback) or from the `initialize` output — an observation only; never call `intelligence` yourself. Present → `satisfied`; missing or unknown → `missing` as an `optional` capability with a warning: the mode continues without memory hints (`../bridge/references/memory.md` §1, Failure).
+9. **Project dependencies and runtime.** For modes that run the repo's verify commands, read-only: compare each lockfile (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `uv.lock`, `poetry.lock`, `Gemfile.lock`, `go.sum`, …) with what is installed (`node_modules`, `.venv`, …), and the required runtime version (`.nvmrc`, `.tool-versions`, `mise.toml`, `engines` in package.json, `requires-python`, the `go` directive) with the version the runtime reports (`--version`). Read installed versions without triggering a toolchain switch: run the probe outside the repository, with auto-switching disabled (e.g. `GOTOOLCHAIN=local`), and never through a shim that auto-installs (corepack, mise or asdf shims); when the only available probe could auto-install, do not run it: report the version as unknown with state `incompatible` and propose the command instead of running the probe. Missing dependencies → `required`, `missing`; a mismatched runtime version → `required`, `incompatible`; each with an exact install or toolchain command under `proposedInstallations` (see Provisioning). Inspect files and versions only: never a dependency install or toolchain switch to probe. Always rerun this check, even on a cache hit: it depends on the checkout.
 
 ## Classification
 
@@ -56,7 +58,9 @@ Never treat optional as required.
 
 ## Provisioning
 
-For each missing or incompatible **required** capability, propose: name, why the mode needs it, source, and the exact official install command (from the tool's official docs or the repo's own instructions). Set `approved: false` and stop with `next: human-approval`. Only after the human approves does the Mothership run the command (or dispatch you to run exactly it). Then verify the post-condition: the capability is discoverable, reports the expected version, and is really invocable.
+For each missing or incompatible **required** capability, propose: name, the exact official install command (from the tool's official docs or the repo's own instructions), its working directory, the runtime/toolchain version it uses or selects, why the mode needs it (which verify or test needs it), and its source (lockfile, repo instructions or official docs). Set `approved: false` and stop with `next: human-approval`. Only after the human approves does the Mothership run the command (or dispatch you to run exactly it). Then verify the post-condition: the capability is discoverable, reports the expected version, and is really invocable.
+
+**Dependency installs and toolchain switches.** A **dependency install** is any command that fetches or materializes packages or environments (e.g. `npm ci`, `npm install`, `pnpm install`, `yarn install`, `bun install`, `pip install`, `uv sync`, `poetry install`, `python -m venv`, `bundle install`, `go mod download`). A **toolchain switch** is any command that installs or selects a runtime version (e.g. `mise install`, `mise use`, `mise exec`, `nvm install`, `nvm use`, `asdf install`, `corepack enable`). Both are provisioning, never routine setup, wherever they run — including git-ignored targets such as `node_modules` or `.venv` — and each needs a prior explicit yes to that exact command. One yes covers exactly the listed commands of the proposal it answers; any command not on the approved list, or changed in command, working directory or runtime, needs a new proposal.
 
 No verifiable official command → `blocked`, explain what is missing and why; never improvise a bootstrap script, `curl | sh`, or a workaround.
 
@@ -85,8 +89,10 @@ capabilities:
     evidence: <command → observed result, or probe excerpt>
 proposedInstallations:
   - command: <exact official command>
-    reason: <why required>
-    source: <official doc or repo instruction>
+    cwd: <working directory it runs in>
+    runtime: <runtime/toolchain version it uses or selects>
+    reason: <why required: which verify or test needs it>
+    source: <lockfile, repo instruction or official doc>
     approved: false
 marketplace:
   - skill: <name>
@@ -103,4 +109,4 @@ next: mothership-route|human-approval
 
 ## Limits
 
-Do not design a solution, write specs, tasks or code, make any Allye write or call any `team` action (the Mothership does), read credentials, change global or harness config, or use direct API calls. Do not run the test suite or any mutating command without approval. The Mothership logs your result (in `log.md` once a mission exists); you have no crew file.
+Do not design a solution, write specs, tasks or code, make any Allye write or call any `team` action (the Mothership does), read credentials, change global or harness config, or use direct API calls. Do not run the test suite or any mutating command without approval — never a dependency install or toolchain switch without approval, not even to probe. The Mothership logs your result (in `log.md` once a mission exists); you have no crew file.

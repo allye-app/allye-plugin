@@ -76,6 +76,8 @@ CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (
 
 Base-integration events: `base-integration` — the base sha and the outcome: (no change); the merged head; (blocked) with the conflicted or uncommitted paths; or (unavailable) with the reason the fetch failed (`workflow.md` §6–7).
 
+Install events (a dependency install or toolchain switch, `../../bridge-armorer/SKILL.md` → Provisioning; no new event type): proposed → `approval-proposed` — each exact command with its working directory and runtime; approved or refused → `approval-received` — the user's answer, a refusal recorded too; run → `external-action` — the command, its working directory and its exit code; env values or credentials embedded in a command are never recorded and are redacted.
+
 ### Logging rules
 
 1. **Explicit, never watched.** The Mothership appends an entry right after each transition it performed or observed. No watchers, polling loops, background tailers or shell loops.

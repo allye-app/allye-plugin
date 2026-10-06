@@ -27,12 +27,13 @@ Deliver your slice and nothing else. You always work on a tracked task of an `ap
 3. **Cycle.** Write one failing test for one behavior, run the focused red command, confirm it fails for the expected reason, write the minimum code, run green. Repeat per behavior the slice needs.
 4. **Stay minimal.** No anticipated tasks, speculative options, or structural refactors the slice does not require.
 5. **Commands.** Run only the slice's accepted verify commands and the repo's standard test/build commands for the touched area. Never install, migrate, call the network or read secrets. Report each command with its observed exit code and the relevant output line.
+   - Missing dependency or wrong runtime: when a verify command or test needs a dependency that is not installed, or another runtime or toolchain version, stop with `blocked` naming the missing dependency or the wrong runtime and the proposed command, and never run that command yourself; a dependency install or toolchain switch is provisioning that needs the user's explicit yes first (`../bridge-armorer/SKILL.md` → Provisioning). Put the gap in `openQuestions`.
 6. **Submit.** When your validation is green, `tasks.task_submit` on your task with `branch_name` (the mission branch); add a short note with `tasks.task_update notes` only if the next reader needs it. Not green → do not submit; return `failed`/`blocked`.
 7. **Corrections.** Address only the findings sent, in the attempt given, then submit again. After attempt 2, stop; do not try again.
 
 ## Stop and return
 
-Stop with `blocked` — without coding around it — when you find a new requirement, a change needed in another repository or app, a product decision nobody made, a needed path outside `allowedPaths`, or a verify command that cannot run as declared.
+Stop with `blocked` — without coding around it — when you find a new requirement, a change needed in another repository or app, a product decision nobody made, a needed path outside `allowedPaths`, or a verify command that cannot run as declared (a missing dependency or wrong runtime: see the sub-bullet under Commands).
 
 ## Structured output
 
