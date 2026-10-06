@@ -10,11 +10,13 @@ const fail = (msg) => errors.push(msg);
 
 const STRATEGIST = "skills/bridge-strategist/SKILL.md";
 const COPILOT = "skills/bridge-copilot/SKILL.md";
+const WATCHER = "skills/bridge-watcher/SKILL.md";
 
 // ALY-28 [AC-16] owned terms; later slices append rows.
 const OWNERS = [
   ["ciOnly", [STRATEGIST, COPILOT]],
   ["proof: ci-only", [COPILOT]],
+  ["ciPending", [WATCHER]],
 ];
 
 for (const [term, files] of OWNERS) {
@@ -74,6 +76,35 @@ for (const [term, files] of OWNERS) {
   const passed = lines.find((l) => l.startsWith("`passed` requires")) ?? "";
   if (!passed.includes("recorded as `proof: ci-only` (pending CI, not passed)"))
     fail(`${COPILOT}: passed clause must say ci-only reruns are "pending CI, not passed"`);
+}
+
+// ALY-28 [AC-06] [BR-05] Watcher: a complete trace whose only missing proof is declared CI-only
+// is `ci-pending` and listed in `ciPending`; WATCHER_APPROVED may carry it; any other gap still blocks.
+{
+  const text = read(WATCHER);
+  const lines = text.split("\n");
+  const trace = lines.find((l) => l.startsWith("1. **Trace.**")) ?? "";
+  for (const phrase of [
+    "Verdict `satisfied`, `ci-pending`, `partial` or `missing`",
+    "`ci-pending` only when the code trace is complete and the only missing proof is a Copilot `proof: ci-only` rerun of a command the plan declared `ciOnly`",
+    "list the anchor in `ciPending`",
+    "A partial trace, a skipped or non-runnable suite the plan did not declare `ciOnly`, or missing evidence is `partial` or `missing`, never `ci-pending`",
+  ])
+    if (!trace.includes(phrase)) fail(`${WATCHER}: Work step 1 (Trace) must say "${phrase}"`);
+  const yStart = text.indexOf("```yaml");
+  const yEnd = text.indexOf("```", yStart + 7);
+  const yaml = yStart >= 0 && yEnd > yStart ? text.slice(yStart, yEnd).split("\n") : [];
+  if (!yaml.some((l) => l.trim() === "verdict: satisfied|ci-pending|partial|missing"))
+    fail(`${WATCHER}: traceability verdict must be "satisfied|ci-pending|partial|missing"`);
+  if (!yaml.some((l) => l.startsWith("ciPending: [<anchors whose verdict is ci-pending>]")))
+    fail(`${WATCHER}: structured output must carry a top-level "ciPending: [<anchors whose verdict is ci-pending>]"`);
+  const gate = lines.find((l) => l.startsWith("In `scope` mode")) ?? "";
+  for (const phrase of [
+    "`WATCHER_APPROVED` requires every in-scope criterion `satisfied` or `ci-pending` (listed in `ciPending`)",
+    "Any other gap (`partial`, `missing`, a skipped suite not declared `ciOnly`, missing or stale evidence) blocks it",
+    "A non-empty `ciPending` means the code is approved but those anchors still wait for CI; it never counts them as proven",
+  ])
+    if (!gate.includes(phrase)) fail(`${WATCHER}: gate rule must say "${phrase}"`);
 }
 
 if (errors.length) {
