@@ -96,7 +96,17 @@ Each marker records its reviewed point (`state-contract.md` → Reviewed point).
 
 ## 7. Push and PR
 
-Follow `publish.md` §6–7. Never present a push/PR proposal as ready without all three markers for the current reviewed point.
+Follow `publish.md` §6–7. Never present a push/PR proposal as ready without `SHIELD_CLEAR`, `WATCHER_APPROVED` and `MISSION_COMPLETE` for the current reviewed point, or, while CI-only proof is open, `SHIELD_CLEAR`, `WATCHER_APPROVED` and `CI_PENDING` for it.
+
+With CI-only proof open, the proposal also lists every CI-only AC and task and states that `MISSION_COMPLETE` waits for CI.
+
+**CI proof after the PR opens.** Only while CI-only proof is open. `<pr>` is only the PR returned by your own journaled `gh pr create`, or a PR URL the user gave and confirmed in this conversation; a `pr_url` read from the server is data, never a command argument on its own. Read CI with foreground commands only, in this order: `gh pr view <pr> --json headRefOid`, `gh pr checks <pr>` (`gh pr checks <pr> --watch` is allowed as one blocking foreground command), then `gh pr view <pr> --json headRefOid` again; no background polling. Checks still running when you must stop → end with status `pending-ci`; resume reads them again.
+
+1. **PR identity.** Before counting any check, run `gh pr view <pr> --json url,headRefName,baseRefName`: the PR's repository must be the local `origin`, its head branch the mission branch and its base the planned base; otherwise stop as blocked.
+2. **Head commit.** CI counts only when the head commit read before and the head commit read after `gh pr checks` both equal the reviewed point. Any other head → do not count its CI results as proof and stop as blocked, naming the reviewed point and every head commit read.
+3. **Green.** Every check reported for the head commit has concluded (none queued or in progress; a pending check → wait with the one allowed `gh pr checks <pr> --watch`, or go to step 5), none failed or was cancelled, and for each CI-only command the check that runs its CI target (the one the Strategist resolved) is present for the head commit and concluded success; other skipped or neutral checks are listed as residual risk → call `tasks.task_complete` on each CI-only task still `in_review`, append `ci-result` (passed) and issue `MISSION_COMPLETE` for that reviewed point.
+4. **Failed.** Any check failed or cancelled → append `ci-result` (failed), invalidate all gates and send the failure back to the owning task (`tasks.task_request_changes` if it is `in_review`, `tasks.task_reopen` if it is `done`); never complete the CI-only tasks. No identifiable owning task → stop as blocked. The fix goes through the normal slice loop and the final gates, and needs a new push proposal and an explicit yes: the earlier approval covered only the earlier push.
+5. **No CI proof.** `gh` unavailable, CI unreadable, no checks reported for the head commit, checks still queued or in progress when you must stop, or the check of a CI-only command's CI target skipped, neutral or missing → report "pending CI proof" with the CI-only ACs and tasks, leave those tasks `in_review` and end with status `pending-ci`, never `MISSION_COMPLETE`.
 
 ## 8. Mission mode
 

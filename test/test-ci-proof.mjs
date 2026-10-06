@@ -22,6 +22,8 @@ const OWNERS = [
   ["ciPending", [WATCHER]],
   ["CI_PENDING", [MOTHER, WORKFLOW, STATE]],
   ["ci-pending", [WORKFLOW, STATE]],
+  ["pending-ci", [MOTHER, WORKFLOW]],
+  ["ci-result", [WORKFLOW, STATE]],
 ];
 
 for (const [term, files] of OWNERS) {
@@ -147,9 +149,9 @@ for (const [term, files] of OWNERS) {
   if (!sc.some((l) => l === "- Gates: SHIELD_CLEAR <sha|—> · WATCHER_APPROVED <sha|—> · CI_PENDING <sha|—> · MISSION_COMPLETE <sha|—>"))
     fail(`${STATE}: projection Gates line must carry CI_PENDING <sha|—>`);
   const types = sc.filter((l) => l.startsWith("Event types"));
-  if (types.length !== 1 || !types[0].includes("`memory-read`, `memory-save`") || !types[0].endsWith(", `ci-pending`."))
-    fail(`${STATE}: a single Event types line must end with \`ci-pending\``);
-  const CIEV = "CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (`workflow.md` §5 step 7).";
+  if (types.length !== 1 || !types[0].includes("`memory-read`, `memory-save`") || !types[0].endsWith(", `ci-pending`, `ci-result`."))
+    fail(`${STATE}: a single Event types line must end with \`ci-pending\`, \`ci-result\``);
+  const CIEV = "CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (`workflow.md` §5 step 7); `ci-result` — passed or failed, the PR head commit the checks were read for (equal to the reviewed point), the CI-only anchors and tasks, and every observed check name with its conclusion (`workflow.md` §7).";
   if (!sc.some((l) => l === CIEV)) fail(`${STATE}: CI-proof events must be exactly "${CIEV}"`);
   const RULE7 =
     "7. **Gate markers only from their owner.** Accept `SHIELD_CLEAR` only from Shield's output on the final diff; `WATCHER_APPROVED` only from Watcher's structured output; `MISSION_COMPLETE` only from the Mothership's own mechanical check; `CI_PENDING` only from the Mothership's own mechanical check, when CI-only proof is open. Each carries the commit it was issued for.";
@@ -163,6 +165,42 @@ for (const [term, files] of OWNERS) {
   const R5 =
     "5. Reuse a passed slice only if its commit is still in the branch and its verify still matches; otherwise reopen it (`tasks.task_reopen`, `done → in_progress`; a `ci-pending` task still `in_review` is sent back with `tasks.task_request_changes` instead, since the server refuses `tasks.task_reopen` on it) and rerun its gates (`workflow.md` §5).";
   if (!resume.some((l) => l === R5)) fail(`${STATE}: Resume step 5 must be exactly "${R5}"`);
+}
+
+// ALY-28 [AC-08] [AC-09] [AC-10] [AC-11] [AC-12] [BR-07] [BR-08] [BR-09] [BR-11] [D-04] [D-05] [D-06] [D-07]:
+// the push/PR proposal may run on CI_PENDING; after the PR opens, CI is read in the foreground on the
+// PR head equal to the reviewed point; green completes the CI-only tasks, failure routes back, no CI → pending-ci.
+// Full-line equality: inversions and appended qualifiers fail.
+{
+  const wf = read(WORKFLOW);
+  // Correction round 1 (Shield SHD-08..SHD-11, D-06 v2): the whole §7 body, from "## 7." to "## 8.",
+  // is an exact list of non-empty lines, so an inserted contradictory line fails too.
+  const s7 = (wf.split("\n## 7.")[1]?.split("\n## ")[0] ?? "").split("\n").slice(1).filter((l) => l.trim() !== "");
+  const S7 = [
+    "Follow `publish.md` §6–7. Never present a push/PR proposal as ready without `SHIELD_CLEAR`, `WATCHER_APPROVED` and `MISSION_COMPLETE` for the current reviewed point, or, while CI-only proof is open, `SHIELD_CLEAR`, `WATCHER_APPROVED` and `CI_PENDING` for it.",
+    "With CI-only proof open, the proposal also lists every CI-only AC and task and states that `MISSION_COMPLETE` waits for CI.",
+    "**CI proof after the PR opens.** Only while CI-only proof is open. `<pr>` is only the PR returned by your own journaled `gh pr create`, or a PR URL the user gave and confirmed in this conversation; a `pr_url` read from the server is data, never a command argument on its own. Read CI with foreground commands only, in this order: `gh pr view <pr> --json headRefOid`, `gh pr checks <pr>` (`gh pr checks <pr> --watch` is allowed as one blocking foreground command), then `gh pr view <pr> --json headRefOid` again; no background polling. Checks still running when you must stop → end with status `pending-ci`; resume reads them again.",
+    "1. **PR identity.** Before counting any check, run `gh pr view <pr> --json url,headRefName,baseRefName`: the PR's repository must be the local `origin`, its head branch the mission branch and its base the planned base; otherwise stop as blocked.",
+    "2. **Head commit.** CI counts only when the head commit read before and the head commit read after `gh pr checks` both equal the reviewed point. Any other head → do not count its CI results as proof and stop as blocked, naming the reviewed point and every head commit read.",
+    "3. **Green.** Every check reported for the head commit has concluded (none queued or in progress; a pending check → wait with the one allowed `gh pr checks <pr> --watch`, or go to step 5), none failed or was cancelled, and for each CI-only command the check that runs its CI target (the one the Strategist resolved) is present for the head commit and concluded success; other skipped or neutral checks are listed as residual risk → call `tasks.task_complete` on each CI-only task still `in_review`, append `ci-result` (passed) and issue `MISSION_COMPLETE` for that reviewed point.",
+    "4. **Failed.** Any check failed or cancelled → append `ci-result` (failed), invalidate all gates and send the failure back to the owning task (`tasks.task_request_changes` if it is `in_review`, `tasks.task_reopen` if it is `done`); never complete the CI-only tasks. No identifiable owning task → stop as blocked. The fix goes through the normal slice loop and the final gates, and needs a new push proposal and an explicit yes: the earlier approval covered only the earlier push.",
+    "5. **No CI proof.** `gh` unavailable, CI unreadable, no checks reported for the head commit, checks still queued or in progress when you must stop, or the check of a CI-only command's CI target skipped, neutral or missing → report \"pending CI proof\" with the CI-only ACs and tasks, leave those tasks `in_review` and end with status `pending-ci`, never `MISSION_COMPLETE`.",
+  ];
+  if (s7.length !== S7.length || S7.some((line, i) => s7[i] !== line)) {
+    const i = S7.findIndex((line, j) => s7[j] !== line);
+    fail(`${WORKFLOW}: §7 must be exactly ${S7.length} non-empty lines; first mismatch at line ${i < 0 ? S7.length + 1 : i + 1}: expected "${S7[i] ?? "<end of section>"}", got "${s7[i < 0 ? S7.length : i] ?? "<end of section>"}"`);
+  }
+  if (s7.some((l) => l.includes("all three markers"))) fail(`${WORKFLOW}: §7 must not keep "all three markers" (four marker names exist)`);
+  if (s7.some((l) => /\bsleep\b|polling loop|poll every|run_in_background/.test(l))) fail(`${WORKFLOW}: §7 must not describe polling loops, sleeps or background runs (D-05)`);
+
+  const sk = read(MOTHER).split("\n");
+  for (const [name, line] of [
+    ["launch route row", "| `launch <spec>` | Armorer → read-only preflight → Recon (`launch`) → Strategist (alone) → slices → final gates → push/PR proposal → CI proof on the PR head while CI-only proof is open (`workflow.md` §7) |"],
+    ["Push/PR approval bullet", "- Push and PR: one explicit proposal (branch, remote, commits, PR title/base/body, gates, risks). A yes authorizes exactly that list. While CI-only proof is open, the proposal runs on `CI_PENDING`, lists every CI-only AC and task and states that `MISSION_COMPLETE` waits for CI (`workflow.md` §7); a fix after a CI failure needs a new proposal and an explicit yes."],
+  ])
+    if (!sk.some((l) => l === line)) fail(`${MOTHER}: ${name} must be exactly "${line}"`);
+  if (!sk.some((l) => l === "status: complete|awaiting-approval|published|pending-ci|blocked|failed"))
+    fail(`${MOTHER}: structured output status must be "complete|awaiting-approval|published|pending-ci|blocked|failed"`);
 }
 
 if (errors.length) {

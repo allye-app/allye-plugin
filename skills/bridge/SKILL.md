@@ -43,7 +43,7 @@ The single definition of every route. "Slices" and "final gates" always mean:
 
 | Mode | Route |
 |---|---|
-| `launch <spec>` | Armorer → read-only preflight → Recon (`launch`) → Strategist (alone) → slices → final gates → push/PR proposal |
+| `launch <spec>` | Armorer → read-only preflight → Recon (`launch`) → Strategist (alone) → slices → final gates → push/PR proposal → CI proof on the PR head while CI-only proof is open (`workflow.md` §7) |
 | `mission "<goal>"` | `launch` in a loop judged by verifiable exit conditions; no spec given → `dispatch` first, then the approval question |
 | `blueprint` | Recon + Architect in background; you run the full interview → Architect authors spec(s) + tasks → challenge round (Strategist, Medic, Optimizer, Shield) → publish |
 | `blueprint --auto` | Recon + Architect decide without interview; every choice recorded as `[D-NN] (proposed)` → challenge round → publish |
@@ -74,7 +74,7 @@ Composed routes never skip preflight or gates. Every code change runs on a track
 - After discovery: one closing confirmation listing exactly what will be created (`publish.md`), then the author creates it and you submit.
 - One user confirmation (showing the exact proposal) before: the Strategist's fallback tasks (spec has no tasks, or ACs uncovered), a scope-change `spec_update`, and any verify command that does not resolve to an inspected repo script.
 - `specs.spec_approve` only on the user's explicit yes in this conversation (`user_requested=true`); never as a step of your own flow. Routes that create a spec in order to implement it (`repair`, `optimize`, `shield`, `mission` without a spec) ask "approve <KEY> now?" after publishing (`publish.md` §5).
-- Push and PR: one explicit proposal (branch, remote, commits, PR title/base/body, gates, risks). A yes authorizes exactly that list.
+- Push and PR: one explicit proposal (branch, remote, commits, PR title/base/body, gates, risks). A yes authorizes exactly that list. While CI-only proof is open, the proposal runs on `CI_PENDING`, lists every CI-only AC and task and states that `MISSION_COMPLETE` waits for CI (`workflow.md` §7); a fix after a CI failure needs a new proposal and an explicit yes.
 - Never deploy. Merge into any branch only when the person commanding this chat explicitly asks.
 - If an external action fails, stop the rest, read real state, propose reconciliation. No blind retry, delete or rollback.
 - Memory saves follow `memory.md` §4, including its single-retry exception to the rule above.
@@ -87,7 +87,7 @@ On completion or block, return:
 ```yaml
 role: mothership
 mode: launch|mission|blueprint|dispatch|repair|optimize|shield|inspect|survey
-status: complete|awaiting-approval|published|blocked|failed
+status: complete|awaiting-approval|published|pending-ci|blocked|failed
 spec: <key|null>
 reviewedAt: <HEAD sha + tree state|null>
 tasks: { passed: [<keys>], blocked: [<keys>], pending: [<keys>] }
