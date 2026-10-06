@@ -1,7 +1,7 @@
 // Guards the spec-authoring text of the Bridge skills: anchors are defined once per spec,
 // and the shared anchor lint is the single checklist used by authors and publish. Also checks
 // that the memory reference (skills/bridge/references/memory.md) states every memory rule. Offline.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -322,8 +322,74 @@ else {
   }
 }
 
+// ALY-29 [AC-01]..[AC-06] [BR-01]..[BR-06]: installs and toolchain switches are approval-gated.
+{
+  const ARM = "skills/bridge-armorer/SKILL.md";
+  const SKILL = "skills/bridge/SKILL.md";
+  const WF = "skills/bridge/references/workflow.md";
+  const DEL = "skills/bridge/references/delegation.md";
+  const SC = "skills/bridge/references/state-contract.md";
+  const PILOT = "skills/bridge-pilot/SKILL.md";
+  const COPILOT = "skills/bridge-copilot/SKILL.md";
+  const STRAT = "skills/bridge-strategist/SKILL.md";
+  const RECON = "skills/bridge-recon/SKILL.md";
+  const line29 = (file, re) => read(file).split("\n").find((l) => re.test(l)) ?? "";
+  const POINTER = /bridge-armorer\/SKILL\.md` → Provisioning/;
+
+  // ALY-29.1 [AC-01] [AC-03] [BR-01] [BR-03] [BR-04]
+  // Structural pins (full-line equality, like test-ci-proof.mjs): any added, removed or changed line fails.
+  const arm = read(ARM);
+  const section29 = (name) => arm.split(`\n## ${name}`)[1]?.split("\n## ")[0] ?? "";
+  const nonEmpty = (text) => text.split("\n").filter((l) => l.trim());
+  // BR-01, BR-03, AC-01, AC-03, D-03: the whole Provisioning section, line by line.
+  const PROVISIONING = [
+    "For each missing or incompatible **required** capability, propose: name, the exact official install command (from the tool's official docs or the repo's own instructions), its working directory, the runtime/toolchain version it uses or selects, why the mode needs it (which verify or test needs it), and its source (lockfile, repo instructions or official docs). Set `approved: false` and stop with `next: human-approval`. Only after the human approves does the Mothership run the command (or dispatch you to run exactly it). Then verify the post-condition: the capability is discoverable, reports the expected version, and is really invocable.",
+    "**Dependency installs and toolchain switches.** A **dependency install** is any command that fetches or materializes packages or environments (e.g. `npm ci`, `npm install`, `pnpm install`, `yarn install`, `bun install`, `pip install`, `uv sync`, `poetry install`, `python -m venv`, `bundle install`, `go mod download`). A **toolchain switch** is any command that installs or selects a runtime version (e.g. `mise install`, `mise use`, `mise exec`, `nvm install`, `nvm use`, `asdf install`, `corepack enable`). Both are provisioning, never routine setup, wherever they run — including git-ignored targets such as `node_modules` or `.venv` — and each needs a prior explicit yes to that exact command. One yes covers exactly the listed commands of the proposal it answers; any command not on the approved list, or changed in command, working directory or runtime, needs a new proposal.",
+    "No verifiable official command → `blocked`, explain what is missing and why; never improvise a bootstrap script, `curl | sh`, or a workaround.",
+  ];
+  const prov = nonEmpty(section29("Provisioning"));
+  if (prov.length !== PROVISIONING.length) fail(`${ARM}: Provisioning must have exactly ${PROVISIONING.length} non-empty lines (found ${prov.length})`);
+  PROVISIONING.forEach((want, i) => { if (prov[i] !== want) fail(`${ARM}: Provisioning line ${i + 1} must be exactly: ${want.slice(0, 80)}…`); });
+  // AC-01, BR-04: the read-only dependency and runtime check is pinned and is the last line of Checks.
+  const CHECK9 = "9. **Project dependencies and runtime.** For modes that run the repo's verify commands, read-only: compare each lockfile (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `uv.lock`, `poetry.lock`, `Gemfile.lock`, `go.sum`, …) with what is installed (`node_modules`, `.venv`, …), and the required runtime version (`.nvmrc`, `.tool-versions`, `mise.toml`, `engines` in package.json, `requires-python`, the `go` directive) with the version the runtime reports (`--version`). Read installed versions without triggering a toolchain switch: run the probe outside the repository, with auto-switching disabled (e.g. `GOTOOLCHAIN=local`), and never through a shim that auto-installs (corepack, mise or asdf shims); when the only available probe could auto-install, do not run it: report the version as unknown with state `incompatible` and propose the command instead of running the probe. Missing dependencies → `required`, `missing`; a mismatched runtime version → `required`, `incompatible`; each with an exact install or toolchain command under `proposedInstallations` (see Provisioning). Inspect files and versions only: never a dependency install or toolchain switch to probe. Always rerun this check, even on a cache hit: it depends on the checkout.";
+  const checks = nonEmpty(section29("Checks"));
+  if (!checks.some((l) => /^8\. \*\*Memory/.test(l))) fail(`${ARM}: Checks must keep their numbering (8. **Memory**)`);
+  if (checks.filter((l) => /^9\. /.test(l)).length !== 1 || checks.at(-1) !== CHECK9) fail(`${ARM}: Check 9 must be exactly the pinned "9. **Project dependencies and runtime.**" line and the last line of Checks`);
+  // AC-01: the cache never skips the checkout-dependent check.
+  const CACHE9 = "- Check 9 (project dependencies and runtime) depends on the checkout, not on the cache key: always rerun it, read-only, on every run, even on a cache hit.";
+  if (!nonEmpty(section29("Cache")).includes(CACHE9)) fail(`${ARM}: Cache must contain exactly: ${CACHE9}`);
+  // BR-03: every proposal field in the output, as an exact block.
+  const PROPOSED = [
+    "  - command: <exact official command>",
+    "    cwd: <working directory it runs in>",
+    "    runtime: <runtime/toolchain version it uses or selects>",
+    "    reason: <why required: which verify or test needs it>",
+    "    source: <lockfile, repo instruction or official doc>",
+    "    approved: false",
+  ];
+  const proposed = arm.split("\nproposedInstallations:\n")[1]?.split("\nmarketplace:")[0]?.split("\n") ?? [];
+  if (proposed.join("\n") !== PROPOSED.join("\n")) fail(`${ARM}: proposedInstallations must be exactly the pinned block (command, cwd, runtime, reason, source, approved: false)`);
+  if (!/^next: mothership-route\|human-approval$/m.test(arm)) fail(`${ARM}: output must keep \`next: mothership-route|human-approval\``);
+  const limits = section29("Limits");
+  if (!/never a dependency install or toolchain switch without approval, not even to probe/.test(limits)) fail(`${ARM}: Limits must forbid a dependency install or toolchain switch without approval, even to probe`);
+  // Classification is not pinned: nothing there may weaken the gate or make dependencies optional.
+  const WEAK = [/may run/i, /without (an? )?(explicit )?(user )?(yes|approval)/i, /disclos/i, /after the fact/i, /can proceed/i, /no approval/i, /needs? no\b/i, /(is|are) (routine|fine|allowed)/i, /\bexcept/i, /exception/i];
+  const classif = section29("Classification");
+  for (const re of WEAK) if (re.test(classif)) fail(`${ARM}: Classification must not weaken the install/toolchain gate (${re})`);
+  if (/(dependenc|runtime|lockfile|toolchain)[^.\n]*optional|optional[^.\n]*(dependenc|runtime|lockfile|toolchain)/i.test(classif)) fail(`${ARM}: Classification must not make dependencies or the runtime optional`);
+  // D-03: the BR-01 example commands live only on the Armorer's definition line.
+  const BR01 = ["npm ci", "npm install", "pnpm install", "yarn install", "bun install", "pip install", "uv sync", "poetry install", "python -m venv", "bundle install", "go mod download", "mise install", "mise use", "mise exec", "nvm install", "nvm use", "asdf install", "corepack enable"];
+  const DEF = PROVISIONING[1];
+  for (const file of readdirSync(join(root, "skills"), { recursive: true }).filter((f) => f.endsWith(".md")).map((f) => `skills/${f}`)) {
+    read(file).split("\n").forEach((l, i) => {
+      if (file === ARM && l === DEF) return;
+      for (const cmd of BR01) if (l.includes(cmd)) fail(`${file}:${i + 1}: BR-01 example \`${cmd}\` belongs only in \`bridge-armorer/SKILL.md\` → Provisioning (D-03)`);
+    });
+  }
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);
 }
-console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; spec_validate gate in publish, spec lint, delegation, architect and dispatcher; fallback condition aligned; epic omission, submit_ready draft rule and spec-lint outcome covered; publish resolves via project_resolve and a verified link file; .allye/project.json committed; a missing team never blocks; only armorer.json and missions/ are local state)");
+console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; spec_validate gate in publish, spec lint, delegation, architect and dispatcher; fallback condition aligned; epic omission, submit_ready draft rule and spec-lint outcome covered; publish resolves via project_resolve and a verified link file; .allye/project.json committed; a missing team never blocks; only armorer.json and missions/ are local state; installs and toolchain switches approval-gated)");
