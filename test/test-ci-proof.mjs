@@ -11,12 +11,17 @@ const fail = (msg) => errors.push(msg);
 const STRATEGIST = "skills/bridge-strategist/SKILL.md";
 const COPILOT = "skills/bridge-copilot/SKILL.md";
 const WATCHER = "skills/bridge-watcher/SKILL.md";
+const MOTHER = "skills/bridge/SKILL.md";
+const WORKFLOW = "skills/bridge/references/workflow.md";
+const STATE = "skills/bridge/references/state-contract.md";
 
 // ALY-28 [AC-16] owned terms; later slices append rows.
 const OWNERS = [
   ["ciOnly", [STRATEGIST, COPILOT]],
   ["proof: ci-only", [COPILOT]],
   ["ciPending", [WATCHER]],
+  ["CI_PENDING", [MOTHER, WORKFLOW, STATE]],
+  ["ci-pending", [WORKFLOW, STATE]],
 ];
 
 for (const [term, files] of OWNERS) {
@@ -105,6 +110,59 @@ for (const [term, files] of OWNERS) {
     "A non-empty `ciPending` means the code is approved but those anchors still wait for CI; it never counts them as proven",
   ])
     if (!gate.includes(phrase)) fail(`${WATCHER}: gate rule must say "${phrase}"`);
+}
+
+// ALY-28 [AC-04] [AC-05] [AC-07] [BR-04] [BR-06] [BR-11] [D-02] [D-03] [D-04]: CI-only slices stay
+// in review (or, with dependents, are completed and journaled), and the Mothership issues
+// CI_PENDING instead of MISSION_COMPLETE while CI-only proof is open.
+{
+  const wf = read(WORKFLOW);
+  const sec = (n) => wf.split(`\n## ${n}.`)[1]?.split("\n## ")[0] ?? "";
+  const s5 = sec(5).split("\n");
+  // Full-line equality: inversions and appended qualifiers fail.
+  // D-02 all-local unchanged; AC-04/BR-04 no dependents stays in_review; AC-05/D-03 dependents completed.
+  const STEP7 = "7. **Commit and complete.** Commit the slice locally (only in-scope files, never pre-existing changes), then complete it by its proof. A slice whose evidence is all `proof: local` → call `tasks.task_complete` on its task right away so its dependents can start. A slice with any `proof: ci-only` and no dependents in the plan → do not call `tasks.task_complete`: its task stays `in_review` until CI is green, and append `ci-pending` naming the commit, the task and its CI-only anchors. A slice with any `proof: ci-only` that other planned tasks depend on → call `tasks.task_complete` (`tasks.task_start` requires dependencies `done`, so leaving it `in_review` would deadlock the mission), append `ci-pending` naming the commit, the task and its CI-only anchors, keep its anchors in the open CI-only proof set, and reopen it with `tasks.task_reopen` if CI fails. The open CI-only proof set is every `ci-pending` slice and its anchors until CI is green for the reviewed point. Append to `log.md` (`slice-passed`, every reported `mcpWrites`, the `external-action` for the complete) and write the crew files.";
+  if (!s5.some((l) => l === STEP7)) fail(`${WORKFLOW}: §5 step 7 must be exactly "${STEP7}"`);
+  const INVAL = "**Invalidating a passed slice.** When a later change touches code of a completed slice (a correction elsewhere, a final-gate finding, a scope change), call `tasks.task_reopen` on it (`done → in_progress`) with a `comment` naming the cause, log `invalidated`, and run it through Pilot → Copilot → reviews → commit → `task_complete` again. If the server refuses because the spec is already `done`, call `specs.spec_reopen` (`done → in_progress`) first and log it. A `ci-pending` slice still `in_review` is sent back with `tasks.task_request_changes` instead, since only a `done` task can be reopened. Never run two slices in parallel when their write paths overlap or one consumes the other's output.";
+  if (!s5.some((l) => l === INVAL)) fail(`${WORKFLOW}: §5 invalidation must be exactly "${INVAL}" (in_review ci-pending slice → task_request_changes)`);
+  const s6 = sec(6).split("\n");
+  // Gate-defining lines: full-line equality so inversions and appended qualifiers fail.
+  const STEP5 =
+    "5. Mothership mechanical check: markers present for the current `HEAD` + clean in-scope tree, validation green, every planned task `done` on the server except CI-only tasks left `in_review` by §5 step 7. No CI-only proof open → `MISSION_COMPLETE`. Any CI-only proof open (a `ci-pending` slice, or a non-empty Watcher `ciPending`) → `CI_PENDING` for the reviewed point, never `MISSION_COMPLETE`; `MISSION_COMPLETE` only after CI is green for that same reviewed point.";
+  if (!s6.some((l) => l === STEP5)) fail(`${WORKFLOW}: §6 step 5 must be exactly "${STEP5}"`);
+  const MARKER = "- `CI_PENDING` — the Mothership's mechanical check above with CI-only proof open; only the Mothership issues it.";
+  if (!s6.some((l) => l === MARKER)) fail(`${WORKFLOW}: §6 Markers must contain exactly "${MARKER}"`);
+
+  const sk = read(MOTHER).split("\n");
+  for (const [name, line] of [
+    ["final gates", "- **final gates** — aggregate validation, Medic global, Shield final, Watcher, then your mechanical check: `MISSION_COMPLETE`, or `CI_PENDING` while any CI-only proof is open."],
+    ["Approvals task_complete bullet (BR-04/D-03)", "- Allye status changes happen live, without asking: `task_start`/`task_submit` by the Pilot; `task_request_changes` (one call with the merged reviewer findings), `task_complete` right after a slice passes its gate and is committed locally (except a slice with CI-only proof and no dependents, whose task stays `in_review` until CI is green; a CI-only slice with dependents is completed, journaled `ci-pending` and reopened if CI fails — `workflow.md` §5 step 7), `task_reopen` when a later change invalidates a passed slice, and `spec_submit` — all by you."],
+    ["Approvals local final gate caveat", "- Because slices are completed as they pass, the spec may reach `done` on the server before anything is pushed. That is expected: `MISSION_COMPLETE` remains the local final gate (`CI_PENDING` instead while any CI-only proof is open), and push, PR and merge stay the human's decisions (through the proposal below)."],
+  ])
+    if (!sk.some((l) => l === line)) fail(`${MOTHER}: ${name} must be exactly "${line}"`);
+  if (!sk.some((l) => l.trim() === "gates: { shield: SHIELD_CLEAR|null, watcher: WATCHER_APPROVED|null, mothership: MISSION_COMPLETE|CI_PENDING|null }"))
+    fail(`${MOTHER}: structured output must carry gates.mothership: MISSION_COMPLETE|CI_PENDING|null`);
+
+  const sc = read(STATE).split("\n");
+  if (!sc.some((l) => l === "- Gates: SHIELD_CLEAR <sha|—> · WATCHER_APPROVED <sha|—> · CI_PENDING <sha|—> · MISSION_COMPLETE <sha|—>"))
+    fail(`${STATE}: projection Gates line must carry CI_PENDING <sha|—>`);
+  const types = sc.filter((l) => l.startsWith("Event types"));
+  if (types.length !== 1 || !types[0].includes("`memory-read`, `memory-save`") || !types[0].endsWith(", `ci-pending`."))
+    fail(`${STATE}: a single Event types line must end with \`ci-pending\``);
+  const CIEV = "CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (`workflow.md` §5 step 7).";
+  if (!sc.some((l) => l === CIEV)) fail(`${STATE}: CI-proof events must be exactly "${CIEV}"`);
+  const RULE7 =
+    "7. **Gate markers only from their owner.** Accept `SHIELD_CLEAR` only from Shield's output on the final diff; `WATCHER_APPROVED` only from Watcher's structured output; `MISSION_COMPLETE` only from the Mothership's own mechanical check; `CI_PENDING` only from the Mothership's own mechanical check, when CI-only proof is open. Each carries the commit it was issued for.";
+  if (!sc.some((l) => l === RULE7)) fail(`${STATE}: logging rule 7 must be exactly "${RULE7}"`);
+  // Correction round 1 (Shield SHD-06, Medic): resume rebuilds the open CI-only proof set from the
+  // journal, never from server status, and sends an in_review ci-pending task back with request_changes.
+  const resume = (read(STATE).split("\n## Resume")[1] ?? "").split("\n## ")[0].split("\n");
+  const R4 =
+    "4. Rebuild the frontier from server dependencies plus logged evidence, not from projection text alone. Rebuild the open CI-only proof set from the journal's `ci-pending` entries that have no later green CI result for the reviewed point, never from server task status (a slice completed per `workflow.md` §5 step 7 is `done` on the server).";
+  if (!resume.some((l) => l === R4)) fail(`${STATE}: Resume step 4 must be exactly "${R4}"`);
+  const R5 =
+    "5. Reuse a passed slice only if its commit is still in the branch and its verify still matches; otherwise reopen it (`tasks.task_reopen`, `done → in_progress`; a `ci-pending` task still `in_review` is sent back with `tasks.task_request_changes` instead, since the server refuses `tasks.task_reopen` on it) and rerun its gates (`workflow.md` §5).";
+  if (!resume.some((l) => l === R5)) fail(`${STATE}: Resume step 5 must be exactly "${R5}"`);
 }
 
 if (errors.length) {

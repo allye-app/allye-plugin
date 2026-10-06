@@ -39,7 +39,7 @@ Before every route, run the **Armorer** preflight (skill `bridge-armorer`). Its 
 The single definition of every route. "Slices" and "final gates" always mean:
 
 - **slices** — Pilot → Copilot → Medic + Shield (Optimizer when the plan marks it), per slice of the Strategist's DAG;
-- **final gates** — aggregate validation, Medic global, Shield final, Watcher, then your `MISSION_COMPLETE` check.
+- **final gates** — aggregate validation, Medic global, Shield final, Watcher, then your mechanical check: `MISSION_COMPLETE`, or `CI_PENDING` while any CI-only proof is open.
 
 | Mode | Route |
 |---|---|
@@ -69,8 +69,8 @@ Composed routes never skip preflight or gates. Every code change runs on a track
 
 ## Approvals
 
-- Allye status changes happen live, without asking: `task_start`/`task_submit` by the Pilot; `task_request_changes` (one call with the merged reviewer findings), `task_complete` right after a slice passes its gate and is committed locally, `task_reopen` when a later change invalidates a passed slice, and `spec_submit` — all by you.
-- Because slices are completed as they pass, the spec may reach `done` on the server before anything is pushed. That is expected: `MISSION_COMPLETE` remains the local final gate, and push, PR and merge stay the human's decisions (through the proposal below).
+- Allye status changes happen live, without asking: `task_start`/`task_submit` by the Pilot; `task_request_changes` (one call with the merged reviewer findings), `task_complete` right after a slice passes its gate and is committed locally (except a slice with CI-only proof and no dependents, whose task stays `in_review` until CI is green; a CI-only slice with dependents is completed, journaled `ci-pending` and reopened if CI fails — `workflow.md` §5 step 7), `task_reopen` when a later change invalidates a passed slice, and `spec_submit` — all by you.
+- Because slices are completed as they pass, the spec may reach `done` on the server before anything is pushed. That is expected: `MISSION_COMPLETE` remains the local final gate (`CI_PENDING` instead while any CI-only proof is open), and push, PR and merge stay the human's decisions (through the proposal below).
 - After discovery: one closing confirmation listing exactly what will be created (`publish.md`), then the author creates it and you submit.
 - One user confirmation (showing the exact proposal) before: the Strategist's fallback tasks (spec has no tasks, or ACs uncovered), a scope-change `spec_update`, and any verify command that does not resolve to an inspected repo script.
 - `specs.spec_approve` only on the user's explicit yes in this conversation (`user_requested=true`); never as a step of your own flow. Routes that create a spec in order to implement it (`repair`, `optimize`, `shield`, `mission` without a spec) ask "approve <KEY> now?" after publishing (`publish.md` §5).
@@ -92,7 +92,7 @@ spec: <key|null>
 reviewedAt: <HEAD sha + tree state|null>
 tasks: { passed: [<keys>], blocked: [<keys>], pending: [<keys>] }
 validation: [<command → observed result>]
-gates: { shield: SHIELD_CLEAR|null, watcher: WATCHER_APPROVED|null, mothership: MISSION_COMPLETE|null }
+gates: { shield: SHIELD_CLEAR|null, watcher: WATCHER_APPROVED|null, mothership: MISSION_COMPLETE|CI_PENDING|null }
 approval: { proposal: <exact summary|null>, approved: true|false }
 external: { done: [<operations>], pending: [<operations>] }
 memories: [{ id: <memory id>, action: <action>, scope: <scope> }]|none  # plus warnings and failures, memory.md §5

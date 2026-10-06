@@ -71,9 +71,9 @@ The Mothership owns the DAG and dispatches, in one batch, only the independent s
 4. **Request changes, once.** If Copilot or any reviewer blocks, merge every blocking finding into one note (≤2000 characters, each finding tagged with its source role) and make a single `tasks.task_request_changes` call with `comment="<merged findings>"` (`reason` is an alias). The task moves back to `in_progress`.
 5. **Corrections.** Send the merged findings to the same Pilot with the round number. At most **2 correction rounds** per slice; then mark it blocked, keep evidence, and stop its descendants.
 6. **Slice gate.** The slice passes when Copilot passed, Medic reports no blocking regression and Shield has no open CRITICAL/HIGH. Optimizer is advisory; a finding that reveals an objective defect is reclassified by the Mothership.
-7. **Commit and complete.** Commit the slice locally (only in-scope files, never pre-existing changes), then call `tasks.task_complete` on its task so its dependents can start. Append to `log.md` (`slice-passed`, every reported `mcpWrites`, the `external-action` for the complete) and write the crew files.
+7. **Commit and complete.** Commit the slice locally (only in-scope files, never pre-existing changes), then complete it by its proof. A slice whose evidence is all `proof: local` → call `tasks.task_complete` on its task right away so its dependents can start. A slice with any `proof: ci-only` and no dependents in the plan → do not call `tasks.task_complete`: its task stays `in_review` until CI is green, and append `ci-pending` naming the commit, the task and its CI-only anchors. A slice with any `proof: ci-only` that other planned tasks depend on → call `tasks.task_complete` (`tasks.task_start` requires dependencies `done`, so leaving it `in_review` would deadlock the mission), append `ci-pending` naming the commit, the task and its CI-only anchors, keep its anchors in the open CI-only proof set, and reopen it with `tasks.task_reopen` if CI fails. The open CI-only proof set is every `ci-pending` slice and its anchors until CI is green for the reviewed point. Append to `log.md` (`slice-passed`, every reported `mcpWrites`, the `external-action` for the complete) and write the crew files.
 
-**Invalidating a passed slice.** When a later change touches code of a completed slice (a correction elsewhere, a final-gate finding, a scope change), call `tasks.task_reopen` on it (`done → in_progress`) with a `comment` naming the cause, log `invalidated`, and run it through Pilot → Copilot → reviews → commit → `task_complete` again. If the server refuses because the spec is already `done`, call `specs.spec_reopen` (`done → in_progress`) first and log it. Never run two slices in parallel when their write paths overlap or one consumes the other's output.
+**Invalidating a passed slice.** When a later change touches code of a completed slice (a correction elsewhere, a final-gate finding, a scope change), call `tasks.task_reopen` on it (`done → in_progress`) with a `comment` naming the cause, log `invalidated`, and run it through Pilot → Copilot → reviews → commit → `task_complete` again. If the server refuses because the spec is already `done`, call `specs.spec_reopen` (`done → in_progress`) first and log it. A `ci-pending` slice still `in_review` is sent back with `tasks.task_request_changes` instead, since only a `done` task can be reopened. Never run two slices in parallel when their write paths overlap or one consumes the other's output.
 
 ## 6. Final gates
 
@@ -83,15 +83,16 @@ When every planned slice has passed:
 2. Medic (`task: global`) on the whole change: no blocking regression.
 3. Shield (`final`) on the final diff: `SHIELD_CLEAR` only with no open CRITICAL/HIGH, for this exact reviewed point.
 4. Watcher (skill `bridge-watcher`) on the full diff against spec anchors, tasks, decisions, evidence, initial working tree and scope: `WATCHER_APPROVED` only when every `[AC-NN]`/`[BR-NN]` in scope is traceable and earlier gates are still valid.
-5. Mothership mechanical check: markers present for the current `HEAD` + clean in-scope tree, validation green, every planned task `done` on the server → `MISSION_COMPLETE`.
+5. Mothership mechanical check: markers present for the current `HEAD` + clean in-scope tree, validation green, every planned task `done` on the server except CI-only tasks left `in_review` by §5 step 7. No CI-only proof open → `MISSION_COMPLETE`. Any CI-only proof open (a `ci-pending` slice, or a non-empty Watcher `ciPending`) → `CI_PENDING` for the reviewed point, never `MISSION_COMPLETE`; `MISSION_COMPLETE` only after CI is green for that same reviewed point.
 
 Markers:
 
 - `SHIELD_CLEAR` — Shield found no open CRITICAL/HIGH on the final diff.
 - `WATCHER_APPROVED` — Watcher traced the full diff to the spec's `[BR]/[AC]/[D]/[NFR]` anchors, tasks and evidence.
 - `MISSION_COMPLETE` — the Mothership's mechanical check above.
+- `CI_PENDING` — the Mothership's mechanical check above with CI-only proof open; only the Mothership issues it.
 
-Each marker records its reviewed point (`state-contract.md` → Reviewed point). Any change to the diff after a gate invalidates all three. A finding at this stage that needs code goes back to the task that owns the code (reopen it per §5). Findings are never accepted silently: a risk or scope exception needs a recorded human decision and, when applicable, a new review.
+Each marker records its reviewed point (`state-contract.md` → Reviewed point). Any change to the diff after a gate invalidates every marker. A finding at this stage that needs code goes back to the task that owns the code (reopen it per §5). Findings are never accepted silently: a risk or scope exception needs a recorded human decision and, when applicable, a new review.
 
 ## 7. Push and PR
 
