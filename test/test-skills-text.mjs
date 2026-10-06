@@ -448,6 +448,60 @@ else {
   const types29 = line29(SC, /^Event types /);
   if (/install/i.test(types29)) fail(`${SC}: installs must reuse the existing event types, not add one (D-02)`);
   for (const t of ["`approval-proposed`", "`approval-received`", "`external-action`"]) if (!types29.includes(t)) fail(`${SC}: Event types must keep ${t}`);
+
+  // ALY-29.3 [AC-04] [AC-06] [BR-02] [BR-05]
+  // Block-on-missing-dependency rules: every line is exact, appears once and sits at its place; weakening qualifiers fail.
+  const WEAK29 = /\b(may|can|might|optionally|unless|except|without approval|without asking|disclos\w+|after the fact|afterwards|if (?:safe|quick|small|needed|necessary))\b/i;
+  const exact29 = (file, want, label, prevRe) => {
+    const lines = pin29(file, want, label);
+    const i = lines.indexOf(want);
+    let prev = i - 1;
+    while (prev >= 0 && !lines[prev].trim()) prev--;
+    if (!prevRe.test(lines[prev] ?? "")) fail(`${file}: ${label} must sit directly after its anchor line (${prevRe})`);
+    const body = want.replace(POINTER, "").replace("whoever asks", "");
+    if (WEAK29.test(body.replace(/needs the user's explicit yes first/, ""))) fail(`${file}: ${label} carries a weakening qualifier`);
+    return lines;
+  };
+  // BR-05, AC-04: Pilot blocks on a missing dependency or wrong runtime and never runs the proposed command.
+  exact29(PILOT,
+    "   - Missing dependency or wrong runtime: when a verify command or test needs a dependency that is not installed, or another runtime or toolchain version, stop with `blocked` naming the missing dependency or the wrong runtime and the proposed command, and never run that command yourself; a dependency install or toolchain switch is provisioning that needs the user's explicit yes first (`../bridge-armorer/SKILL.md` → Provisioning). Put the gap in `openQuestions`.",
+    "Pilot missing-dependency stop", /^5\. \*\*Commands\.\*\*/);
+  // BR-05, AC-04: Copilot blocks the same way on a rerun.
+  exact29(COPILOT,
+    "A rerun that needs a dependency that is not installed, or another runtime or toolchain version, is `blocked` naming the missing dependency or the wrong runtime and the proposed command, and you never run that command yourself; a dependency install or toolchain switch is provisioning that needs the user's explicit yes first (`../bridge-armorer/SKILL.md` → Provisioning).",
+    "Copilot missing-dependency stop", /^A command not declared `ciOnly` that is skipped or cannot run/);
+  // AC-04: Strategist step 4 rejects verify commands containing an install or toolchain switch (must not mention ciOnly: true).
+  const STRAT_REJECT = "   Reject, and never accept as a verify command, any command that contains a dependency install or toolchain switch (`../bridge-armorer/SKILL.md` → Provisioning), alone or chained or wrapped in another command; inspect the body of every accepted script or target, including its prerequisite targets and pre/post hooks, and reject the command if any of it runs one. A rejected command is marked `unresolved` with a reason naming the install or toolchain switch and the Armorer's approval flow, and gets an `openQuestions` entry.";
+  pin29(STRAT, STRAT_REJECT, "Strategist verify reject");
+  const stratLines29 = read(STRAT).split("\n");
+  if (!/^4\. \*\*Verify\.\*\*/.test(stratLines29[stratLines29.indexOf(STRAT_REJECT) - 1] ?? "")) fail(`${STRAT}: the reject line must directly follow step 4 Verify`);
+  if (STRAT_REJECT.includes("ciOnly")) fail(`${STRAT}: the reject line must not mention ciOnly`);
+  if (/\b(may|unless|except|optionally|without approval)\b/i.test(STRAT_REJECT)) fail(`${STRAT}: the reject line carries a weakening qualifier`);
+  // BR-02: Recon's safe-command list excludes toolchain switches; the exclusion is a separate exact line.
+  const reconUnsafe = line29(RECON, /Anything else \(migrations/);
+  if (!reconUnsafe.endsWith("Anything else (migrations, installs, toolchain switches, network writes, deleting data) is out: describe it as the next observation instead.")) fail(`${RECON}: the out-of-bounds line must name toolchain switches`);
+  const RECON_LINE = "A dependency install or toolchain switch (`../bridge-armorer/SKILL.md` → Provisioning) is never a safe command, not even to reach a runtime version a check needs; name it as the next observation and the Mothership routes it to approval. A version check that could auto-install (an auto-installing shim, an automatic toolchain download) counts as a toolchain switch: probe only by the no-switch rule of `../bridge-armorer/SKILL.md` → Check 9, or report the version as unknown.";
+  pin29(RECON, RECON_LINE, "Recon install exclusion");
+  const reconLines29 = read(RECON).split("\n");
+  if (nextNonEmpty29(reconLines29, reconLines29.indexOf(reconUnsafe)) !== RECON_LINE) fail(`${RECON}: the exclusion line must follow the out-of-bounds line`);
+  // Nothing may be inserted right after a new gate line (a contradicting line in the same step fails).
+  const follow29 = (file, line, nextRe, label) => {
+    const lines = read(file).split("\n");
+    const n = nextNonEmpty29(lines, lines.indexOf(line));
+    if (!nextRe.test(n)) fail(`${file}: ${label} must be followed directly by ${nextRe}, found: ${n.slice(0, 60)}`);
+  };
+  follow29(PILOT, read(PILOT).split("\n").find((l) => l.startsWith("   - Missing dependency or wrong runtime:")) ?? "", /^6\. \*\*Submit\.\*\*/, "Pilot missing-dependency stop");
+  follow29(COPILOT, read(COPILOT).split("\n").find((l) => l.startsWith("A rerun that needs a dependency")) ?? "", /^## Allye MCP$/, "Copilot missing-dependency stop");
+  follow29(STRAT, STRAT_REJECT, /^5\. \*\*Paths\.\*\*/, "Strategist verify reject");
+  follow29(RECON, RECON_LINE, /^## Cross-app contracts$/, "Recon install exclusion");
+  // SHD-11: the Pilot's Stop list points to the missing-dependency sub-bullet; the line is exact and sits under ## Stop and return.
+  const PILOT_STOP = "Stop with `blocked` — without coding around it — when you find a new requirement, a change needed in another repository or app, a product decision nobody made, a needed path outside `allowedPaths`, or a verify command that cannot run as declared (a missing dependency or wrong runtime: see the sub-bullet under Commands).";
+  const pilotLines29 = read(PILOT).split("\n");
+  if (pilotLines29.filter((l) => l === PILOT_STOP).length !== 1) fail(`${PILOT}: the Stop list must appear exactly once as the exact line`);
+  if (nextNonEmpty29(pilotLines29, pilotLines29.indexOf(PILOT_STOP)) !== "## Structured output") fail(`${PILOT}: nothing may follow the Stop list line before ## Structured output`);
+  if (pilotLines29[pilotLines29.indexOf(PILOT_STOP) - 2] !== "## Stop and return") fail(`${PILOT}: the Stop list line must directly follow ## Stop and return`);
+  // The pointer, not the example list, in each of the four files (D-03 scan covers examples).
+  for (const f of [PILOT, COPILOT, STRAT, RECON]) if (!POINTER.test(read(f))) fail(`${f}: must point to \`bridge-armorer/SKILL.md\` → Provisioning`);
 }
 
 if (errors.length) {
