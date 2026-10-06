@@ -1,3 +1,19 @@
+# [2.5.0](https://github.com/allye-app/allye-plugin/compare/v2.4.0...v2.5.0) (2026-10-06)
+
+
+### Bug Fixes
+
+* **bridge:** align delegation, crew, Medic and Shield with CI-only proof ([9efa4b9](https://github.com/allye-app/allye-plugin/commit/9efa4b9371cd502cedb394e93baec80611688986))
+
+
+### Features
+
+* **bridge:** integrate a moved base branch before the final gates ([a97eeab](https://github.com/allye-app/allye-plugin/commit/a97eeab094d6cb91739c4f17c105018cc221098c))
+* **bridge:** keep CI-only slices in review and issue CI_PENDING ([8965c06](https://github.com/allye-app/allye-plugin/commit/8965c06f7d0e66d36bbe1bdd2a1805238427508e))
+* **bridge:** let the Watcher approve with CI-only anchors as ciPending ([c489e62](https://github.com/allye-app/allye-plugin/commit/c489e6209733bf671817f295c1ea3a1d2fb467fe))
+* **bridge:** mark CI-only verify commands and classify Copilot proof ([4c890ac](https://github.com/allye-app/allye-plugin/commit/4c890ace738e01bbac5b07e9882d8894cb1a2adc))
+* **bridge:** propose the PR on CI_PENDING and complete CI-only tasks after green CI ([bd594b6](https://github.com/allye-app/allye-plugin/commit/bd594b634526b682e1f4abbe63471052ee3debab))
+
 # [2.4.0](https://github.com/allye-app/allye-plugin/compare/v2.3.0...v2.4.0) (2026-10-05)
 
 
