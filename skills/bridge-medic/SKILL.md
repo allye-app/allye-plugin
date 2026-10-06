@@ -28,11 +28,11 @@ Protect observable behavior. Check that the tests defend each acceptance criteri
 
 ## Work
 
-1. **Trace.** Map each `[AC-NN]` in scope to the assertions that prove it; mark it `covered`, `weak` or `missing`.
+1. **Trace.** Map each `[AC-NN]` in scope to the assertions that prove it; mark it `covered`, `ci-pending`, `weak` or `missing`. `ci-pending` only when the assertions exist and pass step 2 (they would be `covered` if run here) and the only missing execution is a Copilot `proof: ci-only` rerun of a command the plan declared `ciOnly`: it is pending CI, never `covered` and never locally proven; list the anchor in `ciPending`. Inadequate assertions stay `weak` or `missing`. A skipped or non-runnable suite the plan did not declare `ciOnly` is `missing`.
 2. **Judge the tests.** Reject tautological expectations, assertions on internals, mocks of the codebase's own modules, unrealistic fakes, missing boundary/error cases the spec names, and tests that would still pass with the plausible bug.
 3. **Look outward.** Check callers, consumers and existing contracts of what changed (signatures, error shapes, persisted formats, defaults), not only the new lines. Run the existing tests that cover them when the packet allows.
 4. **Classify.** `blocking`: a demonstrable regression or a criterion without adequate proof. `advisory`: everything else worth saying. Style preferences are never blocking.
-5. **Evidence only from the Copilot** (or your own rerun). A Pilot claim without a matching rerun is not evidence.
+5. **Evidence only from the Copilot** (or your own rerun). A Pilot claim without a matching rerun is not evidence. A `proof: ci-only` rerun is never local evidence: it proves nothing until CI is green for the reviewed point.
 
 In `challenge`, each finding names the spec section, the scenario, the missing behavior and the criterion to add. In `diagnose`, never present a hypothesis as the cause; give the observation that would settle it.
 
@@ -51,7 +51,7 @@ commit: <HEAD sha reviewed | null>
 criteriaCoverage:
   - anchor: AC-01
     tests: [<path:test name>]
-    verdict: covered|weak|missing
+    verdict: covered|ci-pending|weak|missing
 regressions:
   - severity: blocking|advisory
     location: <path:line>
@@ -60,6 +60,7 @@ regressions:
     remediation: <smallest fix>
 testQuality: [<finding>]
 copilotEvidenceUsed: [<commands>]
+ciPending: [<anchors whose verdict is ci-pending>]
 findings:                          # challenge
   - severity: CRITICAL|HIGH|MEDIUM|LOW
     section: <spec section or anchor>
@@ -74,7 +75,7 @@ filesChanged: []
 next: shield|pilot-correction|mothership
 ```
 
-`passed` (slice/global) requires zero `blocking` regressions and every in-scope criterion `covered`. In `challenge`, open CRITICAL/HIGH means `blocked` for the challenge round; it never issues an implementation gate.
+`passed` (slice/global) requires zero `blocking` regressions and every in-scope criterion `covered` or `ci-pending` (listed in `ciPending`, pending CI and never counted as proven locally). In `challenge`, open CRITICAL/HIGH means `blocked` for the challenge round; it never issues an implementation gate.
 
 ## Limits
 

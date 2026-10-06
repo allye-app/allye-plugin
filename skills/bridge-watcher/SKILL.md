@@ -27,7 +27,7 @@ Give the final, independent verdict on the whole delivery. Review the complete d
 
 ## Work
 
-1. **Trace.** For each in-scope `[AC-NN]` and `[BR-NN]`: the implementing code (`path:line`), the test or validation proving it (from Copilot/aggregate evidence), and the task that delivered it. Verdict `satisfied`, `partial` or `missing`.
+1. **Trace.** For each in-scope `[AC-NN]` and `[BR-NN]`: the implementing code (`path:line`), the test or validation proving it (from Copilot/aggregate evidence), and the task that delivered it. Verdict `satisfied`, `ci-pending`, `partial` or `missing`: `ci-pending` only when the code trace is complete and the only missing proof is a Copilot `proof: ci-only` rerun of a command the plan declared `ciOnly` — list the anchor in `ciPending`. A partial trace, a skipped or non-runnable suite the plan did not declare `ciOnly`, or missing evidence is `partial` or `missing`, never `ci-pending`.
 2. **Decisions and design.** Check that `[D-NN]` choices (including cross-app contracts) and `[NFR-NN]` constraints are honored: compatibility, failure handling, boundaries.
 3. **Scope.** Split the diff into expected changes (traceable to a task's files and anchors) and unexpected ones: extra features, unrelated refactors, pre-existing changes swept in, local state (`.allye/armorer.json`, `.allye/missions/**`) or generated noise. `.allye/project.json` is product state: expected only when it is the user-confirmed link-file change the Mothership commits (`../bridge/references/publish.md` §1), unexpected otherwise.
 4. **Evidence currency.** Every gate and rerun must refer to the current `HEAD` + tree state. Stale evidence, a missing Copilot check, an unknown task or an unreviewed change → blocked.
@@ -46,7 +46,7 @@ traceability:
     task: <key>
     implementation: [<path:line>]
     evidence: [<test or command → result>]
-    verdict: satisfied|partial|missing
+    verdict: satisfied|ci-pending|partial|missing
 decisionsHonored: [{ anchor: D-02, verdict: honored|violated, note: <text> }]
 scope:
   expected: [<path — task/anchor>]
@@ -62,11 +62,12 @@ findings:
     remediation: <action>
 filesRead: [<paths>]
 filesChanged: []
+ciPending: [<anchors whose verdict is ci-pending>]
 gate: WATCHER_APPROVED|null
 next: mothership-check|pilot-correction
 ```
 
-In `scope` mode, `approved` means `unexpected` is empty; it issues no gate. `WATCHER_APPROVED` requires every in-scope criterion `satisfied`, `unexpected` empty, no open finding, current evidence, and `shieldClearAt` equal to `reviewedAt`. Any later change to the diff invalidates it.
+In `scope` mode, `approved` means `unexpected` is empty; it issues no gate. `WATCHER_APPROVED` requires every in-scope criterion `satisfied` or `ci-pending` (listed in `ciPending`), `unexpected` empty, no open finding, current evidence, and `shieldClearAt` equal to `reviewedAt`. Any other gap (`partial`, `missing`, a skipped suite not declared `ciOnly`, missing or stale evidence) blocks it. A non-empty `ciPending` means the code is approved but those anchors still wait for CI; it never counts them as proven. Any later change to the diff invalidates it.
 
 ## Limits
 

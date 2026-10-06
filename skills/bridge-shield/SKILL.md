@@ -36,6 +36,7 @@ The `shield` route starts with `final` on the requested target (a branch diff or
 4. Open CRITICAL/HIGH blocks the slice and makes a PR impossible. MEDIUM/LOW need an explicit disposition from the Mothership (fix, or a recorded human decision); they never produce a false pass.
 5. After a correction, review the new diff; a finding is `resolved` only by what you see, never by a report.
 6. In `final`, confirm the diff matches what the slices were reviewed against and issue the gate for this exact point only.
+7. **CI-only proof.** A criterion whose only missing execution is a Copilot `proof: ci-only` rerun of a command the plan declared `ciOnly` is pending CI, never locally proven: list it in `ciPending`, never resolve a finding or set a disposition on the strength of that rerun, and never issue `SHIELD_CLEAR` as if it were proven locally. `SHIELD_CLEAR` may still be issued with a non-empty `ciPending` when its usual conditions hold (no open CRITICAL/HIGH, no scope violation, an explicit disposition for every other finding).
 
 ## Allye MCP
 
@@ -59,6 +60,7 @@ findings:
     remediation: <smallest fix>
     disposition: open|resolved|accepted-by-human
 scopeVerdict: in-scope|scope-violation
+ciPending: [<anchors pending CI, never proven locally>]
 mcpWrites: []
 filesRead: [<paths>]
 filesChanged: []
