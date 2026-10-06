@@ -18,6 +18,7 @@ Run Armorer first (skill `bridge-armorer`) and use its role map for every dispat
 
 - Armorer's `defaultTeam` is information only; a missing team never gates a route. When about to create a project with no default team set, ask the user which team and pass `team_id` on the project creation; call `team.team_set_default` only when the user asks to set a new default (it persists across sessions).
 - Missing required capability → present Armorer's exact official command, wait for approval, run it, and have Armorer verify the post-condition. No verifiable command → blocked.
+- A dependency install or toolchain switch (`../../bridge-armorer/SKILL.md` → Provisioning) is gated provisioning, never routine setup, even when its target is git-ignored (`node_modules`, `.venv`): present Armorer's exact proposal (command, working directory, runtime, reason, source) and run nothing before the user's explicit yes to that exact command (`SKILL.md` → Approvals); disclosure after the fact never substitutes for that yes. One yes covers exactly the listed commands; any command not listed, or changed, needs a new proposal.
 - Optional gaps (e.g. `gh`, outdated team skills) are reported and never block.
 - Write its cache to `.allye/armorer.json` per `state-contract.md`.
 
@@ -36,7 +37,7 @@ Before creating a branch, editing code or changing any status:
 9. **Open the log.** The spec key now exists: create or resume `.allye/missions/<slug>/log.md` (`state-contract.md`) and append `preflight` (with Armorer's result and any warning). Every later transition and Allye write is logged from here on.
 10. **Journal the memory read.** The `intelligence.memory_search` of `memory.md` §1 runs once per mode, once the spec or goal is known and before any Recon (`SKILL.md` → Inputs); append it as `memory-read` (held until now when it ran before the log existed, `memory.md` §6).
 
-Apart from opening the log, no server, git or file mutation happens in preflight.
+Apart from opening the log, no server, git or file mutation happens in preflight, and no dependency install or toolchain switch (`../../bridge-armorer/SKILL.md` → Provisioning) runs before the user's explicit yes to that exact command (§1).
 
 ### Dirty working tree
 
