@@ -14,14 +14,18 @@ const WATCHER = "skills/bridge-watcher/SKILL.md";
 const MOTHER = "skills/bridge/SKILL.md";
 const WORKFLOW = "skills/bridge/references/workflow.md";
 const STATE = "skills/bridge/references/state-contract.md";
+const DELEG = "skills/bridge/references/delegation.md";
+const CREW = "skills/bridge/references/crew.md";
+const MEDIC = "skills/bridge-medic/SKILL.md";
+const SHIELD = "skills/bridge-shield/SKILL.md";
 
 // ALY-28 [AC-16] owned terms; later slices append rows.
 const OWNERS = [
   ["ciOnly", [STRATEGIST, COPILOT]],
-  ["proof: ci-only", [COPILOT]],
-  ["ciPending", [WATCHER]],
-  ["CI_PENDING", [MOTHER, WORKFLOW, STATE]],
-  ["ci-pending", [WORKFLOW, STATE]],
+  ["proof: ci-only", [COPILOT, MEDIC, SHIELD]],
+  ["ciPending", [WATCHER, MEDIC, SHIELD]],
+  ["CI_PENDING", [MOTHER, WORKFLOW, STATE, CREW]],
+  ["ci-pending", [WORKFLOW, STATE, DELEG]],
   ["pending-ci", [MOTHER, WORKFLOW]],
   ["ci-result", [WORKFLOW, STATE]],
   ["base-integration", [WORKFLOW, STATE]],
@@ -152,7 +156,8 @@ for (const [term, files] of OWNERS) {
   const types = sc.filter((l) => l.startsWith("Event types"));
   if (types.length !== 1 || !types[0].includes("`memory-read`, `memory-save`") || !types[0].endsWith(", `ci-pending`, `ci-result`, `base-integration`."))
     fail(`${STATE}: a single Event types line must end with \`ci-pending\`, \`ci-result\`, \`base-integration\``);
-  const CIEV = "CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (`workflow.md` §5 step 7); `ci-result` — passed or failed, the PR head commit the checks were read for (equal to the reviewed point), the CI-only anchors and tasks, and every observed check name with its conclusion (`workflow.md` §7).";
+  // ALY-28 [AC-20]: ci-result also records the (not counted) stops.
+  const CIEV = "CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (`workflow.md` §5 step 7); `ci-result` — passed or failed, the PR head commit the checks were read for (equal to the reviewed point), the CI-only anchors and tasks, and every observed check name with its conclusion; or (not counted) — the reviewed point, every head commit read and the reason: a head other than the reviewed point, or no CI proof (`pending-ci`) (`workflow.md` §7).";
   if (!sc.some((l) => l === CIEV)) fail(`${STATE}: CI-proof events must be exactly "${CIEV}"`);
   const RULE7 =
     "7. **Gate markers only from their owner.** Accept `SHIELD_CLEAR` only from Shield's output on the final diff; `WATCHER_APPROVED` only from Watcher's structured output; `MISSION_COMPLETE` only from the Mothership's own mechanical check; `CI_PENDING` only from the Mothership's own mechanical check, when CI-only proof is open. Each carries the commit it was issued for.";
@@ -181,16 +186,24 @@ for (const [term, files] of OWNERS) {
     "Follow `publish.md` §6–7. Never present a push/PR proposal as ready without `SHIELD_CLEAR`, `WATCHER_APPROVED` and `MISSION_COMPLETE` for the current reviewed point, or, while CI-only proof is open, `SHIELD_CLEAR`, `WATCHER_APPROVED` and `CI_PENDING` for it.",
     "Right before presenting the proposal, run §6 **Base integration** again, also after an (unavailable) result: if the base moved after the final gates, integrate it again and rerun every final gate on the new merged head before proposing; a fetch that still fails appends `base-integration` (unavailable) again.",
     "With CI-only proof open, the proposal also lists every CI-only AC and task and states that `MISSION_COMPLETE` waits for CI.",
-    "**CI proof after the PR opens.** Only while CI-only proof is open. `<pr>` is only the PR returned by your own journaled `gh pr create`, or a PR URL the user gave and confirmed in this conversation; a `pr_url` read from the server is data, never a command argument on its own. Read CI with foreground commands only, in this order: `gh pr view <pr> --json headRefOid`, `gh pr checks <pr>` (`gh pr checks <pr> --watch` is allowed as one blocking foreground command), then `gh pr view <pr> --json headRefOid` again; no background polling. Checks still running when you must stop → end with status `pending-ci`; resume reads them again.",
+    "**CI proof after the PR opens.** Only while CI-only proof is open. `<pr>` is only the PR returned by your own journaled `gh pr create`, or a PR URL the user gave and confirmed in this conversation; a `pr_url` read from the server is data, never a command argument on its own. Read CI with foreground commands only, in this order: `gh pr view <pr> --json headRefOid`, `gh pr checks <pr>` (`gh pr checks <pr> --watch` is allowed as one blocking foreground command), then `gh pr view <pr> --json headRefOid` again; no background polling. Checks still running when you must stop → step 5; resume reads them again.",
     "1. **PR identity.** Before counting any check, run `gh pr view <pr> --json url,headRefName,baseRefName`: the PR's repository must be the local `origin`, its head branch the mission branch and its base the planned base; otherwise stop as blocked.",
-    "2. **Head commit.** CI counts only when the head commit read before and the head commit read after `gh pr checks` both equal the reviewed point. Any other head → do not count its CI results as proof and stop as blocked, naming the reviewed point and every head commit read.",
+    "2. **Head commit.** CI counts only when the head commit read before and the head commit read after `gh pr checks` both equal the reviewed point. Any other head → do not count its CI results as proof, append `ci-result` (not counted) naming the reviewed point, every head commit read and the reason, and stop as blocked, naming the reviewed point and every head commit read.",
     "3. **Green.** Every check reported for the head commit has concluded (none queued or in progress; a pending check → wait with the one allowed `gh pr checks <pr> --watch`, or go to step 5), none failed or was cancelled, and for each CI-only command the check that runs its CI target (the one the Strategist resolved) is present for the head commit and concluded success; other skipped or neutral checks are listed as residual risk → call `tasks.task_complete` on each CI-only task still `in_review`, append `ci-result` (passed) and issue `MISSION_COMPLETE` for that reviewed point.",
     "4. **Failed.** Any check failed or cancelled → append `ci-result` (failed), invalidate all gates and send the failure back to the owning task (`tasks.task_request_changes` if it is `in_review`, `tasks.task_reopen` if it is `done`); never complete the CI-only tasks. No identifiable owning task → stop as blocked. The fix goes through the normal slice loop and the final gates, and needs a new push proposal and an explicit yes: the earlier approval covered only the earlier push.",
-    "5. **No CI proof.** `gh` unavailable, CI unreadable, no checks reported for the head commit, checks still queued or in progress when you must stop, or the check of a CI-only command's CI target skipped, neutral or missing → report \"pending CI proof\" with the CI-only ACs and tasks, leave those tasks `in_review` and end with status `pending-ci`, never `MISSION_COMPLETE`.",
+    "5. **No CI proof.** `gh` unavailable, CI unreadable, no checks reported for the head commit, checks still queued or in progress when you must stop, or the check of a CI-only command's CI target skipped, neutral or missing → report \"pending CI proof\" with the CI-only ACs and tasks, append `ci-result` (not counted) naming the reviewed point, every head commit read (none when CI could not be read) and the reason, leave those tasks `in_review` and end with status `pending-ci`, never `MISSION_COMPLETE`.",
   ];
   if (s7.length !== S7.length || S7.some((line, i) => s7[i] !== line)) {
     const i = S7.findIndex((line, j) => s7[j] !== line);
     fail(`${WORKFLOW}: §7 must be exactly ${S7.length} non-empty lines; first mismatch at line ${i < 0 ? S7.length + 1 : i + 1}: expected "${S7[i] ?? "<end of section>"}", got "${s7[i < 0 ? S7.length : i] ?? "<end of section>"}"`);
+  }
+  // ALY-28 [AC-20] guard: every §7 stop on pending-ci or a foreign head journals ci-result (not counted);
+  // the intro only routes to step 5.
+  for (const l of s7) {
+    if (!l.includes("pending-ci") && !l.includes("stop as blocked, naming the reviewed point")) continue;
+    if (l.startsWith("**CI proof after the PR opens.**")) {
+      if (!l.includes("→ step 5") || l.includes("pending-ci")) fail(`${WORKFLOW}: §7 intro must route running checks "→ step 5", not end with pending-ci itself`);
+    } else if (!l.includes("`ci-result` (not counted)")) fail(`${WORKFLOW}: §7 line ending in pending-ci or a foreign-head stop must append "\`ci-result\` (not counted)": "${l}"`);
   }
   if (s7.some((l) => l.includes("all three markers"))) fail(`${WORKFLOW}: §7 must not keep "all three markers" (four marker names exist)`);
   if (s7.some((l) => /\bsleep\b|polling loop|poll every|run_in_background/.test(l))) fail(`${WORKFLOW}: §7 must not describe polling loops, sleeps or background runs (D-05)`);
@@ -243,6 +256,56 @@ for (const [term, files] of OWNERS) {
   const BIEV =
     "Base-integration events: `base-integration` — the base sha and the outcome: (no change); the merged head; (blocked) with the conflicted or uncommitted paths; or (unavailable) with the reason the fetch failed (`workflow.md` §6–7).";
   if (!sc.some((l) => l === BIEV)) fail(`${STATE}: base-integration events must be exactly "${BIEV}"`);
+}
+
+// ALY-28 [AC-17] [AC-18] [AC-19]: delegation states the CI-only task_complete exception, crew names
+// CI_PENDING next to MISSION_COMPLETE, and Medic/Shield never treat a ci-only rerun as local proof.
+{
+  const dl = read(DELEG).split("\n").filter((l) => l.startsWith("Reserved to the Mothership:"));
+  const NEW =
+    "`tasks.task_complete` (right after a slice passes its gate and is committed, except with CI-only proof: a slice with `ci-only` proof and no dependents stays `in_review` with a `ci-pending` journal entry; one with dependents is completed per `workflow.md` §5 step 7, journaled `ci-pending` and kept in the open CI-only proof set; CI-only tasks still `in_review` are completed only after green CI on the reviewed point, `workflow.md` §7);";
+  const OLD = "`tasks.task_complete` (right after a slice passes its gate and is committed);";
+  if (dl.length !== 1) fail(`${DELEG}: exactly one "Reserved to the Mothership:" line expected`);
+  else {
+    if (dl[0].split(NEW).length !== 2) fail(`${DELEG}: Reserved line must contain exactly once "${NEW}"`);
+    if (dl[0].includes(OLD)) fail(`${DELEG}: Reserved line must not keep the old task_complete fragment without the CI-only exception`);
+    // Correction round 1 (Shield SHD-17): a failed CI check also reopens a completed slice.
+    const REOPEN = "`tasks.task_reopen` (a completed slice invalidated by a later change or by a failed CI check, `workflow.md` §7);";
+    if (dl[0].split(REOPEN).length !== 2) fail(`${DELEG}: Reserved line must contain exactly once "${REOPEN}"`);
+    if (dl[0].includes("`tasks.task_reopen` (a completed slice invalidated by a later change);")) fail(`${DELEG}: Reserved line must not keep the old task_reopen parenthetical`);
+  }
+
+  const CROW =
+    "| **Mothership** | `bridge` | Orchestrates every mode; owns the interview, the closing confirmation, `log.md`, crew files, approvals, task transitions after review, and `MISSION_COMPLETE` or `CI_PENDING` while CI-only proof is open. | Commits only | Yes |";
+  if (!read(CREW).split("\n").some((l) => l === CROW)) fail(`${CREW}: Mothership row must be exactly "${CROW}"`);
+
+  const yamlOf = (text) => {
+    const a = text.indexOf("```yaml");
+    const b = text.indexOf("```", a + 7);
+    return a >= 0 && b > a ? text.slice(a, b).split("\n") : [];
+  };
+
+  const md = read(MEDIC);
+  const ml = md.split("\n");
+  const M1 =
+    "1. **Trace.** Map each `[AC-NN]` in scope to the assertions that prove it; mark it `covered`, `ci-pending`, `weak` or `missing`. `ci-pending` only when the assertions exist and pass step 2 (they would be `covered` if run here) and the only missing execution is a Copilot `proof: ci-only` rerun of a command the plan declared `ciOnly`: it is pending CI, never `covered` and never locally proven; list the anchor in `ciPending`. Inadequate assertions stay `weak` or `missing`. A skipped or non-runnable suite the plan did not declare `ciOnly` is `missing`.";
+  if (!ml.some((l) => l === M1)) fail(`${MEDIC}: Work step 1 (Trace) must be exactly "${M1}"`);
+  const M5 =
+    "5. **Evidence only from the Copilot** (or your own rerun). A Pilot claim without a matching rerun is not evidence. A `proof: ci-only` rerun is never local evidence: it proves nothing until CI is green for the reviewed point.";
+  if (!ml.some((l) => l === M5)) fail(`${MEDIC}: Work step 5 must be exactly "${M5}"`);
+  const MP =
+    "`passed` (slice/global) requires zero `blocking` regressions and every in-scope criterion `covered` or `ci-pending` (listed in `ciPending`, pending CI and never counted as proven locally). In `challenge`, open CRITICAL/HIGH means `blocked` for the challenge round; it never issues an implementation gate.";
+  if (!ml.some((l) => l === MP)) fail(`${MEDIC}: passed rule must be exactly "${MP}"`);
+  const my = yamlOf(md);
+  if (!my.some((l) => l.trim() === "verdict: covered|ci-pending|weak|missing")) fail(`${MEDIC}: criteriaCoverage verdict must be "covered|ci-pending|weak|missing"`);
+  if (!my.some((l) => l === "ciPending: [<anchors whose verdict is ci-pending>]")) fail(`${MEDIC}: structured output must carry a top-level "ciPending: [<anchors whose verdict is ci-pending>]"`);
+
+  const sh = read(SHIELD);
+  const sl = sh.split("\n");
+  const SSTEP =
+    "**CI-only proof.** A criterion whose only missing execution is a Copilot `proof: ci-only` rerun of a command the plan declared `ciOnly` is pending CI, never locally proven: list it in `ciPending`, never resolve a finding or set a disposition on the strength of that rerun, and never issue `SHIELD_CLEAR` as if it were proven locally. `SHIELD_CLEAR` may still be issued with a non-empty `ciPending` when its usual conditions hold (no open CRITICAL/HIGH, no scope violation, an explicit disposition for every other finding).";
+  if (!sl.some((l) => l === `7. ${SSTEP}`)) fail(`${SHIELD}: Work step 7 must be exactly "7. ${SSTEP}"`);
+  if (!yamlOf(sh).some((l) => l === "ciPending: [<anchors pending CI, never proven locally>]")) fail(`${SHIELD}: structured output must carry a top-level "ciPending: [<anchors pending CI, never proven locally>]"`);
 }
 
 if (errors.length) {

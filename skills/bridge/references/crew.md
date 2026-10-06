@@ -6,7 +6,7 @@ Load each crew skill by name; if the harness has no skill loader, read `../bridg
 
 | Agent | Skill | Mandate | Writes code? | Can block? |
 |---|---|---|---|---|
-| **Mothership** | `bridge` | Orchestrates every mode; owns the interview, the closing confirmation, `log.md`, crew files, approvals, task transitions after review and `MISSION_COMPLETE`. | Commits only | Yes |
+| **Mothership** | `bridge` | Orchestrates every mode; owns the interview, the closing confirmation, `log.md`, crew files, approvals, task transitions after review, and `MISSION_COMPLETE` or `CI_PENDING` while CI-only proof is open. | Commits only | Yes |
 | **Armorer** | `bridge-armorer` | Read-only capability preflight: Allye connection and team, delegation, whether subagents see the MCP tools, question tool, native agent types → roles, local toolchain; provisions only with approval. | No | Yes (missing required capability) |
 | **Recon** | `bridge-recon` | Read-only investigation with evidence: execution paths, invariants, tests/seams; reproduces bugs first; answers factual interview questions; feeds the code guide in `survey`. | No | No |
 | **Strategist** | `bridge-strategist` | `plan`: validated slice DAG (AC trace, topo order, seams, verify resolved to repo scripts, paths, contracts, frontiers, reviewers) and proposed tasks when the spec has no tasks or ACs are uncovered. `challenge`: ambiguities in a draft spec. Runs alone. | No | Yes (spec not plannable) |

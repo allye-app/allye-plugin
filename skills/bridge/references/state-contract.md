@@ -72,7 +72,7 @@ Event types (extend only when none fits): `preflight`, `publish`, `spec-challeng
 
 Memory events (`memory.md` §6): `memory-read` — the query, the ids kept, or the failure; `memory-save` — id, action, scope, or the failure.
 
-CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (`workflow.md` §5 step 7); `ci-result` — passed or failed, the PR head commit the checks were read for (equal to the reviewed point), the CI-only anchors and tasks, and every observed check name with its conclusion (`workflow.md` §7).
+CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (`workflow.md` §5 step 7); `ci-result` — passed or failed, the PR head commit the checks were read for (equal to the reviewed point), the CI-only anchors and tasks, and every observed check name with its conclusion; or (not counted) — the reviewed point, every head commit read and the reason: a head other than the reviewed point, or no CI proof (`pending-ci`) (`workflow.md` §7).
 
 Base-integration events: `base-integration` — the base sha and the outcome: (no change); the merged head; (blocked) with the conflicted or uncommitted paths; or (unavailable) with the reason the fetch failed (`workflow.md` §6–7).
 
