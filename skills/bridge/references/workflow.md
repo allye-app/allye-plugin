@@ -79,6 +79,10 @@ The Mothership owns the DAG and dispatches, in one batch, only the independent s
 
 When every planned slice has passed:
 
+**Base integration.** Before step 1, `git fetch` the planned base and compare it with the mission branch's base point (`git merge-base` of the mission branch and the fetched base). Fetch failed or the base has no remote (offline, no origin, unreachable remote) → append `base-integration` (unavailable) with the reason and run the final gates on the local base point. Base not moved → create no merge commit and append `base-integration` (no change) with the base sha. Base moved and `git status --porcelain` shows any change besides `.allye/armorer.json` and `.allye/missions/**`, or git refuses to start the merge → make no merge, never `git merge --abort` or reset, append `base-integration` (blocked) naming the paths and stop for a human decision. Base moved otherwise → `git merge` the fetched base into the mission branch (a merge commit; never rebase, never force-push), append `base-integration` with the base sha and the merged head, and run step 1 and every later final gate on the merged head, with the final diff measured from the fetched base. Merge conflicts → `git merge --abort`, append `base-integration` (blocked) with the conflicted paths and stop as blocked for a human decision; never resolve a conflict yourself. This is the only merge you make without an explicit request (`SKILL.md` → Approvals).
+
+After a merge, the fetched base sha is the base sha in final-gate packets and in the projection's `Base:`; the aggregate validation and final gates on the merged head are the current evidence, slice reruns stay valid for their slice commits, and the upstream merge alone reopens no completed slice.
+
 1. Mothership runs the aggregate validation from the Strategist's plan.
 2. Medic (`task: global`) on the whole change: no blocking regression.
 3. Shield (`final`) on the final diff: `SHIELD_CLEAR` only with no open CRITICAL/HIGH, for this exact reviewed point.
@@ -97,6 +101,8 @@ Each marker records its reviewed point (`state-contract.md` → Reviewed point).
 ## 7. Push and PR
 
 Follow `publish.md` §6–7. Never present a push/PR proposal as ready without `SHIELD_CLEAR`, `WATCHER_APPROVED` and `MISSION_COMPLETE` for the current reviewed point, or, while CI-only proof is open, `SHIELD_CLEAR`, `WATCHER_APPROVED` and `CI_PENDING` for it.
+
+Right before presenting the proposal, run §6 **Base integration** again, also after an (unavailable) result: if the base moved after the final gates, integrate it again and rerun every final gate on the new merged head before proposing; a fetch that still fails appends `base-integration` (unavailable) again.
 
 With CI-only proof open, the proposal also lists every CI-only AC and task and states that `MISSION_COMPLETE` waits for CI.
 

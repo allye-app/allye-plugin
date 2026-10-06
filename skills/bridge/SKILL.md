@@ -39,7 +39,7 @@ Before every route, run the **Armorer** preflight (skill `bridge-armorer`). Its 
 The single definition of every route. "Slices" and "final gates" always mean:
 
 - **slices** — Pilot → Copilot → Medic + Shield (Optimizer when the plan marks it), per slice of the Strategist's DAG;
-- **final gates** — aggregate validation, Medic global, Shield final, Watcher, then your mechanical check: `MISSION_COMPLETE`, or `CI_PENDING` while any CI-only proof is open.
+- **final gates** — base integration, aggregate validation, Medic global, Shield final, Watcher, then your mechanical check: `MISSION_COMPLETE`, or `CI_PENDING` while any CI-only proof is open.
 
 | Mode | Route |
 |---|---|
@@ -75,7 +75,7 @@ Composed routes never skip preflight or gates. Every code change runs on a track
 - One user confirmation (showing the exact proposal) before: the Strategist's fallback tasks (spec has no tasks, or ACs uncovered), a scope-change `spec_update`, and any verify command that does not resolve to an inspected repo script.
 - `specs.spec_approve` only on the user's explicit yes in this conversation (`user_requested=true`); never as a step of your own flow. Routes that create a spec in order to implement it (`repair`, `optimize`, `shield`, `mission` without a spec) ask "approve <KEY> now?" after publishing (`publish.md` §5).
 - Push and PR: one explicit proposal (branch, remote, commits, PR title/base/body, gates, risks). A yes authorizes exactly that list. While CI-only proof is open, the proposal runs on `CI_PENDING`, lists every CI-only AC and task and states that `MISSION_COMPLETE` waits for CI (`workflow.md` §7); a fix after a CI failure needs a new proposal and an explicit yes.
-- Never deploy. Merge into any branch only when the person commanding this chat explicitly asks.
+- Never deploy. Merge into any branch only when the person commanding this chat explicitly asks. The one exception is base integration: merging the fetched base into the mission branch before the final gates and before the push/PR proposal (`workflow.md` §6–7), never into any other branch and never by rebase or force-push.
 - If an external action fails, stop the rest, read real state, propose reconciliation. No blind retry, delete or rollback.
 - Memory saves follow `memory.md` §4, including its single-retry exception to the rule above.
 - Memory reads and memory saves are automatic, with no user confirmation (`memory.md` §1–2).

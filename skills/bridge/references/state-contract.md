@@ -68,11 +68,13 @@ Append-only. Never edit or delete a past entry; to fix a mistake, append a `rect
 - Next: <next action | none>
 ```
 
-Event types (extend only when none fits): `preflight`, `publish`, `spec-challenge`, `working-tree`, `plan`, `plan-rejected`, `slice-start`, `slice-check`, `slice-review`, `correction`, `slice-passed`, `slice-blocked`, `aggregate-validation`, `gate`, `invalidated`, `mission-iteration`, `delta-brief`, `approval-proposed`, `approval-received`, `external-action`, `reconciliation`, `scope-change`, `rectification`, `memory-read`, `memory-save`, `ci-pending`, `ci-result`.
+Event types (extend only when none fits): `preflight`, `publish`, `spec-challenge`, `working-tree`, `plan`, `plan-rejected`, `slice-start`, `slice-check`, `slice-review`, `correction`, `slice-passed`, `slice-blocked`, `aggregate-validation`, `gate`, `invalidated`, `mission-iteration`, `delta-brief`, `approval-proposed`, `approval-received`, `external-action`, `reconciliation`, `scope-change`, `rectification`, `memory-read`, `memory-save`, `ci-pending`, `ci-result`, `base-integration`.
 
 Memory events (`memory.md` §6): `memory-read` — the query, the ids kept, or the failure; `memory-save` — id, action, scope, or the failure.
 
 CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (`workflow.md` §5 step 7); `ci-result` — passed or failed, the PR head commit the checks were read for (equal to the reviewed point), the CI-only anchors and tasks, and every observed check name with its conclusion (`workflow.md` §7).
+
+Base-integration events: `base-integration` — the base sha and the outcome: (no change); the merged head; (blocked) with the conflicted or uncommitted paths; or (unavailable) with the reason the fetch failed (`workflow.md` §6–7).
 
 ### Logging rules
 

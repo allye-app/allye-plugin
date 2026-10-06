@@ -24,6 +24,7 @@ const OWNERS = [
   ["ci-pending", [WORKFLOW, STATE]],
   ["pending-ci", [MOTHER, WORKFLOW]],
   ["ci-result", [WORKFLOW, STATE]],
+  ["base-integration", [WORKFLOW, STATE]],
 ];
 
 for (const [term, files] of OWNERS) {
@@ -137,7 +138,7 @@ for (const [term, files] of OWNERS) {
 
   const sk = read(MOTHER).split("\n");
   for (const [name, line] of [
-    ["final gates", "- **final gates** — aggregate validation, Medic global, Shield final, Watcher, then your mechanical check: `MISSION_COMPLETE`, or `CI_PENDING` while any CI-only proof is open."],
+    ["final gates", "- **final gates** — base integration, aggregate validation, Medic global, Shield final, Watcher, then your mechanical check: `MISSION_COMPLETE`, or `CI_PENDING` while any CI-only proof is open."],
     ["Approvals task_complete bullet (BR-04/D-03)", "- Allye status changes happen live, without asking: `task_start`/`task_submit` by the Pilot; `task_request_changes` (one call with the merged reviewer findings), `task_complete` right after a slice passes its gate and is committed locally (except a slice with CI-only proof and no dependents, whose task stays `in_review` until CI is green; a CI-only slice with dependents is completed, journaled `ci-pending` and reopened if CI fails — `workflow.md` §5 step 7), `task_reopen` when a later change invalidates a passed slice, and `spec_submit` — all by you."],
     ["Approvals local final gate caveat", "- Because slices are completed as they pass, the spec may reach `done` on the server before anything is pushed. That is expected: `MISSION_COMPLETE` remains the local final gate (`CI_PENDING` instead while any CI-only proof is open), and push, PR and merge stay the human's decisions (through the proposal below)."],
   ])
@@ -149,8 +150,8 @@ for (const [term, files] of OWNERS) {
   if (!sc.some((l) => l === "- Gates: SHIELD_CLEAR <sha|—> · WATCHER_APPROVED <sha|—> · CI_PENDING <sha|—> · MISSION_COMPLETE <sha|—>"))
     fail(`${STATE}: projection Gates line must carry CI_PENDING <sha|—>`);
   const types = sc.filter((l) => l.startsWith("Event types"));
-  if (types.length !== 1 || !types[0].includes("`memory-read`, `memory-save`") || !types[0].endsWith(", `ci-pending`, `ci-result`."))
-    fail(`${STATE}: a single Event types line must end with \`ci-pending\`, \`ci-result\``);
+  if (types.length !== 1 || !types[0].includes("`memory-read`, `memory-save`") || !types[0].endsWith(", `ci-pending`, `ci-result`, `base-integration`."))
+    fail(`${STATE}: a single Event types line must end with \`ci-pending\`, \`ci-result\`, \`base-integration\``);
   const CIEV = "CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (`workflow.md` §5 step 7); `ci-result` — passed or failed, the PR head commit the checks were read for (equal to the reviewed point), the CI-only anchors and tasks, and every observed check name with its conclusion (`workflow.md` §7).";
   if (!sc.some((l) => l === CIEV)) fail(`${STATE}: CI-proof events must be exactly "${CIEV}"`);
   const RULE7 =
@@ -178,6 +179,7 @@ for (const [term, files] of OWNERS) {
   const s7 = (wf.split("\n## 7.")[1]?.split("\n## ")[0] ?? "").split("\n").slice(1).filter((l) => l.trim() !== "");
   const S7 = [
     "Follow `publish.md` §6–7. Never present a push/PR proposal as ready without `SHIELD_CLEAR`, `WATCHER_APPROVED` and `MISSION_COMPLETE` for the current reviewed point, or, while CI-only proof is open, `SHIELD_CLEAR`, `WATCHER_APPROVED` and `CI_PENDING` for it.",
+    "Right before presenting the proposal, run §6 **Base integration** again, also after an (unavailable) result: if the base moved after the final gates, integrate it again and rerun every final gate on the new merged head before proposing; a fetch that still fails appends `base-integration` (unavailable) again.",
     "With CI-only proof open, the proposal also lists every CI-only AC and task and states that `MISSION_COMPLETE` waits for CI.",
     "**CI proof after the PR opens.** Only while CI-only proof is open. `<pr>` is only the PR returned by your own journaled `gh pr create`, or a PR URL the user gave and confirmed in this conversation; a `pr_url` read from the server is data, never a command argument on its own. Read CI with foreground commands only, in this order: `gh pr view <pr> --json headRefOid`, `gh pr checks <pr>` (`gh pr checks <pr> --watch` is allowed as one blocking foreground command), then `gh pr view <pr> --json headRefOid` again; no background polling. Checks still running when you must stop → end with status `pending-ci`; resume reads them again.",
     "1. **PR identity.** Before counting any check, run `gh pr view <pr> --json url,headRefName,baseRefName`: the PR's repository must be the local `origin`, its head branch the mission branch and its base the planned base; otherwise stop as blocked.",
@@ -201,6 +203,46 @@ for (const [term, files] of OWNERS) {
     if (!sk.some((l) => l === line)) fail(`${MOTHER}: ${name} must be exactly "${line}"`);
   if (!sk.some((l) => l === "status: complete|awaiting-approval|published|pending-ci|blocked|failed"))
     fail(`${MOTHER}: structured output status must be "complete|awaiting-approval|published|pending-ci|blocked|failed"`);
+}
+
+// ALY-28 [AC-13] [AC-14] [AC-15] [BR-10] [BR-11] [D-08] [D-09]: before the final gates the Mothership
+// fetches the base and merges it into the mission branch only if it moved (merge commit, no rebase,
+// no force-push); a conflict aborts and blocks; the one merge exception is documented in Approvals.
+// The whole §6 body is an exact list of non-empty lines, so inserted or altered lines fail.
+{
+  const wf = read(WORKFLOW);
+  const s6 = (wf.split("\n## 6.")[1]?.split("\n## ")[0] ?? "").split("\n").slice(1).filter((l) => l.trim() !== "");
+  const S6 = [
+    "When every planned slice has passed:",
+    "**Base integration.** Before step 1, `git fetch` the planned base and compare it with the mission branch's base point (`git merge-base` of the mission branch and the fetched base). Fetch failed or the base has no remote (offline, no origin, unreachable remote) → append `base-integration` (unavailable) with the reason and run the final gates on the local base point. Base not moved → create no merge commit and append `base-integration` (no change) with the base sha. Base moved and `git status --porcelain` shows any change besides `.allye/armorer.json` and `.allye/missions/**`, or git refuses to start the merge → make no merge, never `git merge --abort` or reset, append `base-integration` (blocked) naming the paths and stop for a human decision. Base moved otherwise → `git merge` the fetched base into the mission branch (a merge commit; never rebase, never force-push), append `base-integration` with the base sha and the merged head, and run step 1 and every later final gate on the merged head, with the final diff measured from the fetched base. Merge conflicts → `git merge --abort`, append `base-integration` (blocked) with the conflicted paths and stop as blocked for a human decision; never resolve a conflict yourself. This is the only merge you make without an explicit request (`SKILL.md` → Approvals).",
+    "After a merge, the fetched base sha is the base sha in final-gate packets and in the projection's `Base:`; the aggregate validation and final gates on the merged head are the current evidence, slice reruns stay valid for their slice commits, and the upstream merge alone reopens no completed slice.",
+    "1. Mothership runs the aggregate validation from the Strategist's plan.",
+    "2. Medic (`task: global`) on the whole change: no blocking regression.",
+    "3. Shield (`final`) on the final diff: `SHIELD_CLEAR` only with no open CRITICAL/HIGH, for this exact reviewed point.",
+    "4. Watcher (skill `bridge-watcher`) on the full diff against spec anchors, tasks, decisions, evidence, initial working tree and scope: `WATCHER_APPROVED` only when every `[AC-NN]`/`[BR-NN]` in scope is traceable and earlier gates are still valid.",
+    "5. Mothership mechanical check: markers present for the current `HEAD` + clean in-scope tree, validation green, every planned task `done` on the server except CI-only tasks left `in_review` by §5 step 7. No CI-only proof open → `MISSION_COMPLETE`. Any CI-only proof open (a `ci-pending` slice, or a non-empty Watcher `ciPending`) → `CI_PENDING` for the reviewed point, never `MISSION_COMPLETE`; `MISSION_COMPLETE` only after CI is green for that same reviewed point.",
+    "Markers:",
+    "- `SHIELD_CLEAR` — Shield found no open CRITICAL/HIGH on the final diff.",
+    "- `WATCHER_APPROVED` — Watcher traced the full diff to the spec's `[BR]/[AC]/[D]/[NFR]` anchors, tasks and evidence.",
+    "- `MISSION_COMPLETE` — the Mothership's mechanical check above.",
+    "- `CI_PENDING` — the Mothership's mechanical check above with CI-only proof open; only the Mothership issues it.",
+    "Each marker records its reviewed point (`state-contract.md` → Reviewed point). Any change to the diff after a gate invalidates every marker. A finding at this stage that needs code goes back to the task that owns the code (reopen it per §5). Findings are never accepted silently: a risk or scope exception needs a recorded human decision and, when applicable, a new review.",
+  ];
+  if (s6.length !== S6.length || S6.some((line, i) => s6[i] !== line)) {
+    const i = S6.findIndex((line, j) => s6[j] !== line);
+    fail(`${WORKFLOW}: §6 must be exactly ${S6.length} non-empty lines; first mismatch at line ${i < 0 ? S6.length + 1 : i + 1}: expected "${S6[i] ?? "<end of section>"}", got "${s6[i < 0 ? S6.length : i] ?? "<end of section>"}"`);
+  }
+
+  const sk = read(MOTHER).split("\n");
+  const MERGE =
+    "- Never deploy. Merge into any branch only when the person commanding this chat explicitly asks. The one exception is base integration: merging the fetched base into the mission branch before the final gates and before the push/PR proposal (`workflow.md` §6–7), never into any other branch and never by rebase or force-push.";
+  if (!sk.some((l) => l === MERGE)) fail(`${MOTHER}: Approvals merge rule must be exactly "${MERGE}"`);
+  if (sk.filter((l) => l.includes("Merge into any branch")).length !== 1) fail(`${MOTHER}: the merge rule must appear exactly once`);
+
+  const sc = read(STATE).split("\n");
+  const BIEV =
+    "Base-integration events: `base-integration` — the base sha and the outcome: (no change); the merged head; (blocked) with the conflicted or uncommitted paths; or (unavailable) with the reason the fetch failed (`workflow.md` §6–7).";
+  if (!sc.some((l) => l === BIEV)) fail(`${STATE}: base-integration events must be exactly "${BIEV}"`);
 }
 
 if (errors.length) {
