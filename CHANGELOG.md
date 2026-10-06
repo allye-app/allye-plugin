@@ -1,3 +1,12 @@
+## [2.5.1](https://github.com/allye-app/allye-plugin/compare/v2.5.0...v2.5.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* **bridge:** block on missing dependencies in Pilot, Copilot, Strategist and Recon ([aedd093](https://github.com/allye-app/allye-plugin/commit/aedd09319e0fe9709e36e982b754f8fbb6bdfd76))
+* **bridge:** gate dependency installs and toolchain switches in the Armorer ([9d8d70d](https://github.com/allye-app/allye-plugin/commit/9d8d70d2101d00d0d2b8ef292ee759ef7e00776f))
+* **bridge:** require approval for dependency installs in the Mothership flow ([f948f4b](https://github.com/allye-app/allye-plugin/commit/f948f4baf6bc410fb93581fc4583051810a06859))
+
 # [2.5.0](https://github.com/allye-app/allye-plugin/compare/v2.4.0...v2.5.0) (2026-10-06)
 
 
