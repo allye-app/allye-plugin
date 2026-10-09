@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Allye skills installer — integrity and signature helpers (Node >= 18, no deps).
 //
-//   tree-hash <dir>                          canonical hash of an installed tree
+//   tree-hash <dir> [--backup]               canonical hash of an installed tree (--backup: a backup tree)
 //   stage-artifact <artifact.json> <expected.json> <stage-dir>
 //                                            verify an API artifact and write its files
 //   verify-token <context.json> <jwks.json>  verify the RS256 execution token
@@ -14,6 +14,7 @@ import { lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "
 import { dirname, join, relative, sep } from "node:path";
 
 export const SIDECAR = ".allye-artifact.json";
+export const BACKUP_SIDECAR = ".allye-artifact.backup.json";
 const ALLOWED_PATH = /^(SKILL\.md|(references|assets|scripts)\/[^/]+(\/[^/]+)*)$/;
 
 const fail = (message) => {
@@ -29,15 +30,21 @@ export function canonicalHash(files) {
   return digest.digest("hex");
 }
 
-export function readTree(root) {
+// tree-hash --backup exists to verify a backup tree after its sidecar was renamed (installer
+// finalize_backup); it has no production caller in the shell flow and is covered by tests.
+// The backup sidecar name is only a provenance marker inside a backup tree (options.backup);
+// in an installed tree a file with that name is the user's and is part of the hash.
+export function readTree(root, options = {}) {
+  const sidecars = new Set(options.backup ? [SIDECAR, BACKUP_SIDECAR] : [SIDECAR]);
   const files = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
       const path = join(dir, name);
       const rel = relative(root, path).split(sep).join("/");
-      if (rel === SIDECAR) continue;
       const stat = lstatSync(path);
-      if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) throw new Error(`unexpected non-regular entry: ${rel}`);
+      const sidecarName = dir === root && sidecars.has(name); // the sidecar, at the tree root only
+      if (sidecarName && stat.isFile()) continue;
+      if (sidecarName || stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) throw new Error(`unexpected non-regular entry: ${rel}`);
       if (stat.isDirectory()) walk(path);
       else files.push({ path: rel, bytes: readFileSync(path) });
     }
@@ -109,7 +116,7 @@ if (isMain) {
   const [command, ...args] = process.argv.slice(2);
   try {
     if (command === "tree-hash") {
-      process.stdout.write(canonicalHash(readTree(args[0])));
+      process.stdout.write(canonicalHash(readTree(args[0], { backup: args[1] === "--backup" })));
     } else if (command === "stage-artifact") {
       const artifact = JSON.parse(readFileSync(args[0], "utf8"));
       const files = checkArtifact(artifact.data ?? artifact, JSON.parse(readFileSync(args[1], "utf8")));
@@ -122,7 +129,7 @@ if (isMain) {
     } else if (command === "verify-token") {
       checkToken(JSON.parse(readFileSync(args[0], "utf8")), JSON.parse(readFileSync(args[1], "utf8")));
     } else {
-      fail("usage: skill-tool.mjs tree-hash <dir> | stage-artifact <artifact> <expected> <dir> | verify-token <context> <jwks>");
+      fail("usage: skill-tool.mjs tree-hash <dir> [--backup] | stage-artifact <artifact> <expected> <dir> | verify-token <context> <jwks>");
     }
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
