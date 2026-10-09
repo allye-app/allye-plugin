@@ -9,7 +9,6 @@ import allyePiExtension, {
   loadBootstrap,
   mcpBridgeAvailable,
   skillsPath,
-  unavailableStartupContext,
 } from "./index.ts";
 
 test("bootstrap is the shared bootstrap/allye.md text", () => {
@@ -27,21 +26,11 @@ test("MCP preload is optional and can be disabled", () => {
   assert.equal(mcpBridgeAvailable({}), false, "no bridge is registered in the test process");
 });
 
-test("unavailable context points at the MCP tools instead of blocking work", () => {
-  const state = unavailableStartupContext("network down");
-  assert.equal(state.allyeUnavailable, true);
-  assert.match(state.text, /network down/);
-  assert.match(state.text, /`initialize`/);
-});
-
-test("system sections carry the bootstrap, the startup context once and the repo block on every prompt", () => {
-  const ready = { text: "ctx", repo: "", allyeUnavailable: false };
-  assert.deepEqual(buildSystemSections("BOOT", ready, true).map((s) => s.split("\n")[0]), ["<allye-bootstrap>", "<allye-startup-context>"]);
-  assert.deepEqual(buildSystemSections("BOOT", ready, false).map((s) => s.split("\n")[0]), ["<allye-bootstrap>"]);
-  assert.deepEqual(buildSystemSections("BOOT", ready, true, false).map((s) => s.split("\n")[0]), ["<allye-bootstrap>"]);
-
-  const withRepo = { ...ready, repo: "this repo = project ALY" };
-  assert.deepEqual(buildSystemSections("BOOT", withRepo, false).map((s) => s.split("\n")[0]), ["<allye-bootstrap>", "<allye-repo>"]);
+test("system sections carry the bootstrap and the repo block, and nothing when native bootstrap is off", () => {
+  assert.deepEqual(buildSystemSections("BOOT", "").map((s) => s.split("\n")[0]), ["<allye-bootstrap>"]);
+  assert.deepEqual(buildSystemSections("BOOT", "this repo = project ALY").map((s) => s.split("\n")[0]), ["<allye-bootstrap>", "<allye-repo>"]);
+  assert.deepEqual(buildSystemSections("BOOT", "this repo = project ALY", false).map((s) => s.split("\n")[0]), ["<allye-bootstrap>"]);
+  assert.deepEqual(buildSystemSections("", "", true), []);
 });
 
 // --- Extension seam: a fake `pi` host plus a fake in-process MCP bridge. ---
@@ -50,7 +39,6 @@ type Call = { server: string; tool: string; args: Record<string, unknown> };
 type Handler = (event: unknown, ctx: unknown) => unknown;
 type Runtime = typeof globalThis & { __piMcpAdapterActiveToolCaller?: unknown };
 
-const MULTI_TEAM_NO_DEFAULT = "```json\n{\"profile\":{\"teams\":[{\"id\":\"t1\",\"name\":\"Development\",\"prefix\":\"TEMA\"},{\"id\":\"t2\",\"name\":\"DEMO\",\"prefix\":\"DEMO\"}]}}\n```";
 
 function entry(key: string, team: string, prefix: string, app: string | null) {
   return {
@@ -98,10 +86,9 @@ async function runSession(options: SessionOptions) {
   if (options.bridge !== false) {
     runtime.__piMcpAdapterActiveToolCaller = async (server: string, tool: string, args: Record<string, unknown> = {}) => {
       calls.push({ server, tool, args });
-      const text = tool === "initialize" ? MULTI_TEAM_NO_DEFAULT
-        : tool === "projects" ? options.resolve ?? resolveText({ status: "not_found", match: null, candidates: [] })
-          : tool === "team" ? "Default team set to DEMO"
-            : "";
+      const text = tool === "projects" ? options.resolve ?? resolveText({ status: "not_found", match: null, candidates: [] })
+        : tool === "team" ? "Default team set to DEMO"
+          : "";
       if (text instanceof Error) throw text;
       return { content: [{ type: "text", text }] };
     };
@@ -110,7 +97,7 @@ async function runSession(options: SessionOptions) {
     on: (name: string, handler: Handler) => handlers.set(name, handler),
     registerCommand: (name: string, command: { handler: (args: string, ctx: unknown) => Promise<void> }) => commands.set(name, command),
   };
-  const ctx = { hasUI: false, cwd, ui: { notify: (message: string) => notifications.push(message), setStatus: () => {} } };
+  const ctx = { hasUI: false, cwd, ui: { notify: (message: string) => notifications.push(message) } };
   try {
     allyePiExtension(pi as never);
     await handlers.get("session_start")!({}, ctx);
@@ -147,7 +134,20 @@ test("AC-04: a resolvable remote states project, app and team, with no team gate
     assert.doesNotMatch(prompt, /allye-team-gate/);
     assert.doesNotMatch(prompt, /team selection required/i);
     assert.match(later, /this repo = project ALY \/ app allye-api/, "the repo block stays on later prompts");
-    assert.ok(calls.some((call) => call.tool === "intelligence" && call.args.action === "memory_search"), "memory search is no longer skipped for multi-team users");
+    assert.deepEqual(calls.map((call) => call.tool), ["projects"], "only project_resolve is called");
+  });
+});
+
+test("AC-10: no startup or per-prompt memory context is loaded or injected", async () => {
+  await withSession({}, ({ prompt, later, calls }) => {
+    for (const tool of ["initialize", "intelligence"]) assert.ok(!calls.some((call) => call.tool === tool), `${tool} is never called`);
+    assert.ok(!calls.some((call) => ["memory_preferences", "memory_search"].includes(String(call.args.action))));
+    for (const text of [prompt, later]) {
+      assert.doesNotMatch(text, /allye-startup-context/);
+      assert.doesNotMatch(text, /allye-relevant-memory/);
+      assert.match(text, /<allye-bootstrap>/);
+      assert.match(text, /<allye-repo>/);
+    }
   });
 });
 
