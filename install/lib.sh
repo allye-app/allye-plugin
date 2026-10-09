@@ -23,11 +23,29 @@ ALLYE_CORRELATION_ID="${ALLYE_CORRELATION_ID:-allye-installer-$(od -An -N8 -tx1 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
-expand_home() {  # $1 = path, possibly starting with ~
-  case "$1" in
-    "~/"*) printf '%s\n' "$HOME/${1#\~/}" ;;
+XDG_TOKEN='${XDG_CONFIG_HOME:-~/.config}'
+
+# Strip trailing slashes; "/" itself stays "/".
+normalize_dir() {  # $1 = path
+  local d="$1"
+  while [ "${#d}" -gt 1 ] && [ "${d%/}" != "$d" ]; do d="${d%/}"; done
+  printf '%s\n' "$d"
+}
+
+expand_home() {  # $1 = path, possibly starting with ~ or ${XDG_CONFIG_HOME:-~/.config}
+  local p="$1" xdg
+  case "$p" in
+    "$XDG_TOKEN"*)
+      xdg="${XDG_CONFIG_HOME:-}"
+      case "$xdg" in /*) ;; *) xdg="$HOME/.config" ;; esac  # empty or relative = unset
+      xdg="$(normalize_dir "$xdg")"
+      [ "$xdg" != "/" ] || xdg=""
+      p="$xdg${p#"$XDG_TOKEN"}" ;;
+  esac
+  case "$p" in
+    "~/"*) printf '%s\n' "$HOME/${p#\~/}" ;;
     "~") printf '%s\n' "$HOME" ;;
-    *) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$p" ;;
   esac
 }
 
@@ -39,21 +57,41 @@ runtime_json() {  # $1 = runtime id -> adapter object, or empty
 
 runtime_ids() { jq -r '.runtimes[].id' "$ADAPTERS_FILE"; }
 
+# The adapter's home override (CODEX_HOME, PI_CODING_AGENT_DIR): only the empty
+# string means unset; trailing "/" is stripped; a relative value is an error.
+# Prints the normalised value (or nothing when unset); returns 1 when relative.
+runtime_home_env() {  # $1 = runtime id
+  local var val
+  var=$(runtime_json "$1" | jq -r '.homeEnv // empty')
+  [ -n "$var" ] || return 0
+  val="${!var:-}"
+  [ -n "$val" ] || return 0
+  case "$val" in
+    /*) normalize_dir "$val" ;;
+    *) print_error "$var must be an absolute path (got '$val'); nothing was installed."; return 1 ;;
+  esac
+}
+
 runtime_skills_dir() {  # $1 = runtime id
-  if [ "$1" = "pi" ] && [ -n "${PI_CODING_AGENT_DIR:-}" ]; then
-    printf '%s/skills\n' "$PI_CODING_AGENT_DIR"
+  local home
+  home=$(runtime_home_env "$1") || return 1
+  if [ -n "$home" ]; then
+    [ "$home" = "/" ] && home=""
+    printf '%s/skills\n' "$home"
     return
   fi
   expand_home "$(runtime_json "$1" | jq -r '.skillsDir')"
 }
 
 runtime_detected() {  # $1 = runtime id
-  local rj cmd dir
+  local rj cmd dir home
   rj=$(runtime_json "$1")
   [ -n "$rj" ] || return 1
   cmd=$(jq -r '.detect.command // empty' <<<"$rj")
   dir=$(jq -r '.detect.dir // empty' <<<"$rj")
   if [ -n "$cmd" ] && command -v "$cmd" >/dev/null 2>&1; then return 0; fi
+  home=$(runtime_home_env "$1" 2>/dev/null) || home=""
+  [ -z "$home" ] || dir="$home"
   [ -n "$dir" ] && [ -d "$(expand_home "$dir")" ]
 }
 
@@ -179,9 +217,25 @@ report_failure() {  # $1 skill id, $2 operation id, $3 token, $4 code, $5 diagno
     || print_warning "Could not record the failure on the API (HTTP $API_STATUS); the distribution stays pending until it expires."
 }
 
+# The allye-opencode plugin only loads an allye-skills dir that is a real directory
+# and not group/world-writable; refuse to install into one it would ignore.
+check_opencode_dir() {  # $1 = skills dir
+  local d="$1" bits
+  [ -e "$d" ] || [ -L "$d" ] || return 0
+  if [ -L "$d" ]; then
+    print_error "$d is a symlink; the OpenCode plugin ignores it. Replace it with a real directory, then retry."
+    return 1
+  fi
+  bits=$(stat -c %a "$d" 2>/dev/null || stat -f %Lp "$d" 2>/dev/null || echo 755)
+  if [ $(( 8#$bits & 8#022 )) -ne 0 ]; then
+    print_error "$d is group- or world-writable; the OpenCode plugin ignores such a directory. Fix it with: chmod go-w $d"
+    return 1
+  fi
+}
+
 install_skill() {  # $1 = runtime id, $2 = skill id or slug
   local runtime="$1" ref="$2" rj skill skill_id slug release_id version expected_hash skills_dir dest state
-  local tmp target api_runtime allow_exp request_path body op status context token stage previous="" marker observed rc=1
+  local tmp target api_runtime allow_exp request_path body op status context token stage previous="" marker observed rc=1 created_dir=0
   rj=$(runtime_json "$runtime")
   api_runtime=$(jq -r '.apiRuntime' <<<"$rj")
   allow_exp=$(jq -r '.allowExperimental' <<<"$rj")
@@ -197,8 +251,9 @@ install_skill() {  # $1 = runtime id, $2 = skill id or slug
   release_id=$(jq -r '.release.release_id' <<<"$skill")
   version=$(jq -r '.release.version // "?"' <<<"$skill")
   expected_hash=$(jq -r '.release.canonical_hash | ascii_downcase' <<<"$skill")
-  skills_dir=$(runtime_skills_dir "$runtime")
+  skills_dir=$(runtime_skills_dir "$runtime") || return 1
   dest="$skills_dir/$slug"
+  if [ "$runtime" = opencode ]; then check_opencode_dir "$skills_dir" || return 1; fi
 
   state=$(classify_target "$dest" "$skill_id")
   case "$state" in
@@ -214,7 +269,13 @@ install_skill() {  # $1 = runtime id, $2 = skill id or slug
   esac
 
   tmp=$(mktemp -d) || return 1
-  mkdir -p "$skills_dir" || { rm -rf "$tmp"; return 1; }
+  [ -d "$skills_dir" ] || created_dir=1
+  if [ "$runtime" = opencode ]; then
+    # Created 0755 whatever the umask (the OpenCode plugin ignores a group/world-writable dir).
+    (umask 022; mkdir -p "$skills_dir") || { rm -rf "$tmp"; return 1; }
+  else
+    mkdir -p "$skills_dir" || { rm -rf "$tmp"; return 1; }
+  fi
   if ! mkdir "$dest.allye.lock" 2>/dev/null; then
     print_error "Another install of '$slug' is running (lock $dest.allye.lock); retry when it finishes, or remove the lock if no install is running."
     rm -rf "$tmp"; return 1
@@ -300,7 +361,7 @@ install_skill() {  # $1 = runtime id, $2 = skill id or slug
   fi
   observed=$(tree_hash "$dest" 2>/dev/null || true)
   body=$(jq -cn --arg h "$observed" --arg v "allye-installer/$ALLYE_INSTALLER_VERSION ($runtime)" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{observedHash:$h, runtimeVersion:$v, verifiedAt:$at}')
+    '{observedHash:$h, runtimeVersion:$v, verifiedAt:$at, installKind:"directory"}')
   if [ "$observed" != "$expected_hash" ] || ! api_call POST "/api/skills/$skill_id/distributions/$op/complete" "$body" "$token"; then
     [ "$observed" = "$expected_hash" ] && api_error "Recording the installation of '$slug'" || print_error "Published tree of '$slug' does not match its release hash."
     rm -rf "$dest"
@@ -311,6 +372,9 @@ install_skill() {  # $1 = runtime id, $2 = skill id or slug
   [ -z "$previous" ] || rm -rf "$previous"
   cleanup_install
   print_success "$slug $version installed for $runtime → $dest"
+  if [ "$runtime" = opencode ] && [ "$created_dir" = 1 ]; then
+    echo "  Created $skills_dir: restart OpenCode to load it."
+  fi
 }
 
 # Used by install_skill; relies on its locals through dynamic scoping.
@@ -339,6 +403,7 @@ allye_install() {  # $1 = runtime, $2... = skill ids or slugs
   shift
   [ -n "$(runtime_json "$runtime")" ] || { print_error "Unknown runtime '$runtime'. Supported: $(runtime_ids | paste -sd' ')"; return 2; }
   [ "$#" -gt 0 ] || { print_error "Name at least one skill (slug or id). Run './install.sh list' to see them."; return 2; }
+  runtime_skills_dir "$runtime" >/dev/null || return 2
   runtime_detected "$runtime" || print_warning "$runtime was not detected on this machine; installing into $(runtime_skills_dir "$runtime") anyway."
   for ref in "$@"; do
     if install_skill "$runtime" "$ref"; then ok=$((ok + 1)); else failed=$((failed + 1)); fi
@@ -352,7 +417,7 @@ allye_status() {  # offline: what is installed, and is it intact?
   local id label dir marker any slug state
   while IFS= read -r id; do
     label=$(runtime_json "$id" | jq -r '.label')
-    dir=$(runtime_skills_dir "$id")
+    dir=$(runtime_skills_dir "$id" 2>/dev/null) || { printf '  %-16s invalid home override (must be absolute)\n' "$label"; continue; }
     if ! runtime_detected "$id"; then printf '  %-16s not detected\n' "$label"; continue; fi
     any=0
     for marker in "$dir"/*/"$SIDECAR"; do

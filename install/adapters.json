@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "contractVersion": "1.0.0",
+  "contractVersion": "1.1.0",
   "runtimes": [
     {
       "id": "claude",
@@ -16,15 +16,16 @@
       "detect": { "command": "codex", "dir": "~/.codex" },
       "apiRuntime": "codex",
       "allowExperimental": true,
-      "skillsDir": "~/.codex/skills"
+      "skillsDir": "~/.codex/skills",
+      "homeEnv": "CODEX_HOME"
     },
     {
       "id": "opencode",
       "label": "OpenCode",
-      "detect": { "command": "opencode", "dir": "~/.config/opencode" },
+      "detect": { "command": "opencode", "dir": "${XDG_CONFIG_HOME:-~/.config}/opencode" },
       "apiRuntime": "opencode",
-      "allowExperimental": false,
-      "skillsDir": "~/.config/opencode/skills"
+      "allowExperimental": true,
+      "skillsDir": "${XDG_CONFIG_HOME:-~/.config}/opencode/allye-skills"
     },
     {
       "id": "pi",
@@ -32,7 +33,8 @@
       "detect": { "command": "pi", "dir": "~/.pi/agent" },
       "apiRuntime": "pi",
       "allowExperimental": false,
-      "skillsDir": "~/.pi/agent/skills"
+      "skillsDir": "~/.pi/agent/skills",
+      "homeEnv": "PI_CODING_AGENT_DIR"
     },
     {
       "id": "omp",
