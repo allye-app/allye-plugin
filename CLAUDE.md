@@ -40,6 +40,6 @@ Every harness uses one server named `allye` at `https://mcp.allye.app/mcp`. Tena
 
 ## Releases
 
-semantic-release on push to `main` (Conventional Commits) bumps `.claude-plugin/*.json`, `packages/allye-opencode/package.json`, `package.json` and `package-lock.json`, and writes `CHANGELOG.md` (generated — never edit it by hand). CI publishes `allye-opencode` and `allye-pi` to npm when their versions change, via npm trusted publishing (OIDC, no token): each package trusts `allye-app/allye-plugin` `auto-release.yml`. `./release.sh` is the manual fallback.
+semantic-release on push to `main` (Conventional Commits; the tooling is pinned and locked in `release/package-lock.json`, installed with `npm ci --ignore-scripts --include=dev --prefix release`) bumps `.claude-plugin/*.json`, `packages/allye-opencode/package.json`, `package.json` and `package-lock.json`, and writes `CHANGELOG.md` (generated — never edit it by hand). CI publishes `allye-opencode` and `allye-pi` to npm when their versions change, via npm trusted publishing (OIDC, no token): each package trusts `allye-app/allye-plugin` `auto-release.yml`. `./release.sh` is the manual fallback.
 
 Breaking changes need a `BREAKING CHANGE:` footer in the commit body: the default analyzer ignores the `!` shorthand (`feat!:`).

@@ -89,8 +89,10 @@ function checkRelease(text) {
   bad(/jq -r '\.name' package\.json\)" = "allye-opencode"/.test(po) && /\.repository\.url[^\n]*allye-app\/allye-plugin/.test(po), 'publish-opencode asserts package name and repository');
   bad(/^concurrency:\s*\n\s+group:\s*release\s*\n\s+cancel-in-progress:\s*false\s*$/m.test(text), 'concurrency group release, cancel-in-progress false');
   bad(/outputs:\s*\n\s+sha:/.test(jobs.release || ''), 'release exposes sha output');
-  const inst = /npm install -g (semantic-release.*)$/m.exec(text);
-  bad(inst && inst[1].trim().split(/\s+/).every((p) => /@\d+\.\d+\.\d+$/.test(p)), 'semantic-release installs are pinned');
+  bad(!/npm (install|i) (-g|--global)[^\n]*semantic-release/.test(text), 'no global semantic-release install');
+  bad(/npm ci --ignore-scripts --include=dev --prefix release\b/.test(jobs.release || ''), 'release job installs with npm ci --ignore-scripts --include=dev --prefix release');
+  bad(/\.\/release\/node_modules\/\.bin\/semantic-release/.test(jobs.release || ''), 'release job runs semantic-release from release/node_modules');
+  bad(!/npx semantic-release/.test(text), 'no npx semantic-release');
   for (const m of text.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)) {
     if (m[1].startsWith('./')) continue;
     bad(/@[0-9a-f]{40}$/.test(m[1]), `uses pinned to SHA: ${m[1]}`);
@@ -131,7 +133,10 @@ const mutations = [
   ['id-token in build', release.replace(/(build-opencode:[\s\S]*?permissions:\n\s+contents: read)/, '$1\n      id-token: write')],
   ['top-level write', release.replace(/^permissions:\n  contents: read/m, 'permissions:\n  contents: write')],
   ['release needs more', release.replace(/(  release:\n    needs: )test/, '$1[test, build-opencode]')],
-  ['unpinned semantic-release', release.replace('semantic-release@25.0.9', 'semantic-release')],
+  ['global semantic-release', release.replace('npm ci --ignore-scripts --include=dev --prefix release', 'npm install -g semantic-release@25.0.9')],
+  ['release install runs scripts', release.replace('npm ci --ignore-scripts --include=dev --prefix release', 'npm ci --include=dev --prefix release')],
+  ['release install omits dev', release.replace(' --include=dev', '')],
+  ['npx semantic-release', release.replace('./release/node_modules/.bin/semantic-release', 'npx semantic-release')],
   ['publish runs scripts', release.replace(' --ignore-scripts', '')],
   ['no main guard', release.replace(/(build-opencode:[\s\S]*?)if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/, '$1if: true')],
   ['write-all', release.replace('id-token: write # npm', 'write-all # npm')],
@@ -150,6 +155,47 @@ for (const [n, t] of mutations) {
 }
 if (checkTest(testYml.replace('persist-credentials: false', '')).length === 0) { failed++; console.error('FAIL self-check test.yml'); }
 else console.log('ok self-check test.yml');
+
+// Release tooling is locked in release/package-lock.json and watched by Dependabot.
+function checkReleaseTooling(pkg, lock, dependabot) {
+  const errs = [];
+  const bad = (c, msg) => { if (!c) errs.push(msg); };
+  const dev = pkg.devDependencies || {};
+  const want = ['semantic-release', '@semantic-release/git', '@semantic-release/exec', '@semantic-release/changelog'];
+  bad(pkg.private === true, 'release/package.json is private');
+  bad(!pkg.scripts || !Object.keys(pkg.scripts).some((k) => /^(pre|post)?install$|^prepare$|^prepublish/.test(k)), 'no install-time scripts');
+  bad(!pkg.dependencies, 'no runtime dependencies');
+  for (const n of want) bad(/^\d+\.\d+\.\d+$/.test(dev[n] || ''), `exact pin for ${n}`);
+  bad(Object.values(dev).every((v) => /^\d+\.\d+\.\d+$/.test(v)), 'no version ranges');
+  bad(lock && lock.lockfileVersion >= 2 && lock.packages, 'release/package-lock.json exists');
+  for (const n of want) {
+    const e = lock && lock.packages && lock.packages[`node_modules/${n}`];
+    bad(e && e.version === dev[n], `lockfile resolves ${n} to the pinned version`);
+  }
+  bad(lock && lock.packages && lock.packages[''] && JSON.stringify(lock.packages[''].devDependencies) === JSON.stringify(dev), 'lockfile root matches package.json');
+  bad(/package-ecosystem:\s*npm\s*\n\s+directory:\s*\/release\s*$/m.test(dependabot), 'dependabot covers /release');
+  return errs;
+}
+let relPkg = {}, relLock = null;
+try { relPkg = JSON.parse(read('release/package.json')); } catch { /* reported below */ }
+try { relLock = JSON.parse(read('release/package-lock.json')); } catch { /* reported below */ }
+const dependabot = read('.github/dependabot.yml');
+report('release tooling', checkReleaseTooling(relPkg, relLock, dependabot));
+const toolMut = [
+  ['range pin', { ...relPkg, devDependencies: { ...relPkg.devDependencies, 'semantic-release': '^25.0.9' } }, relLock, dependabot],
+  ['install script', { ...relPkg, scripts: { postinstall: 'x' } }, relLock, dependabot],
+  ['no lockfile', relPkg, null, dependabot],
+  ['lock version drift', relPkg, relLock && { ...relLock, packages: { ...relLock.packages, 'node_modules/semantic-release': { version: '0.0.0' } } }, dependabot],
+  ['dependabot missing /release', relPkg, relLock, dependabot.replace('/release', '/other')],
+];
+for (const [n, p, l, d] of toolMut) {
+  if (checkReleaseTooling(p, l, d).length === 0) { failed++; console.error(`FAIL self-check release tooling ${n}: mutated sample passed`); }
+  else console.log(`ok self-check release tooling ${n}`);
+}
+const stray = (() => { try { return JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts', './packages/allye-opencode'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }))[0].files.filter((f) => f.path.startsWith('release/')); } catch { return ['pack failed']; } })();
+report('release/ not shipped in allye-opencode', stray.length ? [stray.join(',')] : []);
+const rootFiles = JSON.parse(read('package.json')).files || [];
+report('release/ not in allye-pi files', rootFiles.some((f) => f.startsWith('release')) ? ['release in files'] : []);
 
 report('LICENSE', /^MIT License/.test(read('LICENSE')) ? [] : ['root LICENSE must start with "MIT License"']);
 try {

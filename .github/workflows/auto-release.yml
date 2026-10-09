@@ -37,12 +37,12 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Install semantic-release
-        run: npm install -g semantic-release@25.0.9 @semantic-release/git@11.0.1 @semantic-release/exec@7.1.0 @semantic-release/changelog@7.0.0
+        run: npm ci --ignore-scripts --include=dev --prefix release
 
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+        run: ./release/node_modules/.bin/semantic-release
 
       - name: Record the released commit
         id: head

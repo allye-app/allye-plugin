@@ -1,0 +1,12 @@
+{
+  "name": "allye-plugin-release-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Locked semantic-release toolchain used by .github/workflows/auto-release.yml; never published",
+  "devDependencies": {
+    "@semantic-release/changelog": "7.0.0",
+    "@semantic-release/exec": "7.1.0",
+    "@semantic-release/git": "11.0.1",
+    "semantic-release": "25.0.9"
+  }
+}

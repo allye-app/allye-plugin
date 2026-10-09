@@ -8,6 +8,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # semantic-release toolchain, locked in release/package-lock.json.
+  - package-ecosystem: npm
+    directory: /release
+    schedule:
+      interval: weekly
   # bun.lock is not supported by Dependabot; this only tracks package.json ranges.
   - package-ecosystem: npm
     directory: /packages/allye-opencode
