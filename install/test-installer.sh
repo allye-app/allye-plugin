@@ -782,6 +782,21 @@ reqlog | jq -s -e 'length > 0 and all(.xTeam == "team-xyz")' >/dev/null || fail 
 : > "$TMP/requests.log"; ALLYE_TEAM_ID=team-env HOME="$(fresh_home d39e)" run install claude team-standards || fail "D-39 env install"
 reqlog | jq -s -e 'length > 0 and all(.xTeam == "team-env")' >/dev/null || fail "D-39: ALLYE_TEAM_ID is the documented equivalent of --team"
 pass "D-39: only the allowed routes, X-Team-Id only with --team or ALLYE_TEAM_ID"
+# Shield F2: the team id is validated before it can reach a header
+for bad in $'team\nX-Evil: 1' 'a: b' 'team id' $'t\r\nX: y' "$(printf 'a%.0s' $(seq 1 65))"; do
+  : > "$TMP/requests.log"; rc=0
+  HOME="$(fresh_home f2a)" run install claude team-standards --team "$bad" || rc=$?
+  [ "$rc" -eq 2 ] || fail "F2: hostile --team must be refused with exit 2 (got $rc)"
+  grep -q 'team id' "$TMP/out" || fail "F2: clear error for a bad team id"
+  [ -z "$(reqlog)" ] || fail "F2: no request may be made with a bad team id"
+  : > "$TMP/requests.log"; rc=0
+  ALLYE_TEAM_ID="$bad" HOME="$(fresh_home f2b)" run list || rc=$?
+  [ "$rc" -eq 2 ] || fail "F2: hostile ALLYE_TEAM_ID must be refused with exit 2 (got $rc)"
+  [ -z "$(reqlog)" ] || fail "F2: no request with a bad ALLYE_TEAM_ID"
+done
+: > "$TMP/requests.log"; HOME="$(fresh_home f2d)" run install claude team-standards --team 00000000-0000-4000-8000-000000000000 || { cat "$TMP/out"; fail "F2: a UUID team id is accepted"; }
+reqlog | jq -s -e 'length > 0 and all(.xTeam == "00000000-0000-4000-8000-000000000000")' >/dev/null || fail "F2: valid id sent as X-Team-Id"
+pass "Shield F2: hostile team ids are refused before any request"
 
 # SHD-09: the folder is re-classified and re-hashed around the move to .allye.previous.*
 H54=$(fresh_home shd09a); D54="$H54/.claude/skills/team-standards"

@@ -177,7 +177,14 @@ api_call() {
     fi
     cfg=$(printf 'header = "Authorization: Bearer %s"' "$bearer")
   fi
-  [ -z "${ALLYE_TEAM_ID:-}" ] || args+=(-H "X-Team-Id: $ALLYE_TEAM_ID")
+  if [ -n "${ALLYE_TEAM_ID:-}" ]; then
+    if ! [[ "$ALLYE_TEAM_ID" =~ ^[A-Za-z0-9-]{1,64}$ ]]; then
+      API_STATUS=000; API_BODY=""
+      print_error "Invalid team id; nothing was sent."
+      return 1
+    fi
+    args+=(-H "X-Team-Id: $ALLYE_TEAM_ID")
+  fi
   [ -z "$body" ] || args+=(-H "Content-Type: application/json" --data-binary "$body")
   if ! out=$(printf '%s\n' "$cfg" | curl "${args[@]}" "$ALLYE_API_URL$path" 2>&1); then
     API_STATUS=000; API_BODY=""

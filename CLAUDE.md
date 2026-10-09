@@ -20,12 +20,12 @@ The repo also holds `install.sh`, which is **not** the plugin installer: it inst
 |---|---|
 | Claude Code | `hooks/hooks.json` → `hooks/session-start.sh` prints `bootstrap/allye.md` as `additionalContext` (offline, no credentials) |
 | Codex | `manifests/codex/AGENTS.md` (synced copy), merged into `~/.codex/AGENTS.md` by `docs/install-codex.md` |
-| OpenCode | `packages/allye-opencode`: `experimental.chat.system.transform` adds the bootstrap; the `config` hook adds the bundled skills path and registers the crew subagents generated from `agents/*.md` |
-| Pi, OMP | `packages/allye-pi/src/index.ts`: `before_agent_start` adds the bootstrap, `resources_discover` exposes `skills/`, optional MCP context preload with the repo's project resolution, and `/allye-team` to set the default team |
+| OpenCode | `packages/allye-opencode`: `experimental.chat.system.transform` adds the bootstrap; the `config` hook adds the bundled skills path, the org `allye-skills` dir (real directory, not a symlink, owned by the user, not group/world-writable) via `skills-paths.ts`, and registers the crew subagents generated from `agents/*.md` |
+| Pi, OMP | `packages/allye-pi/src/index.ts`: `before_agent_start` adds the bootstrap, `resources_discover` exposes `skills/`, optional project resolution through the MCP bridge (no startup or per-prompt memory context), and `/allye-team` to set the default team |
 
 ## Commands
 
-- `npm test` — offline: bootstrap checks, hook test, crew agent checks (`npm run test:agents`), installer tests (loopback fake API) and Pi extension tests. Individually: `npm run test:bootstrap`, `npm run test:agents`, `npm run test:installer`, `npm run test:pi`.
+- `npm test` — offline: bootstrap checks, hook test, crew agent checks (`npm run test:agents`), skills checks (`npm run test:skills`: CI workflow and LICENSE checks), installer tests (loopback fake API), Pi extension tests and OpenCode tests (`npm run test:opencode`). Individually: `npm run test:bootstrap`, `npm run test:agents`, `npm run test:skills`, `npm run test:installer`, `npm run test:pi`, `npm run test:opencode`.
 - `npm run typecheck` — Pi extension.
 - `packages/allye-opencode`: `bun install`, `bun run typecheck`, `bun run build` (`scripts/prepare.ts` copies the bootstrap, `skills/bridge*` and the crew agents from `agents/*.md` into the package first; the copies are gitignored).
 - `./install.sh list|install <runtime> <skill>... [--reinstall]|status` — organization skills installer for claude, codex, opencode, pi and omp (needs `ALLYE_PAT`; `status` is offline).

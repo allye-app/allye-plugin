@@ -21,7 +21,7 @@ test("skills path exposes the Bridge skill", () => {
   assert.equal(existsSync(resolve(skillsPath(), "bridge", "SKILL.md")), true);
 });
 
-test("MCP preload is optional and can be disabled", () => {
+test("MCP bridge is optional", () => {
   assert.equal(mcpBridgeAvailable({ ALLYE_PI_MCP: "0" }), false);
   assert.equal(mcpBridgeAvailable({}), false, "no bridge is registered in the test process");
 });

@@ -79,6 +79,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 export ALLYE_TEAM_ID="${ALLYE_TEAM_ID:-}" ALLYE_REINSTALL="$REINSTALL"
+if [ -n "${ALLYE_TEAM_ID:-}" ] && ! [[ "$ALLYE_TEAM_ID" =~ ^[A-Za-z0-9-]{1,64}$ ]]; then
+  print_error "Invalid team id: use the team's id (letters, digits and hyphens, at most 64 characters). Nothing was sent."
+  exit 2
+fi
 
 case "$VERB" in
   status)
