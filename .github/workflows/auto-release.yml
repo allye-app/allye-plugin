@@ -5,61 +5,112 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
-  id-token: write # npm trusted publishing (OIDC)
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
+  test:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+
   release:
+    needs: test
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.head.outputs.sha }}
+    permissions:
+      contents: write # semantic-release pushes the release commit and tag and creates the GitHub release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Install semantic-release
-        run: npm install -g semantic-release @semantic-release/git @semantic-release/exec @semantic-release/changelog
+        run: npm install -g semantic-release@25.0.9 @semantic-release/git@11.0.1 @semantic-release/exec@7.1.0 @semantic-release/changelog@7.0.0
 
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
-  publish-opencode:
+      - name: Record the released commit
+        id: head
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-opencode:
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: main
+          ref: ${{ needs.release.outputs.sha }}
           fetch-depth: 1
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Build allye-opencode
+        working-directory: packages/allye-opencode
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Stage the package files
+        run: |
+          set -euo pipefail
+          mkdir -p out/allye-opencode
+          cd packages/allye-opencode
+          cp -R dist skills README.md LICENSE package.json ../../out/allye-opencode/
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: allye-opencode-package
+          path: out/allye-opencode
+          retention-days: 1
+          if-no-files-found: error
+
+  publish-opencode:
+    needs: [build-opencode, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
       - name: Use npm with trusted publishing (>= 11.5.1)
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.19.0
 
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Build allye-opencode
-        working-directory: packages/allye-opencode
-        run: |
-          bun install
-          bun run build
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: allye-opencode-package
+          path: allye-opencode-package
 
       - name: Check if version changed
         id: version
-        working-directory: packages/allye-opencode
+        working-directory: allye-opencode-package
         run: |
           LOCAL=$(jq -r '.version' package.json)
           REMOTE=$(npm view allye-opencode version 2>/dev/null || echo "0.0.0")
@@ -71,28 +122,39 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check the package identity
+        working-directory: allye-opencode-package
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.name' package.json)" = "allye-opencode"
+          jq -r '.repository.url' package.json | grep -Fq 'allye-app/allye-plugin'
+
       - name: Publish to npm
         if: steps.version.outputs.changed == 'true'
-        working-directory: packages/allye-opencode
-        run: npm publish --access public
+        working-directory: allye-opencode-package
+        run: npm publish --access public --ignore-scripts
 
   publish-pi:
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: main
+          ref: ${{ needs.release.outputs.sha }}
           fetch-depth: 1
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
       - name: Use npm with trusted publishing (>= 11.5.1)
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.19.0
 
       - name: Validate allye-pi package
         run: |
@@ -125,4 +187,4 @@ jobs:
 
       - name: Publish allye-pi to npm
         if: steps.version.outputs.changed == 'true'
-        run: npm publish --access public
+        run: npm publish --access public --ignore-scripts

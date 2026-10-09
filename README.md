@@ -125,4 +125,4 @@ Releases are automated by semantic-release on every push to `main` (Conventional
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).

@@ -22,7 +22,8 @@
   "files": [
     "dist",
     "skills",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "opencode",
