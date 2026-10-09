@@ -79,20 +79,22 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 export ALLYE_TEAM_ID="${ALLYE_TEAM_ID:-}" ALLYE_REINSTALL="$REINSTALL"
-if [ -n "${ALLYE_TEAM_ID:-}" ] && ! [[ "$ALLYE_TEAM_ID" =~ ^[A-Za-z0-9-]{1,64}$ ]]; then
-  print_error "Invalid team id: use the team's id (letters, digits and hyphens, at most 64 characters). Nothing was sent."
-  exit 2
-fi
+check_team_id() {
+  if [ -n "${ALLYE_TEAM_ID:-}" ] && ! [[ "$ALLYE_TEAM_ID" =~ ^[A-Za-z0-9-]{1,64}$ ]]; then
+    print_error "Invalid team id: use the team's id (letters, digits and hyphens, at most 64 characters). Nothing was sent."
+    exit 2
+  fi
+}
 
 case "$VERB" in
   status)
     allye_status ;;
   list)
     case "$SCOPE" in ""|personal|team|organization) ;; *) print_error "--scope must be personal, team or organization"; exit 2 ;; esac
-    check_api_url && require_pat && allye_list "$SCOPE" "$QUERY" ;;
+    check_team_id; check_api_url && require_pat && allye_list "$SCOPE" "$QUERY" ;;
   install)
     [ "${#ARGS[@]}" -ge 1 ] || usage
-    check_api_url && require_pat && allye_install "${ARGS[@]}" ;;
+    check_team_id; check_api_url && require_pat && allye_install "${ARGS[@]}" ;;
   *)
     usage ;;
 esac

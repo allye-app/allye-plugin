@@ -796,6 +796,27 @@ for bad in $'team\nX-Evil: 1' 'a: b' 'team id' $'t\r\nX: y' "$(printf 'a%.0s' $(
 done
 : > "$TMP/requests.log"; HOME="$(fresh_home f2d)" run install claude team-standards --team 00000000-0000-4000-8000-000000000000 || { cat "$TMP/out"; fail "F2: a UUID team id is accepted"; }
 reqlog | jq -s -e 'length > 0 and all(.xTeam == "00000000-0000-4000-8000-000000000000")' >/dev/null || fail "F2: valid id sent as X-Team-Id"
+# M1: api_call refuses a hostile team id on its own (defense in depth behind install.sh)
+: > "$TMP/requests.log"; rc=0
+ALLYE_TEAM_ID=$'t\r\nX: y' lib api_call GET /api/skills "" pat_test >"$TMP/out" 2>&1 || rc=$?
+[ "$rc" -ne 0 ] || fail "F2: api_call must refuse a hostile team id"
+grep -q 'Invalid team id' "$TMP/out" || fail "F2: api_call prints Invalid team id"
+[ -z "$(reqlog)" ] || fail "F2: api_call sent nothing with a hostile team id"
+# M2: status never calls the API, so a malformed team id in the env must not block it
+rc=0; ALLYE_TEAM_ID=$'bad\nX: y' HOME="$(fresh_home f2s)" run status || rc=$?
+[ "$rc" -eq 0 ] || { cat "$TMP/out"; fail "F2: status works with a malformed ALLYE_TEAM_ID"; }
+rc=0; ALLYE_TEAM_ID='a: b' HOME="$(fresh_home f2l)" run list || rc=$?
+[ "$rc" -eq 2 ] || fail "F2: list still refuses a malformed ALLYE_TEAM_ID"
+rc=0; ALLYE_TEAM_ID='a: b' HOME="$(fresh_home f2i)" run install claude team-standards || rc=$?
+[ "$rc" -eq 2 ] || fail "F2: install still refuses a malformed ALLYE_TEAM_ID"
+# list/status with a hostile --team flag (the env var is covered above)
+: > "$TMP/requests.log"; rc=0
+HOME="$(fresh_home f2lf)" run list --team 'a: b' || rc=$?
+[ "$rc" -eq 2 ] || fail "F2: list --team 'a: b' must exit 2 (got $rc)"
+grep -q 'Invalid team id' "$TMP/out" && [ -z "$(reqlog)" ] || fail "F2: list --team sent no request and names the bad team id"
+: > "$TMP/requests.log"; rc=0
+HOME="$(fresh_home f2sf)" run status --team 'a: b' || rc=$?
+[ "$rc" -eq 0 ] && [ -z "$(reqlog)" ] || fail "F2: status --team 'a: b' exits 0 with no request (got $rc)"
 pass "Shield F2: hostile team ids are refused before any request"
 
 # SHD-09: the folder is re-classified and re-hashed around the move to .allye.previous.*
