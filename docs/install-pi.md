@@ -48,3 +48,11 @@ npm run typecheck
 npm run test:pi
 pi -e ./packages/allye-pi/src/index.ts -p "Which Allye tools and Bridge modes are available?"
 ```
+
+## Organization skills
+
+`./install.sh install pi <skill>` (see the [README](../README.md#your-organizations-skills)) installs into `$PI_CODING_AGENT_DIR/skills` when `PI_CODING_AGENT_DIR` is set, otherwise `~/.pi/agent/skills`. The value must be an absolute path; only the empty string means unset, a trailing `/` is stripped, and a relative value stops the Pi install before any request. Changing it changes the install target; copies left in the old directory are not migrated. The API sees runtime `pi` and the skill is installed as a plain directory, with no package receipt.
+
+- Edited copies: `./install.sh install pi <skill> --reinstall` replaces your edited copy and keeps it at `~/.allye/backups/pi/<skill>.allye.backup.<UTC ts>`. A copy of the same release on the same target is already installed (a no-op); older-release copies are updated, and copies recorded for another target (after a hostname or skills-path change) are reinstalled when unchanged, while an edited one needs `--reinstall`. Foreign or unmanaged folders are never touched.
+- Leftovers: if the installer reports a `.allye-backup.<skill>.*` entry in the skills directory, an earlier run kept your edited folder there. Move it into `~/.allye/backups/pi/` or delete it, then rerun.
+- Any member with view access to a skill can install it. If the installer is too old for the API, upgrade the installer; there is nothing to ask an admin to reset. Until the allye-api PROD release the installer works only against HML. See the [README](../README.md#your-organizations-skills).

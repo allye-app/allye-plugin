@@ -61,3 +61,13 @@ Tell the user:
 > Allye is configured for Codex: the `allye` MCP server, the Bridge skill and the Allye bootstrap in `~/.codex/AGENTS.md`.
 >
 > Start a new Codex session and run `/bridge survey` (or another mode) to begin. The agent identifies the repository's project with `project_resolve`; it asks for a team only when it needs to create a project and you have no default team.
+
+## Organization skills and CODEX_HOME
+
+`./install.sh install codex <skill>` (see the [README](../README.md#your-organizations-skills)) installs into `$CODEX_HOME/skills` when `CODEX_HOME` is set, otherwise `~/.codex/skills`. `CODEX_HOME` must be an absolute path; only the empty string means unset, a trailing `/` is stripped (`/` itself stays `/`, so skills go to `/skills`), and a relative value stops the Codex install before any request. Detection also checks `$CODEX_HOME`.
+
+Setting or changing `CODEX_HOME` re-keys the install target, because the target includes the skills directory. Skills installed earlier under `~/.codex/skills` are not migrated or touched; a copy found under the new directory is treated as missing or "other-target".
+
+- Edited copies: `./install.sh install codex <skill> --reinstall` replaces your edited copy and keeps it at `~/.allye/backups/codex/<skill>.allye.backup.<UTC ts>`. A copy of the same release on the same target is already installed (a no-op); older-release copies are updated, and copies recorded for another target (after a hostname or skills-path change) are reinstalled when unchanged, while an edited one needs `--reinstall`. Foreign or unmanaged folders are never touched.
+- Leftovers: if the installer reports a `.allye-backup.<skill>.*` entry in the skills directory, an earlier run kept your edited folder there. Move it into `~/.allye/backups/codex/` or delete it, then rerun.
+- Any member with view access to a skill can install it. If the installer is too old for the API, upgrade the installer; there is nothing to ask an admin to reset. Until the allye-api PROD release the installer works only against HML. See the [README](../README.md#your-organizations-skills).
