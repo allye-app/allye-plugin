@@ -43,11 +43,12 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p packages/allye-pi/tsconfig.json",
     "test:pi": "node --experimental-strip-types --test packages/allye-pi/src/index.test.ts",
+    "test:opencode": "node --experimental-strip-types --test packages/allye-opencode/src/skills-paths.test.ts",
     "test:installer": "bash install/test-validation.sh && bash install/test-installer.sh",
     "test:bootstrap": "bash test/test-bootstrap.sh && bash hooks/test-session-start.sh",
     "test:agents": "node test/test-agents.mjs",
     "test:skills": "node test/test-skills-text.mjs && node test/test-ci-proof.mjs",
-    "test": "npm run test:bootstrap && npm run test:agents && npm run test:skills && npm run test:installer && npm run test:pi"
+    "test": "npm run test:bootstrap && npm run test:agents && npm run test:skills && npm run test:installer && npm run test:pi && npm run test:opencode"
   },
   "repository": {
     "type": "git",

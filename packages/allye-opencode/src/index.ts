@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { AGENTS } from "./agents.generated"
 import { BOOTSTRAP } from "./bootstrap.generated"
+import { mergeSkillsPaths, skillsPaths } from "./skills-paths.ts"
 
 // dist/index.js -> ../skills (copied by scripts/prepare.ts at build time)
 const SKILLS_DIR = fileURLToPath(new URL("../skills", import.meta.url))
@@ -89,8 +90,7 @@ function crewAgents(skillsDir = SKILLS_DIR): Record<string, AgentEntry> {
 export const AllyePlugin: Plugin = async () => ({
   config: async (config) => {
     const target = config as typeof config & SkillsConfig
-    const paths = target.skills?.paths ?? []
-    if (!paths.includes(SKILLS_DIR)) target.skills = { ...target.skills, paths: [...paths, SKILLS_DIR] }
+    target.skills = { ...target.skills, paths: mergeSkillsPaths(target.skills?.paths, skillsPaths(SKILLS_DIR)) }
     // Fields the user sets on a crew agent in opencode.json win over the bundled defaults.
     const agents: Record<string, object | undefined> = { ...target.agent }
     for (const [name, crew] of Object.entries(crewAgents())) {
