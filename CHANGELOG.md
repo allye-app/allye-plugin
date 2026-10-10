@@ -1,3 +1,19 @@
+# [2.6.0](https://github.com/allye-app/allye-plugin/compare/v2.5.1...v2.6.0) (2026-10-10)
+
+
+### Bug Fixes
+
+* **installer:** validate the team id and refresh stale CLAUDE.md claims ([548620e](https://github.com/allye-app/allye-plugin/commit/548620e74def72e900de483bb001af36088c1c4b))
+* **installer:** validate the team id only for API verbs and test the api_call guard ([28c791d](https://github.com/allye-app/allye-plugin/commit/28c791d462a3dd14c0540873c4c5828aa613a122))
+
+
+### Features
+
+* **installer:** add --reinstall with external backups, leftover detection and specific API errors ([e2090cd](https://github.com/allye-app/allye-plugin/commit/e2090cda79929611c41656fd4fdb832adeeb9097))
+* **installer:** target OpenCode, Pi, OMP and normalised CODEX_HOME on contract 1.1.0 ([9139d77](https://github.com/allye-app/allye-plugin/commit/9139d77fbe3c588ac81e6e2fd3d4916de21ca96d))
+* **opencode:** register the org allye-skills dir in the plugin ([63f3957](https://github.com/allye-app/allye-plugin/commit/63f39574d207ecb83b074822f514f7510d33bdcc))
+* **pi:** drop startup and per-prompt memory preload from allye-pi ([a3b75d7](https://github.com/allye-app/allye-plugin/commit/a3b75d7f781a9195831e4efccaede4a95cf5588c))
+
 ## [2.5.1](https://github.com/allye-app/allye-plugin/compare/v2.5.0...v2.5.1) (2026-10-06)
 
 
