@@ -9,14 +9,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  *
  * - Exposes the repository's skills/ directory (Bridge) through resources_discover.
  * - Adds the shared bootstrap (bootstrap/allye.md) to the system prompt.
- * - Preloads Allye context through the configured MCP bridge when one is
- *   available, and identifies the repo's project with `projects.project_resolve`,
- *   verifying any `.allye/project.json` claim against the git remote.
+ * - Identifies the repo's project with `projects.project_resolve` (through the
+ *   configured MCP bridge when one is available), verifying any
+ *   `.allye/project.json` claim against the git remote. It loads no startup or
+ *   per-prompt memory context.
  *   The team follows the project: nothing is gated on team selection.
  */
 
 const MCP_SERVER = "allye";
-const MAX_CONTEXT_CHARS = 12_000;
 const LINK_FILE = ".allye/project.json";
 const PROJECT_KEY = /^[A-Z][A-Z0-9]{1,9}$/;
 const APP_NAME = /^[A-Za-z0-9._-]{1,120}$/;
@@ -25,11 +25,6 @@ const MAX_CANDIDATES = 10;
 const MAX_REPO_CHARS = 4_000;
 
 type McpResult = { content?: Array<{ type?: string; text?: string }> };
-export type StartupContext = {
-  text: string;
-  repo: string;
-  allyeUnavailable: boolean;
-};
 type ActiveMcpToolCaller = (
   serverName: string,
   toolName: string,
@@ -83,7 +78,7 @@ async function callAllye(toolName: string, args: Record<string, unknown>): Promi
   // pi-mcp-adapter may expose an in-process bridge for cooperating extensions.
   // Without it, the agent still reaches Allye through its own MCP tools.
   const bridge = (globalThis as McpBridgeRuntime).__piMcpAdapterActiveToolCaller;
-  if (!bridge) throw new Error("no in-process MCP bridge is available to preload Allye context");
+  if (!bridge) throw new Error("no in-process MCP bridge is available");
   return resultText(await bridge(MCP_SERVER, toolName, args));
 }
 
@@ -300,82 +295,27 @@ async function buildRepoContext(cwd: string, online: boolean): Promise<string> {
   }
 }
 
-export function unavailableStartupContext(reason: string, repo = ""): StartupContext {
-  return {
-    text: `## Allye context not preloaded\n${reason}\nUse the Allye MCP tools directly when the task needs them: call \`initialize\` first.`,
-    repo,
-    allyeUnavailable: true,
-  };
-}
-
-async function loadStartupContext(cwd: string): Promise<StartupContext> {
-  if (!mcpBridgeAvailable()) {
-    return unavailableStartupContext("No in-process MCP bridge is available in this session.", await loadRepoContext(cwd, false));
-  }
-  try {
-    const initialization = await callAllye("initialize", { action: "init", include_user_docs: true });
-    const preferences = await callAllye("intelligence", { action: "memory_preferences" });
-    return {
-      text: [initialization, preferences].filter(Boolean).map((section) => limitText(section, MAX_CONTEXT_CHARS)).join("\n\n"),
-      repo: await loadRepoContext(cwd, true),
-      allyeUnavailable: false,
-    };
-  } catch (error) {
-    return unavailableStartupContext(
-      `Allye context could not be preloaded: ${error instanceof Error ? error.message : String(error)}`,
-      await loadRepoContext(cwd, false),
-    );
-  }
-}
-
-async function loadPromptContext(prompt: string): Promise<string> {
-  try {
-    return limitText(await callAllye("intelligence", {
-      action: "memory_search",
-      query: prompt,
-      limit: 5,
-      return_content: true,
-    }), MAX_CONTEXT_CHARS);
-  } catch {
-    return "";
-  }
-}
-
-export function buildSystemSections(bootstrap: string, startup: StartupContext, firstPrompt: boolean, nativeBootstrap = true): string[] {
+export function buildSystemSections(bootstrap: string, repo: string, nativeBootstrap = true): string[] {
   const sections: string[] = [];
   if (bootstrap) sections.push(`<allye-bootstrap>\n${bootstrap.trim()}\n</allye-bootstrap>`);
-  if (firstPrompt && nativeBootstrap && startup.text) sections.push(`<allye-startup-context>\n${startup.text}\n</allye-startup-context>`);
-  if (nativeBootstrap && startup.repo) sections.push(`<allye-repo>\n${startup.repo}\n</allye-repo>`);
+  if (nativeBootstrap && repo) sections.push(`<allye-repo>\n${repo}\n</allye-repo>`);
   return sections;
 }
 
 export default function allyePiExtension(pi: ExtensionAPI): void {
   const nativeBootstrap = process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0";
-  let startupContext = unavailableStartupContext("Allye context has not been loaded yet.");
   let bootstrap = "";
-  let firstPrompt = true;
+  let repo = "";
 
   pi.on("resources_discover", () => ({ skillPaths: [skillsPath()] }));
 
   pi.on("session_start", async (_event, ctx) => {
-    firstPrompt = true;
     bootstrap = loadBootstrap();
-    if (nativeBootstrap) {
-      if (ctx.hasUI) ctx.ui.setStatus("allye", "loading Allye context…");
-      startupContext = await loadStartupContext(ctx.cwd ?? process.cwd());
-      if (ctx.hasUI) ctx.ui.setStatus("allye", startupContext.allyeUnavailable ? "Allye: context not preloaded" : "Allye ready");
-    }
+    if (nativeBootstrap) repo = await loadRepoContext(ctx.cwd ?? process.cwd(), mcpBridgeAvailable());
   });
 
-  pi.on("before_agent_start", async (event) => {
-    const sections = buildSystemSections(bootstrap, startupContext, firstPrompt, nativeBootstrap);
-    if (firstPrompt) {
-      firstPrompt = false;
-      if (nativeBootstrap && !startupContext.allyeUnavailable) {
-        const relevant = await loadPromptContext(event.prompt);
-        if (relevant) sections.push(`<allye-relevant-memory>\n${relevant}\n</allye-relevant-memory>`);
-      }
-    }
+  pi.on("before_agent_start", (event) => {
+    const sections = buildSystemSections(bootstrap, repo, nativeBootstrap);
     return sections.length ? { systemPrompt: `${event.systemPrompt}\n\n${sections.join("\n\n")}` } : undefined;
   });
 
