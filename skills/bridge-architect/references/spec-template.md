@@ -73,6 +73,7 @@ Shared contracts are defined under Contracts and compatibility (see [D-01]); do 
 - [D-02] (user) <decision> — <rationale>
 - [D-03] (source: <path or doc>) <decision confirmed by evidence> — <rationale>
 - [D-04] (proposed) <architect's recommendation, not yet contested> — <rationale>
+- [D-05] (user) <architecture-significant decision> — <rationale> adr: yes
 
 ## Non-functional requirements
 - [NFR-01] <measurable constraint: latency, size, availability, accessibility…>
@@ -80,6 +81,9 @@ Shared contracts are defined under Contracts and compatibility (see [D-01]); do 
 ## Questions
 - [Q-01] (resolved) <question> → <answer>
 - [Q-02] <open question — owner and impact>      ← any open [Q-NN] blocks spec_submit
+
+## Docs impact
+<one or more of readme, agents, architecture, decision, runbook, api-reference, changelog, glossary, domain-page, each with what changes> | none — <one-line reason>
 ```
 
 ## Rules
@@ -87,6 +91,9 @@ Shared contracts are defined under Contracts and compatibility (see [D-01]); do 
 - Decision origin: `(user)` — the user decided or accepted it; `(source: …)` — established by code, docs or a primary source; `(proposed)` — the Architect's recommendation (all choices in `blueprint --auto`).
 - Every `[BR-NN]` is covered by at least one `[AC-NN]`; every `[AC-NN]` is observable and testable as written.
 - One definition per anchor id per spec; every other mention is inline. The anchor lint (`../../bridge/references/spec-lint.md`) must pass before the spec is returned and again before it is published.
+- Docs impact: every spec has a `## Docs impact` section listing the affected categories (readme, agents, architecture, decision, runbook, api-reference, changelog, glossary, domain-page) or `none — <one-line reason>`; the section is mandatory.
+- Docs task: when the impact is not `none`, the last task is a thin "Update documentation" task whose `dependsOn` lists every other task of the spec; when the impact is `none`, there is no docs task.
+- ADR marker: an architecture-significant decision ends its line with `adr: yes`.
 - English throughout, even when the interview ran in another language.
 - No secrets, tokens, internal URLs with credentials, or unnecessary personal data.
 - The epic (multi-app only) is a short description: shared outcome, the specs and their order, compatibility notes, done condition.

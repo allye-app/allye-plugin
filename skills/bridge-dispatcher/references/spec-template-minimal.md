@@ -41,6 +41,7 @@ For a known, bounded change in one app. It uses the same anchors as the full tem
 - [D-01] (user) <decided by the user> — <rationale>
 - [D-02] (source: <path>) <confirmed by evidence>
 - [D-03] (proposed) <Dispatcher's recommendation> — <rationale>
+- [D-04] (user) <architecture-significant decision> — <rationale> adr: yes
 
 ## Non-functional requirements   (optional)
 - [NFR-01] <measurable constraint>
@@ -48,6 +49,13 @@ For a known, bounded change in one app. It uses the same anchors as the full tem
 ## Questions
 - [Q-01] (resolved) <question> → <answer>
 - [Q-02] <open blocker — owner and impact>     ← blocks spec_submit
+
+## Docs impact
+<one or more of readme, agents, architecture, decision, runbook, api-reference, changelog, glossary, domain-page, each with what changes> | none — <one-line reason>
 ```
 
 Rules: one definition per anchor id, every other mention inline; the anchor lint (`../../bridge/references/spec-lint.md`) passes before the spec is returned and again before it is published; English throughout; every `[BR-NN]` covered by an `[AC-NN]`; no secrets or unnecessary personal data. If filling this template needs a Technical section of its own (data migration, cross-app contract, security model), the change belongs to the Architect.
+
+- Docs impact: every spec has a `## Docs impact` section listing the affected categories (readme, agents, architecture, decision, runbook, api-reference, changelog, glossary, domain-page) or `none — <one-line reason>`; the section is mandatory.
+- Docs task: when the impact is not `none`, the last task is a thin "Update documentation" task whose `dependsOn` lists every other task of the spec; when the impact is `none`, there is no docs task.
+- ADR marker: an architecture-significant decision ends its line with `adr: yes`.
