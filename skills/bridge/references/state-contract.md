@@ -9,12 +9,13 @@ The Allye server owns the plan: epic, spec, anchors, tasks, dependencies and sta
 .allye/armorer.json   ← Armorer cache, written by the Mothership (skill bridge-armorer → Cache)
 .allye/missions/<slug>/
 ├── log.md            ← Mothership-owned: projection + append-only journal
-└── crew/
-    ├── copilot.md
-    ├── medic.md
-    ├── optimizer.md
-    ├── shield.md
-    └── watcher.md
+├── crew/
+│   ├── copilot.md
+│   ├── medic.md
+│   ├── optimizer.md
+│   ├── shield.md
+│   └── watcher.md
+└── docs/             ← docs task: staged page files (local state, never committed)
 ```
 
 - `.allye/armorer.json` is the one local file allowed before a spec exists: the Mothership writes it after Armorer's preflight in every mode, including `blueprint` and `dispatch`.
@@ -68,7 +69,7 @@ Append-only. Never edit or delete a past entry; to fix a mistake, append a `rect
 - Next: <next action | none>
 ```
 
-Event types (extend only when none fits): `preflight`, `publish`, `spec-challenge`, `working-tree`, `plan`, `plan-rejected`, `slice-start`, `slice-check`, `slice-review`, `correction`, `slice-passed`, `slice-blocked`, `aggregate-validation`, `gate`, `invalidated`, `mission-iteration`, `delta-brief`, `approval-proposed`, `approval-received`, `external-action`, `reconciliation`, `scope-change`, `rectification`, `memory-read`, `memory-save`, `ci-pending`, `ci-result`, `base-integration`.
+Event types (extend only when none fits): `preflight`, `publish`, `spec-challenge`, `working-tree`, `plan`, `plan-rejected`, `slice-start`, `slice-check`, `slice-review`, `correction`, `slice-passed`, `slice-blocked`, `aggregate-validation`, `gate`, `invalidated`, `mission-iteration`, `delta-brief`, `approval-proposed`, `approval-received`, `external-action`, `reconciliation`, `scope-change`, `rectification`, `memory-read`, `memory-save`, `docs-staged`, `personal-read`, `docs-published`, `ci-pending`, `ci-result`, `base-integration`.
 
 Memory events (`memory.md` §6): `memory-read` — the query, the ids kept, or the failure; `memory-save` — id, action, scope, or the failure.
 
@@ -77,6 +78,10 @@ CI-proof events: `ci-pending` — the commit, the task and its CI-only anchors (
 Base-integration events: `base-integration` — the base sha and the outcome: (no change); the merged head; (blocked) with the conflicted or uncommitted paths; or (unavailable) with the reason the fetch failed (`workflow.md` §6–7).
 
 Install events (a dependency install or toolchain switch, `../../bridge-armorer/SKILL.md` → Provisioning; no new event type): proposed → `approval-proposed` — each exact command with its working directory and runtime; approved or refused → `approval-received` — the user's answer, a refusal recorded too; run → `external-action` — the command, its working directory and its exit code; env values or credentials embedded in a command are never recorded and are redacted.
+
+Docs events (the docs task, `publish.md` §7): `docs-staged` — the file, the page short_id or new, the base revision, `baseContentSha256` (sha256 of the complete `kb` read) and `contentSha256` (sha256 of the staged file); `personal-read` — the page short_id, its space and the reading role, for every personal page (`space_kind: personal`) any agent read, from the crew's `personalReads` and the Mothership's own reads; `docs-published` — the page id and its revision after each write. The current mission's `.allye/missions/<slug>/docs/` holds the staged files: local state, never committed.
+
+Shield docs evidence: for slice and final reviews, the Mothership passes the Shield the `docs-staged` and `personal-read` entries, the `approval-received` entries naming personal pages, and excerpts of each personal page those entries list, re-read for that review with `kb_read` by short_id; the excerpts go only in the Shield packet, and `log.md`, crew files and the staging dir never hold them. A user's confirmation to use a personal page is logged as `approval-received` naming the page short_id. Without the excerpts the Shield reports the overlap check unresolved, which blocks. The Watcher's `final` packet carries the `docs-staged` entries.
 
 ### Logging rules
 
