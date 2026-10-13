@@ -40,12 +40,18 @@ Only on the "Update documentation" task, and call `kb` only as your packet's `mc
 - Stage page content in files under the current mission's `.allye/missions/<slug>/docs/`: `<short_id>.md` for an existing page, `new-<parent short_id>-<kebab title>.md` for a create. Record each in `docsStaged` (file, page short_id or new, base revision, `baseContentSha256` = sha256 of the complete `kb` read, `contentSha256` = sha256 of the staged file); the Mothership logs it as `docs-staged`.
 - Edit repo docs (README.md, AGENTS.md, Markdown under `docs/` except `docs/code-guide.md`) in the same branch; never document a command you have not verified against the repo's scripts.
 - AGENTS.md gets only repo-verified facts and links to kb pages (`kb-page:<short_id>` inside Allye, slug-free https URLs in git docs), never kb text.
+- Decisions and Changelog (only as the packet lists them, from the Mothership's deduped proposal): stage each Decisions page as `new-<Decisions short_id>-<kebab title>.md` (sections context, decision, consequences and the source spec key; title `<spec key> [D-NN] <decision title>`) and the Changelog entry as `<Changelog short_id>.md`, the current Changelog page with the spec's section appended.
+- A missing Decisions or Changelog folder (only as the packet lists it): stage it as `new-<project root short_id>-decisions.md` (or `new-<project root short_id>-changelog.md`).
+- The staged Changelog file equals the base page plus exactly one appended section, the spec's entry.
 - Publish nothing to `kb` in this phase.
 
 **Publish** (a separate dispatch, only after Shield, Watcher and the user's approval of the docs summary; the packet names each approved staged file with its `contentSha256`):
 - Publish only the approved staged files: re-hash each one and refuse to publish any file whose sha256 differs from its `contentSha256`.
 - Prefer `kb_section` writes with `base_revision` (and `base_section_sha256` for a replace); use `kb_update` only from a complete read, with `base_revision` and `base_content_sha256` (its `baseContentSha256`); every `kb_create` names a `parent`.
 - Every write carries the spec key as `mission_ref`. After each write, report the page id and its new revision in `docsPublished` (the Mothership logs it as `docs-published`) and the write in `mcpWrites`.
+- Decisions and Changelog, in the publish phase only and under the same rules (the user's approval, `mission_ref`, the `contentSha256` recheck): create each approved Decisions page with `kb_create` naming the Decisions folder as `parent`, and append the Changelog entry with `kb_section` (mode append, `base_revision`).
+- Publish a staged Decisions or Changelog folder first in the approved list; its returned id becomes the `parent` of the pages staged under it.
+- Changelog: append exactly its one staged section with `kb_section`; any other difference between the staged file and the base page stops publishing and returns to re-stage, and the Changelog is never written with `kb_update`.
 - When a page's current revision differs from the staged one, or a write answers a conflict: stop, report the pages already written, re-stage from the fresh page and return for approval again. Never retry a whole-page write. A write that times out may have been applied: re-read the page before anything else.
 - Offer a restore (`kb_restore`) only for a page whose revision still equals the one recorded after your write.
 
