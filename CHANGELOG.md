@@ -1,3 +1,10 @@
+# [2.7.0](https://github.com/allye-app/allye-plugin/compare/v2.6.0...v2.7.0) (2026-10-13)
+
+
+### Features
+
+* **bridge:** keep documentation current with a docs step and the Navigator (ALY-46) ([#23](https://github.com/allye-app/allye-plugin/issues/23)) ([ee12955](https://github.com/allye-app/allye-plugin/commit/ee12955e4d06a0cd66e30e466acb5887e1abfce1))
+
 # [2.6.0](https://github.com/allye-app/allye-plugin/compare/v2.5.1...v2.6.0) (2026-10-10)
 
 
