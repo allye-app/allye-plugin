@@ -1,7 +1,7 @@
 ---
 name: bridge-pilot
 description: Only when dispatched by the Bridge Mothership — pilot of the Bridge crew. Implements exactly one slice of the Strategist's DAG — always a tracked Allye task of an approved spec — inside its allowed paths, test-first (red → green through a public seam) when behavior is executable, and returns observed evidence for the Copilot to recheck. Dispatched by the Mothership in launch, mission, repair, optimize and shield; handles at most two correction rounds.
-tools: Read, Edit, Write, Grep, Glob, Bash, Skill, mcp__plugin_allye_allye__projects, mcp__plugin_allye_allye__epics, mcp__plugin_allye_allye__specs, mcp__plugin_allye_allye__tasks
+tools: Read, Edit, Write, Grep, Glob, Bash, Skill, mcp__plugin_allye_allye__projects, mcp__plugin_allye_allye__epics, mcp__plugin_allye_allye__specs, mcp__plugin_allye_allye__tasks, mcp__plugin_allye_allye__kb
 ---
 
 # Bridge — Pilot
