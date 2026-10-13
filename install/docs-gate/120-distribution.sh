@@ -47,15 +47,15 @@ has_line packages/allye-opencode/.gitignore 'install/'
 # them. The guide's block is extracted and run against a temp HOME.
 DOC=docs/install-codex.md
 has_line "$DOC" 'mkdir -p ~/.codex/templates ~/.codex/install'
-has_line "$DOC" 'if [ -e "$T" ] && { [ ! -f "$T/.allye-templates" ] || [ "$(head -n 1 "$T/CLAUDE.md" 2>/dev/null)" != "@AGENTS.md" ]; }; then'
+has_line "$DOC" 'if [ -L "$T" ] || { [ -e "$T" ] && { [ ! -f "$T/.allye-templates" ] || [ "$(head -n 1 "$T/CLAUDE.md" 2>/dev/null)" != "@AGENTS.md" ]; }; }; then'
 has_line "$DOC" '  touch "$T/.allye-templates"'
 has_line "$DOC" '  echo "Skipped $T: not Allye'"'"'s git docs templates. Ask the user before replacing it."'
 has_line "$DOC" '  rm -rf "$T"'
 has_line "$DOC" '  cp -R "$TMP"/allye-plugin-main/templates/git-docs ~/.codex/templates/'
-has_line "$DOC" 'if [ -e "$C" ] && ! grep -Fxq "// docs-check: deterministic checks for a repository'"'"'s git docs (no dependencies)." "$C"; then'
+has_line "$DOC" 'if [ -L "$C" ] || { [ -e "$C" ] && ! grep -Fxq "// docs-check: deterministic checks for a repository'"'"'s git docs (no dependencies)." "$C"; }; then'
 has_line "$DOC" '  echo "Skipped $C: not Allye'"'"'s docs-check script. Ask the user before replacing it."'
 has_line "$DOC" '  cp "$TMP"/allye-plugin-main/install/docs-check.mjs "$C"'
-has_line "$DOC" 'Before replacing an existing `~/.codex/skills/bridge`, check that it is the Allye Bridge (`name: bridge` in its `SKILL.md`); otherwise ask the user. Replace `~/.codex/templates/git-docs` and `~/.codex/install/docs-check.mjs` only when they are Allye'"'"'s copies; otherwise ask the user. The script below checks them (Allye'"'"'s templates directory holds the `.allye-templates` marker this step writes and its `CLAUDE.md` starts with `@AGENTS.md`; Allye'"'"'s script carries the docs-check header line) and skips a foreign copy with a message.'
+has_line "$DOC" 'Before replacing an existing `~/.codex/skills/bridge`, check that it is the Allye Bridge (`name: bridge` in its `SKILL.md`); otherwise ask the user. Replace `~/.codex/templates/git-docs` and `~/.codex/install/docs-check.mjs` only when they are Allye'"'"'s copies; otherwise ask the user. The script below checks them (Allye'"'"'s templates directory holds the `.allye-templates` marker this step writes and its `CLAUDE.md` starts with `@AGENTS.md`; Allye'"'"'s script carries the docs-check header line; a symbolic link is never Allye'"'"'s copy) and skips a foreign copy with a message.'
 has_line "$DOC" 'Without `~/.codex/templates/git-docs` and `~/.codex/install/docs-check.mjs`, Bridge reports docs-check as `unresolved` and never improvises a substitute.'
 # The rule comes before the block.
 rule=$(grep -n '^Before replacing an existing `~/.codex/skills/bridge`' "$ROOT/$DOC" | cut -d: -f1)
@@ -101,6 +101,26 @@ out=$(codex_run "$TMP/h3") || fail "codex step (no marker): exit $?"
   fail "codex step (no marker): got: $out"
 [ -f "$TMP/h3/.codex/templates/git-docs/extra.md" ] || fail "codex step (no marker): templates replaced"
 [ ! -e "$TMP/h3/.codex/templates/git-docs/.allye-templates" ] || fail "codex step (no marker): marker written over a foreign copy"
+
+# Symbolic links are foreign even when their target looks like Allye's: kept, the link
+# target unchanged (cp never writes through a link).
+mkdir -p "$TMP/h4/.codex/templates" "$TMP/h4/.codex/install" "$TMP/h4/elsewhere"
+cp "$ROOT/install/docs-check.mjs" "$TMP/h4/elsewhere/docs-check.mjs"
+echo "// local edit" >>"$TMP/h4/elsewhere/docs-check.mjs"
+cp "$TMP/h4/elsewhere/docs-check.mjs" "$TMP/h4/script.orig"
+ln -s ../../elsewhere/docs-check.mjs "$TMP/h4/.codex/install/docs-check.mjs"
+cp -R "$ROOT/templates/git-docs" "$TMP/h4/elsewhere/git-docs"
+touch "$TMP/h4/elsewhere/git-docs/.allye-templates"
+echo mine >"$TMP/h4/elsewhere/git-docs/extra.md"
+ln -s ../../elsewhere/git-docs "$TMP/h4/.codex/templates/git-docs"
+out=$(codex_run "$TMP/h4") || fail "codex step (symlink): exit $?"
+[ "$out" = "Skipped $TMP/h4/.codex/templates/git-docs: not Allye's git docs templates. Ask the user before replacing it.
+Skipped $TMP/h4/.codex/install/docs-check.mjs: not Allye's docs-check script. Ask the user before replacing it." ] ||
+  fail "codex step (symlink): got: $out"
+[ -L "$TMP/h4/.codex/install/docs-check.mjs" ] || fail "codex step (symlink): docs-check.mjs link replaced"
+cmp -s "$TMP/h4/elsewhere/docs-check.mjs" "$TMP/h4/script.orig" || fail "codex step (symlink): docs-check.mjs link target changed"
+[ -L "$TMP/h4/.codex/templates/git-docs" ] || fail "codex step (symlink): templates link replaced"
+[ -f "$TMP/h4/elsewhere/git-docs/extra.md" ] || fail "codex step (symlink): templates link target changed"
 
 # 3b. `npm test` (what CI runs) reaches test:docs-gate, directly or through another script.
 reach=$(node -e '

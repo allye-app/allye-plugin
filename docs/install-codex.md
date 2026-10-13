@@ -25,7 +25,7 @@ Do not edit the credential store or remove unrelated MCP servers.
 
 Copy the Bridge skill (and any `bridge-*` crew skills) into Codex's user skills directory, then the git docs templates and the docs-check script into `~/.codex/templates/git-docs` and `~/.codex/install/docs-check.mjs` (two levels above `~/.codex/skills/bridge`, where the Bridge resolves them).
 
-Before replacing an existing `~/.codex/skills/bridge`, check that it is the Allye Bridge (`name: bridge` in its `SKILL.md`); otherwise ask the user. Replace `~/.codex/templates/git-docs` and `~/.codex/install/docs-check.mjs` only when they are Allye's copies; otherwise ask the user. The script below checks them (Allye's templates directory holds the `.allye-templates` marker this step writes and its `CLAUDE.md` starts with `@AGENTS.md`; Allye's script carries the docs-check header line) and skips a foreign copy with a message.
+Before replacing an existing `~/.codex/skills/bridge`, check that it is the Allye Bridge (`name: bridge` in its `SKILL.md`); otherwise ask the user. Replace `~/.codex/templates/git-docs` and `~/.codex/install/docs-check.mjs` only when they are Allye's copies; otherwise ask the user. The script below checks them (Allye's templates directory holds the `.allye-templates` marker this step writes and its `CLAUDE.md` starts with `@AGENTS.md`; Allye's script carries the docs-check header line; a symbolic link is never Allye's copy) and skips a foreign copy with a message.
 
 ```bash
 TMP=$(mktemp -d)
@@ -37,7 +37,7 @@ for dir in "$TMP"/allye-plugin-main/skills/bridge*; do
 done
 mkdir -p ~/.codex/templates ~/.codex/install
 T=~/.codex/templates/git-docs
-if [ -e "$T" ] && { [ ! -f "$T/.allye-templates" ] || [ "$(head -n 1 "$T/CLAUDE.md" 2>/dev/null)" != "@AGENTS.md" ]; }; then
+if [ -L "$T" ] || { [ -e "$T" ] && { [ ! -f "$T/.allye-templates" ] || [ "$(head -n 1 "$T/CLAUDE.md" 2>/dev/null)" != "@AGENTS.md" ]; }; }; then
   echo "Skipped $T: not Allye's git docs templates. Ask the user before replacing it."
 else
   rm -rf "$T"
@@ -45,7 +45,7 @@ else
   touch "$T/.allye-templates"
 fi
 C=~/.codex/install/docs-check.mjs
-if [ -e "$C" ] && ! grep -Fxq "// docs-check: deterministic checks for a repository's git docs (no dependencies)." "$C"; then
+if [ -L "$C" ] || { [ -e "$C" ] && ! grep -Fxq "// docs-check: deterministic checks for a repository's git docs (no dependencies)." "$C"; }; then
   echo "Skipped $C: not Allye's docs-check script. Ask the user before replacing it."
 else
   cp "$TMP"/allye-plugin-main/install/docs-check.mjs "$C"

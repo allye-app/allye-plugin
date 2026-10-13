@@ -122,6 +122,19 @@ expect long-lines-under-cap 0 "docs-check: ok (1 files)" --root "$TMP/long"
 printf 'x%.0s' $(seq 1 10001) >> "$TMP/long/README.md"; echo >> "$TMP/long/README.md"
 expect long-line 1 'docs-check: README.md:6: lines: line longer than 10000 characters' --root "$TMP/long"
 
+# The `<a ...>` anchor scan is linear: 3000 lines of `x>` followed by 3300 unclosed `<a `
+# openers finish well within the timeout guard (a quadratic scan takes over 30 s and the
+# guard's exit 124 fails the check); a valid anchor on a later line still counts.
+mkdir -p "$TMP/openers/docs"
+{
+  echo '# Openers'
+  line="x>$(printf '<a %.0s' $(seq 1 3300))"
+  awk -v l="$line" 'BEGIN { for (i = 0; i < 3000; i++) print l }'
+  echo "<a name=\"dq\"></a> <A id='sq'></a>"
+  echo '[d](#dq) [s](#sq)'
+} > "$TMP/openers/docs/openers.md"
+expect many-openers 0 "docs-check: ok (1 files)" --root "$TMP/openers"
+
 # File system errors exit 2 with `docs-check: error: <message>` on stderr.
 if [ "$(id -u)" -ne 0 ]; then
   mkdir -p "$TMP/eacces/docs"
@@ -142,6 +155,9 @@ mkdir -p "$TMP/repo/docs"
 cp "$ROOT/$TPL/README.md" "$ROOT/$TPL/AGENTS.md" "$ROOT/$TPL/CLAUDE.md" "$TMP/repo/" 2>/dev/null || true
 cp "$ROOT/$TPL/ARCHITECTURE.md" "$TMP/repo/docs/ARCHITECTURE.md" 2>/dev/null || true
 expect templates 0 "docs-check: ok (4 files)" --root "$TMP/repo"
+
+# The plugin's own docs pass docs-check (README within 150 lines, links and anchors).
+expect plugin-repo 0 "docs-check: ok ($(cd "$ROOT" && { ls README.md AGENTS.md CLAUDE.md 2>/dev/null; find docs -type f -name '*.md'; } | wc -l | tr -d ' ') files)" --root "$ROOT"
 
 # CLAUDE.md imports AGENTS.md on its first line (D-91).
 [ "$(head -n 1 "$ROOT/$TPL/CLAUDE.md" 2>/dev/null)" = "@AGENTS.md" ] || fail "$TPL/CLAUDE.md: first line must be exactly @AGENTS.md"

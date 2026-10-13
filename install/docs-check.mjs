@@ -265,11 +265,15 @@ function scan(text) {
     } else {
       prev = line;
     }
-    if (line.includes('>')) {
-      for (const m of line.matchAll(/<a\s[^>]*>/gi)) {
-        const attr = /\b(?:name|id)\s*=\s*(?:"([^"]+)"|'([^']+)')/i.exec(m[0]);
-        if (attr) anchors.push(attr[1] ?? attr[2]);
-      }
+    // `<a ...>` tags, scanned linearly: each opener looks for the next `>` once, and none
+    // left means no later opener can close either.
+    const opener = /<a\s/gi;
+    for (let m; (m = opener.exec(line)); ) {
+      const end = line.indexOf('>', m.index);
+      if (end === -1) break;
+      const attr = /\b(?:name|id)\s*=\s*(?:"([^"]+)"|'([^']+)')/i.exec(line.slice(m.index, end + 1));
+      if (attr) anchors.push(attr[1] ?? attr[2]);
+      opener.lastIndex = end + 1;
     }
     const code = stripCode(line);
     for (const target of inlineLinks(code)) links.push({ target, line: n });
