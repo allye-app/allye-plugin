@@ -1,5 +1,7 @@
 node_modules/
 dist/
 skills/
+templates/
+install/
 src/bootstrap.generated.ts
 src/agents.generated.ts

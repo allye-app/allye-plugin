@@ -299,7 +299,7 @@ else {
   if (!reads.includes("`projects.project_resolve`")) fail(`${DEL}: the common Reads line must grant \`projects.project_resolve\``);
 
   // BR-08: no crew text treats the whole .allye/ (bare `.allye/` or `.allye/**`) as local state.
-  const crew = ["armorer", "copilot", "watcher", "strategist", "pilot", "recon", "medic", "shield", "optimizer", "architect", "dispatcher"].map((r) => `skills/bridge-${r}/SKILL.md`);
+  const crew = ["armorer", "copilot", "watcher", "strategist", "pilot", "navigator", "recon", "medic", "shield", "optimizer", "architect", "dispatcher"].map((r) => `skills/bridge-${r}/SKILL.md`);
   for (const file of [...crew, DEL, SKILL, WF]) {
     read(file).split("\n").forEach((l, i) => {
       if (/\.allye\/(\*\*)?(?![\w.*<])/.test(l)) fail(`${file}:${i + 1}: must name \`.allye/armorer.json\` / \`.allye/missions/**\`, not the whole \`.allye/\``);

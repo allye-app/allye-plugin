@@ -25,7 +25,7 @@ The repo also holds `install.sh`, which is **not** the plugin installer: it inst
 
 ## Commands
 
-- `npm test` — offline: bootstrap checks, hook test, crew agent checks (`npm run test:agents`), skills checks (`npm run test:skills`: CI workflow and LICENSE checks), installer tests (loopback fake API), Pi extension tests and OpenCode tests (`npm run test:opencode`). Individually: `npm run test:bootstrap`, `npm run test:agents`, `npm run test:skills`, `npm run test:installer`, `npm run test:pi`, `npm run test:opencode`.
+- `npm test` — offline: bootstrap checks, hook test, crew agent checks (`npm run test:agents`), skills checks (`npm run test:skills`: CI workflow and LICENSE checks), installer tests (loopback fake API; `test:installer` chains the docs gate, `npm run test:docs-gate`: docs-check, templates, Bridge docs rules and their distribution), Pi extension tests and OpenCode tests (`npm run test:opencode`). Individually: `npm run test:bootstrap`, `npm run test:agents`, `npm run test:skills`, `npm run test:installer`, `npm run test:docs-gate`, `npm run test:pi`, `npm run test:opencode`.
 - `npm run typecheck` — Pi extension.
 - `packages/allye-opencode`: `bun install`, `bun run typecheck`, `bun run build` (`scripts/prepare.ts` copies the bootstrap, `skills/bridge*` and the crew agents from `agents/*.md` into the package first; the copies are gitignored).
 - `./install.sh list|install <runtime> <skill>... [--reinstall]|status` — organization skills installer for claude, codex, opencode, pi and omp (needs `ALLYE_PAT`; `status` is offline).

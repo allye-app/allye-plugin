@@ -15,6 +15,8 @@ Run every item per spec; report each failure with the spec, the anchor or task a
 5. **AC coverage** — every `[AC-NN]` is referenced by at least one task's `refs`.
 6. **Task notes size** — every task's `notes` is at most 2000 characters.
 7. **Shared contracts match** — a `[D-NN]` shared across specs (multi-app) has the same number and identical text in every spec that shares it.
+8. **Docs impact declared** — the spec has a `## Docs impact` section listing one or more of readme, agents, architecture, decision, runbook, api-reference, changelog, glossary, domain-page, or `none` with a one-line reason; a spec without it fails. When the impact is not `none`, the last task is a thin "Update documentation" task depending on every other task; a non-none impact without it fails, and so does a docs task under a `none` impact.
+9. **ADR marker** — `adr: yes` appears only at the end of a `[D-NN]` definition line, on architecture-significant decisions; a marker anywhere else fails.
 
 ## Server check
 

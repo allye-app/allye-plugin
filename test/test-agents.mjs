@@ -7,7 +7,7 @@ const root = resolve(import.meta.dirname, "..");
 const agentsDir = join(root, "agents");
 const PREFIX = "Only when dispatched by the Bridge Mothership —";
 const MCP = "mcp__plugin_allye_allye__";
-const ALLYE_READS = ["projects", "epics", "specs", "tasks"];
+const ALLYE_READS = ["projects", "epics", "specs", "tasks"]; // + "kb" for the Navigator only (docs task)
 const NO_FILE_EDITS = ["armorer", "recon", "strategist", "architect", "copilot", "medic", "optimizer", "shield", "watcher"];
 const NO_BASH = ["strategist", "architect", "dispatcher"];
 const EDIT_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
@@ -61,7 +61,8 @@ for (const file of agentFiles) {
   if (NO_FILE_EDITS.includes(role)) for (const t of EDIT_TOOLS) if (tools.includes(t)) fail(`${file}: read-only role must not have ${t}`);
   if (NO_BASH.includes(role) && tools.includes("Bash")) fail(`${file}: ${role} runs no commands and must not have Bash`);
   const mcp = tools.filter((t) => t.startsWith(MCP)).map((t) => t.slice(MCP.length)).sort();
-  const expected = role === "armorer" ? ["allye_health_check", "initialize", "skills"] : [...ALLYE_READS].sort();
+  const expected = role === "armorer" ? ["allye_health_check", "initialize", "skills"] : role === "navigator" ? [...ALLYE_READS, "kb"].sort() : [...ALLYE_READS].sort();
+  if (role !== "navigator" && mcp.includes("kb")) fail(`${file}: only the Navigator gets kb (delegation.md → Allye MCP access)`);
   if (mcp.join() !== expected.join()) fail(`${file}: Allye MCP tools [${mcp}] must be exactly [${expected}] (delegation.md → Allye MCP access)`);
 }
 
