@@ -22,6 +22,8 @@
   "files": [
     "dist",
     "skills",
+    "templates",
+    "install",
     "README.md",
     "LICENSE"
   ],

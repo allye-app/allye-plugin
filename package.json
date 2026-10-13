@@ -15,6 +15,8 @@
     "packages/allye-pi/tsconfig.json",
     "skills",
     "bootstrap",
+    "templates/git-docs",
+    "install/docs-check.mjs",
     "docs/install-pi.md",
     "docs/install-omp.md",
     "LICENSE"
@@ -44,7 +46,7 @@
     "typecheck": "tsc --noEmit -p packages/allye-pi/tsconfig.json",
     "test:pi": "node --experimental-strip-types --test packages/allye-pi/src/index.test.ts",
     "test:opencode": "node --experimental-strip-types --test packages/allye-opencode/src/skills-paths.test.ts",
-    "test:installer": "bash install/test-validation.sh && bash install/test-installer.sh",
+    "test:installer": "bash install/test-validation.sh && bash install/test-installer.sh && npm run test:docs-gate",
     "test:bootstrap": "bash test/test-bootstrap.sh && bash hooks/test-session-start.sh",
     "test:agents": "node test/test-agents.mjs",
     "test:docs-gate": "bash install/test-docs-gate.sh",
