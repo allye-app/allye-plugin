@@ -83,13 +83,13 @@ Present one exact proposal: branch, remote, commits, PR title/base/body/draft-or
 
 **Docs summary.** On a mission with a docs task, the proposal also includes the docs summary: for each `docs-staged` entry, the diff between the current page and its staged file under the current mission's `.allye/missions/<slug>/docs/`, shown as raw Markdown (a new page in full, with its parent); the repo docs files changed; the Watcher's docs-gate findings (`docsGate`, warnings in warn mode); and the proposed Decisions pages. It states that the `kb` publish runs right after the push and PR, before any merge. The user's yes covers publishing exactly the listed staged pages, each with the `contentSha256` it was shown with; any other page, or a staged file changed since, needs a new proposal and a new yes.
 
-**Publish to `kb`.** Only after that yes, and only while `SHIELD_CLEAR` and `WATCHER_APPROVED` hold for the reviewed point, dispatch the Pilot's publish phase on the docs task, right after the push and PR, before any merge: its packet names each approved staged file with its `contentSha256` and lists in `mcp` only the `kb` writes to those pages. Log each write the Pilot reports: `docs-published` (page id and revision) and, from its `mcpWrites`, each `kb` write as `external-action`.
+**Publish to `kb`.** Only after that yes, and only while `SHIELD_CLEAR` and `WATCHER_APPROVED` hold for the reviewed point, dispatch the Navigator's publish phase on the docs task, right after the push and PR, before any merge: its packet names each approved staged file with its `contentSha256` and lists in `mcp` only the `kb` writes to those pages. Log each write the Navigator reports: `docs-published` (page id and revision) and, from its `mcpWrites`, each `kb` write as `external-action`.
 
 - A conflict, a changed revision or a hash mismatch stops publishing: report the pages already written with their revisions, never retry, and return to the docs task to re-stage from the fresh pages and ask for approval again.
 - A refusal publishes nothing to `kb`: no yes, or a yes that leaves the docs out, keeps the staged files local.
 - Any later change to the PR (new commits, a rebase) invalidates the gates and returns to re-stage and re-approve before anything else is published.
 - Offer a restore only for a page whose current revision still equals the one its `docs-published` entry recorded.
-- When the PR is closed without merging (the user reports it or you observe it), offer the user a `kb_restore`, through the Pilot's publish phase as its packet lists it, for each published page whose current revision still equals the one recorded in its `docs-published` entry; a page changed since is never restored, only reported.
+- When the PR is closed without merging (the user reports it or you observe it), offer the user a `kb_restore`, through the Navigator's publish phase as its packet lists it, for each published page whose current revision still equals the one recorded in its `docs-published` entry; a page changed since is never restored, only reported.
 
 Never deploy. Merge into any branch only when the person commanding the chat explicitly asks.
 

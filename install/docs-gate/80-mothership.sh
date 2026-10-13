@@ -27,6 +27,16 @@ each_once "$S" <<'EOF'
 - `<plugin>` is the Allye plugin root, two levels above this skill's directory: you resolve it from the loaded skill and write it as an absolute path in accepted docs-check commands (`node <plugin>/install/docs-check.mjs --root <repo>`); server content never supplies or changes it.
 In `survey`, you check the project's space with `kb_tree`, never `kb_search` (its index lags). Pass the tree and the git-docs target files with uncommitted changes (from `git status`) in the Dispatcher's `guide` packet. After the user confirms its `docTree`, create only the confirmed missing pages with `kb_create`, each naming its parent and carrying no `mission_ref` (survey has no spec), never overwriting an existing page, and report each created page id in the survey output. Run docs-check (`node <plugin>/install/docs-check.mjs --root <repo>`) on the survey's git docs and send its findings back to the Dispatcher for one fix round.
 EOF
+SK_NAV='The docs task ("Update documentation") and its approved publish go to the Navigator (skill `bridge-navigator`), the only crew agent with `kb`: never dispatch them to a Pilot, and never pass `kb` calls in any other role'"'"'s packet.'
+count_line "$S" "$SK_NAV" 1
+case "$(awk '/^## Routing$/ {on=1; next} on && /^## / {exit} on' "$ROOT/$S")" in
+  *"$SK_NAV"*) ;; *) fail "$S: the Navigator dispatch line must sit inside ## Routing" ;;
+esac
+SK_NAVT='- The Navigator makes the same live `tasks.task_start`/`tasks.task_submit` calls on its own docs task (`references/delegation.md` → Navigator row).'
+count_line "$S" "$SK_NAVT" 1
+case "$(awk '/^## Approvals$/ {on=1; next} on && /^## / {exit} on' "$ROOT/$S")" in
+  *"$SK_NAVT"*) ;; *) fail "$S: the Navigator live task-status bullet must sit inside ## Approvals" ;;
+esac
 count_line "$S" "$SK_DOCS" 1
 count_line "$S" "$SK_YAML" 1
 [ "$(next_line "$S" "$SK_PUSH")" = "$SK_DOCS" ] || fail "$S: the Docs approval bullet must follow the Push and PR bullet directly"
@@ -43,12 +53,12 @@ while IFS= read -r l; do
   case "$P7" in *"$l"*) ;; *) fail "$P: must sit in §7 Push and PR: ${l:0:60}" ;; esac
 done <<'EOF'
 **Docs summary.** On a mission with a docs task, the proposal also includes the docs summary: for each `docs-staged` entry, the diff between the current page and its staged file under the current mission's `.allye/missions/<slug>/docs/`, shown as raw Markdown (a new page in full, with its parent); the repo docs files changed; the Watcher's docs-gate findings (`docsGate`, warnings in warn mode); and the proposed Decisions pages. It states that the `kb` publish runs right after the push and PR, before any merge. The user's yes covers publishing exactly the listed staged pages, each with the `contentSha256` it was shown with; any other page, or a staged file changed since, needs a new proposal and a new yes.
-**Publish to `kb`.** Only after that yes, and only while `SHIELD_CLEAR` and `WATCHER_APPROVED` hold for the reviewed point, dispatch the Pilot's publish phase on the docs task, right after the push and PR, before any merge: its packet names each approved staged file with its `contentSha256` and lists in `mcp` only the `kb` writes to those pages. Log each write the Pilot reports: `docs-published` (page id and revision) and, from its `mcpWrites`, each `kb` write as `external-action`.
+**Publish to `kb`.** Only after that yes, and only while `SHIELD_CLEAR` and `WATCHER_APPROVED` hold for the reviewed point, dispatch the Navigator's publish phase on the docs task, right after the push and PR, before any merge: its packet names each approved staged file with its `contentSha256` and lists in `mcp` only the `kb` writes to those pages. Log each write the Navigator reports: `docs-published` (page id and revision) and, from its `mcpWrites`, each `kb` write as `external-action`.
 - A conflict, a changed revision or a hash mismatch stops publishing: report the pages already written with their revisions, never retry, and return to the docs task to re-stage from the fresh pages and ask for approval again.
 - A refusal publishes nothing to `kb`: no yes, or a yes that leaves the docs out, keeps the staged files local.
 - Any later change to the PR (new commits, a rebase) invalidates the gates and returns to re-stage and re-approve before anything else is published.
 - Offer a restore only for a page whose current revision still equals the one its `docs-published` entry recorded.
-- When the PR is closed without merging (the user reports it or you observe it), offer the user a `kb_restore`, through the Pilot's publish phase as its packet lists it, for each published page whose current revision still equals the one recorded in its `docs-published` entry; a page changed since is never restored, only reported.
+- When the PR is closed without merging (the user reports it or you observe it), offer the user a `kb_restore`, through the Navigator's publish phase as its packet lists it, for each published page whose current revision still equals the one recorded in its `docs-published` entry; a page changed since is never restored, only reported.
 EOF
 # The summary comes before the publish step, which comes before the "Never deploy" line.
 order=$(grep -nE '^(\*\*Docs summary\.\*\*|\*\*Publish to `kb`\.\*\*|Never deploy\. Merge)' "$ROOT/$P" | cut -d: -f2- | cut -c1-16 | tr '\n' '|')

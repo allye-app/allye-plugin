@@ -13,6 +13,7 @@ Load each crew skill by name; if the harness has no skill loader, read `../bridg
 | **Architect** | `bridge-architect` | Authors the full spec (Functional + Technical, anchors, `[D-NN]` origins) and thin tasks from resolved decisions; silent research; runs the challenge round through the Mothership; applies confirmed scope-change edits. | No | No |
 | **Dispatcher** | `bridge-dispatcher` | Minimal single-app spec + thin tasks in ≤3 questions; maintains `docs/code-guide.md` in `survey`. | Code guide only | No |
 | **Pilot** | `bridge-pilot` | Implements exactly one slice of a tracked task within its allowed paths, test-first when behavior is executable. | Yes | No |
+| **Navigator** | `bridge-navigator` | Runs only the docs task ("Update documentation"): stages Allye page content and edits repo docs, then publishes the approved pages through `kb` after Shield, Watcher and the user's approval; the only crew agent with `kb`. | Docs only | No |
 | **Copilot** | `bridge-copilot` | Reruns the slice's accepted verify commands independently; checks touched paths and commands against the slice scope. | No | Yes |
 | **Medic** | `bridge-medic` | Tests and regressions per slice and on the whole change; edge-case `challenge` on draft specs; `diagnose` in `repair`. | No | Yes (blocking regression) |
 | **Optimizer** | `bridge-optimizer` | REMOVE_NOW / SIMPLIFY_NOW / KEEP / LATER proposals in `challenge`, `slice` and `optimize`; only user-approved items are applied. | No | No (advisory) |

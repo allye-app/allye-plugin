@@ -8,7 +8,7 @@ set -euo pipefail
 # shellcheck source=install/docs-gate/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 S="skills/bridge/SKILL.md"
-P="skills/bridge-pilot/SKILL.md"
+P="skills/bridge-navigator/SKILL.md"
 
 # each_once <file>: every non-empty line on stdin appears in <file> exactly once.
 each_once() { while IFS= read -r l; do [ -z "$l" ] || count_line "$1" "$l" 1; done; }
@@ -18,7 +18,7 @@ next_line() { awk -v w="$2" 'f && NF {print; exit} $0 == w {f=1}' "$ROOT/$1"; }
 
 # Mothership: four consecutive Approvals bullets right after the Docs bullet.
 SK_DOCS='- Docs: on a mission with a docs task, the push/PR proposal also shows the docs summary, and the user'"'"'s yes covers publishing exactly the listed staged pages to `kb`, only after `SHIELD_CLEAR` and `WATCHER_APPROVED` for the reviewed point; a refusal publishes nothing, and a conflict or changed revision stops publishing and returns to re-stage and re-approve (`publish.md` §7).'
-B1='- Decisions: when the mission'"'"'s spec has `adr: yes` decisions, the docs summary (`publish.md` §7) also proposes one Decisions page per such decision, with the sections context, decision, consequences and the source spec key, titled with the spec key prefix (`<spec key> [D-NN] <decision title>`, e.g. `ALY-46 [D-94] <decision title>`) under the project'"'"'s Decisions folder, and one Changelog entry for the spec. They are created only after the user'"'"'s confirmation, by the same yes as the docs summary, listed page by page; the Pilot stages and publishes them in the docs task.'
+B1='- Decisions: when the mission'"'"'s spec has `adr: yes` decisions, the docs summary (`publish.md` §7) also proposes one Decisions page per such decision, with the sections context, decision, consequences and the source spec key, titled with the spec key prefix (`<spec key> [D-NN] <decision title>`, e.g. `ALY-46 [D-94] <decision title>`) under the project'"'"'s Decisions folder, and one Changelog entry for the spec. They are created only after the user'"'"'s confirmation, by the same yes as the docs summary, listed page by page; the Navigator stages and publishes them in the docs task.'
 B2='- Decisions rerun: before proposing, list the Decisions folder with `kb_tree` and skip every decision whose page title already starts with the same spec key and anchor (`<spec key> [D-NN]`); the Changelog entry dedupes the same way, skipped when the Changelog page (read by short_id) already has the section for that spec key. `kb_search` never decides a dedupe: its index lags.'
 B3='- Decisions folder: a missing Decisions or Changelog folder is proposed for creation under the project tree (survey'"'"'s standard tree) in the same confirmation; it is never created under any other parent.'
 B4='- Decisions memory: memory holds at most a short hint pointing to the Decisions page (`kb-page:<short_id>`); the decision text stays on the page.'
@@ -35,25 +35,31 @@ case "$(awk '/^## Approvals$/ {on=1; next} on && /^## / {exit} on' "$ROOT/$S")" 
   *"$B6"*) ;; *) fail "$S: the Decisions bullets must sit inside ## Approvals" ;;
 esac
 
-# Pilot: one Stage bullet and one Publish bullet in the Docs task.
+# Navigator (D-102): the Stage and Publish bullets of the Docs task; SHD-33 folder and Changelog creates.
 P1='- Decisions and Changelog (only as the packet lists them, from the Mothership'"'"'s deduped proposal): stage each Decisions page as `new-<Decisions short_id>-<kebab title>.md` (sections context, decision, consequences and the source spec key; title `<spec key> [D-NN] <decision title>`) and the Changelog entry as `<Changelog short_id>.md`, the current Changelog page with the spec'"'"'s section appended.'
 P2='- Decisions and Changelog, in the publish phase only and under the same rules (the user'"'"'s approval, `mission_ref`, the `contentSha256` recheck): create each approved Decisions page with `kb_create` naming the Decisions folder as `parent`, and append the Changelog entry with `kb_section` (mode append, `base_revision`).'
-P3='- A missing Decisions or Changelog folder (only as the packet lists it): stage it as `new-<project root short_id>-decisions.md` (or `new-<project root short_id>-changelog.md`).'
-P4='- The staged Changelog file equals the base page plus exactly one appended section, the spec'"'"'s entry.'
-P5='- Publish a staged Decisions or Changelog folder first in the approved list; its returned id becomes the `parent` of the pages staged under it.'
+P3='- A missing Decisions folder (only as the packet lists it): stage it as `new-<project root short_id>-decisions.md`; its Decisions pages stage as `new-new-decisions-<kebab title>.md`.'
+P3B='- A missing Changelog page (only as the packet lists it): stage it as `new-<project root short_id>-changelog.md`, a whole new page whose first section is the spec'"'"'s entry.'
+P4='- The staged file of an existing Changelog page equals the base page plus exactly one appended section, the spec'"'"'s entry.'
+P5='- Publish a staged folder first in the approved list; its returned id becomes the `parent` of every `new-new-<folder kebab>-` page staged under it.'
+P7='- A missing Changelog page is created whole with `kb_create`, naming the project root as `parent`.'
 P6='- Changelog: append exactly its one staged section with `kb_section`; any other difference between the staged file and the base page stops publishing and returns to re-stage, and the Changelog is never written with `kb_update`.'
 each_once "$P" <<EOF
 $P1
 $P2
 $P3
+$P3B
 $P4
 $P5
 $P6
+$P7
 EOF
 [ "$(next_line "$P" "$P1")" = "$P3" ] || fail "$P: the missing-folder stage bullet must follow the Decisions stage bullet"
-[ "$(next_line "$P" "$P3")" = "$P4" ] || fail "$P: the Changelog stage bullet must follow the missing-folder bullet"
+[ "$(next_line "$P" "$P3")" = "$P3B" ] || fail "$P: the missing-Changelog stage bullet must follow the missing-folder bullet"
+[ "$(next_line "$P" "$P3B")" = "$P4" ] || fail "$P: the Changelog stage bullet must follow the missing-Changelog bullet"
 [ "$(next_line "$P" "$P2")" = "$P5" ] || fail "$P: the folder-first bullet must follow the Decisions publish bullet"
 [ "$(next_line "$P" "$P5")" = "$P6" ] || fail "$P: the Changelog publish bullet must follow the folder-first bullet"
+[ "$(next_line "$P" "$P6")" = "$P7" ] || fail "$P: the missing-Changelog create must follow the Changelog publish bullet"
 stage=$(awk '/^\*\*Stage\*\*/ {on=1; next} on && /^\*\*Publish\*\*/ {exit} on' "$ROOT/$P")
 publish=$(awk '/^\*\*Publish\*\*/ {on=1; next} on && /^\*\*Personal notes\*\*/ {exit} on' "$ROOT/$P")
 case "$stage" in *"$P1"*) ;; *) fail "$P: the Decisions stage bullet must sit under **Stage**" ;; esac

@@ -60,7 +60,7 @@ Append-only. Never edit or delete a past entry; to fix a mistake, append a `rect
 
 ```markdown
 ### <ISO-8601 UTC timestamp> — <event type>
-- Actor: mothership|armorer|recon|strategist|architect|dispatcher|pilot|copilot|medic|optimizer|shield|watcher
+- Actor: mothership|armorer|recon|strategist|architect|dispatcher|pilot|navigator|copilot|medic|optimizer|shield|watcher
 - Task: <task key | global>
 - Attempt: <n | n/a>
 - Commit: <HEAD sha>[ +dirty] | n/a
@@ -114,7 +114,7 @@ When a slice is blocked, the merged note sent with `tasks.task_request_changes` 
 
 Challenge-round findings (Medic, Optimizer, Shield) go in the same files under a section headed `challenge`, written right after publish; the Strategist's challenge findings are summarized in the `spec-challenge` log entry.
 
-Recon, Strategist, Architect, Dispatcher, Pilot and Armorer return structured output to the Mothership, which logs the relevant facts (including their `mcpWrites`); they have no crew file. Never put secrets or raw tool transcripts in crew files.
+Recon, Strategist, Architect, Dispatcher, Pilot, Navigator and Armorer return structured output to the Mothership, which logs the relevant facts (including their `mcpWrites`); they have no crew file. Never put secrets or raw tool transcripts in crew files.
 
 ## Resume
 

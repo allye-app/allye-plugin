@@ -140,7 +140,7 @@ If an earlier run could not finish moving your edited folder (a failed restore, 
 bootstrap/allye.md          shared bootstrap text (single source)
 skills/bridge/              the Bridge skill and its references
 skills/bridge-*/            the crew skills (Armorer, Recon, Strategist, Architect, Dispatcher,
-                            Pilot, Copilot, Medic, Optimizer, Shield, Watcher)
+                            Pilot, Navigator, Copilot, Medic, Optimizer, Shield, Watcher)
 agents/bridge-*.md          native crew subagents (Claude Code; OpenCode registers them from here):
                             load the matching crew skill under a per-role tool allowlist
 hooks/                      Claude Code SessionStart hook
