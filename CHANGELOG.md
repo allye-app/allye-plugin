@@ -1,3 +1,10 @@
+# [2.8.0](https://github.com/allye-app/allye-plugin/compare/v2.7.0...v2.8.0) (2026-10-14)
+
+
+### Features
+
+* **bootstrap:** drop the legacy docs tool from the default-team rule (ALY-65) ([#24](https://github.com/allye-app/allye-plugin/issues/24)) ([35e08d1](https://github.com/allye-app/allye-plugin/commit/35e08d1d9282cea22e3e82ff7329febe1536fbad))
+
 # [2.7.0](https://github.com/allye-app/allye-plugin/compare/v2.6.0...v2.7.0) (2026-10-13)
 
 
