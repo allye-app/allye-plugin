@@ -41,7 +41,7 @@ Safety rules the block implements:
 - A `plugin` value that is not an array makes the transform fail, and the config is left unchanged.
 - Close OpenCode before running this (a running OpenCode may rewrite the file). A shell killed mid-run can leave a `.opencode.json.XXXXXX` temp file (mode 600) in the config directory; delete it. The existing config is copied first (private, mode 600) to `~/.allye/backups/opencode/opencode.json.allye.backup.<UTC ts>`, and the new content is transformed from that copy into a temporary file in the same directory. If the copy fails, or the config changed since the copy, the config is left unchanged. The path is reported only after the config was replaced; on a failure after the backup, the message names the kept backup. Backups accumulate in `~/.allye/backups/opencode/`; tell the user where they are so they can prune them.
 - The pin replaces the existing `allye-opencode` entry in place (same position; appended only when absent). jq rewrites the file, so its formatting is normalised and large numbers or duplicate keys may be normalised too; the backup has the original bytes. Only the file mode is preserved, not ownership or group.
-- If the configured pin is newer than `$VERSION`, the block stops before any write; only after the user confirms the downgrade, set `ALLYE_ALLOW_DOWNGRADE=1` and rerun. After a write, the backup is the rollback.
+- If the configured pin is newer than `$VERSION`, the block stops before any write (also when the versions cannot be compared, e.g. a `sort` without `-V`); only after the user confirms the downgrade, set `ALLYE_ALLOW_DOWNGRADE=1` and rerun. After a write, the backup is the rollback.
 - Any other `allye-opencode` plugin entry (unpinned, another version, or array form `["allye-opencode", {...}]`) is replaced by the pin; an array-form entry keeps its options and only its first element is re-pinned. The config ends with exactly one `allye-opencode@$VERSION` plugin entry; unrelated entries are untouched.
 - The `allye` MCP entry is set only when it is missing; when it differs from the Allye default it is left as is and the block reports it, so tell the user. The legacy `allye-mcp` entry is dropped, and `opencode mcp logout allye-mcp` runs after the config was replaced when it was present; a logout failure is reported to the user and is not fatal. The `MCP entry` line prints only booleans, the JSON type of `enabled` and the extra key names, never values (a url or headers may carry secrets).
 
@@ -60,9 +60,12 @@ CFG=$(readlink -f "$CFG") || { echo "could not resolve opencode.json; left uncha
 [ -f "$CFG" ] || { echo "opencode.json is not a regular file; left unchanged" >&2; exit 1; }
 jq -e . "$CFG" >/dev/null || { echo "opencode.json is not valid JSON; left unchanged" >&2; exit 1; }
 CUR=$(jq -r 'try ([(.plugin // [])[] | (if type == "array" then .[0] else . end) | select(type == "string" and startswith("allye-opencode@"))] | first // "" | ltrimstr("allye-opencode@")) catch ""' "$CFG")
-if [[ "$CUR" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ "$CUR" != "$VERSION" ] && [ "$(printf '%s\n%s\n' "$CUR" "$VERSION" | sort -V | head -n 1)" = "$VERSION" ] && [ "${ALLYE_ALLOW_DOWNGRADE:-}" != 1 ]; then
-  echo "Configured allye-opencode@$CUR is newer than $VERSION: this would be a downgrade. Nothing was changed. Ask the user; only if they confirm, set ALLYE_ALLOW_DOWNGRADE=1 and rerun this block." >&2
-  exit 1
+if [[ "$CUR" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ "$CUR" != "$VERSION" ] && [ "${ALLYE_ALLOW_DOWNGRADE:-}" != 1 ]; then
+  LOW=$(printf '%s\n%s\n' "$CUR" "$VERSION" | sort -V | head -n 1)
+  if [ "$LOW" != "$CUR" ]; then
+    echo "Configured allye-opencode@$CUR is newer than $VERSION, or the versions could not be compared: treating this as a downgrade. Nothing was changed. Ask the user; only if they confirm, set ALLYE_ALLOW_DOWNGRADE=1 and rerun this block." >&2
+    exit 1
+  fi
 fi
 BD="$HOME/.allye/backups/opencode"
 ( umask 077; mkdir -p "$BD" )
