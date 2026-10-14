@@ -6,11 +6,39 @@ OMP is a fork of Pi and reads the same package manifest (`omp`, falling back to 
 
 ## Install the package
 
-```text
-omp plugin install allye-pi
+Resolve the version first, before any change. Run the resolve block, the npm check and the install in one shell session, so `VERSION` and `TAG` carry over. Only stable `vX.Y.Z` releases are accepted (no pre-release or build suffix), and `curl` and `jq` are required. The version is the one the user named, otherwise the latest GitHub release of `allye-app/allye-plugin`.
+
+```bash
+# Never put user text in this script unless it already matched ^v?[0-9]+\.[0-9]+\.[0-9]+$: write only the matched digits and dots (never the original text, never a value containing a quote).
+RAW=''   # set to the version only if you checked the user's text as a whole against ^v?[0-9]+\.[0-9]+\.[0-9]+$ (digits, dots, optional leading v); otherwise leave empty
+[ -n "$RAW" ] || RAW=$(curl -fsSL https://api.github.com/repos/allye-app/allye-plugin/releases/latest | jq -r '.tag_name // empty')
+RAW="${RAW#v}"
+if ! [[ "$RAW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "No valid release version: $RAW" >&2; return 1 2>/dev/null || exit 1; fi
+VERSION="$RAW"; TAG="v$VERSION"
+echo "Installing Allye $VERSION"
 ```
 
-Update with `omp plugin upgrade allye-pi`; remove with `omp plugin uninstall allye-pi`.
+Tell the user the version. If no valid version resolves, stop and change nothing.
+
+Check that this version exists on npm. The release tag can appear before the npm publish: if the command fails, report it and stop; never fall back to an unpinned install. Show the user the printed version and `dist.integrity`. The Git release tag is trusted as published.
+
+```bash
+: "${VERSION:?}" "${TAG:?}"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid VERSION" >&2; return 1 2>/dev/null || exit 1; }
+(cd "$HOME" && npm view allye-pi@"$VERSION" version dist.integrity)
+```
+
+Before installing, list the installed plugins with `omp plugin list` and note any `allye-pi` entry. If an older unpinned or different-version `allye-pi` is present, follow the update rules below (confirm with the user, then `--force` or uninstall first) so the pinned install replaces it instead of adding a second copy. After the install, run `omp plugin list` again and confirm exactly one `allye-pi` entry, at the pinned version.
+
+Install the pinned version:
+
+```bash
+: "${VERSION:?}" "${TAG:?}"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid VERSION" >&2; return 1 2>/dev/null || exit 1; }
+omp plugin install allye-pi@"$VERSION"
+```
+
+To update, resolve the newer version as above (same shell, same checks) and re-run the install with it. If OMP says the plugin is already installed, first confirm the installed plugin is `allye-pi` (`omp plugin list`) and that the user agrees, then confirm `omp plugin install --help` lists `--force` and re-run with `--force`; if the flag is not listed, run `omp plugin uninstall allye-pi` and install the pinned version again. If the install fails after the uninstall, tell the user to reinstall the previous version and report the failure. Do not use `omp plugin upgrade`. Remove with `omp plugin uninstall allye-pi`.
 
 ## Configure the MCP server
 

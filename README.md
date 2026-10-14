@@ -59,7 +59,7 @@ Then open `/plugin`, find the Allye MCP server, click **Connect** and sign in. U
 
 ### Codex, OpenCode
 
-Paste into the agent:
+Paste into the agent. The install and update guides install one pinned release: the latest GitHub release unless you name a version. They check that it exists, never download from a branch, and keep a timestamped backup of any config they rewrite (`opencode.json`, `~/.codex/AGENTS.md`, `~/.codex/skills/bridge*`) under `~/.allye/backups/<harness>/`.
 
 ```
 Install Allye following: https://raw.githubusercontent.com/allye-app/allye-plugin/main/docs/install-codex.md
@@ -69,11 +69,11 @@ Install Allye following: https://raw.githubusercontent.com/allye-app/allye-plugi
 ### Pi, OMP
 
 ```bash
-pi install npm:allye-pi          # Pi
-omp plugin install allye-pi      # OMP
+pi install npm:allye-pi@<version>          # Pi
+omp plugin install allye-pi@<version>      # OMP
 ```
 
-Then add the `allye` MCP server as described in [install-pi.md](docs/install-pi.md) or [install-omp.md](docs/install-omp.md).
+Use a pinned `<version>` (the guides resolve it for you). Then add the `allye` MCP server as described in [install-pi.md](docs/install-pi.md) or [install-omp.md](docs/install-omp.md).
 
 ## Your organization's skills
 
