@@ -1,3 +1,10 @@
+## [2.8.1](https://github.com/allye-app/allye-plugin/compare/v2.8.0...v2.8.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **docs:** install and update guides install one pinned release and never clobber user config (ALY-85) ([#25](https://github.com/allye-app/allye-plugin/issues/25)) ([3e5f453](https://github.com/allye-app/allye-plugin/commit/3e5f4537a9b1c54c317be21170653aa8097f1aa9))
+
 # [2.8.0](https://github.com/allye-app/allye-plugin/compare/v2.7.0...v2.8.0) (2026-10-14)
 
 
