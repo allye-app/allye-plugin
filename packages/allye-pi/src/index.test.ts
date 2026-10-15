@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, truncateSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import allyePiExtension, {
+  allyeMcpConfigured,
   buildSystemSections,
+  isOmp,
+  OMP_MCP_ADD_COMMAND,
+  OMP_MCP_NOTICE,
+  ompMcpConfigPaths,
+  readMcpConfigFile,
   loadBootstrap,
   mcpBridgeAvailable,
   skillsPath,
@@ -388,4 +394,187 @@ test("SHD-S01: an unencoded '#' or '?' in a password never leaks part of the cre
     assert.equal(calls.find((call) => call.tool === "projects")?.args.repository_url, "https://host/r");
     assert.doesNotMatch(prompt, /u:pa|pa\?ss/);
   });
+});
+
+// --- AC-04: OMP notice when the `allye` MCP server is not configured. ---
+
+const EXPECTED_COMMAND = "/mcp add allye --scope user --url https://mcp.allye.app/mcp --transport http";
+
+test("AC-04: the notice carries the exact /mcp add command", () => {
+  assert.equal(OMP_MCP_ADD_COMMAND, EXPECTED_COMMAND);
+  assert.ok(OMP_MCP_NOTICE.includes(EXPECTED_COMMAND));
+});
+
+test("AC-04: detection reads user and project scope configs, with an injected reader", () => {
+  const paths = ompMcpConfigPaths("/work/repo", { PI_CODING_AGENT_DIR: "/home/u/.omp/agent" }, "/home/u");
+  assert.ok(paths.includes("/home/u/.omp/agent/mcp.json"));
+  assert.ok(paths.includes("/work/repo/.omp/mcp.json"));
+  assert.ok(paths.includes("/work/repo/.mcp.json"));
+  assert.deepEqual(ompMcpConfigPaths("/w", {}, "/home/u")[0], "/home/u/.omp/agent/mcp.json");
+  const withServer = JSON.stringify({ mcpServers: { allye: { type: "http", url: "https://mcp.allye.app/mcp" } } });
+  const only = (target: string) => (path: string) => (path === target ? withServer : null);
+  assert.equal(allyeMcpConfigured(paths, only("/home/u/.omp/agent/mcp.json")), true, "user scope");
+  assert.equal(allyeMcpConfigured(paths, only("/work/repo/.omp/mcp.json")), true, "project scope");
+  assert.equal(allyeMcpConfigured(paths, () => null), false);
+  assert.equal(allyeMcpConfigured(paths, () => JSON.stringify({ mcpServers: { other: {} } })), false);
+});
+
+test("AC-04: unreadable or invalid config never throws", () => {
+  const paths = ["/a", "/b", "/c"];
+  assert.equal(allyeMcpConfigured(paths, () => { throw new Error("EACCES"); }), false);
+  assert.equal(allyeMcpConfigured(paths, () => "{not json"), false);
+  assert.equal(allyeMcpConfigured(paths, () => "null"), false);
+});
+
+test("isOmp is true for the omp executable or OMP's agent dir only", () => {
+  assert.equal(isOmp({}, ["/usr/bin/node", "/x/index.js"], "/usr/bin/node"), false);
+  assert.equal(isOmp({}, ["/usr/bin/node", "/usr/bin/omp"], "/usr/bin/node"), true);
+  assert.equal(isOmp({ PI_CODING_AGENT_DIR: "/home/u/.omp/agent" }, [], "/usr/bin/node"), true);
+  assert.equal(isOmp({ PI_CODING_AGENT_DIR: "/home/u/.pi/agent" }, [], "/usr/bin/node"), false);
+});
+
+async function ompSession(configs: Record<string, string>, loads = 2) {
+  const root = mkdtempSync(join(tmpdir(), "allye-omp-"));
+  const agentDir = join(root, ".omp", "agent");
+  mkdirSync(agentDir, { recursive: true });
+  for (const [name, text] of Object.entries(configs)) writeFileSync(join(agentDir, name), text);
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const notices: Array<{ message: string; level: string }> = [];
+  const handlers = new Map<string, Handler>();
+  const pi = { on: (name: string, h: Handler) => handlers.set(name, h), registerCommand: () => undefined };
+  const ctx = { cwd: root, ui: { notify: (message: string, level: string) => notices.push({ message, level }) } };
+  try {
+    allyePiExtension(pi as never);
+    for (let i = 0; i < loads; i++) await handlers.get("session_start")!({}, ctx);
+    await handlers.get("before_agent_start")!({ prompt: "p", systemPrompt: "BASE" }, ctx);
+    return { notices, files: readdirSync(root, { recursive: true }).map(String).sort() };
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("AC-04: in OMP, a missing allye server shows exactly one notice per load and writes nothing", async () => {
+  const { notices, files } = await ompSession({}, 3);
+  assert.equal(notices.length, 1);
+  assert.ok(notices[0].message.includes(EXPECTED_COMMAND));
+  assert.deepEqual(files, [".omp", ".omp/agent"], "no configuration file was created");
+});
+
+test("AC-04: in OMP, a configured allye server shows nothing", async () => {
+  const { notices } = await ompSession({ "mcp.json": JSON.stringify({ mcpServers: { allye: { type: "http", url: "https://mcp.allye.app/mcp" } } }) });
+  assert.deepEqual(notices, []);
+});
+
+test("AC-04: in OMP, an invalid config does not throw and the notice is shown once", async () => {
+  const { notices } = await ompSession({ "mcp.json": "{broken" });
+  assert.equal(notices.length, 1);
+});
+
+test("AC-04: outside OMP no notice is shown", async () => {
+  await withSession({}, ({ notifications }) => {
+    assert.deepEqual(notifications, []);
+  });
+});
+
+test("AC-04: the notice code path has no file write calls", () => {
+  const source = readFileSync(resolve(import.meta.dirname, "index.ts"), "utf8");
+  assert.doesNotMatch(source, /writeFile|appendFile|mkdirSync|renameSync|unlinkSync|copyFile/);
+});
+
+test("SHD-01: config reader returns null for symlinks, directories and oversized files", () => {
+  const dir = mkdtempSync(join(tmpdir(), "allye-cfg-"));
+  try {
+    const good = join(dir, "good.json");
+    writeFileSync(good, "{}");
+    assert.equal(readMcpConfigFile(good, dir), "{}");
+    symlinkSync(good, join(dir, "link.json"));
+    assert.equal(readMcpConfigFile(join(dir, "link.json"), dir), null, "symlink");
+    symlinkSync("/dev/zero", join(dir, "zero.json"));
+    assert.equal(readMcpConfigFile(join(dir, "zero.json"), dir), null, "symlink to /dev/zero");
+    mkdirSync(join(dir, "d.json"));
+    assert.equal(readMcpConfigFile(join(dir, "d.json"), dir), null, "directory");
+    const big = join(dir, "big.json");
+    writeFileSync(big, "");
+    truncateSync(big, 256 * 1024 + 1);
+    assert.equal(readMcpConfigFile(big, dir), null, "oversized");
+    assert.equal(readMcpConfigFile(join(dir, "missing.json"), dir), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a server with enabled:false, a missing mcpServers or a top-level allye key is not configured", () => {
+  const paths = ["/a"];
+  const read = (value: unknown) => () => JSON.stringify(value);
+  assert.equal(allyeMcpConfigured(paths, read({ mcpServers: { allye: { enabled: false } } })), false);
+  assert.equal(allyeMcpConfigured(paths, read({ mcpServers: { allye: { enabled: true } } })), true);
+  assert.equal(allyeMcpConfigured(paths, read({})), false);
+  assert.equal(allyeMcpConfigured(paths, read({ allye: { url: "x" } })), false);
+});
+
+test("a non-absolute PI_CODING_AGENT_DIR falls back to ~/.omp/agent", () => {
+  assert.equal(ompMcpConfigPaths("/w", { PI_CODING_AGENT_DIR: "rel/dir" }, "/home/u")[0], "/home/u/.omp/agent/mcp.json");
+});
+
+test("a Pi agent dir (.pi/agent) shows no notice", async () => {
+  const root = mkdtempSync(join(tmpdir(), "allye-pi-agent-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(root, ".pi", "agent");
+  const notices: string[] = [];
+  const handlers = new Map<string, Handler>();
+  try {
+    allyePiExtension({ on: (n: string, h: Handler) => handlers.set(n, h), registerCommand: () => undefined } as never);
+    await handlers.get("session_start")!({}, { cwd: root, ui: { notify: (m: string) => notices.push(m) } });
+    assert.deepEqual(notices, []);
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("SHD-02: a symlinked parent directory leaving the base reads as absent", () => {
+  const root = mkdtempSync(join(tmpdir(), "allye-par-"));
+  try {
+    const cwd = join(root, "repo");
+    const outside = join(root, "outside");
+    mkdirSync(cwd);
+    mkdirSync(outside);
+    writeFileSync(join(outside, "mcp.json"), JSON.stringify({ mcpServers: { allye: {} } }));
+    symlinkSync(outside, join(cwd, ".omp"));
+    assert.equal(readMcpConfigFile(join(cwd, ".omp", "mcp.json"), cwd), null);
+    mkdirSync(join(cwd, "real"));
+    writeFileSync(join(cwd, "real", "mcp.json"), "{}");
+    assert.equal(readMcpConfigFile(join(cwd, "real", "mcp.json"), cwd), "{}", "inside the base is fine");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("SHD-02: in OMP, a symlinked .omp pointing outside cwd does not count as configured", async () => {
+  const root = mkdtempSync(join(tmpdir(), "allye-par2-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  const agentDir = join(root, "home", ".omp", "agent");
+  const cwd = join(root, "repo");
+  const outside = join(root, "outside");
+  mkdirSync(agentDir, { recursive: true });
+  mkdirSync(cwd);
+  mkdirSync(outside);
+  writeFileSync(join(outside, "mcp.json"), JSON.stringify({ mcpServers: { allye: {} } }));
+  symlinkSync(outside, join(cwd, ".omp"));
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const notices: string[] = [];
+  const handlers = new Map<string, Handler>();
+  try {
+    allyePiExtension({ on: (n: string, h: Handler) => handlers.set(n, h), registerCommand: () => undefined } as never);
+    await handlers.get("session_start")!({}, { cwd, ui: { notify: (m: string) => notices.push(m) } });
+    assert.equal(notices.length, 1);
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
