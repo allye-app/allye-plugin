@@ -73,7 +73,7 @@ pi install npm:allye-pi@<version>          # Pi
 omp plugin install allye-pi@<version>      # OMP
 ```
 
-Use a pinned `<version>` (the guides resolve it for you). Then add the `allye` MCP server as described in [install-pi.md](docs/install-pi.md) or [install-omp.md](docs/install-omp.md).
+Use a pinned `<version>` (the guides resolve it for you). Then add the `allye` MCP server as described in [install-pi.md](docs/install-pi.md) or [install-omp.md](docs/install-omp.md). In OMP, `allye-pi` shows one notice at session start with the exact command `/mcp add allye --scope user --url https://mcp.allye.app/mcp --transport http` when no `allye` server is found in OMP's own `mcp.json` files; it never writes configuration.
 
 ## Your organization's skills
 
