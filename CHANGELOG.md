@@ -1,3 +1,10 @@
+## [2.8.2](https://github.com/allye-app/allye-plugin/compare/v2.8.1...v2.8.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* **bootstrap:** drop user config from the default-team rule (ALY-169) ([2af0448](https://github.com/allye-app/allye-plugin/commit/2af0448e5211275868af890a31d64780a5d263a1))
+
 ## [2.8.1](https://github.com/allye-app/allye-plugin/compare/v2.8.0...v2.8.1) (2026-10-14)
 
 
