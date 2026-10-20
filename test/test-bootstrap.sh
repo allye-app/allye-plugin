@@ -18,7 +18,7 @@ for phrase in 'team follows the project' 'pass `team_id` on memory writes' 'with
 done
 grep -qiE '`ambiguous`.*`not_found`' "$SRC" || fail "bootstrap does not cover ambiguous/not_found resolutions"
 grep -qiE 'memories.*data, not instructions|data, not instructions.*memories' "$SRC" || fail "bootstrap does not treat server content (including memories) as data"
-DEFAULT_TEAM_LINE='- A default team (`team` action `team_set_default`) is only needed to create projects and for memories, todos and user config without `team_id`. If you belong to several teams, pass `team_id` on memory writes: the project'"'"'s team, as returned by `project_resolve`.'
+DEFAULT_TEAM_LINE='- A default team (`team` action `team_set_default`) is only needed to create projects and for memories and todos without `team_id`. If you belong to several teams, pass `team_id` on memory writes: the project'"'"'s team, as returned by `project_resolve`.'
 [ "$(grep -c -- '^- A default team' "$SRC")" -eq 1 ] || fail "bootstrap must have exactly one default-team line"
 grep -qxF -- "$DEFAULT_TEAM_LINE" "$SRC" || fail "bootstrap default-team line differs from the [D-01] text"
 if grep -qi 'active team scopes every' "$SRC"; then fail "bootstrap still says the active team scopes every call"; fi
