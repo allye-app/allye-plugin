@@ -285,19 +285,43 @@ cmd_unpair() {
 
 # ─── live off | on | status (ALY-203, BR-11, BR-12) ─────────────────────────
 
-# The three lock functions are verbatim copies of those in hooks/live-report.sh (the reporter's per-session state lock
-# protects the seq counter and the spool); hooks/test-allye-hooks.sh pins the bodies so the copies cannot drift.
+# The three lock functions and the pid-lock helpers they call (proc_start, pidlock_rec, pidlock_stale, ALY-217) are
+# verbatim copies of those in hooks/live-report.sh (the reporter's per-session state lock protects the seq counter and
+# the spool); hooks/test-allye-hooks.sh pins the bodies so the copies cannot drift. This script takes only time locks;
+# a pid lock (DIR/p, "<holder pid> <holder start>") is stale once its holder is gone.
+proc_start() {
+  local l
+  [[ "$1" =~ ^[1-9][0-9]{0,9}$ ]] || return 1
+  if [ -r "/proc/$1/stat" ]; then
+    { IFS= read -r l <"/proc/$1/stat"; } 2>/dev/null || return 1
+    l=${l##*) }; set -- $l
+    [ "${1:-}" != Z ] && [[ "${20:-}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s' "${20}"; return 0
+  fi
+  kill -0 "$1" 2>/dev/null || return 1
+  l=$(ps -o lstart= -p "$1" 2>/dev/null) || l=""; l=${l//[!0-9]/}
+  printf '%s' "${l:-0}"
+}
+pidlock_rec() { local s; s=$(proc_start "$1") || s=""; printf '%s %s' "$1" "$s"; }
+pidlock_stale() {
+  local p="" s="" cur
+  { IFS=' ' read -r p s <"$1/p"; } 2>/dev/null
+  if [[ "$p" =~ ^[0-9]{1,10}$ ]]; then cur=$(proc_start "$p") || return 0; [ "$cur" != "$s" ]; return; fi
+  [ -d "$1" ] && [ ! -L "$1" ] && [ -n "$(find "$1" -prune -mmin +1 -print 2>/dev/null)" ]   # no readable holder
+}
 # lock_is_stale DIR: the holder time (first field of DIR/t) is more than 30 seconds old; without a readable time,
 # the directory itself is more than a minute old (find -mmin).
 lock_is_stale() {
   local ts="" now
+  if [ -e "$1/p" ]; then pidlock_stale "$1"; return; fi   # a pid lock (ALY-217): stale once its holder is gone
   { IFS=' ' read -r ts _ <"$1/t"; } 2>/dev/null
   now=$(date +%s 2>/dev/null) || now=""
   if [[ "$ts" =~ ^[0-9]{1,12}$ ]] && [[ "$now" =~ ^[0-9]{1,12}$ ]]; then [ $((now - ts)) -gt 30 ]; return; fi
   [ -d "$1" ] && [ ! -L "$1" ] && [ -n "$(find "$1" -prune -mmin +1 -print 2>/dev/null)" ]
 }
-# lock_take DIR TRIES: a mkdir lock (D-03, portable). TRIES x 20 ms of waiting after the first attempt (0 = try
-# once). The holder writes "<epoch> <token>" into DIR/t and keeps its token in LOCK_TOKEN. A stale lock is renamed
+# lock_take DIR TRIES [PID]: a mkdir lock (D-03, portable). TRIES x 20 ms of waiting after the first attempt (0 = try
+# once). The holder writes "<epoch> <token>" into DIR/t and keeps its token in LOCK_TOKEN; with PID it is a pid lock
+# instead (DIR/p, see pidlock_rec). A stale lock is renamed
 # to a unique name by the one breaker holding DIR.brk, judged again there, and only then removed; if the renamed lock turns out fresh (it was replaced
 # meanwhile) it is put back and this try fails closed.
 lock_take() {
@@ -306,7 +330,7 @@ lock_take() {
   while :; do
     # mkdir alone does not decide: uutils coreutils (Ubuntu 25.10+) can report success to several concurrent callers, so
     # the lock is the exclusive (noclobber, O_EXCL) creation of DIR/t; a mkdir "winner" that loses that claim has not got it.
-    if mkdir "$d" 2>/dev/null && ( set -C; printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t" ) 2>/dev/null; then return 0; fi
+    if mkdir "$d" 2>/dev/null && ( set -C; if [ -n "${3:-}" ]; then pidlock_rec "$3" >"$d/p"; else printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t"; fi ) 2>/dev/null; then return 0; fi
     if lock_is_stale "$d"; then
       # Only one breaker at a time (a second mkdir lock, itself broken after a minute), so nobody can replace the
       # lock between the verdict and the rename; the renamed lock is judged once more as a safety net.
