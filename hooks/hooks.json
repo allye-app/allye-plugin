@@ -9,6 +9,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-preferences.sh",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

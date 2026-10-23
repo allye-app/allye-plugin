@@ -19,7 +19,7 @@ if [ "$tool" = curl ]; then
     case "$a" in http://*|https://*) loopback "${a%%/api*}" || { echo "curl shim: refused non-loopback $a" >&2; echo "REFUSED $a" >>"$log/refused.log"; exit 97; } ;; esac
   done
   url=$(printf '%s\n' "$cfg" | sed -n 's/^url = "\(.*\)"$/\1/p')
-  printf '%s\n' "$cfg" | grep -E '^(url|request|max-time|connect-timeout|max-filesize|proto) ' >>"$log/curl-config.log"
+  printf '%s\n' "$cfg" | grep -E '^(url|request|max-time|connect-timeout|max-filesize|proto|noproxy) ' >>"$log/curl-config.log"
   if [ -n "$url" ] && ! loopback "${url%%/api*}"; then
     echo "curl shim: refused non-loopback $url" >&2; echo "REFUSED $url" >>"$log/refused.log"; exit 97
   fi
