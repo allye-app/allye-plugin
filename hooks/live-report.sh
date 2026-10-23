@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Code Live reporter (ALY-203). One asynchronous hook script that branches on hook_event_name.
-# Slices ALY-203.2/.3: confirmed events are reduced to contract events and spooled locally (no seq, no sending yet);
+# Slices ALY-203.2/.3/.5: confirmed events are reduced to contract events and spooled locally with a seq (no sending yet);
 # MCP tools are reduced (BR-13) and bind events are derived from four sources (BR-08).
 #
 # Contract (BR-01, BR-03): always exits 0 and prints nothing to stdout or stderr. It does nothing, and
@@ -36,7 +36,7 @@ if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then exit 0; fi
 # enumeration inside it; a value that fails is DROPPED (never truncated, never sent). Prompts, commands,
 # tool inputs and outputs, paths, messages, transcripts and the cwd are never read into the output.
 # AC-14: files are keyed by the SHA-256 hex of the session id; the raw id is never written anywhere.
-# Not in this slice: seq, sending, flush (ALY-203.5/.6).
+# Not in this file yet: sending and flush (ALY-203.6/.7).
 #
 # ALY-203.3 (BR-13, BR-08):
 # - Tool reduction runs BEFORE the 32-character name rule. A name starting `mcp__` is an MCP tool named
@@ -97,9 +97,86 @@ private_file_ok() {
 # The live directory: a real directory owned by the user, mode 0700 (SHD-01); created 0700 when absent.
 live_dir_ok() {
   [ -L "$LIVE_DIR" ] && return 1
-  [ -e "$LIVE_DIR" ] || mkdir -m 700 "$LIVE_DIR" 2>/dev/null || return 1
+  [ -e "$LIVE_DIR" ] || mkdir -m 700 "$LIVE_DIR" 2>/dev/null || [ -d "$LIVE_DIR" ] || return 1   # parallel first hooks race here
   [ -n "$(find "$LIVE_DIR" -prune -type d -user "$UID_NOW" -perm 0700 -print 2>/dev/null)" ]
 }
+
+# ─── ALY-203.5: lock, seq and spool cap (BR-04, BR-05, SHD-01..03) ───
+# lock_is_stale DIR: the holder time (first field of DIR/t) is more than 30 seconds old; without a readable time,
+# the directory itself is more than a minute old (find -mmin).
+lock_is_stale() {
+  local ts="" now
+  { IFS=' ' read -r ts _ <"$1/t"; } 2>/dev/null
+  now=$(date +%s 2>/dev/null) || now=""
+  if [[ "$ts" =~ ^[0-9]{1,12}$ ]] && [[ "$now" =~ ^[0-9]{1,12}$ ]]; then [ $((now - ts)) -gt 30 ]; return; fi
+  [ -d "$1" ] && [ ! -L "$1" ] && [ -n "$(find "$1" -prune -mmin +1 -print 2>/dev/null)" ]
+}
+# lock_take DIR TRIES: a mkdir lock (D-03, portable). TRIES x 20 ms of waiting after the first attempt (0 = try
+# once). The holder writes "<epoch> <token>" into DIR/t and keeps its token in LOCK_TOKEN. A stale lock is renamed
+# to a unique name by the one breaker holding DIR.brk, judged again there, and only then removed; if the renamed lock turns out fresh (it was replaced
+# meanwhile) it is put back and this try fails closed.
+lock_take() {
+  local d="$1" n="${2:-0}" i=0 old
+  LOCK_TOKEN="$$.$RANDOM$RANDOM"
+  while :; do
+    if mkdir "$d" 2>/dev/null; then printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t" 2>/dev/null; return 0; fi
+    if lock_is_stale "$d"; then
+      # Only one breaker at a time (a second mkdir lock, itself broken after a minute), so nobody can replace the
+      # lock between the verdict and the rename; the renamed lock is judged once more as a safety net.
+      [ -n "$(find "$d.brk" -prune -mmin +1 -print 2>/dev/null)" ] && rm -rf "$d.brk" 2>/dev/null
+      if mkdir "$d.brk" 2>/dev/null; then
+        old="$d.old.$$.$RANDOM"
+        if lock_is_stale "$d" && mv "$d" "$old" 2>/dev/null; then
+          if lock_is_stale "$old"; then rm -rf "$old" 2>/dev/null
+          else [ -e "$d" ] || mv "$old" "$d" 2>/dev/null; rm -rf "$old" "$d.brk" 2>/dev/null; return 1; fi
+        fi
+        rm -rf "$d.brk" 2>/dev/null
+        continue
+      fi
+    fi
+    i=$((i + 1)); [ "$i" -gt "$n" ] && return 1
+    sleep 0.02
+  done
+}
+# lock_drop DIR TOKEN: removes the lock only while DIR/t still holds this hook's own token.
+lock_drop() {
+  local t=""
+  { IFS=' ' read -r _ t <"$1/t"; } 2>/dev/null
+  [ -n "${2:-}" ] && [ "$t" = "$2" ] && rm -rf "$1" 2>/dev/null
+  return 0
+}
+now_ms() { local m; m=$(date +%s%3N 2>/dev/null); [[ "$m" =~ ^[0-9]{13,16}$ ]] || m="$(date +%s 2>/dev/null)000"; printf '%s' "$m"; }
+# spool_trim FILE DIR: bounded growth when sending never succeeds (SHD-03): keep the newest 500 lines and at most
+# 262144 bytes; a line cut by the byte limit is dropped whole. Called under the state lock.
+spool_trim() {
+  local f="$1" d="$2" lines bytes tmp
+  bytes=$(wc -c <"$f" 2>/dev/null) || return 0; bytes=${bytes//[[:space:]]/}
+  lines=$(wc -l <"$f" 2>/dev/null) || return 0; lines=${lines//[[:space:]]/}
+  [[ "$bytes" =~ ^[0-9]+$ ]] && [[ "$lines" =~ ^[0-9]+$ ]] || return 0
+  [ "$bytes" -le 262144 ] && [ "$lines" -le 500 ] && return 0
+  tmp=$(mktemp "$d/.spool.XXXXXX" 2>/dev/null) || return 0
+  TMPF="$tmp"
+  tail -n 500 "$f" >"$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  bytes=$(wc -c <"$tmp" 2>/dev/null); bytes=${bytes//[[:space:]]/}
+  if [[ "$bytes" =~ ^[0-9]+$ ]] && [ "$bytes" -gt 262144 ]; then
+    tail -c 262144 "$tmp" 2>/dev/null | sed 1d >"$tmp.2" 2>/dev/null && mv -f "$tmp.2" "$tmp" 2>/dev/null
+    rm -f "$tmp.2" 2>/dev/null
+  fi
+  mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# The live directory is checked before the first read or write (SHD-01), then every read-modify-write of this
+# session (state, bind, gates, seq, spool) runs under one lock, so parallel hooks of a session are consistent.
+# A hook that cannot get the lock within about 10 seconds gives up and drops its events (it exits 0, silent).
+live_dir_ok || exit 0
+HAVE_LOCK=0; LOCKD="$LIVE_DIR/$HASH.lock"
+TMPF=""
+cleanup() { [ -z "$TMPF" ] || rm -f "$TMPF" "$TMPF.2" 2>/dev/null; [ "$HAVE_LOCK" = 1 ] && lock_drop "$LOCKD" "$LOCK_TOKEN"; return 0; }
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+lock_take "$LOCKD" 500 || exit 0
+HAVE_LOCK=1
 
 LAST=""
 if [ -f "$STATEF" ] && [ ! -L "$STATEF" ] && private_file_ok "$STATEF"; then
@@ -348,20 +425,41 @@ if [ -n "$GATELINE" ]; then
 fi
 
 [ -n "$EVENTS" ] || exit 0
-live_dir_ok || exit 0
 private_file_ok "$SPOOL" || exit 0
 private_file_ok "$STATEF" || exit 0
+
+# seq (BR-05): max(previous + 1, Unix ms) per event, counter in $HASH.seq. A missing, corrupt, foreign or absurd
+# (more than a day ahead of the clock, 2^53 or more) counter heals to 0. The counter is written before the
+# lines, so a crash can leave a gap but never a repeated seq.
+SEQF="$LIVE_DIR/$HASH.seq"
+MS=$(now_ms); PREV=0
+if [ -f "$SEQF" ] && [ ! -L "$SEQF" ] && private_file_ok "$SEQF"; then
+  IFS= read -r PREV <"$SEQF" 2>/dev/null
+  if [[ "$PREV" =~ ^(0|[1-9][0-9]{0,15})$ ]] && [ "$PREV" -lt 9007199254740991 ] && [ "$PREV" -le $((MS + 86400000)) ]; then :; else PREV=0; fi
+fi
+SEQJQ='reduce inputs as $e ({p: $p, o: []}; (if .p + 1 > $ms then .p + 1 else $ms end) as $s | .p = $s | .o += [{seq: $s} + $e])
+  | .o[], .p'
+SEQOUT=$(printf '%s\n' "$EVENTS" | jq -c -n --argjson p "$PREV" --argjson ms "$MS" "$SEQJQ" 2>/dev/null) \
+  || SEQOUT=$(printf '%s\n' "$EVENTS" | jq -c -n --argjson p 0 --argjson ms "$MS" "$SEQJQ" 2>/dev/null) || exit 0
+NEWSEQ="${SEQOUT##*$'\n'}"; EVENTS="${SEQOUT%$'\n'*}"
+[[ "$NEWSEQ" =~ ^[0-9]{1,16}$ ]] && [ -n "$EVENTS" ] || exit 0
+TMP=$(mktemp "$LIVE_DIR/.seq.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
+printf '%s' "$NEWSEQ" >"$TMP" 2>/dev/null && mv -f "$TMP" "$SEQF" 2>/dev/null || { rm -f "$TMP" 2>/dev/null; exit 0; }
+
+# The lines first, then the state that records them as sent: if the append fails nothing is claimed.
+if [ -s "$SPOOL" ] && [ -n "$(tail -c 1 "$SPOOL" 2>/dev/null)" ]; then EVENTS=$'\n'"$EVENTS"; fi   # torn tail: start on a fresh line
 printf '%s\n' "$EVENTS" >>"$SPOOL" 2>/dev/null || exit 0
+spool_trim "$SPOOL" "$LIVE_DIR"
 if [ -n "$NEWLAST" ] && [ "$NEWLAST" != "$LAST" ]; then
-  TMP=$(mktemp "$LIVE_DIR/.state.XXXXXX" 2>/dev/null) || exit 0
+  TMP=$(mktemp "$LIVE_DIR/.state.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$NEWLAST" >"$TMP" 2>/dev/null && mv -f "$TMP" "$STATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 if [ -n "$BINDLINE" ]; then
-  TMP=$(mktemp "$LIVE_DIR/.bind.XXXXXX" 2>/dev/null) || exit 0
+  TMP=$(mktemp "$LIVE_DIR/.bind.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s|%s' "$NR" "$CAND" >"$TMP" 2>/dev/null && mv -f "$TMP" "$BINDF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 if [ -n "$GATELINE" ]; then
-  TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0
+  TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$GNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 exit 0

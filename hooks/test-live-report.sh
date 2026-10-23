@@ -42,7 +42,7 @@ trap cleanup EXIT
 make_realbin() {  # $1 = dir, rest = tools to leave out. node and stat are deliberately absent.
   local dir="$1" t p; shift
   mkdir -p "$dir"
-  for t in bash curl jq sha256sum shasum od find mktemp mv uname tr id rm chmod mkdir cat dirname sleep grep sed cut head env date git timeout; do
+  for t in bash curl jq sha256sum shasum od find mktemp mv uname tr id rm chmod mkdir cat dirname sleep grep sed cut head env date git timeout wc tail; do
     case " $* " in *" $t "*) continue ;; esac
     p=$(type -P "$t") && ln -s "$p" "$dir/$t"
   done
@@ -168,8 +168,8 @@ MARKERS=(MARKER_PROMPT_xyz MARKER_CMD MARKER_PATH MARKER_MSG MARKER_LASTMSG MARK
 test_sha() { if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sha256sum | cut -d' ' -f1; else printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; fi; }
 DEFAULT_SID="sess-0001"
 spool_of() { echo "$DATA/live/$(test_sha "$1").spool"; }
-# spooled SID: the spool lines without their `at`, compact, one per line ("" when no spool).
-spooled() { local f; f=$(spool_of "${1:-$RAWSID}"); [ -f "$f" ] && "$JQ_BIN" -cS 'del(.at)' "$f" || true; }
+# spooled SID: the spool lines without their `at` and `seq`, compact, one per line ("" when no spool).
+spooled() { local f; f=$(spool_of "${1:-$RAWSID}"); [ -f "$f" ] && "$JQ_BIN" -cS 'del(.at, .seq)' "$f" || true; }
 # run_fixture NAME...: feeds each fixture in order on stdin (same session), sets OUT/ERR/RC of the last.
 run_fixture() { local n; for n in "$@"; do cp "$FIX/$n.json" "$SB/stdin"; run_hook; done; }
 expected_of() { local n; for n in "$@"; do cat "$FIX/$n.expect"; done; }
@@ -220,7 +220,7 @@ new_case; mkcred; REAL="$REALBIN_NOJQ"; SHIMD="$SHIMS_NOJQ"; BEFORE=$(snapshot "
 new_case; mkcred; REAL="$REALBIN_NOCURL"; SHIMD="$SHIMS_NOCURL"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "curl missing"; REAL="$REALBIN"; SHIMD="$SHIMS"; run_hook; expect_spooled "curl missing"; end_case
 new_case; mkcred; REAL="$REALBIN_NOSHA"; SHIMD="$SHIMS_NOSHA"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "SHA-256 tool missing"; REAL="$REALBIN"; SHIMD="$SHIMS"; run_hook; expect_spooled "SHA-256 tool missing"; end_case
 
-echo "== enabled: spools, sends nothing yet (positive control) =="
+echo "== enabled: spools, sends nothing yet, seq on each line (positive control) =="
 new_case; mkcred; run_hook
 check "paired and on: exits 0" "0" "$RC"
 check "paired and on: stdout empty" "" "$OUT"
@@ -230,7 +230,7 @@ check "paired and on: the event is spooled, keyed by the hash" '{"state":"workin
 check "paired and on: live dir 0700, spool 0600, state file present" "700 600 working" \
   "$(find "$DATA/live" -maxdepth 0 -printf '%m' ) $(find "$(spool_of "$DEFAULT_SID")" -printf '%m') $(cat "${DATA}/live/$(test_sha "$DEFAULT_SID").state")"
 check "paired and on: at is ISO-8601 UTC" "yes" "$("$JQ_BIN" -r '.at | test("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\z") | if . then "yes" else "no" end' "$(spool_of "$DEFAULT_SID")")"
-check "paired and on: no seq field yet" "no" "$("$JQ_BIN" -r 'has("seq") | if . then "yes" else "no" end' "$(spool_of "$DEFAULT_SID")")"
+check "paired and on: the line carries an integer seq (Unix ms based)" "yes" "$("$JQ_BIN" -r '(.seq | type == "number" and . == floor and . >= 1000000000000) | if . then "yes" else "no" end' "$(spool_of "$DEFAULT_SID")")"
 check "paired and on: token absent from outputs and shim logs" "0" "$(cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -cF -- "$TOKEN")"
 end_case
 
@@ -691,7 +691,7 @@ fire Write; no_gates "valid Gates line only beyond 64 KB"; end_case
 
 echo "== gates: markers =="
 new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" "$SHA2" - -)"; fire Write; fire Edit
-check "gates event keys are exactly type, gates and at" "type,gates,at" "$("$JQ_BIN" -r 'select(.type=="gates") | keys_unsorted | join(",")' "$DATA/live/$(test_sha sess-gate-1).spool" | head -n 1)"
+check "gates event keys are exactly seq, type, gates and at" "seq,type,gates,at" "$("$JQ_BIN" -r 'select(.type=="gates") | keys_unsorted | join(",")' "$DATA/live/$(test_sha sess-gate-1).spool" | head -n 1)"
 check "every gates token is in the enumeration" "0" "$("$JQ_BIN" -r 'select(.type=="gates") | .gates[] | select(IN("SHIELD_CLEAR","WATCHER_APPROVED","MISSION_COMPLETE","CI_PENDING") | not)' "$DATA"/live/*.spool | grep -c . || true)"
 check "no sha, journal text, path or slug in any file or log" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find ' ; } | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|missions|m-1' || true)"
 end_case
@@ -704,9 +704,9 @@ ALLTXT="$SB/all.txt"; { find "$DATA" -type f -exec cat {} +; find "$DATA" -print
 for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$m" "$ALLTXT" || true)"; done
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
-check "files are keyed by sha256(session id): bind, spool and state" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): bind, seq, spool and state (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
-check "every spool line holds only contract fields of this slice" "0" "$("$JQ_BIN" -c 'select((keys - ["at","type","state","tool","code","sub","bind","gates"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 end_case
@@ -721,6 +721,158 @@ check "session id failing its pattern: nothing spooled" "0" "$(find "$DATA" -nam
 printf '%s' '{"hook_event_name":"Stop"}' >"$SB/stdin"; run_hook
 check "no session id: nothing spooled" "0" "$(find "$DATA" -name '*.spool' | wc -l | tr -d ' ')"
 end_case
+
+# ─── ALY-203.5: seq, lock, spool cap (BR-04, BR-05, AC-12, SHD-01..03) ──────
+echo "== seq (BR-05) =="
+seqs() { "$JQ_BIN" -r '.seq' "$(spool_of "${1:-$RAWSID}")" 2>/dev/null; }
+increasing() { awk 'NR > 1 && $1 <= prev { bad = 1 } { prev = $1 } END { print (bad ? "no" : "yes") }'; }
+new_case; mkcred
+cp "$FIX/permission-request.json" "$SB/stdin"; run_hook
+cp "$FIX/pre-tool-use.json" "$SB/stdin"; run_hook; cp "$FIX/post-tool-use.json" "$SB/stdin"; run_hook
+check "waiting then a tool: three lines with strictly increasing seq (two events from one hook included)" "3 yes" "$(seqs | wc -l | tr -d ' ') $(seqs | increasing)"
+check "seq counter file: private, holds the last seq" "600 $(seqs | tail -n 1)" "$(find "$DATA/live/$(test_sha "$RAWSID").seq" -printf '%m') $(cat "$DATA/live/$(test_sha "$RAWSID").seq")"
+check "no lock directory left behind, no temp file" "0" "$(find "$DATA/live" -name '*.lock*' -o -name '.*.??????' | wc -l | tr -d ' ')"
+LASTSEQ=$(seqs | tail -n 1)
+rm -f "$DATA/live/$(test_sha "$RAWSID").seq"; cp "$FIX/user-prompt-submit.json" "$SB/stdin"; run_hook
+check "lost counter heals: the next seq is above every earlier one" "yes" "$([ "$(seqs | tail -n 1)" -gt "$LASTSEQ" ] && echo yes || echo no)"
+SF="$DATA/live/$(test_sha "$RAWSID").seq"; L2=$(seqs | tail -n 1)
+printf 'garbage' >"$SF"; run_hook
+check "corrupt counter heals" "yes" "$([ "$(seqs | tail -n 1)" -gt "$L2" ] && echo yes || echo no)"
+L3=$(seqs | tail -n 1); printf '%s' "$((L3 + 5000))" >"$SF"; run_hook
+check "counter ahead of the clock keeps counting: previous + 1" "$((L3 + 5001))" "$(seqs | tail -n 1)"
+printf '%s' "9007199254740000" >"$SF"; L4=$(seqs | tail -n 1); run_hook
+check "absurd counter (days ahead) heals to the clock" "yes" "$([ "$(seqs | tail -n 1)" -le "$((L4 + 100000))" ] && echo yes || echo no)"
+rm -f "$SF"; ln -s "$SB/target-seq" "$SF"; : >"$SB/target-seq"; run_hook
+check "symlinked counter: not written through, replaced by a private file" "0 600" "$(wc -c <"$SB/target-seq" | tr -d ' ') $(find "$SF" -printf '%m')"
+for bad in 0007 00 01234567890123456; do printf '%s' "$bad" >"$SF"; L5=$(seqs | tail -n 1); run_hook
+  check "counter '$bad' (not a canonical integer) heals, a seq is still allocated" "yes" "$([ "$(seqs | tail -n 1)" != "$L5" ] && [ "$(seqs | tail -n 1)" -gt 1000000000000 ] && echo yes || echo no)"; done
+chmod 644 "$SF"; run_hook
+check "counter with mode 0644 heals to a private file" "600 $(seqs | tail -n 1)" "$(find "$SF" -printf '%m') $(cat "$SF")"
+end_case
+
+echo "== lock primitive (BR-04, D-03) =="
+prim() { env -i PATH="$REALBIN" "$BASH_BIN" -c "LC_ALL=C; $(fn_body "$HOOK" lock_is_stale); $(fn_body "$HOOK" lock_take); $(fn_body "$HOOK" lock_drop); $1"; }
+tok_of() { cut -d' ' -f2 "$1/t" 2>/dev/null; }   # the owner token a lock directory holds
+new_case
+D="$SB/p.lock"
+check "lock_take on a free lock" "0 yes" "$(prim "lock_take '$D' 0; echo \$?" | tr -d '\n') $([ -d "$D" ] && echo yes || echo no)"
+check "a held fresh lock is not taken and not broken (waiting 3 tries)" "1 yes" "$(prim "lock_take '$D' 3; echo \$?" | tr -d '\n') $([ -d "$D" ] && echo yes || echo no)"
+prim "lock_drop '$D' wrong-token"; check "lock_drop with another hook's token leaves the lock alone" "yes" "$([ -d "$D" ] && echo yes || echo no)"
+prim "lock_drop '$D' ''"; check "lock_drop with an empty token leaves the lock alone" "yes" "$([ -d "$D" ] && echo yes || echo no)"
+prim "lock_drop '$D' '$(tok_of "$D")'"; check "lock_drop with its own token releases it" "no" "$([ -d "$D" ] && echo yes || echo no)"
+check "lock_take records epoch and a unique owner token" "yes" "$(prim "lock_take '$D' 0; echo \$LOCK_TOKEN" | grep -qE '^[0-9]+\.[0-9]+$' && grep -qE '^[0-9]+ [0-9]+\.[0-9]+$' "$D/t" && echo yes || echo no)"
+prim "lock_drop '$D' '$(tok_of "$D")'"
+mkdir "$D"; printf '%s' "$(( $(date +%s) - 25 ))" >"$D/t"
+check "a lock 25 s old is not stale" "1" "$(prim "lock_take '$D' 0; echo \$?" | tr -d '\n')"
+printf '%s' "$(( $(date +%s) - 31 ))" >"$D/t"
+check "a lock 31 s old is broken and taken" "0 fresh" "$(prim "lock_take '$D' 0; echo \$?" | tr -d '\n') $([ "$(( $(date +%s) - $(cut -d' ' -f1 "$D/t") ))" -lt 5 ] && echo fresh || echo old)"
+check "the broken lock leaves nothing behind" "0" "$(find "$SB" -name 'p.lock.old.*' | wc -l | tr -d ' ')"
+rm -rf "$D"; mkdir "$D"
+check "a lock without a time file is fresh (not broken)" "1" "$(prim "lock_take '$D' 0; echo \$?" | tr -d '\n')"
+printf 'junk' >"$D/t"
+check "a lock with a junk time file is fresh (not broken)" "1" "$(prim "lock_take '$D' 0; echo \$?" | tr -d '\n')"
+# SHD-01: a lock judged stale and renamed away, but found fresh after the rename, is put back and the try fails closed.
+rm -rf "$D"; mkdir "$D"; printf '%s %s' "$(date +%s)" "owner.1" >"$D/t"
+mkdir "$D.brk"; check "a fresh breaker mutex keeps a stale lock from being broken by a second taker" "1" "$(printf '%s' "$(( $(date +%s) - 40 ))" >"$D/t"; prim "lock_take '$D' 0; echo \$?" | tr -d '\n')"
+rm -rf "$D.brk"; printf '%s %s' "$(date +%s)" "owner.1" >"$D/t"
+check "a fresh lock mis-judged stale is restored untouched and not taken" "1 owner.1 0" "$(prim "$(fn_body "$HOOK" lock_is_stale | sed 's/^lock_is_stale()/real_stale()/'); CALLS=0; lock_is_stale() { CALLS=\$((CALLS + 1)); [ \$CALLS -le 2 ] && return 0; real_stale \"\$@\"; }; lock_take '$D' 0; echo \$?" | tr -d '\n') $(cut -d' ' -f2 "$D/t" 2>/dev/null) $(find "$SB" -name 'p.lock.old.*' | wc -l | tr -d ' ')"
+rm -rf "$D"
+# At most one flusher at a time (AC-12): ten competing try-locks, then ten waiting ones.
+FP=""; FL="$SB/fl.lock"; FLOG="$SB/fl.log"; : >"$FLOG"
+for i in 1 2 3 4 5 6 7 8 9 10; do prim "lock_take '$FL' 0 && { echo in >>'$FLOG'; sleep 0.2; echo out >>'$FLOG'; lock_drop '$FL' \"\$LOCK_TOKEN\"; }" & FP="$FP $!"; done; wait $FP; FP=""
+check "ten try-lock flushers: sections never overlap and at least one ran" "yes yes" "$([ -z "$(tr '\n' ' ' <"$FLOG" | sed 's/in out //g')" ] && echo yes || echo no) $([ -s "$FLOG" ] && echo yes || echo no)"
+: >"$FLOG"
+for i in 1 2 3 4 5 6 7 8 9 10; do prim "lock_take '$FL' 1000 && { echo in >>'$FLOG'; sleep 0.05; echo out >>'$FLOG'; lock_drop '$FL' \"\$LOCK_TOKEN\"; }" & FP="$FP $!"; done; wait $FP; FP=""
+check "ten waiting flushers: all ten ran, one at a time" "10 yes no" "$(grep -c '^in' "$FLOG") $([ -z "$(tr '\n' ' ' <"$FLOG" | sed 's/in out //g')" ] && echo yes || echo no) $([ -d "$FL" ] && echo yes || echo no)"
+# Medic 2: ten waiting takers over a 40 s old lock: the stale break is done once, sections never overlap.
+: >"$FLOG"; mkdir "$FL"; printf '%s' "$(( $(date +%s) - 40 ))" >"$FL/t"
+for i in 1 2 3 4 5 6 7 8 9 10; do prim "lock_take '$FL' 1000 && { echo in >>'$FLOG'; sleep 0.05; echo out >>'$FLOG'; lock_drop '$FL' \"\$LOCK_TOKEN\"; }" & FP="$FP $!"; done; wait $FP; FP=""
+check "ten waiting takers over a 40 s old lock: all ten ran, one at a time, nothing left" "10 yes 0" "$(grep -c '^in' "$FLOG") $([ -z "$(tr '\n' ' ' <"$FLOG" | sed 's/in out //g')" ] && echo yes || echo no) $(find "$SB" -name 'fl.lock*' | wc -l | tr -d ' ')"
+end_case
+
+echo "== lock in the hook (SHD-02) =="
+new_case; mkcred; H=$(test_sha "$RAWSID"); mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+mkdir "$DATA/live/$H.lock"; printf '%s' "$(( $(date +%s) - 40 ))" >"$DATA/live/$H.lock/t"; run_fixture user-prompt-submit
+check "a stale session lock (40 s) is broken: the event is spooled, lock released" '{"state":"working","type":"state"}|no' "$(spooled)|$([ -d "$DATA/live/$H.lock" ] && echo yes || echo no)"; end_case
+new_case; mkcred; H=$(test_sha "$RAWSID"); mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+mkdir "$DATA/live/$H.lock"; printf '%s' "$(date +%s)" >"$DATA/live/$H.lock/t"
+( sleep 1; rm -rf "$DATA/live/$H.lock" ) & RP=$!; run_fixture user-prompt-submit; wait $RP
+check "a fresh session lock is waited for, not stolen: spooled after the release" '{"state":"working","type":"state"}|no' "$(spooled)|$([ -d "$DATA/live/$H.lock" ] && echo yes || echo no)"; end_case
+new_case; mkcred; run_fixture post-tool-use
+check "a hook that maps to nothing releases the lock too" "no" "$([ -n "$(find "$DATA/live" -name '*.lock' 2>/dev/null)" ] && echo yes || echo no)"; end_case
+
+# bg_hook IN OUT: the hook in the background with its own stdin and capture files (parallel-safe run_script).
+bg_hook() {
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" \
+    PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
+    "$BASH_BIN" "$HOOK" <"$1" >"$2" 2>&1 &
+  BGPIDS="$BGPIDS $!"
+}
+BGPIDS=""
+wait_bg() { wait $BGPIDS; BGPIDS=""; }   # never a bare `wait`: it would also wait for the fake API server
+echo "== skill vs mcp binding race (SHD-02) =="
+for round in 1 2 3 4 5 6; do
+  new_case; mkcred; RUN_ENV=()
+  bg_hook "$FIX/skill-bridge-spec.json" "$SB/o1"; bg_hook "$FIX/mcp-allye-spec-get.json" "$SB/o2"; bg_hook "$FIX/mcp-allye-task-start.json" "$SB/o3"; wait_bg
+  BF="$DATA/live/$(test_sha "$RAWSID").bind"
+  ORDER=$("$JQ_BIN" -r 'select(.type=="bind") | {skill:4,mcp:3,env:2,branch:1}[.bind.source]' "$(spool_of "$RAWSID")" | tr -d '\n')
+  check "race $round: a skill bind is sent, no weaker bind after it, and the file holds the strongest" "yes 4 4" "$(case "$ORDER" in *4) echo yes ;; *) echo "no($ORDER)" ;; esac) $(echo "$ORDER" | grep -o 4 | head -n 1) $(cut -d'|' -f1 "$BF")"
+  check "race $round: no output, no lock left" "|no" "$(cat "$SB/o1" "$SB/o2" "$SB/o3")|$([ -n "$(find "$DATA/live" -name '*.lock' 2>/dev/null)" ] && echo yes || echo no)"
+  end_case
+done
+
+echo "== ten parallel hooks of one session (AC-12) =="
+new_case; mkcred; RUN_ENV=()
+n=0; for f in user-prompt-submit pre-tool-use stop user-prompt-submit pre-tool-use notification-idle-prompt user-prompt-submit pre-tool-use stop user-prompt-submit; do n=$((n + 1)); bg_hook "$FIX/$f.json" "$SB/par.$n"; done; wait_bg
+SP=$(spool_of "$RAWSID")
+check "ten hooks: ten lines, none lost" "10" "$(wc -l <"$SP" | tr -d ' ')"
+check "ten hooks: every line is a whole JSON object (none torn)" "10" "$("$JQ_BIN" -c 'select(type == "object")' "$SP" | wc -l | tr -d ' ')"
+check "ten hooks: seq unique" "10" "$(seqs | sort -u | wc -l | tr -d ' ')"
+check "ten hooks: seq strictly increasing in file order" "yes" "$(seqs | increasing)"
+check "ten hooks: the expected multiset of events (fixture expectations summed)" "$(for f in user-prompt-submit pre-tool-use stop user-prompt-submit pre-tool-use notification-idle-prompt user-prompt-submit pre-tool-use stop user-prompt-submit; do "$JQ_BIN" -cS . "$FIX/$f.expect"; done | sort | tr '\n' ' ')" "$("$JQ_BIN" -cS 'del(.at, .seq)' "$SP" | sort | tr '\n' ' ')"
+check "ten hooks: counter equals the largest seq, outputs empty, no lock left" "$(seqs | tail -n 1)||no" "$(cat "$DATA/live/$(test_sha "$RAWSID").seq")|$(cat "$SB"/par.*)|$([ -n "$(find "$DATA/live" -name '*.lock' 2>/dev/null)" ] && echo yes || echo no)"
+end_case
+
+echo "== spool cap (SHD-03) =="
+fill() {  # LINES PADBYTES: a private spool of valid contract lines (marked by index), padded by a long tool-free code field
+  local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+  SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"
+  "$JQ_BIN" -nc --argjson n "$1" --arg pad "$pad" 'range(1; $n + 1) | {seq: ., type: "state", state: "working", at: "2026-01-01T00:00:00Z", idx: ., pad: $pad}' >"$SPF"
+}
+new_case; mkcred; fill 600 0; run_fixture user-prompt-submit
+check "600 lines + 1: 500 kept, the oldest dropped, the new line is last" "500 102 working" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.idx' "$SPF" | head -n 1) $("$JQ_BIN" -r '.state' "$SPF" | tail -n 1)"
+check "after the trim the spool is still 0600 and a regular file" "600" "$(find "$SPF" -printf '%m')"
+end_case
+new_case; mkcred; fill 499 0; run_fixture user-prompt-submit
+check "499 lines + 1 = 500: nothing dropped" "500 1" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.idx' "$SPF" | head -n 1)"; end_case
+new_case; mkcred; fill 400 1000; cp "$SPF" "$SB/before"; run_fixture user-prompt-submit
+check "byte trim is exact: the result is the last 262144 bytes of (old spool + new line) minus the cut first line" "yes" "$({ cat "$SB/before"; tail -n 1 "$SPF"; } | tail -c 262144 | sed 1d | cmp -s - "$SPF" && echo yes || echo no)"
+check "byte trim: at most 262144 bytes, first kept idx > 1, indexes contiguous up to 400, the new line last, every line whole" "yes yes yes yes" "$([ "$(wc -c <"$SPF" | tr -d ' ')" -le 262144 ] && echo yes || echo no) $([ "$("$JQ_BIN" -r '.idx // empty' "$SPF" | head -n 1)" -gt 1 ] && echo yes || echo no) $("$JQ_BIN" -s 'map(select(.idx != null) | .idx) as $i | ($i == [range($i[0]; 401)])' "$SPF" | sed 's/true/yes/;s/false/no/') $([ "$("$JQ_BIN" -r '.state' "$SPF" | tail -n 1)" = working ] && [ "$("$JQ_BIN" -c 'select(type=="object")' "$SPF" | wc -l | tr -d ' ')" = "$(wc -l <"$SPF" | tr -d ' ')" ] && echo yes || echo no)"
+check "byte trim: dropped more than 100 and fewer than 300 lines (about a quarter of the 400 KB fits)" "yes" "$(n=$(wc -l <"$SPF" | tr -d ' '); [ "$n" -gt 100 ] && [ "$n" -lt 300 ] && echo yes || echo no)"
+end_case
+new_case; mkcred; fill 5 0; run_fixture user-prompt-submit
+check "a small spool is left alone" "6 1" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.idx' "$SPF" | head -n 1)"; end_case
+
+echo "== torn spool tail (SHD-03) =="
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"
+printf '{"seq":1,"type":"sta' >"$SPF"; chmod 600 "$SPF"; run_fixture user-prompt-submit
+check "torn tail without newline: the torn fragment stays on its own line, the new line is whole" "2 {\"seq\":1,\"type\":\"sta working" "$(wc -l <"$SPF" | tr -d ' ') $(head -n 1 "$SPF") $(tail -n 1 "$SPF" | "$JQ_BIN" -r '.state')"
+run_fixture user-prompt-submit
+check "a spool ending in a newline gets no blank line" "0" "$(grep -c '^$' "$SPF" || true)"
+end_case
+
+echo "== state is claimed only when the line is spooled (consistency) =="
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; H=$(test_sha "$RAWSID"); : >"$DATA/live/$H.spool"; chmod 644 "$DATA/live/$H.spool"
+run_fixture skill-bridge-spec
+check "unusable spool: no seq, state or bind recorded as sent" "" "$(cd "$DATA/live" && ls | grep -v '\.spool$' | tr '\n' ' ')"; end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; H=$(test_sha "$RAWSID"); : >"$DATA/live/$H.state"; chmod 644 "$DATA/live/$H.state"
+run_fixture skill-bridge-spec
+check "unusable state file: nothing spooled, no seq or bind recorded" "" "$(cd "$DATA/live" && ls | grep -v '\.state$' | tr '\n' ' ')"; end_case
+new_case; mkcred; mkdir -p "$SB/elsewhere"; chmod 700 "$SB/elsewhere"; ln -s "$SB/elsewhere" "$DATA/live"; run_fixture user-prompt-submit
+check "symlinked live dir: no lock, seq or any entry created through it" "0" "$(find "$SB/elsewhere" -mindepth 1 | wc -l | tr -d ' ')"; end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 755 "$DATA/live"; run_fixture user-prompt-submit
+check "live dir mode 0755: no lock, seq or any entry created in it" "0" "$(find "$DATA/live" -mindepth 1 | wc -l | tr -d ' ')"; end_case
 
 # ─── fake ingest API (harness self-check) ───────────────────────────────────
 echo "== fake ingest API =="
