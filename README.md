@@ -57,6 +57,26 @@ Every harness uses one server named `allye`. Tenant selection happens during OAu
 
 Then open `/plugin`, find the Allye MCP server, click **Connect** and sign in. Update with `/plugin update allye` and `/reload-plugins`.
 
+#### Pinned preferences at session start (Claude Code only, optional)
+
+Pair this install with your Allye account and every new, cleared or compacted session starts with the preferences you pinned in Allye, shown to the agent as quoted data, not instructions. Pairing is a second `SessionStart` hook, separate from the offline bootstrap hook.
+
+```
+/allye:hooks pair      # connects this install to your account
+/allye:hooks unpair    # deletes the local credential, no network call
+```
+
+- **What it does.** `pair` creates a random secret on your machine, asks the Allye MCP (through your existing OAuth connection) for a one-time pairing code, and exchanges the code for a hook credential. It prints `Paired <device> as <email> in <organization>`: check that the account and organization are yours. A rule that allows every Allye MCP tool also approves the pairing call without a prompt, so that check is your only gate. If they are not yours, run `unpair` and revoke the device.
+- **What leaves the machine.** Only the device name, the client kind (`claude-code`), a challenge (a hash of the secret), the pairing code and, on each session start, the credential as an authorization header. Never repository, file, conversation or environment content.
+- **Where the credential lives.** `${CLAUDE_PLUGIN_DATA}/hook-credential.json` (`~/.claude/plugins/data/<plugin id>/`), mode 0600 in a 0700 directory. Claude Code removes it when the plugin is uninstalled from its last place. To keep the agent from reading it, add `Read(~/.claude/plugins/data/allye*/hook-credential.json)` (adjust to your plugin data directory) to `permissions.deny` in your user-level `~/.claude/settings.json`.
+- **Supported API origins.** `pair` uses `https://api.allye.app`. `ALLYE_API_URL` is accepted only as `https://api.allye.app`, `https://api.zeta.allye.app` (HML) or `http://localhost:<port>` / `http://127.0.0.1:<port>` (local development).
+- **Session start.** The hook makes one short request and prints the preferences, or one hint line when the credential is rejected, unsafe or the account is inactive. It is silent when you are not paired, offline or the API is unavailable. It needs `curl` and `jq`.
+- **Before uninstalling.** Run `/allye:hooks unpair`, then revoke the device in Allye → Settings → Devices; unpair only deletes local files, so the credential keeps working on the server until revoked. Pair again before the expiry date shown at pairing.
+
+#### Live session reporting (Claude Code only, optional)
+
+When paired, hooks send Allye the state of your sessions (started, working, waiting, idle, ended), the tool names in use, subagent ids and types with their outcome, and the spec and task keys the session is bound to. The subagent type, tool names and `allye:<action>` / spec / task keys DO leave your machine; prompts, commands, tool inputs and outputs, file paths, notification and assistant messages, transcripts, the working directory, branch names and credentials never do. Allye keeps ended runs 7 days. Control it with `/allye:hooks live off|on|status`; events, fields and local files are in [docs/live-reporting.md](docs/live-reporting.md).
+
 ### Codex, OpenCode
 
 Paste into the agent. The install and update guides install one pinned release: the latest GitHub release unless you name a version. They check that it exists, never download from a branch, and keep a timestamped backup of any config they rewrite (`opencode.json`, `~/.codex/AGENTS.md`, `~/.codex/skills/bridge*`) under `~/.allye/backups/<harness>/`.
@@ -98,14 +118,11 @@ Who can install, where skills go, how edited, deleted and moved copies are handl
 ```
 bootstrap/allye.md          shared bootstrap text (single source)
 skills/bridge/              the Bridge skill and its references
-skills/bridge-*/            the crew skills (Armorer, Recon, Strategist, Architect, Dispatcher,
-                            Pilot, Navigator, Copilot, Medic, Optimizer, Shield, Watcher)
-agents/bridge-*.md          native crew subagents (Claude Code; OpenCode registers them from here):
-                            load the matching crew skill under a per-role tool allowlist
-hooks/                      Claude Code SessionStart hook
+skills/bridge-*/            the crew skills (Armorer, Recon, Strategist, Architect, Dispatcher, Pilot, Navigator, Copilot, Medic, Optimizer, Shield, Watcher)
+agents/bridge-*.md          native crew subagents (Claude Code; OpenCode registers them from here): load the crew skill under a per-role tool allowlist
+hooks/                      Claude Code hooks (bootstrap, pinned preferences, Live reporter) and the script behind /allye:hooks
 .claude-plugin/, .mcp.json  Claude Code plugin and marketplace manifests
-manifests/codex/AGENTS.md   Codex copy of the bootstrap (synced)
-manifests/opencode/         sample OpenCode config
+manifests/                  Codex copy of the bootstrap (codex/AGENTS.md, synced) and a sample OpenCode config (opencode/)
 packages/allye-opencode/    OpenCode plugin (npm: allye-opencode)
 packages/allye-pi/          Pi/OMP extension (npm: allye-pi, root package.json)
 install.sh, install/        organization skills installer and its tests
@@ -117,7 +134,7 @@ docs/                       per-harness install and update guides, organization 
 
 ```bash
 npm install
-npm test            # bootstrap, hook, crew agents, skills, installer and docs gate, Pi and OpenCode tests (offline)
+npm test            # bootstrap, hooks (npm run test:hooks), crew agents, skills, installer and docs gate, Pi and OpenCode tests (offline)
 npm run typecheck   # Pi extension
 cd packages/allye-opencode && bun install && bun run typecheck && bun run build
 ```

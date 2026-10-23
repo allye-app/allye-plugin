@@ -1,0 +1,13 @@
+{
+  "session_id": "RAWSESSION-7f3a9c1e-0b2d-4e11-9a55-c0ffee123456",
+  "transcript_path": "/home/u/MARKER_TRANSCRIPT/t.jsonl",
+  "cwd": "/work/MARKER_CWD",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "mcp__plugin_allye_allye__specs",
+  "tool_input": {
+    "action": "task_get",
+    "task": "ALY-9.4"
+  },
+  "tool_use_id": "toolu_x"
+}

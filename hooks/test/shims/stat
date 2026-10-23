@@ -1,0 +1,5 @@
+#!/bin/bash
+# stat is replaced by a failing shim: the scripts must not depend on GNU or BSD stat (D-43).
+[ -z "${SHIM_LOG:-}" ] || printf 'stat %s\n' "$*" >>"$SHIM_LOG/calls.log"
+echo "stat: not available in this test" >&2
+exit 99

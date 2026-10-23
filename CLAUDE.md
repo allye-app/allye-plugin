@@ -18,16 +18,17 @@ The repo also holds `install.sh`, which is **not** the plugin installer: it inst
 
 | Harness | Mechanism |
 |---|---|
-| Claude Code | `hooks/hooks.json` → `hooks/session-start.sh` prints `bootstrap/allye.md` as `additionalContext` (offline, no credentials) |
+| Claude Code | `hooks/hooks.json` → `hooks/session-start.sh` prints `bootstrap/allye.md` as `additionalContext` (offline, no credentials); a second SessionStart hook, `hooks/session-preferences.sh`, prints the user's pinned preferences when the install is paired (credential in `${CLAUDE_PLUGIN_DATA}`; silent when unpaired or the API is unavailable); `hooks/live-report.sh` (Live reporter, ALY-203) is registered in `hooks.json` for 12 events (async, except `SessionEnd`): metadata-only events are spooled per session in `${CLAUDE_PLUGIN_DATA}/live` and sent in batches by a detached flusher; `/allye:hooks live off|on|status` (`allye-hooks.sh live`) switches it; the credential helpers are shared in `hooks/lib/credential.sh`; fixtures and the Claude Code event evidence are in `hooks/fixtures/live/` |
 | Codex | `manifests/codex/AGENTS.md` (synced copy), merged into `~/.codex/AGENTS.md` by `docs/install-codex.md` |
 | OpenCode | `packages/allye-opencode`: `experimental.chat.system.transform` adds the bootstrap; the `config` hook adds the bundled skills path, the org `allye-skills` dir (real directory, not a symlink, owned by the user, not group/world-writable) via `skills-paths.ts`, and registers the crew subagents generated from `agents/*.md` |
 | Pi, OMP | `packages/allye-pi/src/index.ts`: `before_agent_start` adds the bootstrap, `resources_discover` exposes `skills/`, optional project resolution through the MCP bridge (no startup or per-prompt memory context), and `/allye-team` to set the default team |
 
 ## Commands
 
-- `npm test` — offline: bootstrap checks, hook test, crew agent checks (`npm run test:agents`), skills checks (`npm run test:skills`: CI workflow and LICENSE checks), installer tests (loopback fake API; `test:installer` chains the docs gate, `npm run test:docs-gate`: docs-check, templates, Bridge docs rules and their distribution), Pi extension tests and OpenCode tests (`npm run test:opencode`). Individually: `npm run test:bootstrap`, `npm run test:agents`, `npm run test:skills`, `npm run test:installer`, `npm run test:docs-gate`, `npm run test:pi`, `npm run test:opencode`.
+- `npm test` — offline: bootstrap checks, hook test, hooks pairing and preferences tests (`npm run test:hooks`, which includes `hooks/test-live-report.sh` for the Live reporter), crew agent checks (`npm run test:agents`), skills checks (`npm run test:skills`: CI workflow and LICENSE checks), installer tests (loopback fake API; `test:installer` chains the docs gate, `npm run test:docs-gate`: docs-check, templates, Bridge docs rules and their distribution), Pi extension tests and OpenCode tests (`npm run test:opencode`). Individually: `npm run test:bootstrap`, `npm run test:hooks`, `npm run test:agents`, `npm run test:skills`, `npm run test:installer`, `npm run test:docs-gate`, `npm run test:pi`, `npm run test:opencode`.
 - `npm run typecheck` — Pi extension.
 - `packages/allye-opencode`: `bun install`, `bun run typecheck`, `bun run build` (`scripts/prepare.ts` copies the bootstrap, `skills/bridge*` and the crew agents from `agents/*.md` into the package first; the copies are gitignored).
+- `/allye:hooks pair|unpair` (Claude Code only) — `commands/hooks.md` drives `hooks/allye-hooks.sh` to pair or unpair the install for the session-start preferences. It is a command, not a skill, because skills ship to other harnesses. `npm run test:hooks` runs its tests and those of `session-preferences.sh`.
 - `./install.sh list|install <runtime> <skill>... [--reinstall]|status` — organization skills installer for claude, codex, opencode, pi and omp (needs `ALLYE_PAT`; `status` is offline).
 
 ## Installer contract (install.sh, install/)
@@ -36,7 +37,7 @@ The repo also holds `install.sh`, which is **not** the plugin installer: it inst
 
 ## OAuth connection
 
-Every harness uses one server named `allye` at `https://mcp.allye.app/mcp`. Tenant selection is part of OAuth consent, not the URL. The harness performs discovery, client registration, token storage and refresh; plugin code must not read or print tokens, add fixed bearer headers or client IDs, or implement a parallel login flow.
+Every harness uses one server named `allye` at `https://mcp.allye.app/mcp`. Tenant selection is part of OAuth consent, not the URL. The harness performs discovery, client registration, token storage and refresh; plugin code must not read or print tokens, add fixed bearer headers or client IDs, or implement a parallel login flow. One documented exception: the hook credential of Claude Code pairing (`/allye:hooks pair`) is read only by `hooks/allye-hooks.sh` (pairing and its `live` subcommand), `hooks/session-preferences.sh` and `hooks/live-report.sh` (via `hooks/lib/credential.sh`), sent only as a header through curl's stdin config, and never printed (D-02); MCP OAuth tokens stay the harness's business.
 
 ## Releases
 
