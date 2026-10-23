@@ -36,7 +36,8 @@ contains() { case "$2" in *"$1"*) echo yes ;; *) echo no ;; esac; }
 
 ROOT_TMP="$(mktemp -d)"
 APID=""
-cleanup() { [ -z "$APID" ] || kill "$APID" 2>/dev/null; rm -rf "$ROOT_TMP"; }
+FAKE_WAIT_PID=""
+cleanup() { [ -z "$APID" ] || kill "$APID" 2>/dev/null; [ -z "$FAKE_WAIT_PID" ] || kill "$FAKE_WAIT_PID" 2>/dev/null; rm -rf "$ROOT_TMP"; }
 trap cleanup EXIT
 
 make_realbin() {  # $1 = dir, rest = tools to leave out. node and stat are deliberately absent.
@@ -53,6 +54,9 @@ REALBIN_NOCURL="$ROOT_TMP/realbin-nc";   make_realbin "$REALBIN_NOCURL" curl
 REALBIN_NOJQ="$ROOT_TMP/realbin-nj";     make_realbin "$REALBIN_NOJQ" jq
 REALBIN_NOSHA="$ROOT_TMP/realbin-nosha"; make_realbin "$REALBIN_NOSHA" sha256sum shasum
 REALBIN_NOTO="$ROOT_TMP/realbin-nto";    make_realbin "$REALBIN_NOTO" timeout
+# ALY-217: the same tools, with a sleep that logs its argument to $SHIM_LOG/sleep.log (the sleeper's wait is S.mmm).
+REALBIN_SL="$ROOT_TMP/realbin-sl";       make_realbin "$REALBIN_SL" sleep
+printf '#!%s\nprintf "sleep %%s\\n" "$*" >>"${SHIM_LOG:?}/sleep.log"\nexec %s "$@"\n' "$BASH_BIN" "$(type -P sleep)" >"$REALBIN_SL/sleep"; chmod +x "$REALBIN_SL/sleep"
 SHIMS_NOCURL="$ROOT_TMP/shims-nc";       link_shims "$SHIMS_NOCURL" curl
 SHIMS_NOJQ="$ROOT_TMP/shims-nj";         link_shims "$SHIMS_NOJQ" jq
 SHIMS_NOSHA="$ROOT_TMP/shims-nosha";     link_shims "$SHIMS_NOSHA" sha256sum shasum
@@ -76,7 +80,7 @@ new_case() {
   PORT=$(cat "$SB/api/port"); API="http://127.0.0.1:$PORT"
   printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"sess-0001","cwd":"/tmp/x"}' >"$SB/stdin"
 }
-end_case() { [ -z "$APID" ] || { kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null; APID=""; }; }
+end_case() { fake_wait_off; [ -z "$APID" ] || { kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null; APID=""; }; }
 
 mkcred() {  # [apiUrl]: private data dir and credential file (throwaway fake token)
   mkdir -p "$DATA" && chmod 700 "$DATA"
@@ -95,8 +99,37 @@ run_script() {
   [ "$script" != "$HOOK" ] || wait_idle
   OUT=$(cat "$SB/out"); ERR=$(cat "$SB/err")
 }
-# wait_idle: the flusher is detached; its flush lock is taken before the hook returns, so "no flush lock" = done.
-wait_idle() { local i; for i in $(seq 1 400); do compgen -G "$DATA/live/*.flush.lock" >/dev/null || return 0; sleep 0.05; done; }
+# wait_idle: the flusher and the delayed-flush sleeper (ALY-217) are detached; the flush lock and flush.wait are taken
+# before the hook returns, so "no flush lock and no flush.wait" = done. A flush.wait held by the harness's own fake
+# holder ($FAKE_WAIT_PID) is ignored.
+wait_idle() {
+  local i w p busy
+  for i in $(seq 1 400); do
+    busy=0
+    compgen -G "$DATA/live/*.flush.lock" >/dev/null && busy=1
+    for w in "$DATA"/live/*.flush.wait; do
+      [ -e "$w" ] || continue
+      p=""; { read -r p _ <"$w/p"; } 2>/dev/null
+      [ -n "$FAKE_WAIT_PID" ] && [ "$p" = "$FAKE_WAIT_PID" ] && continue
+      busy=1
+    done
+    [ "$busy" = 0 ] && return 0
+    sleep 0.05
+  done
+}
+# pstart PID: the start time of PID (field 22 of /proc/PID/stat), as the reporter records it.
+pstart() { local l; { IFS= read -r l <"/proc/$1/stat"; } 2>/dev/null || return 1; l=${l##*) }; set -- $l; printf '%s' "${20}"; }
+# fake_wait_on: a live process of the harness holds $RAWSID's flush.wait, so no hook can arm a sleeper; fake_wait_off ends it.
+fake_wait_on() {
+  local d="$DATA/live/$(test_sha "$RAWSID").flush.wait"
+  sleep 300 & FAKE_WAIT_PID=$!
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; mkdir "$d"; printf '%s %s' "$FAKE_WAIT_PID" "$(pstart "$FAKE_WAIT_PID")" >"$d/p"
+}
+fake_wait_off() {
+  [ -n "$FAKE_WAIT_PID" ] || return 0
+  kill "$FAKE_WAIT_PID" 2>/dev/null; wait "$FAKE_WAIT_PID" 2>/dev/null; FAKE_WAIT_PID=""
+  rm -rf "$DATA/live/$(test_sha "$RAWSID").flush.wait"
+}
 run_hook() { run_script "$HOOK"; }
 curl_calls() { [ -f "$SB/log/calls.log" ] && { grep -c '^curl' "$SB/log/calls.log" || true; } || echo 0; }
 reqs() { wc -l <"$SB/api/requests.log" | tr -d ' '; }
@@ -921,32 +954,33 @@ check "the raw token is not even in a piece (prefix alyh_ + 8) outside the crede
 check "sent lines are removed from the spool; counter, flushed stamp stay; no batch file, no lock" "0 yes yes no no" \
   "$(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ') $([ -s "$DATA/live/$SH.seq" ] && echo yes || echo no) $([ -s "$DATA/live/$SH.flushed" ] && echo yes || echo no) $([ -e "$DATA/live/$SH.batch" ] && echo yes || echo no) $([ -n "$(find "$DATA/live" -name '*.lock' -o -name '.*.??????')" ] && echo yes || echo no)"
 SENT1=$(sent_seqs | tail -n 1); run_fixture pre-tool-use
-check "seq counter survives the emptied spool: the next seq is higher" "yes" "$([ "$(spool_seqs | tail -n 1)" -gt "$SENT1" ] && echo yes || echo no)"
+check "seq counter survives the emptied spool: the next seq is higher (sent by the delayed flush or still spooled)" "yes" "$([ "$( { sent_seqs; spool_seqs; } | sort -n | tail -n 1)" -gt "$SENT1" ] && echo yes || echo no)"
 end_case
 
-echo "== flush policy: 5 seconds or an important event (AC-04) =="
+echo "== flush policy: 2 seconds or an important event (AC-04; 2 s and ms stamps since ALY-217) =="
 T0=1800000000
 at() { RUN_ENV=("SHIM_DATE_NOW=$((T0 + $1))"); }
 new_case; mkcred; SHIMD="$SHIMS"
 at 0; run_fixture user-prompt-submit
-check "t+0: the first state change is sent" "1" "$(nbodies)"
-at 1; run_fixture pre-tool-use; at 2; run_fixture pre-tool-use; at 4; run_fixture pre-tool-use
-check "three non-important events within 5 s: nothing sent, all three spooled" "1 3" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
-at 4; run_fixture post-tool-use
-check "still nothing at 4 s (a PostToolUse adds no line)" "1 3" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
-at 5; run_fixture pre-tool-use
-check "at 5 s since the last flush: one request carrying the 4 spooled events" "2 4 0" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tail -n 1) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
-at 6; run_fixture pre-tool-use
+check "t+0: the first state change is sent; the flush start is stamped in ms" "1 ${T0}000" "$(nbodies) $(cat "$DATA/live/$(test_sha "$RAWSID").flushed")"
+fake_wait_on   # a pending sleeper of the harness: these hooks may not arm one, so only the hooks' own policy is seen
+at 1; run_fixture pre-tool-use; at 1; run_fixture pre-tool-use; at 1; run_fixture pre-tool-use
+check "three non-important events within 2 s: nothing sent, all three spooled" "1 3" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+at 1; run_fixture post-tool-use
+check "still nothing at 1 s (a PostToolUse adds no line)" "1 3" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+at 2; run_fixture pre-tool-use
+check "at 2 s since the last flush: one request carrying the 4 spooled events" "2 4 0" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tail -n 1) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+at 3; run_fixture pre-tool-use
 check "1 s after that flush a plain event waits" "2 1" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
-at 6; run_fixture subagent-start
+at 3; run_fixture subagent-start
 check "a subagent start is important: sent at once with the waiting event" "3 tool,sub_start" "$(nbodies) $("$JQ_BIN" -r '[.events[].type] | join(",")' "$SB/api/ingest-bodies.log" | tail -n 1)"
-at 6; run_fixture subagent-stop
+at 3; run_fixture subagent-stop
 check "a subagent stop is important" "4" "$(nbodies)"
-at 6; run_fixture skill-bridge-spec
+at 3; run_fixture skill-bridge-spec
 check "a binding is important (tool + bind in one request)" "5" "$(nbodies)"
-at 6; run_fixture notification-idle-prompt
+at 3; run_fixture notification-idle-prompt
 check "a state change (working -> idle) is important" "6" "$(nbodies)"
-at 6; run_fixture notification-idle-prompt
+at 3; run_fixture notification-idle-prompt
 check "idle -> idle is not a change: nothing sent within the interval" "6" "$(nbodies)"
 end_case
 new_case; mkcred; SHIMD="$SHIMS"; mkdir -p "$SB/proj/.allye/missions/m-1"
@@ -989,14 +1023,14 @@ spn() { if [ -f "$(spool_of "$RAWSID")" ]; then wc -l <"$(spool_of "$RAWSID")" |
 LV() { echo "$DATA/live/$1"; }
 TOKEN2="alyh_$(printf 'Zz9_-%.0s' $(seq 1 8))xyz"
 
-# 5xx and a dropped connection: the spool stays, no marker, no back-off, the next hook after 5 s retries
+# 5xx and a dropped connection: the spool stays, no marker, no back-off, the next hook after 2 s retries
 for m in 5xx drop; do
   new7; printf '%s' "$m" >"$SB/api/ingest-mode"; at 0; run_fixture user-prompt-submit
   check "answer '$m': one request, line kept, no marker, no back-off, exit 0 silent" "1 1 no no 0|" "$(nbodies) $(spn) $([ -e "$(LV disabled)" ] && echo yes || echo no) $([ -e "$(LV backoff)" ] && echo yes || echo no) $RC|$OUT$ERR"
   sweep "answer '$m'"
-  printf 'ok' >"$SB/api/ingest-mode"; at 4; run_fixture pre-tool-use; check "'$m': 4 s later nothing is sent" "1" "$(nbodies)"
-  at 5; run_fixture pre-tool-use
-  check "after '$m' and 5 s with an OK API: the kept line goes out with the new ones" "2 0" "$(nbodies) $(spn)"
+  fake_wait_on; printf 'ok' >"$SB/api/ingest-mode"; at 1; run_fixture pre-tool-use; check "'$m': 1 s later nothing is sent" "1" "$(nbodies)"
+  at 2; run_fixture pre-tool-use
+  check "after '$m' and 2 s with an OK API: the kept line goes out with the new ones" "2 0" "$(nbodies) $(spn)"
   end_case
 done
 # 400 and 413: that batch is discarded, no back-off, the next important event is sent at once
@@ -1239,6 +1273,132 @@ S0=$(date +%s); cp "$FIX/user-prompt-submit.json" "$SB/stdin"
 env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; S1=$(date +%s)
 check "a hook whose flush meets a 3 s API returns in under 2 s, silent" "yes|" "$([ $((S1 - S0)) -lt 2 ] && echo yes || echo no)|$(cat "$SB/out" "$SB/err")"
 wait_idle; check "and the detached flush still delivers" "1" "$(nbodies)"
+end_case
+
+# ─── ALY-217.1: tool lines within 2 s through one delayed flush per session (BR-01, BR-02, D-20, NFR-01) ──────
+echo "== delayed tool flush (ALY-217 AC-01..AC-08) =="
+# hook_at OFFSET FIXTURE: the hook once at T0+OFFSET ("" = the real clock), without waiting for its flusher or sleeper.
+hook_at() {
+  cp "$FIX/$2.json" "$SB/stdin"
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+    ${1:+SHIM_DATE_NOW="$((T0 + $1))"} "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
+}
+# sleeps: the sleeper's own waits (S.mmm; lock retries are 0.02 / 0.1), comma-separated.
+sleeps() { { grep -E '^sleep [0-9]+\.[0-9]{3}$' "$SB/log/sleep.log" 2>/dev/null || true; } | tr '\n' ',' | sed 's/,$//'; }
+types_of() { "$JQ_BIN" -r '[.events[].type] | join(",")' "$SB/api/ingest-bodies.log" | sed -n "${1}p"; }
+H7=$(test_sha "$RAWSID"); W7() { echo "$DATA/live/$H7.flush.wait"; }; FL7() { echo "$DATA/live/$H7.flushed"; }
+yn() { if eval "$1"; then echo yes; else echo no; fi; }
+
+# AC-01 / NFR-01: the only wall-clock case. The real clock; the tool line comes right after the first flush started.
+new_case; mkcred; SHIMD="$SHIMS"
+hook_at "" user-prompt-submit; wait_for '[ "$(nbodies)" -ge 1 ]'; wait_idle
+M0=$(date +%s%N); hook_at "" pre-tool-use
+for i in $(seq 1 200); do [ "$(nbodies)" -ge 2 ] && break; sleep 0.05; done; M1=$(date +%s%N); DMS=$(( (M1 - M0) / 1000000 ))
+check "AC-01: a tool line spooled under 2 s after the last flush start reaches the API with no further hook" "2 tool" "$(nbodies) $(types_of 2)"
+check "AC-01: the delay is non-zero and under 4 s (observed ${DMS} ms)" "yes" "$(yn '[ "$DMS" -gt 0 ] && [ "$DMS" -lt 4000 ]')"
+wait_idle; check "AC-01: afterwards no sleeper, no lock, an empty spool" "no no 0" "$(yn '[ -e "$(W7)" ]') $(yn '[ -n "$(find "$DATA/live" -name "*.lock")" ]') $(spn)"
+end_case
+
+# AC-02: 2 s or more since the last flush start: the hook starts the flusher itself, no sleeper
+new_case; mkcred; SHIMD="$SHIMS"; REAL="$REALBIN_SL"
+at 0; run_fixture user-prompt-submit
+printf '1000' >"$SB/api/ingest-delay"; hook_at 2 pre-tool-use
+check "AC-02: at t+2 s the flusher is started before the hook exits (flush lock held at return), no sleeper armed, flushed = t+2 s in ms" \
+  "yes no $(( (T0 + 2) * 1000 ))" "$(yn '[ -d "$DATA/live/$H7.flush.lock" ]') $(yn '[ -e "$(W7)" ]') $(cat "$(FL7)")"
+wait_idle
+check "AC-02: request order state then tool, no sleeper wait logged" "2 state tool " "$(nbodies) $(types_of 1) $(types_of 2) $(sleeps)"
+end_case
+
+# AC-07: a 10-digit seconds stamp (older version) is read as seconds
+for age in 1 3; do
+  new_case; mkcred; SHIMD="$SHIMS"; REAL="$REALBIN_SL"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+  printf 'working' >"$DATA/live/$H7.state"; printf '%s\n' "$((T0 - age))" >"$(FL7)"; chmod 600 "$DATA/live/$H7.state" "$(FL7)"
+  at 0; run_fixture pre-tool-use
+  if [ "$age" = 1 ]; then
+    check "AC-07: a seconds stamp 1 s old: the line waits for one sleeper of the remaining 1.000 s, then is sent; the stamp is now ms" "sleep 1.000 1 tool 13" "$(sleeps) $(nbodies) $(types_of 1) $(tr -d '\n' <"$(FL7)" | wc -c | tr -d ' ')"
+  else
+    check "AC-07: a seconds stamp 3 s old: sent at once by the hook, no sleeper, the stamp becomes t+0 in ms" " 1 ${T0}000" "$(sleeps) $(nbodies) $(cat "$(FL7)")"
+  fi
+  end_case
+done
+
+# AC-03: one sleeper, one sending flusher, 2 s between non-important flush starts, important events at once
+new_case; mkcred; SHIMD="$SHIMS"; REAL="$REALBIN_SL"
+at 0; run_fixture user-prompt-submit
+hook_at 0 pre-tool-use; WP1=$(cut -d' ' -f1 "$(W7)/p" 2>/dev/null); hook_at 0 pre-tool-use; hook_at 0 pre-tool-use
+check "AC-03: three tool lines under 2 s: one flush.wait, still naming the first sleeper (a live process with that start)" "yes yes" \
+  "$(yn '[ -n "$WP1" ] && [ "$(cut -d" " -f1 "$(W7)/p")" = "$WP1" ]') $(yn '[ "$(pstart "$WP1")" = "$(cut -d" " -f2 "$(W7)/p")" ]')"
+printf '500' >"$SB/api/ingest-delay"; hook_at 0 subagent-start
+check "AC-03: an important event starts its flush at once while the sleeper is pending" "yes yes" "$(yn '[ -d "$DATA/live/$H7.flush.lock" ]') $(yn '[ -e "$(W7)" ]')"
+wait_idle
+check "AC-03: one sleeper (one 2.000 s wait); the important request carried the three tool lines; the woken sleeper found nothing to send" \
+  "sleep 2.000 2 tool,tool,tool,sub_start 0" "$(sleeps) $(nbodies) $(types_of 2) $(spn)"
+printf '1500' >"$SB/api/ingest-delay"; hook_at 10 pre-tool-use
+check "AC-03: 10 s later a tool line is sent at once (flush start stamped t+10 s)" "$(( (T0 + 10) * 1000 ))" "$(cat "$(FL7)")"
+hook_at 11 pre-tool-use; hook_at 11 pre-tool-use
+wait_idle
+check "AC-03: 1 s after that start: one more sleeper waiting the remaining 1.000 s (2 s between the two starts), its flush stamped t+11 s" \
+  "sleep 2.000,sleep 1.000 $(( (T0 + 11) * 1000 ))" "$(sleeps) $(cat "$(FL7)")"
+check "AC-03: the sleeper waited for the sending flusher: never two requests in flight, both tool lines in the 4th request, spool empty" \
+  "1 4 tool,tool 0" "$(cat "$SB/api/ingest-maxinflight") $(nbodies) $(types_of 4) $(spn)"
+end_case
+
+# AC-04: a line spooled while a send is in flight (that send fails after 3 s) is still delivered with no further hook
+new_case; mkcred; SHIMD="$SHIMS"; printf '5xx:3000\n' >"$SB/api/ingest-script"
+hook_at 0 user-prompt-submit; wait_for '[ "$(nbodies)" -ge 1 ]'
+hook_at 0 pre-tool-use; wait_idle
+check "AC-04: the sleeper retried the flush lock until the failed send ended, then delivered both lines" "2 state,tool 0" "$(nbodies) $(types_of 2) $(spn)"
+end_case
+
+# AC-05: no sleeper during a back-off; a woken sleeper sends nothing when sending is not allowed or not useful
+new_case; mkcred; SHIMD="$SHIMS"; REAL="$REALBIN_SL"
+at 0; run_fixture user-prompt-submit
+printf '%s %s' "$((T0 + 600))" "$(test_sha "$TOKEN")" >"$DATA/live/backoff"; chmod 600 "$DATA/live/backoff"
+hook_at 0 pre-tool-use
+check "AC-05 back-off: no sleeper is armed (no flush.wait at return)" "no" "$(yn '[ -e "$(W7)" ]')"
+wait_idle; check "AC-05 back-off: no sleeper wait, nothing sent, the line kept" " 1 1" "$(sleeps) $(nbodies) $(spn)"
+end_case
+for cond in none ended off disabled backoff nocred empty; do
+  new_case; mkcred; SHIMD="$SHIMS"; REAL="$REALBIN_SL"
+  at 0; run_fixture user-prompt-submit
+  hook_at 0 pre-tool-use
+  armed=$(yn '[ -e "$(W7)" ]')
+  case "$cond" in
+    ended) printf 'ended' >"$DATA/live/$H7.state" ;;
+    off) : >"$DATA/live/off" ;;
+    disabled) printf 'cred:%s' "$(test_sha "$TOKEN")" >"$DATA/live/disabled"; chmod 600 "$DATA/live/disabled" ;;
+    backoff) printf '%s %s' "$((T0 + 600))" "$(test_sha "$TOKEN")" >"$DATA/live/backoff"; chmod 600 "$DATA/live/backoff" ;;
+    nocred) rm -f "$CRED" ;;
+    empty) : >"$(spool_of "$RAWSID")" ;;
+  esac
+  wait_idle
+  if [ "$cond" = none ]; then
+    check "AC-05 control (nothing changed while it slept): the sleeper sends the line" "yes sleep 2.000 2 0" "$armed $(sleeps) $(nbodies) $(spn)"
+  else
+    check "AC-05 '$cond' while the sleeper slept: it woke and sent nothing" "yes sleep 2.000 1 $([ "$cond" = empty ] && echo 0 || echo 1)" "$armed $(sleeps) $(nbodies) $(spn)"
+  fi
+  end_case
+done
+
+# AC-06: a killed sleeper never blocks the next one (its flush.wait is stale at once)
+new_case; mkcred; SHIMD="$SHIMS"
+at 0; run_fixture user-prompt-submit
+hook_at 0 pre-tool-use; KP=""; KS=""; { read -r KP KS <"$(W7)/p"; } 2>/dev/null
+check "AC-06: flush.wait records <pid> <start> of the live sleeper" "yes" "$(yn '[ -n "$KP" ] && [ "$(pstart "$KP")" = "$KS" ]')"
+if [ -n "$KP" ] && [ "$(pstart "$KP")" = "$KS" ]; then kill -9 "$KP" 2>/dev/null; for i in $(seq 1 100); do [ "$(pstart "$KP")" = "$KS" ] || break; sleep 0.02; done; fi
+check "AC-06: the killed sleeper left flush.wait behind and sent nothing" "yes 1" "$(yn '[ -e "$(W7)" ]') $(nbodies)"
+hook_at 0 pre-tool-use; wait_idle
+check "AC-06: the next tool line arms a new sleeper, which delivers both lines with no further hook; flush.wait gone" "2 tool,tool 0 no" "$(nbodies) $(types_of 2) $(spn) $(yn '[ -e "$(W7)" ]')"
+end_case
+
+# AC-08 (sleeper part): stdout captured through a pipe; the hook returns as soon as it is done
+new_case; mkcred; SHIMD="$SHIMS"
+at 0; run_fixture user-prompt-submit
+cp "$FIX/pre-tool-use.json" "$SB/stdin"; M0=$(date +%s%N)
+PIPED=$(env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" SHIM_DATE_NOW="$T0" "$BASH_BIN" "$HOOK" <"$SB/stdin" 2>&1)
+M1=$(date +%s%N); DMS=$(( (M1 - M0) / 1000000 ))
+check "AC-08: with a sleeper armed the piped hook returns (pipe closed) in under 2 s and prints nothing (observed ${DMS} ms)" "yes yes " "$(yn '[ -e "$(W7)" ]') $(yn '[ "$DMS" -lt 2000 ]') $PIPED"
+wait_idle; check "AC-08: the sleeper still delivers" "2" "$(nbodies)"
 end_case
 
 # ─── fake ingest API (harness self-check) ───────────────────────────────────

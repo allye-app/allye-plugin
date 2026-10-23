@@ -119,13 +119,15 @@ live_dir_ok() {
 # the directory itself is more than a minute old (find -mmin).
 lock_is_stale() {
   local ts="" now
+  if [ -e "$1/p" ]; then pidlock_stale "$1"; return; fi   # a pid lock (ALY-217): stale once its holder is gone
   { IFS=' ' read -r ts _ <"$1/t"; } 2>/dev/null
   now=$(date +%s 2>/dev/null) || now=""
   if [[ "$ts" =~ ^[0-9]{1,12}$ ]] && [[ "$now" =~ ^[0-9]{1,12}$ ]]; then [ $((now - ts)) -gt 30 ]; return; fi
   [ -d "$1" ] && [ ! -L "$1" ] && [ -n "$(find "$1" -prune -mmin +1 -print 2>/dev/null)" ]
 }
-# lock_take DIR TRIES: a mkdir lock (D-03, portable). TRIES x 20 ms of waiting after the first attempt (0 = try
-# once). The holder writes "<epoch> <token>" into DIR/t and keeps its token in LOCK_TOKEN. A stale lock is renamed
+# lock_take DIR TRIES [PID]: a mkdir lock (D-03, portable). TRIES x 20 ms of waiting after the first attempt (0 = try
+# once). The holder writes "<epoch> <token>" into DIR/t and keeps its token in LOCK_TOKEN; with PID it is a pid lock
+# instead: DIR/p holds "<PID> <start time of PID>" (see pidlock_rec). A stale lock is renamed
 # to a unique name by the one breaker holding DIR.brk, judged again there, and only then removed; if the renamed lock turns out fresh (it was replaced
 # meanwhile) it is put back and this try fails closed.
 lock_take() {
@@ -134,7 +136,7 @@ lock_take() {
   while :; do
     # mkdir alone does not decide: uutils coreutils (Ubuntu 25.10+) can report success to several concurrent callers, so
     # the lock is the exclusive (noclobber, O_EXCL) creation of DIR/t; a mkdir "winner" that loses that claim has not got it.
-    if mkdir "$d" 2>/dev/null && ( set -C; printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t" ) 2>/dev/null; then return 0; fi
+    if mkdir "$d" 2>/dev/null && ( set -C; if [ -n "${3:-}" ]; then pidlock_rec "$3" >"$d/p"; else printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t"; fi ) 2>/dev/null; then return 0; fi
     if lock_is_stale "$d"; then
       # Only one breaker at a time (a second mkdir lock, itself broken after a minute), so nobody can replace the
       # lock between the verdict and the rename; the renamed lock is judged once more as a safety net.
@@ -152,6 +154,44 @@ lock_take() {
     i=$((i + 1)); [ "$i" -gt "$n" ] && return 1
     sleep 0.02
   done
+}
+# ─── ALY-217.1: pid locks (D-20). DIR/p holds "<holder pid> <holder start>"; the lock is stale at once when that
+# process is gone (no such pid, a zombie, or the pid now belongs to a process with another start time). ───
+# proc_start PID: the start time of a live process (Linux: field 22 of /proc/PID/stat, read after the last `)`;
+# elsewhere: the digits of `ps -o lstart=`, 0 when ps is missing). Fails when the process is gone.
+proc_start() {
+  local l
+  [[ "$1" =~ ^[1-9][0-9]{0,9}$ ]] || return 1
+  if [ -r "/proc/$1/stat" ]; then
+    { IFS= read -r l <"/proc/$1/stat"; } 2>/dev/null || return 1
+    l=${l##*) }; set -- $l
+    [ "${1:-}" != Z ] && [[ "${20:-}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s' "${20}"; return 0
+  fi
+  kill -0 "$1" 2>/dev/null || return 1
+  l=$(ps -o lstart= -p "$1" 2>/dev/null) || l=""; l=${l//[!0-9]/}
+  printf '%s' "${l:-0}"
+}
+pidlock_rec() { local s; s=$(proc_start "$1") || s=""; printf '%s %s' "$1" "$s"; }
+pidlock_stale() {
+  local p="" s="" cur
+  { IFS=' ' read -r p s <"$1/p"; } 2>/dev/null
+  if [[ "$p" =~ ^[0-9]{1,10}$ ]]; then cur=$(proc_start "$p") || return 0; [ "$cur" != "$s" ]; return; fi
+  [ -d "$1" ] && [ ! -L "$1" ] && [ -n "$(find "$1" -prune -mmin +1 -print 2>/dev/null)" ]   # no readable holder
+}
+# pidlock_pass DIR FROM TO: the holder record moves from pid FROM to pid TO (temp + mv), only while DIR/p names FROM.
+pidlock_pass() {
+  local p="" t="$1/p.$3.$RANDOM"
+  { IFS=' ' read -r p _ <"$1/p"; } 2>/dev/null
+  [ -n "${2:-}" ] && [ "$p" = "$2" ] || return 1
+  pidlock_rec "$3" >"$t" 2>/dev/null && mv -f "$t" "$1/p" 2>/dev/null || { rm -f "$t" 2>/dev/null; return 1; }
+}
+# pidlock_drop DIR PID: removes the lock only while DIR/p names PID.
+pidlock_drop() {
+  local p=""
+  { IFS=' ' read -r p _ <"$1/p"; } 2>/dev/null
+  [ -n "${2:-}" ] && [ "$p" = "$2" ] && rm -rf "$1" 2>/dev/null
+  return 0
 }
 # lock_drop DIR TOKEN: removes the lock only while DIR/t still holds this hook's own token.
 lock_drop() {
@@ -354,14 +394,50 @@ flush_loop() {
     FTOK="$LOCK_TOKEN"
   done
 }
-flush_due() {  # important events flush at once, others when 5 seconds passed since the last flush started
-  local last="" now
-  backoff_active && return 1
+# flushed_ms: the start of the last flush in Unix ms from $HASH.flushed (13 digits = ms; up to 12 digits = epoch
+# seconds, as written by the older version); empty when unknown.
+flushed_ms() {
+  local last=""
+  if [ -f "$FLUSHED" ] && [ ! -L "$FLUSHED" ] && private_file_ok "$FLUSHED"; then { IFS= read -r last <"$FLUSHED"; } 2>/dev/null; fi
+  if [[ "$last" =~ ^[0-9]{13}$ ]]; then printf '%s' "$((10#$last))"
+  elif [[ "$last" =~ ^[0-9]{1,12}$ ]]; then printf '%s000' "$((10#$last))"; fi
+}
+stamp_flushed() {  # the flush starts now: $HASH.flushed = Unix ms (temp + mv)
+  local tmp
+  tmp=$(mktemp "$LIVE_DIR/.flushed.XXXXXX" 2>/dev/null) || return 0; TMPF="$tmp"
+  now_ms >"$tmp" 2>/dev/null && mv -f "$tmp" "$FLUSHED" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+flush_due() {  # important events flush at once, others when 2 seconds passed since the last flush started; FLUSH_REM = ms left
+  local last now
+  FLUSH_REM=0
   [ "$IMPORTANT" = 1 ] && return 0
-  if [ -f "$FLUSHED" ] && [ ! -L "$FLUSHED" ] && private_file_ok "$FLUSHED"; then IFS= read -r last <"$FLUSHED" 2>/dev/null; fi
-  now=$(date +%s 2>/dev/null) || return 1
-  [[ "$last" =~ ^[0-9]{1,12}$ ]] && [[ "$now" =~ ^[0-9]{1,12}$ ]] || return 0
-  [ $((now - last)) -ge 5 ]
+  last=$(flushed_ms); now=$(now_ms)
+  [ -n "$last" ] && [[ "$now" =~ ^[0-9]{13}$ ]] || return 0
+  FLUSH_REM=$((2000 - (10#$now - last)))
+  [ "$FLUSH_REM" -le 0 ] && { FLUSH_REM=0; return 0; }
+  [ "$FLUSH_REM" -le 2000 ] || FLUSH_REM=2000   # a stamp in the future (the clock went back): wait at most 2 s
+  return 1
+}
+# flush_sleeper: the delayed flush (D-20), detached, holding $HASH.flush.wait (a pid lock naming itself) while it sleeps
+# FLUSH_REM ms. Awake, it sends nothing when the session is ended, Live is off or disabled, a back-off is active, the
+# credential is gone or changed, or the spool is empty; otherwise it tries the flush lock every 100 ms for up to 10 s,
+# releases flush.wait (so a line spooled during its send can arm the next sleeper) and runs the normal flush loop.
+flush_sleeper() {
+  local i=0 st="" old="$CFP"
+  sleep "$(printf '%d.%03d' $((FLUSH_REM / 1000)) $((FLUSH_REM % 1000)))"
+  if [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ] || [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then return 0; fi
+  if [ -f "$STATEF" ] && [ ! -L "$STATEF" ]; then { IFS= read -r st <"$STATEF"; } 2>/dev/null; fi
+  [ "$st" != ended ] || return 0
+  load_live_credential "$DIR" || return 0
+  CFP=""; credfp; [ -n "$old" ] && [ "$CFP" = "$old" ] || return 0
+  backoff_active && return 0
+  [ -s "$SPOOL" ] || return 0
+  until lock_take "$FLOCK" 0; do i=$((i + 1)); [ "$i" -lt 100 ] || return 0; sleep 0.1; done
+  FTOK="$LOCK_TOKEN"
+  stamp_flushed
+  pidlock_drop "$WAITD" "$ME"
+  flush_loop
 }
 
 # The live directory is checked before the first read or write (SHD-01), then every read-modify-write of this
@@ -377,7 +453,7 @@ lock_take "$LOCKD" 500 || exit 0
 STATE_TOKEN="$LOCK_TOKEN"; HAVE_LOCK=1
 # `/allye:hooks live off` may have run while this hook waited for the lock: it then drops its events (AC-11).
 if [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ]; then exit 0; fi
-FLOCK="$LIVE_DIR/$HASH.flush.lock"; FLUSHED="$LIVE_DIR/$HASH.flushed"; BATCHF="$LIVE_DIR/$HASH.batch"; HDRF="$LIVE_DIR/$HASH.hdr"; RESPF="$LIVE_DIR/$HASH.resp"; BACKOFFF="$LIVE_DIR/backoff"; CREDF="$LIVE_DIR/$HASH.cred"
+FLOCK="$LIVE_DIR/$HASH.flush.lock"; WAITD="$LIVE_DIR/$HASH.flush.wait"; FTOK=""; FLUSHED="$LIVE_DIR/$HASH.flushed"; BATCHF="$LIVE_DIR/$HASH.batch"; HDRF="$LIVE_DIR/$HASH.hdr"; RESPF="$LIVE_DIR/$HASH.resp"; BACKOFFF="$LIVE_DIR/backoff"; CREDF="$LIVE_DIR/$HASH.cred"
 
 LAST=""
 if [ -f "$STATEF" ] && [ ! -L "$STATEF" ] && private_file_ok "$STATEF"; then
@@ -682,8 +758,9 @@ if [ -n "$GATELINE" ]; then
   printf '%s' "$GNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 
-# Flush trigger (BR-04): an important event (state change, subagent start or stop, bind, gates) or 5 seconds since
-# the last flush. The state lock is released first; the flusher is detached so the hook returns at once.
+# Flush trigger (BR-04, D-20): an important event (state change, subagent start or stop, bind, gates) or 2 seconds since
+# the last flush started; otherwise one delayed flush per session (the sleeper above). Nothing during a back-off. The
+# state lock is released first; flusher and sleeper are detached with stdio on /dev/null so the hook returns at once.
 IMPORTANT=0
 case "$EVENTS" in *'"type":"sub_start"'*|*'"type":"sub_stop"'*|*'"type":"bind"'*|*'"type":"gates"'*) IMPORTANT=1 ;; esac
 if [ -n "$NEWLAST" ] && [ "$NEWLAST" != "$LAST" ]; then IMPORTANT=1; fi
@@ -692,14 +769,30 @@ if [ -n "$NEWLAST" ] && [ "$NEWLAST" != "$LAST" ]; then IMPORTANT=1; fi
 SEND_MAXTIME=8; SEND_CONNECT=3
 case "$EVENTS" in *'"state":"ended"'*) SEND_MAXTIME=1; SEND_CONNECT=1 ;; esac
 lock_drop "$LOCKD" "$STATE_TOKEN"; HAVE_LOCK=0
-if flush_due && lock_take "$FLOCK" 0; then
-  FTOK="$LOCK_TOKEN"
-  TMP=$(mktemp "$LIVE_DIR/.flushed.XXXXXX" 2>/dev/null) && { TMPF="$TMP"; date +%s >"$TMP" 2>/dev/null && mv -f "$TMP" "$FLUSHED" 2>/dev/null || rm -f "$TMP" 2>/dev/null; }
+if backoff_active; then :
+elif flush_due; then
+  if lock_take "$FLOCK" 0; then
+    FTOK="$LOCK_TOKEN"
+    stamp_flushed
+    (
+      trap 'rm -f "$BATCHF" "$HDRF" "$RESPF" "$TMPF" "$TMPF.2" 2>/dev/null; lock_drop "$FLOCK" "$FTOK"' EXIT
+      trap 'exit 0' HUP INT TERM
+      flush_loop
+    ) </dev/null >/dev/null 2>&1 &
+  fi
+elif lock_take "$WAITD" 0 "$$"; then
   (
-    trap 'rm -f "$BATCHF" "$HDRF" "$RESPF" "$TMPF" "$TMPF.2" 2>/dev/null; lock_drop "$FLOCK" "$FTOK"' EXIT
-    trap 'exit 0' HUP INT TERM
-    flush_loop
+    ME="${BASHPID:-}"
+    if [ -z "$ME" ]; then   # bash 3.2: the parent of a child sh is this subshell
+      TMP=$(mktemp "$LIVE_DIR/.me.XXXXXX" 2>/dev/null) && { sh -c 'printf "%s" "$PPID"' >"$TMP" 2>/dev/null; IFS= read -r ME <"$TMP"; rm -f "$TMP"; }
+    fi
+    pidlock_pass "$WAITD" "$$" "$ME"
+    trap 'rm -f "$BATCHF" "$HDRF" "$RESPF" "$TMPF" "$TMPF.2" 2>/dev/null; lock_drop "$FLOCK" "$FTOK"; pidlock_drop "$WAITD" "$ME"' EXIT
+    trap '' HUP
+    trap 'exit 0' INT TERM
+    flush_sleeper
   ) </dev/null >/dev/null 2>&1 &
+  pidlock_pass "$WAITD" "$$" "$!"
 fi
 LIVE_TOKEN=""
 exit 0
