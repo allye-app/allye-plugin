@@ -285,7 +285,7 @@ seq_case "waiting then a subagent tool: working first" "$WQ" "$W" '{"type":"sub_
 SEQ=(pre-tool-use-ask-user-question stop pre-tool-use)
 seq_case "waiting then Stop then a tool: Stop leaves waiting, no working" "$WQ" '{"type":"state","state":"idle","code":"turn_ended"}' '{"type":"tool","tool":"Bash"}'
 SEQ=(pre-tool-use-ask-user-question subagent-stop)
-seq_case "waiting then SubagentStop: no working (not a trigger)" "$WQ" '{"type":"sub_stop","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+seq_case "waiting then SubagentStop: no working (not a trigger)" "$WQ" '{"type":"sub_stop","sub":{"id":"agent-abc123","type":"allye:bridge-pilot","outcome":"pass","task":"ALY-1.2"}}'
 SEQ=(pre-tool-use pre-tool-use)
 seq_case "no waiting: no working is inserted" '{"type":"tool","tool":"Bash"}' '{"type":"tool","tool":"Bash"}'
 SEQ=(permission-request pre-tool-use-tool-space pre-tool-use)
@@ -472,6 +472,230 @@ check "ARGS, tool_input, branch and cwd markers absent from every file and log" 
 check "every bind holds only contract keys and patterns" "0" "$("$JQ_BIN" -c 'select(.type == "bind") | .bind | select((keys - ["source","spec","task","role","mode"] | length > 0) or (.source | IN("skill","mcp","env","branch") | not) or ((.spec // "ALY-1") | test("\\A[A-Z][A-Z0-9]{1,9}-[0-9]+(\\.[0-9]+)?\\z") | not) or ((.task // "ALY-1.1") | test("\\A[A-Z][A-Z0-9]{1,9}-[0-9]+(\\.[0-9]+)?\\z") | not))' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 end_case
 
+
+# ─── ALY-203.4: subagent outcome (BR-09, AC-07) ─────────────────────────────
+echo "== subagent outcome from the structured output only (AC-07) =="
+# stop_case LABEL MESSAGE-STRING EXPECTED-EVENT-JSON
+stop_case() {
+  new_case; mkcred; "$JQ_BIN" --arg m "$2" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+  check "$1" "$(printf '%s\n' "$3" | "$JQ_BIN" -cS .)" "$(spooled)"
+  check "$1: exit 0, silent" "0||" "$RC|$OUT|$ERR"
+  check "$1: the message text is not stored" "0" "$(bind_files | grep -cF -e MARKER_LASTMSG -e MARKER_PROSE || true)"
+  end_case
+}
+SUBP='"id":"agent-abc123","type":"allye:bridge-pilot"'
+for st in passed approved ready; do
+  stop_case "status $st -> pass" "MARKER_LASTMSG
+role: pilot
+status: $st" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+done
+stop_case "status advisory -> pass with code advisory" "status: advisory" "{\"type\":\"sub_stop\",\"code\":\"advisory\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "status failed -> fail" "status: failed" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"fail\"}}"
+for st in blocked needs-input escalate; do
+  stop_case "status $st -> blocked" "status: $st" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"blocked\"}}"
+done
+UNK="{\"type\":\"sub_stop\",\"code\":\"returned\",\"sub\":{$SUBP,\"outcome\":\"unknown\"}}"
+stop_case "no status line -> unknown/returned" "MARKER_LASTMSG all done" "$UNK"
+stop_case "empty message -> unknown/returned" "" "$UNK"
+stop_case "unknown status value" "status: great" "$UNK"
+stop_case "uppercase status value" "status: PASSED" "$UNK"
+stop_case "status with trailing junk" "status: passed MARKER_PROSE" "$UNK"
+stop_case "status embedded in prose is not a line of its own" "I think the status: passed is fine, MARKER_PROSE" "$UNK"
+stop_case "status in the middle of a line after text" "done - status: passed" "$UNK"
+stop_case "status key with other prefix" "substatus: passed" "$UNK"
+stop_case "indented status line is accepted (documented)" "  status: passed" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "the first status line wins" "status: failed
+status: passed" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"fail\"}}"
+stop_case "the first status line wins even when it is unknown" "status: nope
+status: passed" "$UNK"
+stop_case "CRLF line ending" "$(printf 'status: passed\r\nMARKER_LASTMSG')" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "task valid key" "status: passed
+task: ALY-203.4" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\",\"task\":\"ALY-203.4\"}}"
+stop_case "task spec-style key" "status: failed
+task: ALY-203" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"fail\",\"task\":\"ALY-203\"}}"
+stop_case "task that is not a key is dropped" "status: passed
+task: do the thing MARKER_PROSE" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "task dotted twice is dropped" "status: passed
+task: ALY-203.4.5" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "task lowercase is dropped" "status: passed
+task: aly-1" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "task key in prose is dropped" "status: passed
+see task: ALY-1.2 later" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "task with unknown status still carries the valid key" "task: ALY-9.1" "{\"type\":\"sub_stop\",\"code\":\"returned\",\"sub\":{$SUBP,\"outcome\":\"unknown\",\"task\":\"ALY-9.1\"}}"
+for badm in 'null' '7' '["status: passed"]' '{"a":1}' 'true'; do
+  new_case; mkcred; "$JQ_BIN" --argjson m "$badm" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+  check "non-string last_assistant_message $badm -> unknown/returned" "$(printf '%s\n' "$UNK" | "$JQ_BIN" -cS .)|0||" "$(spooled)|$RC|$OUT|$ERR"; end_case
+done
+new_case; mkcred; "$JQ_BIN" 'del(.last_assistant_message)' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "missing last_assistant_message -> unknown/returned" "$(printf '%s\n' "$UNK" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
+# only the first 64 KB of the message is examined: a status line past it does not count, one inside it does
+new_case; mkcred
+HUGE=$(head -c 70000 /dev/zero | tr '\0' 'a')
+"$JQ_BIN" --arg m "$HUGE
+status: passed" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "status line after 64 KB of text is not examined -> unknown" "$(printf '%s\n' "$UNK" | "$JQ_BIN" -cS .)|0||" "$(spooled)|$RC|$OUT|$ERR"; end_case
+new_case; mkcred
+"$JQ_BIN" --arg m "status: failed
+$HUGE" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "status line inside the first 64 KB of a huge message counts" "{\"sub\":{\"id\":\"agent-abc123\",\"outcome\":\"fail\",\"type\":\"allye:bridge-pilot\"},\"type\":\"sub_stop\"}|0||" "$(spooled)|$RC|$OUT|$ERR"; end_case
+
+# ─── ALY-203.4: mission gates (BR-10, AC-08, AC-16) ─────────────────────────
+echo "== mission gates from the journal (AC-08, AC-16) =="
+SHA1=GATESHA1MARKER; SHA2=GATESHA2MARKER
+gates_line() {  # S W C M: values (use - for the dash)
+  local v; v() { [ "$1" = "-" ] && printf '\xe2\x80\x94' || printf '%s' "$1"; }
+  printf -- '- Gates: SHIELD_CLEAR %s \xc2\xb7 WATCHER_APPROVED %s \xc2\xb7 CI_PENDING %s \xc2\xb7 MISSION_COMPLETE %s\n' "$(v "$1")" "$(v "$2")" "$(v "$3")" "$(v "$4")"
+}
+mklog() {  # SLUG LINE...: writes $SB/proj/.allye/missions/SLUG/log.md (real directories)
+  local slug="$1"; shift
+  mkdir -p "$SB/proj/.allye/missions/$slug"; { echo "# Mission log MARKER_GATEFILE"; echo; printf '%s\n' "$@"; echo "- Other: MARKER_GATEFILE"; } >"$SB/proj/.allye/missions/$slug/log.md"
+}
+# fire TOOL [FILEPATH]: PostToolUse for the sandbox project
+fire() {
+  "$JQ_BIN" -n --arg t "$1" --arg f "${2-$SB/proj/.allye/missions/m-1/log.md}" --arg c "${GCWDV-$SB/proj}" \
+    '{session_id:"sess-gate-1",hook_event_name:"PostToolUse",cwd:$c,tool_name:$t,tool_input:{file_path:$f,content:"MARKER_GATEFILE"},tool_response:{}}' >"$SB/stdin"
+  run_hook
+}
+gev() { spooled sess-gate-1 | grep '"type":"gates"' || true; }
+gevn() { local g; g=$(gev); [ -n "$g" ] && printf '%s\n' "$g" | grep -c . || echo 0; }
+GATEFILES() { find "$DATA/live" -type f -exec cat {} + 2>/dev/null; }
+gcase() {  # LABEL S W C M EXPECTED-ARRAY (tokens)
+  new_case; mkcred; mklog m-1 "$(gates_line "$2" "$3" "$4" "$5")"; fire Write
+  if [ "$6" = "[]" ]; then check "$1" "0" "$(gevn)"; else check "$1" "{\"gates\":$6,\"type\":\"gates\"}" "$(gev)"; fi
+  check "$1: exit 0, silent" "0||" "$RC|$OUT|$ERR"
+  check "$1: sha values and file markers do not leave" "0" "$( { GATEFILES; cat "$SB/out" "$SB/err"; grep -v '^find ' "$SB/log/calls.log"; } | grep -cE 'GATESHA|MARKER_GATEFILE|proj/.allye|log\.md' || true)"
+  end_case
+}
+gcase "all dashes: no gates yet, nothing sent" - - - - '[]'
+gcase "SHIELD_CLEAR only" "$SHA1" - - - '["SHIELD_CLEAR"]'
+gcase "WATCHER_APPROVED only" - "$SHA1" - - '["WATCHER_APPROVED"]'
+gcase "CI_PENDING only" - - "$SHA1" - '["CI_PENDING"]'
+gcase "MISSION_COMPLETE only" - - - "$SHA1" '["MISSION_COMPLETE"]'
+gcase "all four" "$SHA1" "$SHA2" "$SHA1" "$SHA2" '["SHIELD_CLEAR","WATCHER_APPROVED","MISSION_COMPLETE","CI_PENDING"]'
+gcase "mixed" "$SHA1" - "$SHA2" - '["SHIELD_CLEAR","CI_PENDING"]'
+new_case; mkcred; mklog m-1 "- Gates: SHIELD_CLEAR $SHA1 · WATCHER_APPROVED · BOGUS_TOKEN $SHA2 · CI_PENDING —"; fire Write
+check "empty value, unknown token: only SHIELD_CLEAR" '{"gates":["SHIELD_CLEAR"],"type":"gates"}' "$(gev)"; end_case
+new_case; mkcred; mklog m-1 "- Notes: Gates: SHIELD_CLEAR $SHA1" "  - Gates: SHIELD_CLEAR $SHA1"; fire Write
+check "a Gates: text that is not a line starting with '- Gates:' counts for nothing" "0" "$(gevn)"; end_case
+new_case; mkcred; mklog m-1 "- Gates: SHIELD_CLEAR $SHA1 · WATCHER_APPROVED —" "- Gates: MISSION_COMPLETE $SHA2"; fire Write
+check "the first Gates line wins" '{"gates":["SHIELD_CLEAR"],"type":"gates"}' "$(gev)"; end_case
+new_case; mkcred; mklog m-1 "no gates line here"; fire Write
+check "no Gates line: nothing sent" "0" "$(gevn)"; end_case
+
+echo "== gates: complete set, only on change =="
+new_case; mkcred
+mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write
+fire Edit
+mklog m-1 "$(gates_line "$SHA2" - - -)"; fire Write
+check "same set (different sha values) is not repeated" "1" "$(gevn)"
+mklog m-1 "$(gates_line "$SHA1" "$SHA1" - -)"; fire Edit
+check "set grows: the complete set is sent" "$(printf '%s\n%s\n' '{"gates":["SHIELD_CLEAR"],"type":"gates"}' '{"gates":["SHIELD_CLEAR","WATCHER_APPROVED"],"type":"gates"}')" "$(gev)"
+mklog m-1 "$(gates_line - - - -)"; fire Write
+check "back to all dashes: the empty set is sent" '{"gates":[],"type":"gates"}' "$(gev | tail -n 1)"
+fire Write
+check "empty set is not repeated" "3" "$(gevn)"
+check "gate state file: private, keyed by hash, holds only the token set" "600 [] 1" "$(find "$DATA/live/$(test_sha sess-gate-1).gates" -printf '%m') $(cat "$DATA/live/$(test_sha sess-gate-1).gates") $(find "$DATA/live" -name '*.gates' | grep -c .)"
+check "gate files: nothing but contract fields (no path, no sha)" "0" "$(GATEFILES | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|proj' || true)"
+GF="$DATA/live/$(test_sha sess-gate-1).gates"; rm -f "$GF"; : >"$GF"; chmod 644 "$GF"
+mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write
+check "gate state with a wrong mode: nothing sent" "3" "$(gevn)"
+rm -f "$GF"; ln -s "$SB/stdin" "$GF"; fire Write
+check "symlinked gate state: nothing sent, target untouched" "3|yes" "$(gevn)|$([ -s "$SB/stdin" ] && echo yes || echo no)"
+end_case
+
+echo "== gates: other files, tools and paths send nothing (AC-08, AC-16) =="
+no_gates() {  # LABEL, after the event(s) have fired
+  check "$1: no gates event" "0" "$(gevn)"
+  check "$1: exit 0, silent" "0||" "$RC|$OUT|$ERR"
+}
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Read; no_gates "tool Read"; end_case
+for badti in '"str"' 'null' '[1]'; do
+  new_case; mkcred; run_fixture permission-request
+  "$JQ_BIN" --argjson t "$badti" '.tool_name = "Write" | .tool_input = $t' "$FIX/post-tool-use.json" >"$SB/stdin"; run_hook
+  check "Write with tool_input $badti after waiting: working still spooled, no gates" "$(printf '%s\n%s\n' "$WP" "$W" | "$JQ_BIN" -cS .)|0||" "$(spooled)|$RC|$OUT|$ERR"; end_case
+done
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Bash; no_gates "tool Bash"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire NotebookEdit; no_gates "tool NotebookEdit"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"
+"$JQ_BIN" -n --arg f "$SB/proj/.allye/missions/m-1/log.md" --arg c "$SB/proj" '{session_id:"sess-gate-1",hook_event_name:"PreToolUse",cwd:$c,tool_name:"Write",tool_input:{file_path:$f}}' >"$SB/stdin"; run_hook
+no_gates "PreToolUse (file not written yet)"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"
+"$JQ_BIN" -n --arg f "$SB/proj/.allye/missions/m-1/log.md" --arg c "$SB/proj" '{session_id:"sess-gate-1",hook_event_name:"PostToolUse",agent_id:"agent-abc123",agent_type:"allye:bridge-pilot",cwd:$c,tool_name:"Write",tool_input:{file_path:$f}}' >"$SB/stdin"; run_hook
+no_gates "write made inside a subagent"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write "$SB/proj/.allye/missions/m-1/crew/shield.md"; no_gates "crew file"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; cp "$SB/proj/.allye/missions/m-1/log.md" "$SB/proj/.allye/missions/m-1/notes.md"; fire Write "$SB/proj/.allye/missions/m-1/notes.md"; no_gates "another file name in the mission dir"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write "$SB/proj/.allye/missions/m-1/sub/log.md"; no_gates "log.md one level too deep"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; mkdir -p "$SB/proj/other"; cp "$SB/proj/.allye/missions/m-1/log.md" "$SB/proj/other/log.md"; fire Write "$SB/proj/other/log.md"; no_gates "log.md in another directory"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write "$SB/proj/.allye/log.md"; no_gates "log.md directly in .allye"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write "$SB/proj/.allye/missions/../missions/m-1/log.md"; no_gates "path with .. inside"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; mkdir -p "$SB/proj/x"; fire Write "$SB/proj/x/../.allye/missions/m-1/log.md"; no_gates "path with .. before .allye"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write ".allye/missions/m-1/log.md"; no_gates "relative file path"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; GCWDV="relative/dir" fire Write; no_gates "relative cwd"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; GCWDV="$SB/proj/" fire Write "$SB/proj//.allye/missions/m-1/log.md"; no_gates "double slash"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; GCWDV="$SB/other" fire Write; no_gates "file outside the cwd of the payload"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; GCWDV="$(printf '%s\n/etc' "$SB/proj")" fire Write; no_gates "cwd with a control character"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write "$SB/proj/.allye/missions/m-1/log.md"$'\n'; no_gates "file path ending in a newline"; end_case
+for bad in Upper UPPER m.1 m_1 m..1 "m 1" ""; do
+  new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/ok"; mklog "ok" "$(gates_line "$SHA1" - - -)"
+  if [ -n "$bad" ]; then mkdir -p "$SB/proj/.allye/missions/$bad"; cp "$SB/proj/.allye/missions/ok/log.md" "$SB/proj/.allye/missions/$bad/log.md"; fi
+  fire Write "$SB/proj/.allye/missions/$bad/log.md"; no_gates "slug '$bad'"; end_case
+done
+new_case; mkcred; LONG=$(head -c 81 /dev/zero | tr '\0' 'a'); mklog "$LONG" "$(gates_line "$SHA1" - - -)"; fire Write "$SB/proj/.allye/missions/$LONG/log.md"; no_gates "slug of 81 characters"; end_case
+new_case; mkcred; LONG=$(head -c 80 /dev/zero | tr '\0' 'a'); mklog "$LONG" "$(gates_line "$SHA1" - - -)"; fire Write "$SB/proj/.allye/missions/$LONG/log.md"
+check "slug of 80 characters is accepted (counterpart)" '{"gates":["SHIELD_CLEAR"],"type":"gates"}' "$(gev)"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; mkdir -p "$SB/proj/.allye/missions/9-z-"; cp "$SB/proj/.allye/missions/m-1/log.md" "$SB/proj/.allye/missions/9-z-/log.md"; fire Write "$SB/proj/.allye/missions/9-z-/log.md"
+check "lowercase digits and dashes slug is accepted (counterpart)" '{"gates":["SHIELD_CLEAR"],"type":"gates"}' "$(gev)"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write "$SB/proj/.allye/missions/m-1/missing.md"; no_gates "file does not exist"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1/log.md"; fire Write; no_gates "log.md is a directory"; end_case
+
+echo "== gates: symlinks (AC-16) =="
+new_case; mkcred; mklog real "$(gates_line "$SHA1" - - -)"; ln -s "$SB/proj/.allye/missions/real/log.md" "$SB/proj/.allye/missions/m-1" 2>/dev/null; rm -f "$SB/proj/.allye/missions/m-1"
+mkdir -p "$SB/proj/.allye/missions/m-1"; ln -s "$SB/proj/.allye/missions/real/log.md" "$SB/proj/.allye/missions/m-1/log.md"; fire Write; no_gates "symlinked log.md"; end_case
+new_case; mkcred; mklog real "$(gates_line "$SHA1" - - -)"; ln -s "$SB/proj/.allye/missions/real" "$SB/proj/.allye/missions/m-1"; fire Write; no_gates "symlinked slug directory"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; mv "$SB/proj/.allye/missions" "$SB/realmissions"; ln -s "$SB/realmissions" "$SB/proj/.allye/missions"; fire Write; no_gates "symlinked missions directory"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; mv "$SB/proj/.allye" "$SB/realallye"; ln -s "$SB/realallye" "$SB/proj/.allye"; fire Write; no_gates "symlinked .allye directory"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; ln -s "$SB/proj" "$SB/projlink"; GCWDV="$SB/projlink" fire Write "$SB/projlink/.allye/missions/m-1/log.md"
+check "a cwd that is itself a symlink to the project is resolved physically and accepted" '{"gates":["SHIELD_CLEAR"],"type":"gates"}' "$(gev)"; end_case
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)"; ln -s "$SB/proj/.allye/missions/m-1/log.md" "$SB/proj/.allye/missions/m-1/alias.md"; fire Write "$SB/proj/.allye/missions/m-1/alias.md"; no_gates "a symlink to the real log.md under another name"; end_case
+
+echo "== gates: the 64 KB read limit (AC-16) =="
+# A logging `head` shim (the shim dir is locked, so it is built here) is the read-size probe: the oversized file must
+# never be opened at all, the accepted one is read through head -c 65536.
+head_probe() {
+  SHIMD="$SB/probeshims"; link_shims "$SHIMD"
+  printf '#!/bin/bash\nexec "%s/_wrap.sh" head "$@"\n' "$SHIMS" >"$SHIMD/head"; chmod +x "$SHIMD/head"
+}
+padto() {  # FILE SIZE: append x bytes until the file is exactly SIZE bytes
+  local have; have=$(find "$1" -printf '%s')
+  head -c $(($2 - have)) /dev/zero | tr '\0' 'x' >>"$1"
+}
+# oversize: 65537 bytes; a valid Gates line first, so reading any of it would send SHIELD_CLEAR
+new_case; mkcred; head_probe; mkdir -p "$SB/proj/.allye/missions/m-1"
+gates_line "$SHA1" - - - >"$SB/proj/.allye/missions/m-1/log.md"; padto "$SB/proj/.allye/missions/m-1/log.md" 65537
+check "fixture: oversized file is exactly 65537 bytes" "65537" "$(find "$SB/proj/.allye/missions/m-1/log.md" -printf '%s')"
+fire Write; no_gates "65537-byte file (valid Gates line inside the first 64 KB)"
+check "oversized file: never read (no head call at all)" "0" "$(grep -c '^head' "$SB/log/calls.log" || true)"
+end_case
+# the same file at exactly 65536 bytes is accepted, read through head -c 65536 and nothing else
+new_case; mkcred; head_probe; mkdir -p "$SB/proj/.allye/missions/m-1"
+gates_line "$SHA1" - - - >"$SB/proj/.allye/missions/m-1/log.md"; padto "$SB/proj/.allye/missions/m-1/log.md" 65536
+check "fixture: boundary file is exactly 65536 bytes" "65536" "$(find "$SB/proj/.allye/missions/m-1/log.md" -printf '%s')"
+fire Write
+check "65536-byte file is accepted (counterpart)" '{"gates":["SHIELD_CLEAR"],"type":"gates"}' "$(gev)"
+check "the read is bounded: exactly one head call, head -c 65536" "1|head [-c] [65536] [$SB/proj/.allye/missions/m-1/log.md]" "$(grep -c '^head' "$SB/log/calls.log")|$(grep '^head' "$SB/log/calls.log")"
+end_case
+# a valid line after 64 KB in a file of unrelated size is simply never reached: file over the limit, Gates line only at the end
+new_case; mkcred; head_probe; mkdir -p "$SB/proj/.allye/missions/m-1"
+head -c 70000 /dev/zero | tr '\0' 'x' >"$SB/proj/.allye/missions/m-1/log.md"; printf '\n' >>"$SB/proj/.allye/missions/m-1/log.md"; gates_line "$SHA1" - - - >>"$SB/proj/.allye/missions/m-1/log.md"
+fire Write; no_gates "valid Gates line only beyond 64 KB"; end_case
+
+echo "== gates: markers =="
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" "$SHA2" - -)"; fire Write; fire Edit
+check "gates event keys are exactly type, gates and at" "type,gates,at" "$("$JQ_BIN" -r 'select(.type=="gates") | keys_unsorted | join(",")' "$DATA/live/$(test_sha sess-gate-1).spool" | head -n 1)"
+check "every gates token is in the enumeration" "0" "$("$JQ_BIN" -r 'select(.type=="gates") | .gates[] | select(IN("SHIELD_CLEAR","WATCHER_APPROVED","MISSION_COMPLETE","CI_PENDING") | not)' "$DATA"/live/*.spool | grep -c . || true)"
+check "no sha, journal text, path or slug in any file or log" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find ' ; } | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|missions|m-1' || true)"
+end_case
+
 # ─── AC-02 / AC-14: no marker and no raw session id anywhere ────────────────
 echo "== markers and the raw session id (AC-02, AC-14) =="
 new_case; mkcred
@@ -482,7 +706,7 @@ check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool 
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
 check "files are keyed by sha256(session id): bind, spool and state" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
-check "every spool line holds only contract fields of this slice" "0" "$("$JQ_BIN" -c 'select((keys - ["at","type","state","tool","code","sub","bind"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only contract fields of this slice" "0" "$("$JQ_BIN" -c 'select((keys - ["at","type","state","tool","code","sub","bind","gates"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 end_case

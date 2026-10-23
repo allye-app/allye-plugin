@@ -36,8 +36,7 @@ if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then exit 0; fi
 # enumeration inside it; a value that fails is DROPPED (never truncated, never sent). Prompts, commands,
 # tool inputs and outputs, paths, messages, transcripts and the cwd are never read into the output.
 # AC-14: files are keyed by the SHA-256 hex of the session id; the raw id is never written anywhere.
-# Not in this slice: seq, sending, flush (ALY-203.5/.6), sub outcome/task and gates (ALY-203.4).
-# sub_stop carries {id,type} only until .4.
+# Not in this slice: seq, sending, flush (ALY-203.5/.6).
 #
 # ALY-203.3 (BR-13, BR-08):
 # - Tool reduction runs BEFORE the 32-character name rule. A name starting `mcp__` is an MCP tool named
@@ -58,6 +57,26 @@ if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then exit 0; fi
 #   own argv element, never through a shell string; run only when the cwd is an absolute existing directory
 #   without control characters; 1-second limit with timeout(1) when present, else a background watchdog
 #   that kills git after 1 second. Only the matched key is kept; the branch name is never stored.
+#
+# ALY-203.4 (BR-09, BR-10):
+# - sub_stop outcome: only the first 65536 characters of last_assistant_message are examined (a non-string or
+#   missing message counts as empty). A line of its own, from its start, `[ \t]*status:[ \t]*<value>[ \t\r]*`
+#   (indentation and trailing blanks/CR allowed, nothing else on the line) decides: the FIRST line starting with
+#   `status:` wins, whatever its value. passed|approved|ready -> pass; advisory -> pass + code advisory; failed ->
+#   fail; blocked|needs-input|escalate -> blocked; anything else, or no such line -> unknown + code returned. The
+#   first line `task: <KEY>` (same layout) contributes the task when it matches the key pattern. The message text
+#   is never copied: only the mapped enumeration, the code and a valid key leave.
+# - gates: after a PostToolUse of tool Write or Edit in the MAIN session (never inside a subagent) whose
+#   tool_input.file_path is textually `<cwd>/.allye/missions/<slug>/log.md` (cwd absolute without control
+#   characters, `.`/`..`/`//` segments refused, slug ^[a-z0-9-]{1,80}$). The cwd is resolved physically
+#   (`cd -P` + `pwd -P`, no realpath/readlink); `.allye`, `missions`, the slug directory and log.md must not be
+#   symlinks, log.md must be a regular file of at most 65536 bytes (size checked first with find; an oversized
+#   file is never opened) and is read with `head -c 65536`. The first line starting `- Gates:` is parsed; the
+#   complete current set (enumeration order SHIELD_CLEAR, WATCHER_APPROVED, MISSION_COMPLETE, CI_PENDING) of the
+#   tokens whose value is neither empty nor the em dash is sent as {type:gates,gates:[...]}, the empty set
+#   included, only when it differs from the last set sent ($HASH.gates, same owner/mode/symlink checks; absent
+#   means the empty set, so a first all-dash journal sends nothing). No Gates line: nothing. Nothing about the
+#   file (path, other lines, sha values) leaves.
 INPUT=$(cat 2>/dev/null) || INPUT=""
 [ -n "$INPUT" ] || exit 0
 
@@ -111,6 +130,20 @@ def redtool:
 def st($s): [{type: "state", state: $s}];
 def stc($s; $c): [{type: "state", state: $s, code: $c}];
 def subof: if (.agent_id | idok) and (.agent_type | typeok) then {id: .agent_id, type: .agent_type} else null end;
+# BR-09: outcome and task from whole lines of the first 65536 characters of the crew message; nothing else is kept.
+def msglines: (.last_assistant_message | if type == "string" then .[0:65536] else "" end) | split("\n");
+def stline: [msglines[] | capture("\\A[ \t]*status:[ \t]*(?<v>[^ \t\r]*)[ \t\r]*\\z")? | .v] | .[0];
+def tkline: [msglines[] | capture("\\A[ \t]*task:[ \t]*(?<v>[^ \t\r]*)[ \t\r]*\\z")? | .v] | .[0];
+def outcome:
+  (stline // "") as $v
+  | if   $v | IN("passed","approved","ready") then {o: "pass"}
+    elif $v == "advisory" then {o: "pass", c: "advisory"}
+    elif $v == "failed" then {o: "fail"}
+    elif $v | IN("blocked","needs-input","escalate") then {o: "blocked"}
+    else {o: "unknown", c: "returned"} end;
+def substop: outcome as $r | (tkline // null) as $t
+  | {type: "sub_stop", sub: (subof + {outcome: $r.o} + (if ($t | keyok) then {task: $t} else {} end))}
+    + (if $r.c != null then {code: $r.c} else {} end);
 # agent_id is present only when the hook fires inside a subagent (confirmed in the installed CLI schema).
 # BR-14 trigger: {type:"trig"} is never output; it only makes a pending waiting_input become working.
 # A value failing its pattern drops the tool event but the hook still counts as activity.
@@ -134,7 +167,7 @@ def evs:
     elif $e == "Notification"        then (if .notification_type == "permission_prompt" then stc("waiting_input"; "permission_prompt")
                                            elif .notification_type == "idle_prompt" then st("idle") else [] end)
     elif $e == "SubagentStart"       then (subof as $s | if $s != null then [{type: "sub_start", sub: $s}] else trig end)
-    elif $e == "SubagentStop"        then (subof as $s | if $s != null then [{type: "sub_stop", sub: $s}] else [] end)
+    elif $e == "SubagentStop"        then (subof as $s | if $s != null then [substop] else [] end)
     elif $e == "Stop"                then stc("idle"; "turn_ended")
     elif $e == "StopFailure"         then stc("error"; failcode)
     elif $e == "SessionEnd"          then stc("ended"; endcode)
@@ -165,6 +198,13 @@ def bindc:
     else null end;
 def cwdc:
   if sstart and (.cwd | type) == "string" and (.cwd | length) <= 4096 and (.cwd | test("\\A/")) and (.cwd | test("[\u0000-\u001f\u007f]") | not) then .cwd else null end;
+# BR-10: [file_path, cwd] of a Write/Edit PostToolUse of the main session, both absolute strings without control characters.
+def pathok: type == "string" and length <= 4096 and test("\\A/") and (test("[\u0000-\u001f\u007f]") | not);
+def gatec:
+  ([.tool_input | objects | .file_path] | .[0]) as $fp
+  | if .hook_event_name == "PostToolUse" and (.tool_name | IN("Write","Edit")) and (.agent_id // null) == null
+       and ($fp | pathok) and (.cwd | pathok)
+    then [$fp, .cwd] else null end;
 # BR-14: the first tool/subagent-start event after waiting_input is preceded by a `state working`.
 . as $in
 | (reduce evs[] as $ev ({out: [], last: $last};
@@ -175,6 +215,7 @@ def cwdc:
 | $r.last,
   (try ($in | bindc) catch null | if . == null then "-" else tojson end),
   (try ($in | cwdc) catch null | . // "-"),
+  (try ($in | gatec) catch null | if . == null then "-", "-" else .[] end),
   ($r.out[] | . + {at: $at} | tojson),
   "."'
 
@@ -183,9 +224,11 @@ RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" "$JQ_PRO
 NEWLAST="${RESULT%%$'\n'*}"; REST="${RESULT#*$'\n'}"
 CAND="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 CWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+GFP="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+GCWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 case "$REST" in .) EVENTS="" ;; *$'\n'.) EVENTS="${REST%$'\n'.}" ;; *) exit 0 ;; esac
 case "$NEWLAST" in ""|started|working|waiting_input|idle|error|ended) ;; *) exit 0 ;; esac
-[ -n "$CAND" ] && [ -n "$CWD" ] || exit 0
+[ -n "$CAND" ] && [ -n "$CWD" ] && [ -n "$GFP" ] && [ -n "$GCWD" ] || exit 0
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
 BINDF="$LIVE_DIR/$HASH.bind"
@@ -249,6 +292,61 @@ if [ -n "$BINDLINE" ]; then
   if [ -n "$EVENTS" ]; then EVENTS="$EVENTS"$'\n'"$BINDLINE"; else EVENTS="$BINDLINE"; fi
 fi
 
+# ─── ALY-203.4: gates (BR-10). Every check must pass before the file is opened. ───
+GATEF="$LIVE_DIR/$HASH.gates"
+GATELINE=""; GNEW=""
+mission_log_of() {  # prints the physical log.md path for GFP/GCWD, or fails
+  local fp="$1" cwd="$2" phys slug p
+  case "$cwd/" in */./*|*/../*|*//*) return 1 ;; esac
+  case "$fp" in *//*|*/./*|*/../*) return 1 ;; esac
+  case "$fp" in "$cwd"/.allye/missions/*/log.md) ;; *) return 1 ;; esac
+  slug="${fp#"$cwd"/.allye/missions/}"; slug="${slug%/log.md}"
+  [[ "$slug" =~ ^[a-z0-9-]{1,80}$ ]] || return 1
+  [ -d "$cwd" ] || return 1
+  phys=$(unset CDPATH; cd -P "$cwd" 2>/dev/null && pwd -P) || return 1
+  case "$phys" in /*) ;; *) return 1 ;; esac
+  for p in "$phys/.allye" "$phys/.allye/missions" "$phys/.allye/missions/$slug"; do
+    [ -L "$p" ] && return 1
+    [ -d "$p" ] || return 1
+  done
+  p="$phys/.allye/missions/$slug/log.md"
+  [ -L "$p" ] && return 1
+  [ -f "$p" ] || return 1
+  [ -n "$(find "$p" -prune -type f -size -65537c -print 2>/dev/null)" ] || return 1
+  printf '%s' "$p"
+}
+if [ "$GFP" != "-" ] && [ "$GCWD" != "-" ]; then
+  GPATH=$(mission_log_of "$GFP" "$GCWD") || GPATH=""
+  if [ -n "$GPATH" ]; then
+    GNEW=$(head -c 65536 "$GPATH" 2>/dev/null | jq -Rrs '
+      ["SHIELD_CLEAR","WATCHER_APPROVED","MISSION_COMPLETE","CI_PENDING"] as $set
+      | (split("\n") | map(select(test("\\A- Gates:"))) | .[0]) as $l
+      | if $l == null then empty
+        else ([($l | sub("\\A- Gates:"; "") | split("\u00b7")[]
+                 | gsub("\\A[ \t]+|[ \t\r]+\\z"; "") | split(" ") | map(select(length > 0)))
+               | select(length >= 2 and .[1] != "\u2014") | .[0]]) as $on
+             | [$set[] | select(. as $n | $on | index($n) != null)] | tojson
+        end' 2>/dev/null) || GNEW=""
+    case "$GNEW" in "["*"]") ;; *) GNEW="" ;; esac
+  fi
+  GPATH=""
+fi
+if [ -n "$GNEW" ]; then
+  GLAST="[]"
+  if [ -f "$GATEF" ] && [ ! -L "$GATEF" ]; then
+    if private_file_ok "$GATEF"; then
+      GLAST=$(cat "$GATEF" 2>/dev/null) || GLAST="[]"
+      case "$GLAST" in "["*"]") ;; *) GLAST="[]" ;; esac
+    else GNEW=""; fi
+  elif ! private_file_ok "$GATEF"; then GNEW=""; fi
+  if [ -n "$GNEW" ] && [ "$GNEW" != "$GLAST" ]; then
+    GATELINE=$(jq -nc --argjson g "$GNEW" --arg at "$AT" '{type: "gates", gates: $g, at: $at}' 2>/dev/null) || GATELINE=""
+  fi
+fi
+if [ -n "$GATELINE" ]; then
+  if [ -n "$EVENTS" ]; then EVENTS="$EVENTS"$'\n'"$GATELINE"; else EVENTS="$GATELINE"; fi
+fi
+
 [ -n "$EVENTS" ] || exit 0
 live_dir_ok || exit 0
 private_file_ok "$SPOOL" || exit 0
@@ -261,5 +359,9 @@ fi
 if [ -n "$BINDLINE" ]; then
   TMP=$(mktemp "$LIVE_DIR/.bind.XXXXXX" 2>/dev/null) || exit 0
   printf '%s|%s' "$NR" "$CAND" >"$TMP" 2>/dev/null && mv -f "$TMP" "$BINDF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
+if [ -n "$GATELINE" ]; then
+  TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0
+  printf '%s' "$GNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 exit 0
