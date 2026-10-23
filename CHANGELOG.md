@@ -1,3 +1,26 @@
+# [2.9.0](https://github.com/allye-app/allye-plugin/compare/v2.8.2...v2.9.0) (2026-10-23)
+
+
+### Bug Fixes
+
+* **hooks:** claim the lock by exclusive creation of DIR/t, mkdir alone is not exclusive on uutils coreutils (ALY-211) ([1a5089d](https://github.com/allye-app/allye-plugin/commit/1a5089d67c32b6e498f145a30e49d4204c02e30d))
+* **hooks:** keep millisecond precision when date prints nanoseconds for %3N (ALY-211) ([d2cce0e](https://github.com/allye-app/allye-plugin/commit/d2cce0e07f9f82741f6faf1e4013128db239da67))
+
+
+### Features
+
+* **hooks:** add subagent outcome and mission gates with path safety (ALY-203.4) ([7423e5c](https://github.com/allye-app/allye-plugin/commit/7423e5c2f265ec162662e80ebc7ad63b249ad855))
+* **hooks:** add the inert Live reporter skeleton, credential lib and fake ingest harness (ALY-203.1) ([39ee580](https://github.com/allye-app/allye-plugin/commit/39ee580590de63ba0736f229e21d219dc4b66ee8))
+* **hooks:** add the live off, on and status toggle to the hooks command (ALY-203.8) ([5f3766e](https://github.com/allye-app/allye-plugin/commit/5f3766e0fc2d025d04ce4249e83d81840ac19007))
+* **hooks:** add the session lock, spool cap and seq allocation (ALY-203.5) ([d2b8cab](https://github.com/allye-app/allye-plugin/commit/d2b8cab5b838905ca2c00afda60e60985518919b))
+* **hooks:** back off on ingest failures, drop stale lines and flush at session end (ALY-203.7) ([12e96f9](https://github.com/allye-app/allye-plugin/commit/12e96f9b58389bd01445128da3688b44fec29dab))
+* **hooks:** batch the spool and send it with the credential on stdin (ALY-203.6) ([c5f6e35](https://github.com/allye-app/allye-plugin/commit/c5f6e35f6bfd17bbd19db6b207d9f05f87ae557d))
+* **hooks:** map confirmed Claude Code events to allowlisted spool lines (ALY-203.2) ([a660c3f](https://github.com/allye-app/allye-plugin/commit/a660c3f27e49263609b8bca46d6a8e6e8015c4cd))
+* **hooks:** pair and unpair Claude Code through /allye:hooks (ALY-195.1) ([a056d9e](https://github.com/allye-app/allye-plugin/commit/a056d9eabadeb9c548332e0d99d2cb38fce234c8))
+* **hooks:** print pinned preferences at session start (ALY-195.2) ([f00fb1e](https://github.com/allye-app/allye-plugin/commit/f00fb1e914b24ca3b95a63cfea91c7679dead9a6))
+* **hooks:** reduce tool names and bind sessions to specs from four sources (ALY-203.3) ([9e64a61](https://github.com/allye-app/allye-plugin/commit/9e64a61acff90dc22826043d70b0673f2eaa4e00))
+* **hooks:** register the asynchronous Live reporter hooks (ALY-203.9) ([b58c689](https://github.com/allye-app/allye-plugin/commit/b58c6892a42f14c6c3acae0785799796ef70307d))
+
 ## [2.8.2](https://github.com/allye-app/allye-plugin/compare/v2.8.1...v2.8.2) (2026-10-20)
 
 
