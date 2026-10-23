@@ -57,6 +57,22 @@ Every harness uses one server named `allye`. Tenant selection happens during OAu
 
 Then open `/plugin`, find the Allye MCP server, click **Connect** and sign in. Update with `/plugin update allye` and `/reload-plugins`.
 
+#### Pinned preferences at session start (Claude Code only, optional)
+
+Pair this install with your Allye account and every new, cleared or compacted session starts with the preferences you pinned in Allye, shown to the agent as quoted data, not instructions. Pairing is a second `SessionStart` hook, separate from the offline bootstrap hook.
+
+```
+/allye:hooks pair      # connects this install to your account
+/allye:hooks unpair    # deletes the local credential, no network call
+```
+
+- **What it does.** `pair` creates a random secret on your machine, asks the Allye MCP (through your existing OAuth connection) for a one-time pairing code, and exchanges the code for a hook credential. It prints `Paired <device> as <email> in <organization>`: check that the account and organization are yours. A rule that allows every Allye MCP tool also approves the pairing call without a prompt, so that check is your only gate. If they are not yours, run `unpair` and revoke the device.
+- **What leaves the machine.** Only the device name, the client kind (`claude-code`), a challenge (a hash of the secret), the pairing code and, on each session start, the credential as an authorization header. Never repository, file, conversation or environment content.
+- **Where the credential lives.** `${CLAUDE_PLUGIN_DATA}/hook-credential.json` (`~/.claude/plugins/data/<plugin id>/`), mode 0600 in a 0700 directory. Claude Code removes it when the plugin is uninstalled from its last place. To keep the agent from reading it, add `Read(~/.claude/plugins/data/allye*/hook-credential.json)` (adjust to your plugin data directory) to `permissions.deny` in your user-level `~/.claude/settings.json`.
+- **Supported API origins.** `pair` uses `https://api.allye.app`. `ALLYE_API_URL` is accepted only as `https://api.allye.app`, `https://api.zeta.allye.app` (HML) or `http://localhost:<port>` / `http://127.0.0.1:<port>` (local development).
+- **Session start.** The hook makes one short request and prints the preferences, or one hint line when the credential is rejected, unsafe or the account is inactive. It is silent when you are not paired, offline or the API is unavailable. It needs `curl` and `jq`.
+- **Before uninstalling.** Run `/allye:hooks unpair`, then revoke the device in Allye → Settings → Devices; unpair only deletes local files, so the credential keeps working on the server until revoked. Pair again before the expiry date shown at pairing.
+
 ### Codex, OpenCode
 
 Paste into the agent. The install and update guides install one pinned release: the latest GitHub release unless you name a version. They check that it exists, never download from a branch, and keep a timestamped backup of any config they rewrite (`opencode.json`, `~/.codex/AGENTS.md`, `~/.codex/skills/bridge*`) under `~/.allye/backups/<harness>/`.
@@ -102,7 +118,8 @@ skills/bridge-*/            the crew skills (Armorer, Recon, Strategist, Archite
                             Pilot, Navigator, Copilot, Medic, Optimizer, Shield, Watcher)
 agents/bridge-*.md          native crew subagents (Claude Code; OpenCode registers them from here):
                             load the matching crew skill under a per-role tool allowlist
-hooks/                      Claude Code SessionStart hook
+hooks/                      Claude Code SessionStart hooks (bootstrap, pinned preferences) and
+                            the pairing script behind /allye:hooks
 .claude-plugin/, .mcp.json  Claude Code plugin and marketplace manifests
 manifests/codex/AGENTS.md   Codex copy of the bootstrap (synced)
 manifests/opencode/         sample OpenCode config
@@ -117,7 +134,7 @@ docs/                       per-harness install and update guides, organization 
 
 ```bash
 npm install
-npm test            # bootstrap, hook, crew agents, skills, installer and docs gate, Pi and OpenCode tests (offline)
+npm test            # bootstrap, hooks (npm run test:hooks), crew agents, skills, installer and docs gate, Pi and OpenCode tests (offline)
 npm run typecheck   # Pi extension
 cd packages/allye-opencode && bun install && bun run typecheck && bun run build
 ```
