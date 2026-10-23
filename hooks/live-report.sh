@@ -28,7 +28,20 @@ load_live_credential "$DIR" || exit 0
 
 LIVE_DIR="$DIR/live"
 if [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ]; then exit 0; fi
-if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then exit 0; fi
+# A `disabled` marker (written after a 401, BR-07) holds `cred:<sha256 of the token>` and is cleared by the next
+# pairing, i.e. when the credential file now holds another token. Any other marker (empty, foreign mode, symlink) keeps
+# the reporter inert until it is removed.
+if [ -L "$LIVE_DIR/disabled" ]; then exit 0; fi
+if [ -e "$LIVE_DIR/disabled" ]; then
+  MK=""
+  if [ -f "$LIVE_DIR/disabled" ] && [ -n "$(find "$LIVE_DIR/disabled" -prune -type f -user "$UID_NOW" -perm 0600 -print 2>/dev/null)" ]; then
+    { IFS= read -r MK <"$LIVE_DIR/disabled"; } 2>/dev/null
+  fi
+  CFP=$(printf '%s' "$LIVE_TOKEN" | sha_hex) || exit 0
+  [[ "$MK" =~ ^cred:[0-9a-f]{64}$ ]] && [ "$MK" != "cred:$CFP" ] || exit 0
+  rm -f "$LIVE_DIR/disabled" 2>/dev/null
+fi
+CFP=""
 
 
 # ─── ALY-203.2: extract allowlisted events from the payload and spool them ───
@@ -36,8 +49,7 @@ if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then exit 0; fi
 # enumeration inside it; a value that fails is DROPPED (never truncated, never sent). Prompts, commands,
 # tool inputs and outputs, paths, messages, transcripts and the cwd are never read into the output.
 # AC-14: files are keyed by the SHA-256 hex of the session id; the raw id is never written anywhere.
-# Flush (ALY-203.6, BR-04/BR-06): see the block before the end of the file. Failure back-off, stale-line drop and the
-# SessionEnd flush are ALY-203.7.
+# Flush (ALY-203.6/.7, BR-04/06/07/12): see the block before the end of the file.
 #
 # ALY-203.3 (BR-13, BR-08):
 # - Tool reduction runs BEFORE the 32-character name rule. A name starting `mcp__` is an MCP tool named
@@ -185,23 +197,45 @@ lock_touch() {
 jq_valid_def() {
   printf '%s' 'def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates")));
     def ok: type == "object" and (.seq | type == "number" and . == floor and . >= 1) and (.at | type == "string")
-            and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates"));'
+            and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates"));
+    def fresh($now): ((.at | try fromdateiso8601 catch 0) >= ($now - 82800));'
+}
+# credfp: CFP = sha256 of the token (identifies the credential without storing it).
+credfp() { [ -n "$CFP" ] || CFP=$(printf '%s' "$LIVE_TOKEN" | sha_hex); return 0; }
+# backoff_active: a back-off file `<until epoch> <credential fingerprint>` written for this credential and not over.
+backoff_active() {
+  local u="" f="" now
+  [ -f "$BACKOFFF" ] && [ ! -L "$BACKOFFF" ] && private_file_ok "$BACKOFFF" || return 1
+  { IFS=' ' read -r u f <"$BACKOFFF"; } 2>/dev/null
+  credfp
+  [[ "$u" =~ ^[0-9]{1,12}$ ]] && [ "$f" = "$CFP" ] || return 1
+  now=$(date +%s 2>/dev/null) || return 1
+  [[ "$now" =~ ^[0-9]{1,12}$ ]] && [ "$now" -lt "$u" ]
+}
+backoff_set() {  # SECONDS from now, for this credential
+  local now tmp
+  now=$(date +%s 2>/dev/null) || return 0; credfp
+  tmp=$(mktemp "$LIVE_DIR/.backoff.XXXXXX" 2>/dev/null) || return 0; TMPF="$tmp"
+  printf '%s %s' "$((now + $1))" "$CFP" >"$tmp" 2>/dev/null && mv -f "$tmp" "$BACKOFFF" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
 }
 # batch_build: sets BK (physical lines consumed), BMAX (highest seq in the batch) and BODY (the request body, empty
 # when the consumed lines held no valid event). At most 50 events and 16384 bytes of body; only contract keys are kept.
 batch_build() {
-  local n base out rest
+  local n base out rest now
   BK=0; BMAX=0; BODY=""
+  now=$(date +%s 2>/dev/null) || return 1; [[ "$now" =~ ^[0-9]{1,12}$ ]] || return 1
   [ -f "$SPOOL" ] && [ ! -L "$SPOOL" ] || return 1
   n=$(wc -l <"$SPOOL" 2>/dev/null); n=${n//[[:space:]]/}
   [[ "$n" =~ ^[1-9][0-9]*$ ]] || return 1
   base=$(printf '{"client":{"kind":"claude-code"},"session":{"hash":"%s"},"events":[' "$HASH")
-  out=$(head -n "$n" "$SPOOL" 2>/dev/null | jq -Rn -r --arg base "$base" "$(jq_valid_def)"'
+  out=$(head -n "$n" "$SPOOL" 2>/dev/null | jq -Rn -r --arg base "$base" --argjson now "$now" "$(jq_valid_def)"'
     [inputs] as $L
     | (reduce range(0; $L | length) as $i ({evs: [], size: (($base | utf8bytelength) + 2), k: 0, max: 0, done: false};
         if .done then .
         else (($L[$i] | try fromjson catch null)) as $e
           | if ($e | ok | not) then .k = $i + 1
+            elif ($e | fresh($now) | not) then .k = $i + 1 | .max = ([.max, $e.seq] | max)
             else ($e | keep) as $ev | ($ev | tojson | utf8bytelength) as $len
               | (if (.evs | length) > 0 then 1 else 0 end) as $sep
               | if ((.evs | length) >= 50) or (((.evs | length) > 0) and ((.size + $sep + $len) > 16384)) then .done = true
@@ -218,52 +252,108 @@ batch_build() {
 # seq <= MAX, MAX being the highest seq of every line the snapshot consumed, sent or skipped (lines appended since
 # have a higher seq and stay). The file is replaced by mv, no fd held.
 spool_drop_sent() {
-  local tmp tok
+  local tmp tok now
+  now=$(date +%s 2>/dev/null) || return 1; [[ "$now" =~ ^[0-9]{1,12}$ ]] || return 1
   lock_take "$LOCKD" 250 || return 1
   tok="$LOCK_TOKEN"
   if private_file_ok "$SPOOL" && tmp=$(mktemp "$LIVE_DIR/.spool.XXXXXX" 2>/dev/null); then
     TMPF="$tmp"
-    if jq -R -c --argjson m "$1" "$(jq_valid_def)"' fromjson? | select(ok and .seq > $m)' "$SPOOL" >"$tmp" 2>/dev/null; then
+    if jq -R -c --argjson m "$1" --argjson now "$now" "$(jq_valid_def)"' fromjson? | select(ok and fresh($now) and .seq > $m)' "$SPOOL" >"$tmp" 2>/dev/null; then
       mv -f "$tmp" "$SPOOL" 2>/dev/null || rm -f "$tmp" 2>/dev/null
     else rm -f "$tmp" 2>/dev/null; fi
   fi
   lock_drop "$LOCKD" "$tok"
   return 0
 }
-# flush_run: the detached part. A non-2xx answer or a curl failure keeps the spool (back-off is ALY-203.7).
+# mark_disabled: 401 with an invalid-credential or inactive-account code. The marker names the credential it was
+# written for and the spool is discarded; the next pairing clears the marker and the session opens with `state started`.
+mark_disabled() {
+  local tmp old_token="$LIVE_TOKEN" old_api="$LIVE_API" cur
+  credfp
+  # Only for the credential that was flushing: after a re-pair a late 401 for the old token must neither disable nor
+  # discard what was spooled with the new one (lines of the old credential then stay and go out with the new token).
+  load_live_credential "$DIR" || { LIVE_TOKEN="$old_token"; LIVE_API="$old_api"; return 0; }
+  cur=$(printf '%s' "$LIVE_TOKEN" | sha_hex); LIVE_TOKEN="$old_token"; LIVE_API="$old_api"
+  [ "$cur" = "$CFP" ] || return 0
+  tmp=$(mktemp "$LIVE_DIR/.disabled.XXXXXX" 2>/dev/null) || return 0; TMPF="$tmp"
+  printf 'cred:%s' "$CFP" >"$tmp" 2>/dev/null && mv -f "$tmp" "$LIVE_DIR/disabled" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  spool_drop_sent 9007199254740991   # if this cannot take the state lock the marker still blocks every send
+  return 0
+}
+# flush_run: the detached part. Returns 0 when the spool was worked through, 1 when it stopped on a failure,
+# a back-off, a lost lock or a round that removed nothing. Answers (BR-07): 2xx the batch is sent; 400/413 the batch
+# is discarded and the next one tried; 401 with HOOK_CREDENTIAL_INVALID or an inactive-account code disables;
+# 403 back-off 1 h; 422 back-off 10 min; 429 back-off Retry-After (1 s to 1 h, 60 s when unreadable); anything
+# else (5xx, network, redirects) keeps the spool and retries at a later hook. The response code is read from a
+# bounded body with jq and never printed or stored.
 flush_run() {
-  local rounds=0 code before
-  case "$LIVE_DIR" in *[\"\\]*) return 0 ;; esac   # the path goes into a curl config string
+  local rounds=0 status ecode ra before
+  case "$LIVE_DIR" in *[\"\\]*) return 1 ;; esac   # the path goes into a curl config string
   while [ "$rounds" -lt 20 ]; do
     rounds=$((rounds + 1))
-    before=$(wc -c <"$SPOOL" 2>/dev/null) || break
-    batch_build || break
+    # at the top of every round: another session may have been told to back off or to disable meanwhile
+    if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ] || backoff_active; then return 1; fi
+    before=$(wc -c <"$SPOOL" 2>/dev/null) || return 1
+    batch_build || return 0
     if [ -z "$BODY" ]; then
-      spool_drop_sent "$BMAX" || break
-      [ "$(wc -c <"$SPOOL" 2>/dev/null)" != "$before" ] || break   # nothing was removed: no progress
+      spool_drop_sent "$BMAX" || return 1
+      [ "$(wc -c <"$SPOOL" 2>/dev/null)" != "$before" ] || return 1   # nothing was removed: no progress
       continue
     fi
-    lock_touch "$FLOCK" "$FTOK" || break   # the lock is no longer ours: stop
-    printf '%s' "$BODY" >"$BATCHF" 2>/dev/null || break
-    code=$({
+    lock_touch "$FLOCK" "$FTOK" || return 1   # the lock is no longer ours: stop
+    printf '%s' "$BODY" >"$BATCHF" 2>/dev/null || return 1
+    status=$({
       printf 'url = "%s/api/agent-runs/events"\n' "$LIVE_API"
       printf 'header = "Authorization: Bearer %s"\n' "$LIVE_TOKEN"
       printf 'header = "Content-Type: application/json"\n'
       printf 'header = "Accept: application/json"\n'
       printf 'data-binary = "@%s"\n' "$BATCHF"
-      printf 'max-time = 8\nconnect-timeout = 3\nmax-filesize = 65536\nnoproxy = "*"\n'
-    } | curl -q --silent -K - -o /dev/null -w '%{http_code}' 2>/dev/null) || break
+      printf 'max-time = %s\nconnect-timeout = %s\nmax-filesize = 65536\nnoproxy = "*"\n' "${SEND_MAXTIME:-8}" "${SEND_CONNECT:-3}"
+    } | curl -q --silent -K - -D "$HDRF" -o "$RESPF" -w '%{http_code}' 2>/dev/null) || { rm -f "$BATCHF" "$HDRF" "$RESPF" 2>/dev/null; return 1; }
     rm -f "$BATCHF" 2>/dev/null
-    case "$code" in
-      2[0-9][0-9]) spool_drop_sent "$BMAX" || break
-                   [ "$(wc -c <"$SPOOL" 2>/dev/null)" != "$before" ] || break ;;   # a 2xx that removed nothing: stop
-      *) break ;;
+    [[ "$status" =~ ^[0-9]{3}$ ]] || { rm -f "$HDRF" "$RESPF" 2>/dev/null; return 1; }
+    ecode=$(head -c 65536 "$RESPF" 2>/dev/null | jq -r '.error.message.code | strings' 2>/dev/null | head -n 1); rm -f "$RESPF" 2>/dev/null
+    [[ "$ecode" =~ ^[A-Z_]{1,60}$ ]] || ecode=""
+    case "$status" in
+      2??|400|413)
+        spool_drop_sent "$BMAX" || return 1
+        [ "$(wc -c <"$SPOOL" 2>/dev/null)" != "$before" ] || return 1 ;;   # a batch that removed nothing: stop
+      401)
+        case "$ecode" in
+          HOOK_CREDENTIAL_INVALID|USER_INACTIVE|MEMBERSHIP_INACTIVE|TENANT_INACTIVE) mark_disabled ;;
+          *) backoff_set 600 ;;
+        esac
+        rm -f "$HDRF" 2>/dev/null; return 1 ;;
+      # 403 and 422 back off whatever the code (more conservative than the codes BR-07 names)
+      403) backoff_set 3600; rm -f "$HDRF" 2>/dev/null; return 1 ;;
+      422) backoff_set 600; rm -f "$HDRF" 2>/dev/null; return 1 ;;
+      429)
+        ra=$(grep -i '^retry-after:' "$HDRF" 2>/dev/null | head -n 1 | tr -d '\r'); ra=${ra#*:}; ra=${ra//[[:space:]]/}
+        if [[ "$ra" =~ ^[0-9]{1,9}$ ]]; then ra=$((10#$ra)); else ra=60; fi
+        [ "$ra" -ge 1 ] || ra=1; [ "$ra" -le 3600 ] || ra=3600
+        backoff_set "$ra"; rm -f "$HDRF" 2>/dev/null; return 1 ;;
+      *) rm -f "$HDRF" 2>/dev/null; return 1 ;;
     esac
+    rm -f "$HDRF" 2>/dev/null
   done
   return 0
 }
+# flush_loop: runs flush_run, releases the flush lock, then looks at the spool again: a line appended while the last
+# pass was finishing (its hook found the lock taken and skipped its own flush) is picked up by another pass (at most 3).
+flush_loop() {
+  local pass=0 rc
+  while :; do
+    pass=$((pass + 1))
+    flush_run; rc=$?
+    lock_drop "$FLOCK" "$FTOK"
+    [ "$rc" = 0 ] && [ -s "$SPOOL" ] && [ "$pass" -lt 3 ] || return 0
+    lock_take "$FLOCK" 0 || return 0
+    FTOK="$LOCK_TOKEN"
+  done
+}
 flush_due() {  # important events flush at once, others when 5 seconds passed since the last flush started
   local last="" now
+  backoff_active && return 1
   [ "$IMPORTANT" = 1 ] && return 0
   if [ -f "$FLUSHED" ] && [ ! -L "$FLUSHED" ] && private_file_ok "$FLUSHED"; then IFS= read -r last <"$FLUSHED" 2>/dev/null; fi
   now=$(date +%s 2>/dev/null) || return 1
@@ -282,7 +372,7 @@ trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
 lock_take "$LOCKD" 500 || exit 0
 STATE_TOKEN="$LOCK_TOKEN"; HAVE_LOCK=1
-FLOCK="$LIVE_DIR/$HASH.flush.lock"; FLUSHED="$LIVE_DIR/$HASH.flushed"; BATCHF="$LIVE_DIR/$HASH.batch"
+FLOCK="$LIVE_DIR/$HASH.flush.lock"; FLUSHED="$LIVE_DIR/$HASH.flushed"; BATCHF="$LIVE_DIR/$HASH.batch"; HDRF="$LIVE_DIR/$HASH.hdr"; RESPF="$LIVE_DIR/$HASH.resp"; BACKOFFF="$LIVE_DIR/backoff"; CREDF="$LIVE_DIR/$HASH.cred"
 
 LAST=""
 if [ -f "$STATEF" ] && [ ! -L "$STATEF" ] && private_file_ok "$STATEF"; then
@@ -534,6 +624,20 @@ fi
 private_file_ok "$SPOOL" || exit 0
 private_file_ok "$STATEF" || exit 0
 
+# A session whose credential changed since its last event (a re-pair after a 401, a revoke or an expiry) opens with
+# `state started`: the server reopens a run that was ended or revoked only on that state.
+credfp
+CREDOLD=""; CREDNEW=0
+if [ -f "$CREDF" ] && [ ! -L "$CREDF" ] && private_file_ok "$CREDF"; then { IFS= read -r CREDOLD <"$CREDF"; } 2>/dev/null; fi
+if [[ "$CREDOLD" =~ ^[0-9a-f]{64}$ ]] && [ "$CREDOLD" != "$CFP" ]; then
+  case "$EVENTS" in
+    *'"state":"started"'*) ;;   # a SessionStart in this very batch already opens the run
+    *'"type":"state"'*) EVENTS=$(printf '{"type":"state","state":"started","at":"%s"}\n%s' "$AT" "$EVENTS") ;;
+    *) NEWLAST=started; EVENTS=$(printf '{"type":"state","state":"started","at":"%s"}\n%s' "$AT" "$EVENTS") ;;
+  esac
+  CREDNEW=1
+fi
+
 # seq (BR-05): max(previous + 1, Unix ms) per event, counter in $HASH.seq. A missing, corrupt, foreign or absurd
 # (more than a day ahead of the clock, 2^53 or more) counter heals to 0. The counter is written before the
 # lines, so a crash can leave a gap but never a repeated seq.
@@ -556,6 +660,10 @@ printf '%s' "$NEWSEQ" >"$TMP" 2>/dev/null && mv -f "$TMP" "$SEQF" 2>/dev/null ||
 if [ -s "$SPOOL" ] && [ -n "$(tail -c 1 "$SPOOL" 2>/dev/null)" ]; then EVENTS=$'\n'"$EVENTS"; fi   # torn tail: start on a fresh line
 printf '%s\n' "$EVENTS" >>"$SPOOL" 2>/dev/null || exit 0
 spool_trim "$SPOOL" "$LIVE_DIR"
+if [ "$CREDOLD" != "$CFP" ]; then
+  TMP=$(mktemp "$LIVE_DIR/.cred.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
+  printf '%s' "$CFP" >"$TMP" 2>/dev/null && mv -f "$TMP" "$CREDF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
 if [ -n "$NEWLAST" ] && [ "$NEWLAST" != "$LAST" ]; then
   TMP=$(mktemp "$LIVE_DIR/.state.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$NEWLAST" >"$TMP" 2>/dev/null && mv -f "$TMP" "$STATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
@@ -574,14 +682,18 @@ fi
 IMPORTANT=0
 case "$EVENTS" in *'"type":"sub_start"'*|*'"type":"sub_stop"'*|*'"type":"bind"'*|*'"type":"gates"'*) IMPORTANT=1 ;; esac
 if [ -n "$NEWLAST" ] && [ "$NEWLAST" != "$LAST" ]; then IMPORTANT=1; fi
+[ "$CREDNEW" = 1 ] && IMPORTANT=1
+# SessionEnd (BR-12): the final event goes out through a request limited to one second.
+SEND_MAXTIME=8; SEND_CONNECT=3
+case "$EVENTS" in *'"state":"ended"'*) SEND_MAXTIME=1; SEND_CONNECT=1 ;; esac
 lock_drop "$LOCKD" "$STATE_TOKEN"; HAVE_LOCK=0
 if flush_due && lock_take "$FLOCK" 0; then
   FTOK="$LOCK_TOKEN"
   TMP=$(mktemp "$LIVE_DIR/.flushed.XXXXXX" 2>/dev/null) && { TMPF="$TMP"; date +%s >"$TMP" 2>/dev/null && mv -f "$TMP" "$FLUSHED" 2>/dev/null || rm -f "$TMP" 2>/dev/null; }
   (
-    trap 'rm -f "$BATCHF" "$TMPF" "$TMPF.2" 2>/dev/null; lock_drop "$FLOCK" "$FTOK"' EXIT
+    trap 'rm -f "$BATCHF" "$HDRF" "$RESPF" "$TMPF" "$TMPF.2" 2>/dev/null; lock_drop "$FLOCK" "$FTOK"' EXIT
     trap 'exit 0' HUP INT TERM
-    flush_run
+    flush_loop
   ) </dev/null >/dev/null 2>&1 &
 fi
 LIVE_TOKEN=""

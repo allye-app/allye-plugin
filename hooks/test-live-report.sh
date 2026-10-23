@@ -711,7 +711,7 @@ ALLTXT="$SB/all.txt"; { find "$DATA" -type f -exec cat {} +; find "$DATA" -print
 for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$m" "$ALLTXT" || true)"; done
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
-check "files are keyed by sha256(session id): bind, flushed, seq, spool and state (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): bind, cred, flushed, seq, spool and state (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
 check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
@@ -881,6 +881,7 @@ check "symlinked live dir: no lock, seq or any entry created through it" "0" "$(
 new_case; mkcred; mkdir -p "$DATA/live"; chmod 755 "$DATA/live"; run_fixture user-prompt-submit
 check "live dir mode 0755: no lock, seq or any entry created in it" "0" "$(find "$DATA/live" -mindepth 1 | wc -l | tr -d ' ')"; end_case
 
+nowiso() { date -u +%Y-%m-%dT%H:%M:%SZ; }   # lines that must pass the 23 h freshness rule carry the real time
 # ─── ALY-203.6: batching, flush lock and sending (BR-04, BR-06, AC-03, AC-04, AC-12) ──────
 echo "== sending: contract body, token only on curl's stdin (AC-03) =="
 nbodies() { if [ -f "$SB/api/ingest-bodies.log" ]; then wc -l <"$SB/api/ingest-bodies.log" | tr -d ' '; else echo 0; fi; }
@@ -896,7 +897,7 @@ check "body: only the contract keys at the top and in events" "client,session,ev
   "$("$JQ_BIN" -r 'keys_unsorted | join(",")' "$SB/api/ingest-bodies.log")|$("$JQ_BIN" -r '.events[0] | keys | join(",")' "$SB/api/ingest-bodies.log")"
 check "positive control: the token reached the API in the Authorization header" "Bearer $TOKEN" "$("$JQ_BIN" -r '.authorization' "$SB/api/requests.log")"
 check "the shim saw curl run with the config on stdin: url/limits logged, argv is only flags" "yes yes" \
-  "$(grep -q "^url = \"$API/api/agent-runs/events\"" "$SB/log/curl-config.log" && grep -q '^max-time ' "$SB/log/curl-config.log" && echo yes || echo no) $(grep -c '^curl \[-q\] \[--silent\] \[-K\] \[-\] \[-o\] \[/dev/null\] \[-w\] \[%{http_code}\]$' "$SB/log/calls.log" | sed 's/^1$/yes/')"
+  "$(grep -q "^url = \"$API/api/agent-runs/events\"" "$SB/log/curl-config.log" && grep -q '^max-time ' "$SB/log/curl-config.log" && echo yes || echo no) $(CL=$(grep '^curl' "$SB/log/calls.log" | head -n 1); [[ "$CL" == 'curl [-q] [--silent] [-K] [-] [-D] ['*'.hdr] [-o] ['*'.resp] [-w] [%{http_code}]' ]] && echo yes || echo "no: $CL")"
 ALLTXT="$SB/all.txt"; { find "$DATA" -type f ! -name hook-credential.json -exec cat {} +; find "$DATA" -print; cat "$SB/log"/* "$SB/out" "$SB/err" "$SB/api/ingest-bodies.log" 2>/dev/null; } >"$ALLTXT"
 check "the token is in no argv, environment, spool, state file, batch, body, shim log, stdout or stderr" "0" "$(grep -cF -- "$TOKEN" "$ALLTXT" || true)"
 check "the raw token is not even in a piece (prefix alyh_ + 8) outside the credential file" "0" "$(grep -cF -- "${TOKEN:0:13}" "$ALLTXT" || true)"
@@ -942,7 +943,7 @@ echo "== batches of at most 50 events and 16384 bytes =="
 fill6() {  # LINES PADBYTES: contract-shaped lines with seq 1..N; PAD makes the code field long
   local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
   mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"
-  "$JQ_BIN" -nc --argjson n "$1" --arg pad "$pad" 'range(1; $n + 1) | {seq: ., at: "2026-01-01T00:00:00Z", type: "state", state: "working"} + (if $pad == "" then {} else {code: $pad} end)' >"$SPF"
+  "$JQ_BIN" -nc --argjson n "$1" --arg pad "$pad" --arg at "$(nowiso)" 'range(1; $n + 1) | {seq: ., at: $at, type: "state", state: "working"} + (if $pad == "" then {} else {code: $pad} end)' >"$SPF"
 }
 new_case; mkcred; SHIMD="$SHIMS"; fill6 120 0; run_fixture user-prompt-submit
 check "121 lines: three requests of 50, 50 and 21 events" "3 50,50,21" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tr '\n' ',' | sed 's/,$//')"
@@ -955,21 +956,167 @@ check "400-byte events: more than three requests, each body at most 16384 bytes 
 check "byte-limited batches still deliver all 101 events once" "101 101 0" "$(sent_seqs | wc -l | tr -d ' ') $(sent_seqs | sort -n | uniq | wc -l | tr -d ' ') $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
 end_case
 new_case; mkcred; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"
-{ printf '%s\n' '{"seq":1,"at":"2026-01-01T00:00:00Z","type":"state","state":"working"}' 'not json at all' '{"seq":"x","type":"state"}' '{"seq":2,"at":"2026-01-01T00:00:00Z","type":"nope"}' '{"seq":3,"at":"2026-01-01T00:00:00Z","type":"tool","tool":"Bash","extra":"MARKER_PATH"}'; printf '{"seq":4,"at":"20'; } >"$SPF"; chmod 600 "$SPF"
+{ printf '%s\n' '{"seq":1,"at":"'"$(nowiso)"'","type":"state","state":"working"}' 'not json at all' '{"seq":"x","type":"state"}' '{"seq":2,"at":"'"$(nowiso)"'","type":"nope"}' '{"seq":3,"at":"'"$(nowiso)"'","type":"tool","tool":"Bash","extra":"MARKER_PATH"}'; printf '{"seq":4,"at":"20'; } >"$SPF"; chmod 600 "$SPF"
 run_fixture user-prompt-submit
 check "torn and invalid lines are skipped and dropped, unknown keys are not forwarded" "1,3,$(sent_seqs | tail -n 1) 0 0" "$(sent_seqs | head -n 2 | tr '\n' ',')$(sent_seqs | tail -n 1) $(wc -l <"$SPF" | tr -d ' ') $(grep -c MARKER_PATH "$SB/api/ingest-bodies.log" || true)"
 end_case
 
-echo "== failures keep the spool (details are ALY-203.7) =="
-for m in 5xx drop 400; do
-  new_case; mkcred; SHIMD="$SHIMS"; printf '%s' "$m" >"$SB/api/ingest-mode"; at 0; run_fixture user-prompt-submit
-  check "answer '$m': request made, line kept, exit 0 silent, flush lock released" "1 1 0|" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ') $RC|$OUT$ERR"
+echo "== failure handling (BR-07, AC-05) =="
+new7() { new_case; mkcred; SHIMD="$SHIMS"; }
+CREDFP() { test_sha "$TOKEN"; }
+sweep() {  # LABEL: the token is in the Authorization header (positive control) and nowhere else
   { find "$DATA" -type f ! -name hook-credential.json -exec cat {} +; find "$DATA" -print; cat "$SB/log"/* "$SB/out" "$SB/err" "$SB/api/ingest-bodies.log" 2>/dev/null; } >"$SB/all.txt"
-  check "answer '$m': the token reached the API's header and is in no other file, log, output or body" "Bearer $TOKEN 0" "$("$JQ_BIN" -r '.authorization' "$SB/api/requests.log" | tail -n 1) $(grep -cF -- "$TOKEN" "$SB/all.txt" || true)"
-  printf 'ok' >"$SB/api/ingest-mode"; at 5; run_fixture pre-tool-use
-  check "after '$m' and 5 s with an OK API: the kept line goes out with the new one" "2 0" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+  check "$1: token only in the Authorization header, nowhere else" "Bearer $TOKEN 0" "$("$JQ_BIN" -r '.authorization' "$SB/api/requests.log" | tail -n 1) $(grep -cF -- "$TOKEN" "$SB/all.txt" || true)"
+}
+spn() { if [ -f "$(spool_of "$RAWSID")" ]; then wc -l <"$(spool_of "$RAWSID")" | tr -d ' '; else echo 0; fi; }
+LV() { echo "$DATA/live/$1"; }
+TOKEN2="alyh_$(printf 'Zz9_-%.0s' $(seq 1 8))xyz"
+
+# 5xx and a dropped connection: the spool stays, no marker, no back-off, the next hook after 5 s retries
+for m in 5xx drop; do
+  new7; printf '%s' "$m" >"$SB/api/ingest-mode"; at 0; run_fixture user-prompt-submit
+  check "answer '$m': one request, line kept, no marker, no back-off, exit 0 silent" "1 1 no no 0|" "$(nbodies) $(spn) $([ -e "$(LV disabled)" ] && echo yes || echo no) $([ -e "$(LV backoff)" ] && echo yes || echo no) $RC|$OUT$ERR"
+  sweep "answer '$m'"
+  printf 'ok' >"$SB/api/ingest-mode"; at 4; run_fixture pre-tool-use; check "'$m': 4 s later nothing is sent" "1" "$(nbodies)"
+  at 5; run_fixture pre-tool-use
+  check "after '$m' and 5 s with an OK API: the kept line goes out with the new ones" "2 0" "$(nbodies) $(spn)"
   end_case
 done
+# 400 and 413: that batch is discarded, no back-off, the next important event is sent at once
+for m in 400 413; do
+  new7; printf '%s' "$m" >"$SB/api/ingest-mode"; at 0; run_fixture user-prompt-submit
+  check "answer '$m': the batch is discarded from the spool, no marker, no back-off" "1 0 no no" "$(nbodies) $(spn) $([ -e "$(LV disabled)" ] && echo yes || echo no) $([ -e "$(LV backoff)" ] && echo yes || echo no)"
+  sweep "answer '$m'"
+  printf 'ok' >"$SB/api/ingest-mode"; at 0; run_fixture subagent-start
+  check "after '$m' the next important event is sent at once and alone" "2 1" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tail -n 1)"
+  end_case
+done
+# 202 with a null shortId (a brand-new run): tolerated
+new7; printf 'ok-null' >"$SB/api/ingest-mode"; at 0; run_fixture user-prompt-submit
+check "202 with shortId null: spool emptied, no marker, no back-off" "1 0 no no" "$(nbodies) $(spn) $([ -e "$(LV disabled)" ] && echo yes || echo no) $([ -e "$(LV backoff)" ] && echo yes || echo no)"; end_case
+# 403, 422 and 429: back-off until a timestamp, boundaries on the fake clock
+backoff_case() {  # LABEL MODE SECONDS [retry-after]
+  new7; printf '%s' "$2" >"$SB/api/ingest-mode"; [ -z "${4:-}" ] || printf '%s' "$4" >"$SB/api/ingest-retry-after"
+  at 0; run_fixture user-prompt-submit
+  check "$1: one request, line kept, back-off until t+$3 for this credential, no disabled marker" "1 1 $((T0 + $3)) $(CREDFP) no" "$(nbodies) $(spn) $(cut -d' ' -f1 "$(LV backoff)") $(cut -d' ' -f2 "$(LV backoff)") $([ -e "$(LV disabled)" ] && echo yes || echo no)"
+  check "$1: backoff file is private" "600" "$(find "$(LV backoff)" -printf '%m')"
+  sweep "$1"
+  printf 'ok' >"$SB/api/ingest-mode"
+  at $(($3 - 1)); run_fixture subagent-start; check "$1: an important event 1 s before the end is only spooled" "1 2" "$(nbodies) $(spn)"
+  at "$3"; run_fixture subagent-stop; check "$1: at the end of the back-off everything goes out" "2 0" "$(nbodies) $(spn)"
+  end_case
+}
+backoff_case "403" 403 3600
+backoff_case "422" 422 600
+backoff_case "429 Retry-After 7" 429 7 7
+backoff_case "429 Retry-After above the clamp (999999)" 429 3600 999999
+backoff_case "429 Retry-After not a number" 429 60 abc
+backoff_case "429 Retry-After 0 (clamped up to 1)" 429 1 0
+# 401: marker with the credential fingerprint; a re-pair clears it and a new run starts with `state started`
+for m in 401 401-inactive; do
+  new7; printf '%s' "$m" >"$SB/api/ingest-mode"; at 0; run_fixture user-prompt-submit
+  check "answer '$m': disabled marker (0600) holds the credential fingerprint, the spool is discarded, exit 0 silent" "600 cred:$(CREDFP) 0 0|" "$(find "$(LV disabled)" -printf '%m') $(cat "$(LV disabled)") $(spn) $RC|$OUT$ERR"
+  sweep "answer '$m'"
+  printf 'ok' >"$SB/api/ingest-mode"; at 20; run_fixture subagent-start
+  check "'$m': while marked disabled nothing is sent or spooled" "1 0" "$(nbodies) $(spn)"
+  TOKEN="$TOKEN2" mkcred; at 30; run_fixture subagent-start
+  check "'$m': after a re-pair the marker is gone and the first event sent is state started" "2 no state:started,sub_start" "$(nbodies) $([ -e "$(LV disabled)" ] && echo yes || echo no) $("$JQ_BIN" -r '[.events[] | "\(.type):\(.state // "")" | sub(":$"; "")] | join(",")' "$SB/api/ingest-bodies.log" | tail -n 1)"
+  check "'$m': the re-paired request carries the new credential" "Bearer $TOKEN2" "$("$JQ_BIN" -r '.authorization' "$SB/api/requests.log" | tail -n 1)"
+  at 31; run_fixture subagent-stop; check "'$m': started is sent once, not again" "3 sub_stop" "$(nbodies) $("$JQ_BIN" -r '[.events[].type] | join(",")' "$SB/api/ingest-bodies.log" | tail -n 1)"
+  end_case
+done
+new7; at 0; run_fixture user-prompt-submit; TOKEN="$TOKEN2" mkcred; at 1; run_fixture subagent-start
+check "a re-pair without any failure also opens with state started" "state:started,sub_start" "$("$JQ_BIN" -r '[.events[] | "\(.type):\(.state // "")" | sub(":$"; "")] | join(",")' "$SB/api/ingest-bodies.log" | tail -n 1)"; end_case
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'cred:%s' "$(test_sha "$TOKEN2")" >"$(LV disabled)"; chmod 600 "$(LV disabled)"; run_fixture user-prompt-submit
+check "a marker of ANOTHER credential is cleared: the current credential works" "no 1" "$([ -e "$(LV disabled)" ] && echo yes || echo no) $(nbodies)"; end_case
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'cred:%s' "$(CREDFP)" >"$(LV disabled)"; chmod 600 "$(LV disabled)"; run_fixture user-prompt-submit
+check "a marker of THIS credential keeps the reporter inert" "yes 0" "$([ -e "$(LV disabled)" ] && echo yes || echo no) $(nbodies)"; end_case
+
+echo "== spool bounds under permanent failure (AC-05) =="
+new7; printf '5xx' >"$SB/api/ingest-mode"; fill6 600 0; at 0; run_fixture user-prompt-submit
+check "600 lines + a failing send: at most 500 lines kept" "1 500" "$(nbodies) $(spn)"; end_case
+new7; printf '5xx' >"$SB/api/ingest-mode"; fill6 400 1000; at 0; run_fixture user-prompt-submit
+check "400 KB of lines + a failing send: at most 262144 bytes kept" "yes" "$([ "$(wc -c <"$(spool_of "$RAWSID")" | tr -d ' ')" -le 262144 ] && echo yes || echo no)"; end_case
+
+echo "== lines older than 23 hours are dropped at flush (BR-07) =="
+iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$(spool_of "$RAWSID")"
+{ for a in 1:82801 2:82800 3:100 4:0; do s=${a%%:*}; age=${a##*:}; "$JQ_BIN" -nc --argjson s "$s" --arg at "$(iso $((T0 - age)))" '{seq:$s, at:$at, type:"state", state:"working"}'; done
+  "$JQ_BIN" -nc '{seq:5, at:"garbage", type:"state", state:"working"}'; } >"$SPF"; chmod 600 "$SPF"
+at 0; run_fixture user-prompt-submit
+check "older than 23 h (82801 s) dropped, exactly 23 h (82800 s) and newer kept, unparsable time dropped; spool emptied" "2,3,4, 0" "$(sent_seqs | head -n 3 | tr '\n' ',') $(spn)"
+check "the new event follows in the same batch" "4" "$(sent_seqs | wc -l | tr -d ' ')"; end_case
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$(spool_of "$RAWSID")"
+"$JQ_BIN" -nc --arg at "$(iso $((T0 - 90000)))" '{seq:1, at:$at, type:"state", state:"working"}' >"$SPF"; chmod 600 "$SPF"
+at 0; run_fixture pre-tool-use
+check "a stale line in the spool is never sent: the request holds only the new event, the spool is empty" "1 1 0" "$(nbodies) $(sent_seqs | wc -l | tr -d ' ') $(spn)"; end_case
+
+echo "== correction round: flusher rechecks, bounded body, late 401, advisories =="
+hook_once() {  # FILE: the hook once, without waiting for its detached flusher
+  cp "$1" "$SB/stdin"
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
+}
+wait_for() {  # CONDITION-COMMAND: poll up to 10 s
+  local i; for i in $(seq 1 200); do eval "$1" && return 0; sleep 0.05; done; return 1
+}
+# SHD-01: the first session's flusher is in flight; another session gets 429 / 401; the first stops before its next batch
+for m in 429 401; do
+  new7; "$JQ_BIN" -c '.session_id = "SESS-A-0002"' "$FIX/user-prompt-submit.json" >"$SB/a.json"
+  printf 'ok:1500\n%s:0\n' "$m" >"$SB/api/ingest-script"; fill6 120 0
+  hook_once "$FIX/user-prompt-submit.json"; wait_for '[ "$(nbodies)" -ge 1 ]'
+  hook_once "$SB/a.json"; wait_for '[ -e "$(LV backoff)" ] || [ -e "$(LV disabled)" ]'; wait_idle
+  check "session B's flusher stops between batches after session A got $m: 2 requests only" "2" "$(nbodies)"
+  check "session B keeps its remaining 71 lines (121 - the first batch of 50)" "71" "$(spn)"
+  check "$m: the marker/back-off written by session A is in place" "$([ "$m" = 401 ] && echo "no yes" || echo "yes no")" "$([ -e "$(LV backoff)" ] && echo yes || echo no) $([ -e "$(LV disabled)" ] && echo yes || echo no)"
+  end_case
+done
+# SHD-03: a late 401 for the OLD credential, after a re-pair, must not disable or drop the NEW credential's lines
+new7; printf '401:1500\n' >"$SB/api/ingest-script"
+hook_once "$FIX/user-prompt-submit.json"; wait_for '[ "$(nbodies)" -ge 1 ]'
+TOKEN="$TOKEN2" mkcred; hook_once "$FIX/subagent-start.json"; wait_idle
+check "late 401 for the old token after a re-pair: no marker, nothing dropped (old line + started + sub_start kept)" "no 3" "$([ -e "$(LV disabled)" ] && echo yes || echo no) $(spn)"
+check "the new credential's lines include the started event" "yes" "$(grep -c '"state":"started"' "$(spool_of "$RAWSID")" | sed 's/^1$/yes/')"
+printf 'ok' >"$SB/api/ingest-mode"; run_fixture subagent-stop
+check "the next flush sends all four lines with the NEW credential" "2 4 Bearer $TOKEN2" "$(nbodies) $(sent_seqs | wc -l | tr -d ' ' | awk '{print $1 - 1}') $("$JQ_BIN" -r '.authorization' "$SB/api/requests.log" | tail -n 1)"
+end_case
+# SHD-02: an oversized response is a failure (the transfer is cut), no file is left, the spool is kept
+new7; printf 'huge' >"$SB/api/ingest-mode"; at 0; run_fixture user-prompt-submit
+check "a 200 KB response body: failure, line kept, no marker or back-off, no response/header/batch file left" "1 no no 0" "$(nbodies) $([ -e "$(LV disabled)" ] && echo yes || echo no) $([ -e "$(LV backoff)" ] && echo yes || echo no) $(find "$DATA/live" \( -name '*.resp' -o -name '*.hdr' -o -name '*.batch' \) | wc -l | tr -d ' ')"; end_case
+# Medic: a 401 with a code that is not listed backs off 10 minutes; 202 with ignored/dropped consumes the batch
+backoff_case "401 with an unlisted code" 401-other 600
+new7; printf '0,2,1' >"$SB/api/ingest-counts"; at 0; run_fixture user-prompt-submit
+check "202 with accepted 0, ignored 2, dropped 1: the batch is consumed, no marker, no back-off" "1 0 no no" "$(nbodies) $(spn) $([ -e "$(LV disabled)" ] && echo yes || echo no) $([ -e "$(LV backoff)" ] && echo yes || echo no)"; end_case
+new7; at 0; run_fixture user-prompt-submit; TOKEN="$TOKEN2" mkcred; at 1; run_fixture session-start-startup
+check "re-pair then a SessionStart: exactly one started in that request (no duplicate prepend)" "1" "$("$JQ_BIN" -r '[.events[] | select(.state == "started")] | length' "$SB/api/ingest-bodies.log" | tail -n 1)"; end_case
+
+echo "== SessionEnd (AC-10, BR-12) =="
+new7; printf '3000' >"$SB/api/ingest-delay"; at 0; run_fixture user-prompt-submit; wait_idle; printf '3000' >"$SB/api/ingest-delay"
+cp "$FIX/session-end-clear.json" "$SB/stdin"; M0=$(date +%s%N)
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; M1=$(date +%s%N)
+check "SessionEnd with a 3 s API returns in under 1 s, silent" "yes|" "$([ $(( (M1 - M0) / 1000000 )) -lt 1000 ] && echo yes || echo no)|$(cat "$SB/out" "$SB/err")"
+wait_idle
+check "the final event was still delivered (received by the API) through a request limited to 1 second" "ended end_clear max-time = 1" \
+  "$("$JQ_BIN" -r '.events[-1] | "\(.state) \(.code)"' "$SB/api/ingest-bodies.log" | tail -n 1) $(tail -n 8 "$SB/log/curl-config.log" | grep '^max-time' | tail -n 1)"
+check "the earlier (non-final) request used the normal limit" "max-time = 8" "$(grep '^max-time' "$SB/log/curl-config.log" | head -n 1)"
+end_case
+
+echo "== a late line while the flusher finishes (SHD-02) =="
+new_case; D="$SB/lt"; mkdir -p "$D"; : >"$D/calls"
+out=$(env -i PATH="$REALBIN" "$BASH_BIN" -c "
+  LC_ALL=C; SPOOL='$D/spool'; FLOCK='$D/f.lock'; FTOK=''; : >\"\$SPOOL\"
+  $(fn_body "$HOOK" lock_is_stale); $(fn_body "$HOOK" lock_take); $(fn_body "$HOOK" lock_drop); $(fn_body "$HOOK" flush_loop)
+  flush_run() { echo run >>'$D/calls'; if [ \"\$(wc -l <'$D/calls' | tr -d ' ')\" = 1 ]; then echo late >>\"\$SPOOL\"; : >\"\$SPOOL.sent\"; else : >\"\$SPOOL\"; fi; [ -d \"\$FLOCK\" ] && echo held >>'$D/calls'; return 0; }
+  lock_take \"\$FLOCK\" 0 && { FTOK=\$LOCK_TOKEN; flush_loop; }
+  echo done")
+check "a line appended after the last read is picked up by a second pass; the lock is released between passes and at the end" "run held run held done no" "$(tr '\n' ' ' <"$D/calls" | sed 's/ $//') ${out##*$'\n'} $([ -d "$D/f.lock" ] && echo yes || echo no)"
+end_case
+
+echo "== orphans of a killed flusher =="
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; H=$(test_sha "$RAWSID")
+mkdir "$DATA/live/$H.flush.lock"; printf '%s %s' "$(( $(date +%s) - 40 ))" "dead.1" >"$DATA/live/$H.flush.lock/t"
+printf '%s' '{"client":{"kind":"claude-code"},"session":{"hash":"x"},"events":[{"seq":99,"at":"2026-01-01T00:00:00Z","type":"tool","tool":"ORPHAN_MARKER"}]}' >"$DATA/live/$H.batch"; chmod 600 "$DATA/live/$H.batch"
+run_fixture user-prompt-submit
+check "orphan flush lock broken, orphan batch overwritten and never sent; the real event goes out once" "1 0 no no" "$(nbodies) $(grep -c ORPHAN_MARKER "$SB/api/ingest-bodies.log" || true) $([ -e "$DATA/live/$H.batch" ] && echo yes || echo no) $([ -e "$DATA/live/$H.flush.lock" ] && echo yes || echo no)"; end_case
 
 echo "== one flusher at a time (AC-12) =="
 new_case; mkcred; SHIMD="$SHIMS"; printf '400' >"$SB/api/ingest-delay"
@@ -995,16 +1142,16 @@ echo "== flush_run directly: boundaries, progress, lock_touch (ALY-203.6 correct
 flush_direct() {
   local H; H=$(test_sha "$RAWSID")
   env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" CLAUDE_PLUGIN_DATA="$DATA" "$BASH_BIN" -c "
-    LC_ALL=C; umask 077; UID_NOW=\$(id -u)
-    $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
+    LC_ALL=C; umask 077; UID_NOW=\$(id -u); . '$LIB'; CFP=''; SEND_MAXTIME=8; SEND_CONNECT=3
+    $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
     HASH='$H'; LIVE_DIR='$DATA/live'; SPOOL=\"\$LIVE_DIR/\$HASH.spool\"; LOCKD=\"\$LIVE_DIR/\$HASH.lock\"; FLOCK=\"\$LIVE_DIR/\$HASH.flush.lock\"
-    BATCHF=\"\$LIVE_DIR/\$HASH.batch\"; LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
+    BATCHF=\"\$LIVE_DIR/\$HASH.batch\"; HDRF=\"\$LIVE_DIR/\$HASH.hdr\"; RESPF=\"\$LIVE_DIR/\$HASH.resp\"; DIR='$DATA'; BACKOFFF=\"\$LIVE_DIR/backoff\"; LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
     lock_take \"\$FLOCK\" 0 && { FTOK=\$LOCK_TOKEN; flush_run; lock_drop \"\$FLOCK\" \"\$FTOK\"; }"
 }
 BASE_LEN() { printf '{"client":{"kind":"claude-code"},"session":{"hash":"%s"},"events":[]}' "$(test_sha "$RAWSID")" | wc -c | tr -d ' '; }
 line6() {  # SEQ PADBYTES: a valid spool line; the code field pads it
   local pad=""; [ "$2" -gt 0 ] && pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
-  "$JQ_BIN" -nc --argjson s "$1" --arg p "$pad" '{seq: $s, at: "2026-01-01T00:00:00Z", type: "state", state: "working"} + (if $p == "" then {} else {code: $p} end)'
+  "$JQ_BIN" -nc --argjson s "$1" --arg p "$pad" --arg at "$(nowiso)" '{seq: $s, at: $at, type: "state", state: "working"} + (if $p == "" then {} else {code: $p} end)'
 }
 len6() { line6 "$1" "$2" | wc -c | tr -d ' '; }   # includes the newline
 direct_case() { new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"; }
@@ -1049,9 +1196,9 @@ end_case
 # a flusher whose lock was taken over stops before sending
 direct_case; line6 1001 0 >"$SPF"
 env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" "$BASH_BIN" -c "
-  LC_ALL=C; umask 077; UID_NOW=\$(id -u)
-  $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
-  HASH='$(test_sha "$RAWSID")'; LIVE_DIR='$DATA/live'; SPOOL='$SPF'; LOCKD=\"\$LIVE_DIR/x.lock\"; FLOCK=\"\$LIVE_DIR/x.flush.lock\"; BATCHF=\"\$LIVE_DIR/x.batch\"
+  LC_ALL=C; umask 077; UID_NOW=\$(id -u); . '$LIB'; CFP=''; SEND_MAXTIME=8; SEND_CONNECT=3
+  $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
+  HASH='$(test_sha "$RAWSID")'; LIVE_DIR='$DATA/live'; SPOOL='$SPF'; LOCKD=\"\$LIVE_DIR/x.lock\"; FLOCK=\"\$LIVE_DIR/x.flush.lock\"; BATCHF=\"\$LIVE_DIR/x.batch\"; HDRF=\"\$LIVE_DIR/x.hdr\"; RESPF=\"\$LIVE_DIR/x.resp\"; DIR='$DATA'; BACKOFFF=\"\$LIVE_DIR/backoff\"
   LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
   mkdir \"\$FLOCK\"; printf '%s %s' \"\$(date +%s)\" 'someone-else' >\"\$FLOCK/t\"; FTOK=not-mine; flush_run"
 check "flusher that no longer owns its lock sends nothing and keeps the spool" "0 1" "$(nbodies) $(wc -l <"$SPF" | tr -d ' ')"; end_case
