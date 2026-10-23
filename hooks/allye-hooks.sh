@@ -304,12 +304,14 @@ lock_take() {
   local d="$1" n="${2:-0}" i=0 old
   LOCK_TOKEN="$$.$RANDOM$RANDOM"
   while :; do
-    if mkdir "$d" 2>/dev/null; then printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t" 2>/dev/null; return 0; fi
+    # mkdir alone does not decide: uutils coreutils (Ubuntu 25.10+) can report success to several concurrent callers, so
+    # the lock is the exclusive (noclobber, O_EXCL) creation of DIR/t; a mkdir "winner" that loses that claim has not got it.
+    if mkdir "$d" 2>/dev/null && ( set -C; printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t" ) 2>/dev/null; then return 0; fi
     if lock_is_stale "$d"; then
       # Only one breaker at a time (a second mkdir lock, itself broken after a minute), so nobody can replace the
       # lock between the verdict and the rename; the renamed lock is judged once more as a safety net.
       [ -n "$(find "$d.brk" -prune -mmin +1 -print 2>/dev/null)" ] && rm -rf "$d.brk" 2>/dev/null
-      if mkdir "$d.brk" 2>/dev/null; then
+      if mkdir "$d.brk" 2>/dev/null && ( set -C; : >"$d.brk/own" ) 2>/dev/null; then   # same claim as above
         old="$d.old.$$.$RANDOM"
         if lock_is_stale "$d" && mv "$d" "$old" 2>/dev/null; then
           if lock_is_stale "$old"; then rm -rf "$old" 2>/dev/null
