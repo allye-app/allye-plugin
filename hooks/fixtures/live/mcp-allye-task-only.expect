@@ -1,0 +1,2 @@
+{"type":"tool","tool":"allye:task_get"}
+{"type":"bind","bind":{"source":"mcp","task":"ALY-9.4"}}

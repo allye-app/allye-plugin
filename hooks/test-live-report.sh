@@ -42,7 +42,7 @@ trap cleanup EXIT
 make_realbin() {  # $1 = dir, rest = tools to leave out. node and stat are deliberately absent.
   local dir="$1" t p; shift
   mkdir -p "$dir"
-  for t in bash curl jq sha256sum shasum od find mktemp mv uname tr id rm chmod mkdir cat dirname sleep grep sed cut head env date git; do
+  for t in bash curl jq sha256sum shasum od find mktemp mv uname tr id rm chmod mkdir cat dirname sleep grep sed cut head env date git timeout; do
     case " $* " in *" $t "*) continue ;; esac
     p=$(type -P "$t") && ln -s "$p" "$dir/$t"
   done
@@ -52,6 +52,7 @@ REALBIN="$ROOT_TMP/realbin";             make_realbin "$REALBIN"
 REALBIN_NOCURL="$ROOT_TMP/realbin-nc";   make_realbin "$REALBIN_NOCURL" curl
 REALBIN_NOJQ="$ROOT_TMP/realbin-nj";     make_realbin "$REALBIN_NOJQ" jq
 REALBIN_NOSHA="$ROOT_TMP/realbin-nosha"; make_realbin "$REALBIN_NOSHA" sha256sum shasum
+REALBIN_NOTO="$ROOT_TMP/realbin-nto";    make_realbin "$REALBIN_NOTO" timeout
 SHIMS_NOCURL="$ROOT_TMP/shims-nc";       link_shims "$SHIMS_NOCURL" curl
 SHIMS_NOJQ="$ROOT_TMP/shims-nj";         link_shims "$SHIMS_NOJQ" jq
 SHIMS_NOSHA="$ROOT_TMP/shims-nosha";     link_shims "$SHIMS_NOSHA" sha256sum shasum
@@ -290,6 +291,187 @@ seq_case "no waiting: no working is inserted" '{"type":"tool","tool":"Bash"}' '{
 SEQ=(permission-request pre-tool-use-tool-space pre-tool-use)
 seq_case "a dropped PreToolUse still spools working once; the next tool follows" "$WP" "$W" '{"type":"tool","tool":"Bash"}'
 
+# ─── ALY-203.3: tool reduction (BR-13) and binding sources (BR-08, AC-06) ───
+echo "== tool reduction and binding fixtures =="
+GIT_BIN="$(type -P git)"
+git_calls() { [ -f "$SB/log/calls.log" ] && { grep '^git' "$SB/log/calls.log" || true; } || true; }
+git_count() { git_calls | grep -c . || true; }
+mkrepo() {  # BRANCH: a throwaway repository (the git shim wraps the real git, so real branches are used)
+  rm -rf "$SB/repo"; mkdir -p "$SB/repo"
+  env -i HOME="$SB/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null PATH="$REALBIN" "$GIT_BIN" init -q "$SB/repo" &&
+  env -i HOME="$SB/home" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null PATH="$REALBIN" "$GIT_BIN" -C "$SB/repo" symbolic-ref HEAD "refs/heads/$1"
+}
+# cwd_pay NAME CWD: the fixture NAME with its cwd replaced (jq -n so any string, including a newline, is encoded)
+cwd_pay() { "$JQ_BIN" --arg c "$2" '.cwd = $c' "$FIX/$1.json" >"$SB/stdin"; }
+bind_files() { find "$DATA/live" -type f \( -name '*.spool' -o -name '*.state' -o -name '*.bind' \) -exec cat {} + 2>/dev/null; }
+GITARGV_PRE="git [-c] [core.fsmonitor=] [-c] [core.hooksPath=/dev/null] [-C] ["
+GITARGV_POST="] [branch] [--show-current]"
+SSB='{"state":"started","type":"state"}'
+# the skill-*, expansion-* and mcp-* fixtures are checked by the generic loop below
+
+echo "== bridge invocation: every mode, with and without a key =="
+for m in launch mission blueprint dispatch repair optimize shield inspect survey; do
+  new_case; mkcred
+  "$JQ_BIN" --arg a "$m" '.tool_input.args = $a' "$FIX/skill-bridge-no-key.json" >"$SB/stdin"; run_hook
+  check "Skill tool call, mode $m, no key" "$(printf '%s\n' '{"type":"tool","tool":"Skill"}' "{\"type\":\"bind\",\"bind\":{\"source\":\"skill\",\"role\":\"bridge\",\"mode\":\"$m\"}}" | "$JQ_BIN" -cS .)" "$(spooled)"
+  "$JQ_BIN" --arg a "$m ALY-12" '.command_args = $a' "$FIX/expansion-bridge-no-key.json" >"$SB/stdin"; run_hook
+  check "UserPromptExpansion, mode $m, with key" "$(printf '%s\n' '{"type":"tool","tool":"Skill"}' "{\"type\":\"bind\",\"bind\":{\"source\":\"skill\",\"role\":\"bridge\",\"mode\":\"$m\"}}" "{\"type\":\"bind\",\"bind\":{\"source\":\"skill\",\"role\":\"bridge\",\"mode\":\"$m\",\"spec\":\"ALY-12\"}}" | "$JQ_BIN" -cS .)" "$(spooled)"
+  end_case
+done
+for bad in "ALY-203.2.1" "ALY-" "A-1" "ALYALYALYALY-1" "ALY-1x" "aly-1" "ALY-203;MARKER_ARGS" ; do
+  new_case; mkcred; "$JQ_BIN" --arg a "mission $bad" '.command_args = $a' "$FIX/expansion-bridge-no-key.json" >"$SB/stdin"; run_hook
+  check "invalid key '$bad' is dropped, the mode stays" '{"bind":{"mode":"mission","role":"bridge","source":"skill"},"type":"bind"}' "$(spooled)"
+  end_case
+done
+for bad in "launch2" "LAUNCH" "mission," "" "ship"; do
+  new_case; mkcred; "$JQ_BIN" --arg a "$bad ALY-203" '.command_args = $a' "$FIX/expansion-bridge-no-key.json" >"$SB/stdin"; run_hook
+  check "invalid mode '$bad': no bind, key not sent alone" "" "$(spooled)"
+  end_case
+done
+
+echo "== environment: ALLYE_SPEC and ALLYE_TASK at SessionStart =="
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-203" "ALLYE_TASK=ALY-203.3"); run_fixture session-start-startup
+check "env spec and task: bind source env, role session" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"env","role":"session","spec":"ALY-203","task":"ALY-203.3"}}' | "$JQ_BIN" -cS .)" "$(spooled)"
+check "env: silent, exit 0, git not called" "0|0" "$RC|$(git_count)"
+run_fixture session-start-resume
+check "env: the same bind is not repeated on resume" "1" "$(spooled | grep -c '"source":"env"' || true)"
+end_case
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-8"); run_fixture session-start-startup
+check "env spec only" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"env","role":"session","spec":"ALY-8"}}' | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
+new_case; mkcred; RUN_ENV=("ALLYE_TASK=ALY-8.2"); run_fixture session-start-startup
+check "env task only" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"env","role":"session","task":"ALY-8.2"}}' | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-203" "ALLYE_TASK=bad MARKER_ARGS"); run_fixture session-start-startup
+check "env: invalid task dropped, valid spec kept" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"env","role":"session","spec":"ALY-203"}}' | "$JQ_BIN" -cS .)" "$(spooled)"
+check "env: invalid value absent from every file" "0" "$(bind_files | grep -cF MARKER_ARGS || true)"; end_case
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=aly-203" "ALLYE_TASK=ALY-203.3.4"); run_fixture session-start-startup
+check "env: all values invalid, no bind" "$SSB" "$(spooled)"; end_case
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-203"); run_fixture user-prompt-submit
+check "env is evaluated at SessionStart only" '{"state":"working","type":"state"}' "$(spooled)"; end_case
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-203"); run_fixture session-start-bad-source
+check "env: a SessionStart that maps to nothing binds nothing" "" "$(spooled)"; end_case
+
+echo "== branch: the safe git call (BR-08) =="
+branch_case() {  # LABEL BRANCH EXPECTED-BIND-JSON-or-empty
+  new_case; mkcred; mkrepo "$2"; cwd_pay session-start-startup "$SB/repo"; run_hook
+  local exp="$SSB"; [ -z "$3" ] || exp=$(printf '%s\n' "$SSB" "{\"type\":\"bind\",\"bind\":$3}" | "$JQ_BIN" -cS .)
+  check "$1: spool" "$exp" "$(spooled)"
+  check "$1: exit 0, silent" "0||" "$RC|$OUT|$ERR"
+  check "$1: git called once with exactly the safe argv" "$GITARGV_PRE$SB/repo$GITARGV_POST" "$(git_calls)"
+  check "$1: branch name absent from spool, state, bind, output and logs" "0" "$( { bind_files; cat "$SB/out" "$SB/err" "$SB/log"/*; } | grep -cF MARKER_BRANCH || true)"
+  end_case
+}
+branch_case "bridge/aly-203-live-reporter" "bridge/aly-203-live-reporter" '{"source":"branch","spec":"ALY-203"}'
+branch_case "ALY-203-foo" "ALY-203-foo" '{"source":"branch","spec":"ALY-203"}'
+branch_case "lower-case key" "aly-77-x" '{"source":"branch","spec":"ALY-77"}'
+branch_case "task key" "bridge/aly-203.4-x" '{"source":"branch","task":"ALY-203.4"}'
+branch_case "mixed-case prefix" "Bridge/Aly-9-x" '{"source":"branch","spec":"ALY-9"}'
+branch_case "hostile name that matches" "bridge/aly-203-MARKER_BRANCH" '{"source":"branch","spec":"ALY-203"}'
+branch_case "main" "main" ""
+branch_case "feature/aly-203-x (prefix not allowed)" "feature/aly-203-x" ""
+branch_case "key without trailing dash" "aly-203" ""
+branch_case "hostile name that does not match" "x-MARKER_BRANCH" ""
+branch_case "hostile name with a key in the middle" "MARKER_BRANCH-aly-203-x" ""
+branch_case "key too long" "abcdefghijk-1-x" ""
+new_case; mkcred; mkdir -p "$SB/repo"; cwd_pay session-start-startup "$SB/repo"; run_hook
+check "directory that is not a repository: no bind, still silent" "0|$SSB" "$RC|$(spooled)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; cwd_pay session-start-resume "$SB/repo"; run_hook
+check "branch on a resume SessionStart" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"branch","spec":"ALY-203"}}' | "$JQ_BIN" -cS .)" "$(spooled)"
+run_hook
+check "branch: the same bind is not repeated (git runs again, nothing sent)" "1 2" "$(spooled | grep -c '"source":"branch"' || true) $(git_count)"
+end_case
+
+echo "== git is called only at SessionStart, only with a safe cwd, only without a stronger binding =="
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"
+for n in user-prompt-submit pre-tool-use stop session-end-clear notification-idle-prompt pre-tool-use-skill skill-bridge-bad-mode mcp-allye-bad-key subagent-start; do cwd_pay "$n" "$SB/repo"; run_hook; done
+check "git not called for non-SessionStart events" "0" "$(git_count)"
+check "no branch bind from them" "0" "$(spooled | grep -c '"source":"branch"' || true)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; cwd_pay session-start-bad-source "$SB/repo"; run_hook
+check "git not called when the SessionStart maps to nothing" "0" "$(git_count)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; RUN_ENV=("ALLYE_SPEC=ALY-5"); cwd_pay session-start-startup "$SB/repo"; run_hook
+check "env binding present: git not called, env bind sent" "0 1" "$(git_count) $(spooled | grep -c '"source":"env"' || true)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; run_fixture skill-bridge-spec; cwd_pay session-start-startup "$SB/repo"; run_hook
+check "skill binding already sent: git not called, no branch bind" "0 0" "$(git_count) $(spooled | grep -c '"source":"branch"' || true)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; run_fixture mcp-allye-spec-get; cwd_pay session-start-startup "$SB/repo"; run_hook
+check "mcp binding already sent: git not called" "0" "$(git_count)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; RUN_ENV=("ALLYE_SPEC=ALY-5"); cwd_pay session-start-startup "$SB/repo"; run_hook; RUN_ENV=(); cwd_pay session-start-resume "$SB/repo"; run_hook
+check "env binding sent earlier in the session: git not called later" "0" "$(git_count)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; run_fixture session-start-startup; run_hook
+check "cwd /work/MARKER_CWD (not a directory): git not called" "0" "$(git_count)"; end_case
+for c in "relative/repo" "." "" "$(printf '/tmp\n/etc')" "$(printf '/tmp/x\ty')" "$(printf '/tmp/x\033[2J')"; do
+  new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; cwd_pay session-start-startup "$c"; run_hook
+  check "unsafe cwd '$(printf '%s' "$c" | tr '\n\t\033' '\\\\\\')': git not called, nothing bound" "0 $SSB" "$(git_count) $(spooled)"; end_case
+done
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; "$JQ_BIN" '.cwd = 7' "$FIX/session-start-startup.json" >"$SB/stdin"; run_hook
+check "non-string cwd: git not called" "0 $SSB" "$(git_count) $(spooled)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; "$JQ_BIN" 'del(.cwd)' "$FIX/session-start-startup.json" >"$SB/stdin"; run_hook
+check "missing cwd: git not called" "0 $SSB" "$(git_count) $(spooled)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; ln -s "$SB/repo" "$SB/repolink"; cwd_pay session-start-startup "$SB/repolink"; run_hook
+check "cwd through a symlink to a directory is passed as given, safe argv" "$GITARGV_PRE$SB/repolink$GITARGV_POST" "$(git_calls)"; end_case
+
+echo "== git limited to one second, with and without timeout(1) =="
+slow_case() {  # LABEL REALDIR
+  new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; REAL="$2"
+  SHIMD="$SB/slowshims"; link_shims "$SHIMD" git
+  printf '#!/bin/bash\necho "git [$*]" >>"${SHIM_LOG:?}/calls.log"\nexec sleep 5\n' >"$SHIMD/git"; chmod +x "$SHIMD/git"
+  cwd_pay session-start-startup "$SB/repo"
+  local t0 t1; t0=$(date +%s); run_hook; t1=$(date +%s)
+  check "$1: the hook returns well before the 5 s git would take" "yes" "$([ $((t1 - t0)) -le 3 ] && echo yes || echo no)"
+  check "$1: git was started, no bind from a killed git, started state spooled, exit 0, silent" "1|$SSB|0||" "$(grep -c '^git' "$SB/log/calls.log")|$(spooled)|$RC|$OUT|$ERR"
+  end_case
+}
+slow_case "timeout(1) present" "$REALBIN"
+slow_case "timeout(1) absent (background-and-kill)" "$REALBIN_NOTO"
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; REAL="$REALBIN_NOTO"; cwd_pay session-start-startup "$SB/repo"; run_hook
+check "without timeout(1): same safe argv and the bind is still found" "$GITARGV_PRE$SB/repo$GITARGV_POST|2" "$(git_calls)|$(spooled | wc -l | tr -d ' ')"; end_case
+
+echo "== strength ordering and repeats =="
+S1='{"type":"tool","tool":"Skill"}'
+BSK='{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"mission","spec":"ALY-203"}}'
+BMC='{"type":"bind","bind":{"source":"mcp","spec":"ALY-203"}}'
+TMC='{"type":"tool","tool":"allye:spec_get"}'
+SEQ=(skill-bridge-spec mcp-allye-spec-get)
+seq_case "skill then mcp: the weaker mcp bind is not sent" "$S1" "$BSK" "$TMC"
+SEQ=(mcp-allye-spec-get skill-bridge-spec)
+seq_case "mcp then skill: the stronger skill bind is sent" "$TMC" "$BMC" "$S1" "$BSK"
+SEQ=(skill-bridge-spec skill-bridge-spec)
+seq_case "skill twice: the same bind is sent once" "$S1" "$BSK" "$S1"
+SEQ=(mcp-allye-spec-get mcp-allye-spec-get)
+seq_case "mcp twice: the same bind is sent once" "$TMC" "$BMC" "$TMC"
+SEQ=(mcp-allye-spec-get mcp-allye-task-start)
+seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{"type":"tool","tool":"allye:task_start"}' '{"type":"bind","bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"}}'
+SEQ=(skill-bridge-spec expansion-bridge-spec)
+seq_case "skill via Skill tool then via expansion with another key: sent again" "$S1" "$BSK" '{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"launch","spec":"ALY-7"}}'
+SEQ=(skill-bridge-subagent mcp-allye-subagent)
+seq_case "calls made inside a subagent never bind" '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:spec_get","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture session-start-startup mcp-allye-spec-get skill-bridge-spec
+check "env then mcp then skill: each stronger source is sent" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"env","role":"session","spec":"ALY-5"}}' "$TMC" "$BMC" "$S1" "$BSK" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture skill-bridge-spec session-start-startup
+check "skill then env at SessionStart: the weaker env bind is not sent" "$(printf '%s\n' "$S1" "$BSK" "$SSB" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; cwd_pay session-start-startup "$SB/repo"; run_hook; run_fixture mcp-allye-spec-get skill-bridge-spec
+check "branch then mcp then skill: each stronger source is sent" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"branch","spec":"ALY-203"}}' "$TMC" "$BMC" "$S1" "$BSK" | "$JQ_BIN" -cS .)" "$(spooled)"
+cwd_pay session-start-resume "$SB/repo"; run_hook
+check "then a resume SessionStart: git not called again, no bind" "1" "$(git_count)"; end_case
+
+echo "== bind state file =="
+new_case; mkcred; run_fixture skill-bridge-spec
+BF="$DATA/live/$(test_sha "$RAWSID").bind"
+check "bind state: 0600, keyed by hash, holds only rank and the bind" "600 4|{\"source\":\"skill\",\"role\":\"bridge\",\"mode\":\"mission\",\"spec\":\"ALY-203\"}" "$(find "$BF" -printf '%m')$(printf ' ')$(cut -d'|' -f1 "$BF")|$(cut -d'|' -f2- "$BF")"
+chmod 644 "$BF"; run_fixture mcp-allye-task-start
+check "bind state with a wrong mode: no bind is sent or recorded" "0" "$(spooled | grep -c '"source":"mcp"' || true)"
+chmod 600 "$BF"; rm "$BF"; ln -s "$SB/stdin" "$BF"; run_fixture mcp-allye-task-start
+check "symlinked bind state: nothing bound, link target untouched" "0" "$(spooled | grep -c '"source":"mcp"' || true)"
+end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'garbage' >"$DATA/live/$(test_sha "$RAWSID").bind"; chmod 600 "$DATA/live/$(test_sha "$RAWSID").bind"; run_fixture skill-bridge-spec
+check "garbage in the bind state is treated as no binding" "$(printf '%s\n' "$S1" "$BSK" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
+
+echo "== markers in bindings =="
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-203" "ALLYE_TASK=MARKER_ABCDEF"); mkrepo "bridge/aly-203-MARKER_BRANCH"
+for n in skill-bridge-task skill-bridge-bad-key2 expansion-bridge-bad-key mcp-allye-bad-action mcp-bad-chars mcp-other-server; do run_fixture "$n"; done
+cwd_pay session-start-startup "$SB/repo"; run_hook
+check "ARGS, tool_input, branch and cwd markers absent from every file and log" "0" "$( { bind_files; cat "$SB/out" "$SB/err" "$SB/log/calls.log"; } | grep -cE 'MARKER_(ARGS|BRANCH|CMD|ABCDEF|CWD)' || true)"
+check "every bind holds only contract keys and patterns" "0" "$("$JQ_BIN" -c 'select(.type == "bind") | .bind | select((keys - ["source","spec","task","role","mode"] | length > 0) or (.source | IN("skill","mcp","env","branch") | not) or ((.spec // "ALY-1") | test("\\A[A-Z][A-Z0-9]{1,9}-[0-9]+(\\.[0-9]+)?\\z") | not) or ((.task // "ALY-1.1") | test("\\A[A-Z][A-Z0-9]{1,9}-[0-9]+(\\.[0-9]+)?\\z") | not))' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+end_case
+
 # ─── AC-02 / AC-14: no marker and no raw session id anywhere ────────────────
 echo "== markers and the raw session id (AC-02, AC-14) =="
 new_case; mkcred
@@ -298,9 +480,9 @@ ALLTXT="$SB/all.txt"; { find "$DATA" -type f -exec cat {} +; find "$DATA" -print
 for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$m" "$ALLTXT" || true)"; done
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
-check "files are keyed by sha256(session id): spool and state" "$(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): bind, spool and state" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
-check "every spool line holds only contract fields of this slice" "0" "$("$JQ_BIN" -c 'select((keys - ["at","type","state","tool","code","sub"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only contract fields of this slice" "0" "$("$JQ_BIN" -c 'select((keys - ["at","type","state","tool","code","sub","bind"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 end_case

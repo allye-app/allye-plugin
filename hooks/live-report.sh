@@ -1,6 +1,7 @@
 #!/bin/bash
 # Claude Code Live reporter (ALY-203). One asynchronous hook script that branches on hook_event_name.
-# Slice ALY-203.2: confirmed events are reduced to contract events and spooled locally (no seq, no sending yet).
+# Slices ALY-203.2/.3: confirmed events are reduced to contract events and spooled locally (no seq, no sending yet);
+# MCP tools are reduced (BR-13) and bind events are derived from four sources (BR-08).
 #
 # Contract (BR-01, BR-03): always exits 0 and prints nothing to stdout or stderr. It does nothing, and
 # creates no file, unless CLAUDE_PLUGIN_DATA is an absolute expanded path, this install holds a valid
@@ -35,8 +36,28 @@ if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then exit 0; fi
 # enumeration inside it; a value that fails is DROPPED (never truncated, never sent). Prompts, commands,
 # tool inputs and outputs, paths, messages, transcripts and the cwd are never read into the output.
 # AC-14: files are keyed by the SHA-256 hex of the session id; the raw id is never written anywhere.
-# Not in this slice: seq, sending, flush (ALY-203.5/.6), tool reduction to allye:<action>/mcp and bind
-# events (ALY-203.3), sub outcome/task and gates (ALY-203.4). sub_stop carries {id,type} only until .4.
+# Not in this slice: seq, sending, flush (ALY-203.5/.6), sub outcome/task and gates (ALY-203.4).
+# sub_stop carries {id,type} only until .4.
+#
+# ALY-203.3 (BR-13, BR-08):
+# - Tool reduction runs BEFORE the 32-character name rule. A name starting `mcp__` is an MCP tool named
+#   mcp__<server>__<tool> (Claude Code convention): server `allye` or ending `_allye` (e.g. the plugin server
+#   plugin_allye_allye) is the Allye server and gives `allye:<action>` when tool_input.action matches
+#   ^[a-z_]{1,40}$, else `mcp`; any other MCP tool is `mcp`; an MCP name with characters outside
+#   [A-Za-z0-9_-] is dropped. No other tool_input value is ever read for the tool field.
+# - Bind sources, strongest first: skill(4) mcp(3) env(2) branch(1). skill: Skill tool call or
+#   UserPromptExpansion for `bridge`/`allye:bridge` with args `<mode> [KEY]`: only the mode enumeration and a
+#   key matching the key pattern leave (an invalid mode drops the whole bind, an invalid key only the key).
+#   mcp: an Allye MCP call whose tool_input.spec / tool_input.task match the key pattern (a task key does NOT
+#   supply a spec part). env: ALLYE_SPEC / ALLYE_TASK of this process, at SessionStart. branch: SessionStart
+#   only, when no bind of rank > 1 was sent for the session, through the one safe git call below. Calls made
+#   inside a subagent never bind (parallel Pilots would flap the session binding).
+# - $HASH.bind holds `<rank>|<bind json>` of the last bind sent. A bind is sent when its rank is higher than
+#   the stored one, or equal with a different content; never when weaker or identical.
+# - git: `git -c core.fsmonitor= -c core.hooksPath=/dev/null -C <cwd> branch --show-current`, cwd given as its
+#   own argv element, never through a shell string; run only when the cwd is an absolute existing directory
+#   without control characters; 1-second limit with timeout(1) when present, else a background watchdog
+#   that kills git after 1 second. Only the matched key is kept; the branch name is never stored.
 INPUT=$(cat 2>/dev/null) || INPUT=""
 [ -n "$INPUT" ] || exit 0
 
@@ -74,6 +95,19 @@ def sre($r): type == "string" and test($r);
 def idok:   sre("\\A[A-Za-z0-9_-]{1,64}\\z");
 def typeok: sre("\\A[A-Za-z0-9:_-]{1,64}\\z");
 def toolok: sre("\\A[A-Za-z][A-Za-z0-9_]{0,31}\\z");
+def keyok:  sre("\\A[A-Z][A-Z0-9]{1,9}-[0-9]+(\\.[0-9]+)?\\z");
+# MCP tool names are mcp__<server>__<tool>; the Allye server is `allye` or ends with `_allye`.
+def mcpname: (.tool_name | sre("\\Amcp__[A-Za-z0-9_-]{1,200}\\z"));
+def allyesrv: mcpname and ((.tool_name | split("__")) as $p | ($p | length) >= 3 and ($p[1] | . == "allye" or endswith("_allye")));
+# BR-13, applied before the 32-character rule: a string (the reduced tool) or null (dropped).
+def redtool:
+  if (.tool_name | type) != "string" then null
+  elif (.tool_name | startswith("mcp__")) then
+    if mcpname | not then null
+    elif allyesrv then (((.tool_input | objects | .action) // null) | if sre("\\A[a-z_]{1,40}\\z") then "allye:" + . else "mcp" end)
+    else "mcp" end
+  elif (.tool_name | toolok) then .tool_name
+  else null end;
 def st($s): [{type: "state", state: $s}];
 def stc($s; $c): [{type: "state", state: $s, code: $c}];
 def subof: if (.agent_id | idok) and (.agent_type | typeok) then {id: .agent_id, type: .agent_type} else null end;
@@ -82,9 +116,10 @@ def subof: if (.agent_id | idok) and (.agent_type | typeok) then {id: .agent_id,
 # A value failing its pattern drops the tool event but the hook still counts as activity.
 def trig: [{type: "trig"}];
 def toolev:
-  if (.agent_id // null) != null then
-    (subof) as $s | if $s != null and (.tool_name | toolok) then [{type: "sub_tool", tool: .tool_name, sub: $s}] else trig end
-  elif (.tool_name | toolok) then [{type: "tool", tool: .tool_name}]
+  redtool as $t
+  | if (.agent_id // null) != null then
+    (subof) as $s | if $s != null and $t != null then [{type: "sub_tool", tool: $t, sub: $s}] else trig end
+  elif $t != null then [{type: "tool", tool: $t}]
   else trig end;
 def failcode: .error as $x | if ($x | type) == "string" and (["rate_limit","authentication_failed","billing_error","invalid_request","server_error","max_output_tokens"] | index($x)) != null then "cli_error_" + $x else "cli_error_unknown" end;
 def endcode: .reason as $x | if ($x | type) == "string" and (["clear","resume","logout","prompt_input_exit"] | index($x)) != null then "end_" + $x else "end_other" end;
@@ -104,21 +139,117 @@ def evs:
     elif $e == "StopFailure"         then stc("error"; failcode)
     elif $e == "SessionEnd"          then stc("ended"; endcode)
     else [] end;
+# BR-08: the bind candidate of this event (null when none). ALLYE_SPEC/ALLYE_TASK are read from the environment ($ENV), never from argv.
+def modes: ["launch","mission","blueprint","dispatch","repair","optimize","shield","inspect","survey"];
+def kv($k): if ($k | keyok) then (if ($k | contains(".")) then {task: $k} else {spec: $k} end) else {} end;
+def skillb($name; $args):
+  if ($name | type) == "string" and ($name | IN("bridge","allye:bridge")) and ($args | type) == "string" and ($args | length) <= 300 then
+    [$args | match("[^ \t\r\n]+"; "g").string] as $t
+    | if ($t | length) > 0 and ($t[0] | IN(modes[])) then {source: "skill", role: "bridge", mode: $t[0]} + kv($t[1] // null) else null end
+  else null end;
+def mcpb:
+  ((.tool_input | objects) // {}) as $i
+  | ({source: "mcp"} + (if ($i.spec | keyok) then {spec: $i.spec} else {} end) + (if ($i.task | keyok) then {task: $i.task} else {} end))
+  | if has("spec") or has("task") then . else null end;
+def envb:
+  ({source: "env", role: "session"} + (if ($ENV.ALLYE_SPEC | keyok) then {spec: $ENV.ALLYE_SPEC} else {} end) + (if ($ENV.ALLYE_TASK | keyok) then {task: $ENV.ALLYE_TASK} else {} end))
+  | if has("spec") or has("task") then . else null end;
+def sstart: .hook_event_name == "SessionStart" and (.source | IN("startup","resume","clear","compact","fork"));
+def bindc:
+  .hook_event_name as $e
+  | if $e == "PreToolUse" and (.agent_id // null) == null then
+      (if .tool_name == "Skill" then ((.tool_input | objects) // {}) as $i | skillb($i.skill; $i.args)
+       elif allyesrv then mcpb else null end)
+    elif $e == "UserPromptExpansion" then skillb(.command_name; .command_args)
+    elif sstart then envb
+    else null end;
+def cwdc:
+  if sstart and (.cwd | type) == "string" and (.cwd | length) <= 4096 and (.cwd | test("\\A/")) and (.cwd | test("[\u0000-\u001f\u007f]") | not) then .cwd else null end;
 # BR-14: the first tool/subagent-start event after waiting_input is preceded by a `state working`.
-reduce evs[] as $ev ({out: [], last: $last};
+. as $in
+| (reduce evs[] as $ev ({out: [], last: $last};
     (if ($ev.type | IN("tool","sub_tool","sub_start","trig")) and .last == "waiting_input"
        then .out += [{type: "state", state: "working"}] | .last = "working" else . end)
     | (if $ev.type == "trig" then . else .out += [$ev] end)
-    | if $ev.type == "state" then .last = $ev.state else . end)
-| if (.out | length) == 0 then empty else .last, (.out[] | . + {at: $at} | tojson) end'
+    | if $ev.type == "state" then .last = $ev.state else . end)) as $r
+| $r.last,
+  (try ($in | bindc) catch null | if . == null then "-" else tojson end),
+  (try ($in | cwdc) catch null | . // "-"),
+  ($r.out[] | . + {at: $at} | tojson),
+  "."'
 
 RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" "$JQ_PROG" 2>/dev/null) || exit 0
-[ -n "$RESULT" ] || exit 0
-case "$RESULT" in *$'\n'*) ;; *) exit 0 ;; esac
-NEWLAST="${RESULT%%$'\n'*}"
-EVENTS="${RESULT#*$'\n'}"
+# Output: new last state, bind candidate (or -), cwd for the branch source (or -), events, "." terminator.
+NEWLAST="${RESULT%%$'\n'*}"; REST="${RESULT#*$'\n'}"
+CAND="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+CWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+case "$REST" in .) EVENTS="" ;; *$'\n'.) EVENTS="${REST%$'\n'.}" ;; *) exit 0 ;; esac
 case "$NEWLAST" in ""|started|working|waiting_input|idle|error|ended) ;; *) exit 0 ;; esac
+[ -n "$CAND" ] && [ -n "$CWD" ] || exit 0
 
+# ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
+BINDF="$LIVE_DIR/$HASH.bind"
+BRANK=""; BSTORED=""
+if [ "$CAND" != "-" ] || [ "$CWD" != "-" ]; then
+  if [ -f "$BINDF" ] && [ ! -L "$BINDF" ]; then
+    if private_file_ok "$BINDF"; then
+      BSTORED=$(cat "$BINDF" 2>/dev/null) || BSTORED=""
+      BRANK="${BSTORED%%|*}"
+      case "$BRANK" in 1|2|3|4) ;; *) BRANK=""; BSTORED="" ;; esac
+    else CAND="-"; CWD="-"; fi
+  elif ! private_file_ok "$BINDF"; then CAND="-"; CWD="-"; fi
+fi
+
+# The only git call: safe flags, cwd as a separate argv element, 1-second limit (timeout(1) if present,
+# else a watchdog that kills git). Output is the current branch (first line) or nothing.
+branch_of() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 1 git -c core.fsmonitor= -c core.hooksPath=/dev/null -C "$1" branch --show-current </dev/null 2>/dev/null
+  else
+    {
+      git -c core.fsmonitor= -c core.hooksPath=/dev/null -C "$1" branch --show-current </dev/null 2>/dev/null &
+      gp=$!
+      ( sleep 1; kill "$gp" ) >/dev/null 2>&1 &
+      wp=$!
+      wait "$gp"
+      kill "$wp"
+    } 2>/dev/null
+  fi
+}
+if [ "$CAND" = "-" ] && [ "$CWD" != "-" ] && { [ -z "$BRANK" ] || [ "$BRANK" -le 1 ]; } && [ -d "$CWD" ]; then
+  if command -v git >/dev/null 2>&1; then
+    GOUT=$(branch_of "$CWD") || GOUT=""
+    GOUT="${GOUT%%$'\n'*}"
+    GUP=$(printf '%s' "$GOUT" | tr 'a-z' 'A-Z')
+    if [[ "$GUP" =~ ^(BRIDGE/)?([A-Z][A-Z0-9]{1,9}-[0-9]+(\.[0-9]+)?)- ]]; then
+      GKEY="${BASH_REMATCH[2]}"
+      case "$GKEY" in *.*) CAND=$(jq -nc --arg k "$GKEY" '{source: "branch", task: $k}' 2>/dev/null) || CAND="-" ;;
+                      *)   CAND=$(jq -nc --arg k "$GKEY" '{source: "branch", spec: $k}' 2>/dev/null) || CAND="-" ;; esac
+      [ -n "$CAND" ] || CAND="-"
+    fi
+    GOUT=""; GUP=""
+  fi
+fi
+
+BINDLINE=""
+if [ "$CAND" != "-" ]; then
+  case "$CAND" in
+    '{"source":"skill"'*) NR=4 ;; '{"source":"mcp"'*) NR=3 ;; '{"source":"env"'*) NR=2 ;; '{"source":"branch"'*) NR=1 ;; *) NR=0 ;;
+  esac
+  SEND=0
+  if [ "$NR" -gt 0 ]; then
+    if [ -z "$BRANK" ] || [ "$NR" -gt "$BRANK" ]; then SEND=1
+    elif [ "$NR" -eq "$BRANK" ] && [ "$NR|$CAND" != "$BSTORED" ]; then SEND=1; fi
+  fi
+  if [ "$SEND" = 1 ]; then
+    BINDLINE=$(jq -nc --argjson b "$CAND" --arg at "$AT" '{type: "bind", bind: $b, at: $at}' 2>/dev/null) || BINDLINE=""
+  fi
+fi
+if [ -n "$BINDLINE" ]; then
+  if [ -n "$EVENTS" ]; then EVENTS="$EVENTS"$'\n'"$BINDLINE"; else EVENTS="$BINDLINE"; fi
+fi
+
+[ -n "$EVENTS" ] || exit 0
 live_dir_ok || exit 0
 private_file_ok "$SPOOL" || exit 0
 private_file_ok "$STATEF" || exit 0
@@ -126,5 +257,9 @@ printf '%s\n' "$EVENTS" >>"$SPOOL" 2>/dev/null || exit 0
 if [ -n "$NEWLAST" ] && [ "$NEWLAST" != "$LAST" ]; then
   TMP=$(mktemp "$LIVE_DIR/.state.XXXXXX" 2>/dev/null) || exit 0
   printf '%s' "$NEWLAST" >"$TMP" 2>/dev/null && mv -f "$TMP" "$STATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
+if [ -n "$BINDLINE" ]; then
+  TMP=$(mktemp "$LIVE_DIR/.bind.XXXXXX" 2>/dev/null) || exit 0
+  printf '%s|%s' "$NR" "$CAND" >"$TMP" 2>/dev/null && mv -f "$TMP" "$BINDF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 exit 0
