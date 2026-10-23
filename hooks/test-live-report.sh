@@ -160,16 +160,43 @@ rm -f "$CRED"
 check "load_live_credential: missing credential refused" "[] 1|| " "$(lcc "$DATA")"
 end_case
 
-# ─── inert paths (AC-09, BR-01, BR-03) ──────────────────────────────────────
+# ─── helpers for spooled events (ALY-203.2) ─────────────────────────────────
+FIX="$SCRIPT_DIR/fixtures/live"
+RAWSID="RAWSESSION-7f3a9c1e-0b2d-4e11-9a55-c0ffee123456"   # session_id of every fixture
+MARKERS=(MARKER_PROMPT_xyz MARKER_CMD MARKER_PATH MARKER_MSG MARKER_LASTMSG MARKER_BRANCH MARKER_CWD MARKER_TRANSCRIPT MARKER_ARGS MARKER_RESPONSE MARKER_TITLE MARKER_MODEL MARKER_SOURCE MARKER_TYPE MARKER_ERR MARKER_REASON MARKER_AGENT MARKER_ABCDEF MARKER_NewEvent)
+test_sha() { if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sha256sum | cut -d' ' -f1; else printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; fi; }
+DEFAULT_SID="sess-0001"
+spool_of() { echo "$DATA/live/$(test_sha "$1").spool"; }
+# spooled SID: the spool lines without their `at`, compact, one per line ("" when no spool).
+spooled() { local f; f=$(spool_of "${1:-$RAWSID}"); [ -f "$f" ] && "$JQ_BIN" -cS 'del(.at)' "$f" || true; }
+# run_fixture NAME...: feeds each fixture in order on stdin (same session), sets OUT/ERR/RC of the last.
+run_fixture() { local n; for n in "$@"; do cp "$FIX/$n.json" "$SB/stdin"; run_hook; done; }
+expected_of() { local n; for n in "$@"; do cat "$FIX/$n.expect"; done; }
+# expect_fixture NAME: a fresh sandbox, the fixture alone -> exactly its .expect events and nothing else.
+expect_fixture() {
+  new_case; mkcred; run_fixture "$1"
+  check "$1: exits 0, silent" "0||" "$RC|$OUT|$ERR"
+  check "$1: spools exactly the listed events" "$(expected_of "$1" | "$JQ_BIN" -cS .)" "$(spooled)"
+  check "$1: no request sent in this slice" "0 0" "$(curl_calls) $(reqs)"
+  end_case
+}
+# expect_spooled LABEL: the discriminating counterpart of an inert case: same default payload, condition removed.
+expect_spooled() {
+  check "$1 (condition removed): exits 0, silent" "0||" "$RC|$OUT|$ERR"
+  check "$1 (condition removed): the event is spooled" '{"state":"working","type":"state"}' "$(spooled "$DEFAULT_SID")"
+}
+
+# ─── inert paths (AC-09, BR-01, BR-03), each with its discriminating counterpart ──────
 echo "== unpaired =="
-new_case; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "no data directory"; end_case
-new_case; mkdir -p "$DATA"; chmod 700 "$DATA"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "data directory without credential"; end_case
-new_case; DATA_ENV=""; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "CLAUDE_PLUGIN_DATA unset"; end_case
-new_case; mkcred; DATA_ENV="relative/dir"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "CLAUDE_PLUGIN_DATA relative"; end_case
-new_case; mkcred; DATA_ENV='${CLAUDE_PLUGIN_DATA}/x'; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "CLAUDE_PLUGIN_DATA unexpanded"; end_case
-new_case; mkcred; chmod 644 "$CRED"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential file readable by others"; end_case
-new_case; mkcred "https://evil.example"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential URL outside the fixed list"; end_case
-new_case; mkcred; "$JQ_BIN" 'del(.token)' "$CRED" >"$SB/c.json" && cat "$SB/c.json" >"$CRED"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential without a token"; end_case
+new_case; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "no data directory"; mkcred; run_hook; expect_spooled "no data directory"; end_case
+new_case; mkdir -p "$DATA"; chmod 700 "$DATA"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "data directory without credential"; mkcred; run_hook; expect_spooled "data directory without credential"; end_case
+new_case; DATA_ENV=""; mkcred; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "CLAUDE_PLUGIN_DATA unset"; DATA_ENV="$DATA"; run_hook; expect_spooled "CLAUDE_PLUGIN_DATA unset"; end_case
+new_case; mkcred; DATA_ENV="relative/dir"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "CLAUDE_PLUGIN_DATA relative"; DATA_ENV="$DATA"; run_hook; expect_spooled "CLAUDE_PLUGIN_DATA relative"; end_case
+new_case; mkcred; DATA_ENV='${CLAUDE_PLUGIN_DATA}/x'; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "CLAUDE_PLUGIN_DATA unexpanded"; DATA_ENV="$DATA"; run_hook; expect_spooled "CLAUDE_PLUGIN_DATA unexpanded"; end_case
+new_case; mkcred; chmod 644 "$CRED"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential file readable by others"; chmod 600 "$CRED"; run_hook; expect_spooled "credential file readable by others"; end_case
+new_case; mkcred "https://evil.example"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential URL outside the fixed list"; mkcred; run_hook; expect_spooled "credential URL outside the fixed list"; end_case
+new_case; mkcred; "$JQ_BIN" 'del(.token)' "$CRED" >"$SB/c.json" && cat "$SB/c.json" >"$CRED"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential without a token"; mkcred; run_hook; expect_spooled "credential without a token"; end_case
+new_case; mkcred; chmod 755 "$DATA"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "data directory not 0700"; chmod 700 "$DATA"; run_hook; expect_spooled "data directory not 0700"; end_case
 
 echo "== switched off and marked disabled =="
 new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/off"; BEFORE=$(snapshot "$DATA")
@@ -177,26 +204,116 @@ run_hook
 check "live off flag: exits 0" "0" "$RC"; check "live off flag: stdout empty" "" "$OUT"; check "live off flag: stderr empty" "" "$ERR"
 check "live off flag: no curl, no request" "0 0" "$(curl_calls) $(reqs)"
 check "live off flag: nothing changed in CLAUDE_PLUGIN_DATA" "$BEFORE" "$(snapshot "$DATA")"
+rm "$DATA/live/off"; run_hook; expect_spooled "live off flag"
 end_case
 new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/disabled"; BEFORE=$(snapshot "$DATA")
 run_hook
 check "disabled marker: exits 0" "0" "$RC"; check "disabled marker: stdout empty" "" "$OUT"; check "disabled marker: stderr empty" "" "$ERR"
 check "disabled marker: no curl, no request" "0 0" "$(curl_calls) $(reqs)"
 check "disabled marker: nothing changed in CLAUDE_PLUGIN_DATA" "$BEFORE" "$(snapshot "$DATA")"
+rm "$DATA/live/disabled"; run_hook; expect_spooled "disabled marker"
 end_case
 
 echo "== missing tools =="
-new_case; mkcred; REAL="$REALBIN_NOJQ"; SHIMD="$SHIMS_NOJQ"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "jq missing"; end_case
-new_case; mkcred; REAL="$REALBIN_NOCURL"; SHIMD="$SHIMS_NOCURL"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "curl missing"; end_case
-new_case; mkcred; REAL="$REALBIN_NOSHA"; SHIMD="$SHIMS_NOSHA"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "SHA-256 tool missing"; end_case
+new_case; mkcred; REAL="$REALBIN_NOJQ"; SHIMD="$SHIMS_NOJQ"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "jq missing"; REAL="$REALBIN"; SHIMD="$SHIMS"; run_hook; expect_spooled "jq missing"; end_case
+new_case; mkcred; REAL="$REALBIN_NOCURL"; SHIMD="$SHIMS_NOCURL"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "curl missing"; REAL="$REALBIN"; SHIMD="$SHIMS"; run_hook; expect_spooled "curl missing"; end_case
+new_case; mkcred; REAL="$REALBIN_NOSHA"; SHIMD="$SHIMS_NOSHA"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "SHA-256 tool missing"; REAL="$REALBIN"; SHIMD="$SHIMS"; run_hook; expect_spooled "SHA-256 tool missing"; end_case
 
-echo "== enabled (skeleton: event handling comes later) =="
-new_case; mkcred; BEFORE=$(snapshot "$DATA"); run_hook
+echo "== enabled: spools, sends nothing yet (positive control) =="
+new_case; mkcred; run_hook
 check "paired and on: exits 0" "0" "$RC"
 check "paired and on: stdout empty" "" "$OUT"
 check "paired and on: stderr empty" "" "$ERR"
-check "paired and on: sends nothing yet" "0 0" "$(curl_calls) $(reqs)"
+check "paired and on: sends nothing yet (no curl, no request)" "0 0" "$(curl_calls) $(reqs)"
+check "paired and on: the event is spooled, keyed by the hash" '{"state":"working","type":"state"}' "$(spooled "$DEFAULT_SID")"
+check "paired and on: live dir 0700, spool 0600, state file present" "700 600 working" \
+  "$(find "$DATA/live" -maxdepth 0 -printf '%m' ) $(find "$(spool_of "$DEFAULT_SID")" -printf '%m') $(cat "${DATA}/live/$(test_sha "$DEFAULT_SID").state")"
+check "paired and on: at is ISO-8601 UTC" "yes" "$("$JQ_BIN" -r '.at | test("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\z") | if . then "yes" else "no" end' "$(spool_of "$DEFAULT_SID")")"
+check "paired and on: no seq field yet" "no" "$("$JQ_BIN" -r 'has("seq") | if . then "yes" else "no" end' "$(spool_of "$DEFAULT_SID")")"
 check "paired and on: token absent from outputs and shim logs" "0" "$(cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -cF -- "$TOKEN")"
+end_case
+
+# ─── live directory safety (Shield SHD-01 of ALY-203.1) ─────────────────────
+echo "== live directory safety =="
+new_case; mkcred; mkdir -p "$SB/elsewhere"; chmod 700 "$SB/elsewhere"; ln -s "$SB/elsewhere" "$DATA/live"; cp "$FIX/user-prompt-submit.json" "$SB/stdin"; run_hook
+check "symlinked live dir: nothing written through it" "0|" "$(find "$SB/elsewhere" -type f | wc -l | tr -d ' ')|$OUT$ERR"; end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 755 "$DATA/live"; cp "$FIX/user-prompt-submit.json" "$SB/stdin"; run_hook
+check "live dir not 0700: nothing written" "0" "$(find "$DATA/live" -type f | wc -l | tr -d ' ')"; end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; H=$(test_sha "$RAWSID"); : >"$SB/target"; ln -s "$SB/target" "$DATA/live/$H.spool"; cp "$FIX/user-prompt-submit.json" "$SB/stdin"; run_hook
+check "symlinked spool: nothing written through it" "0" "$(wc -c <"$SB/target" | tr -d ' ')"; end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; H=$(test_sha "$RAWSID"); : >"$DATA/live/$H.spool"; chmod 644 "$DATA/live/$H.spool"; cp "$FIX/user-prompt-submit.json" "$SB/stdin"; run_hook
+check "spool not 0600: nothing appended" "0" "$(wc -c <"$DATA/live/$H.spool" | tr -d ' ')"; end_case
+
+# ─── event fixtures (AC-01, BR-15, D-08) ────────────────────────────────────
+echo "== one fixture per event: exactly the listed events =="
+for f in "$FIX"/*.json; do
+  n=$(basename "$f" .json)
+  [ -f "$FIX/$n.expect" ] || { check "$n: has an .expect file" "yes" "no"; continue; }
+  expect_fixture "$n"
+done
+check "every confirmed event of the table has a fixture" "0" "$(for e in SessionStart UserPromptSubmit UserPromptExpansion PreToolUse PostToolUse PermissionRequest Notification SubagentStart SubagentStop Stop StopFailure SessionEnd; do grep -lq "\"hook_event_name\": \"$e\"" "$FIX"/*.json || echo "$e"; done | wc -l | tr -d ' ')"
+
+# ─── AC-15 / BR-14: working before the first tool or subagent event after waiting_input ─────
+echo "== waiting_input then working (AC-15) =="
+seq_case() {  # LABEL EXPECT-JSON-LINES... (fixtures from $SEQ)
+  local label="$1"; shift
+  new_case; mkcred; run_fixture "${SEQ[@]}"
+  check "$label" "$(printf "%s\n" "$@" | "$JQ_BIN" -cS .)" "$(spooled)"
+  check "$label: silent, exits 0" "0||" "$RC|$OUT|$ERR"
+  end_case
+}
+W='{"type":"state","state":"working"}'; WQ='{"type":"state","state":"waiting_input","code":"asked_question"}'; WP='{"type":"state","state":"waiting_input","code":"permission_prompt"}'
+SEQ=(pre-tool-use-ask-user-question pre-tool-use pre-tool-use post-tool-use)
+seq_case "AskUserQuestion then tools: working once, before the first tool; PostToolUse adds no tool event" "$WQ" "$W" '{"type":"tool","tool":"Bash"}' '{"type":"tool","tool":"Bash"}'
+SEQ=(permission-request post-tool-use post-tool-use)
+seq_case "PermissionRequest then PostToolUse: working only, once, no tool event" "$WP" "$W"
+SEQ=(permission-request post-tool-use-subagent post-tool-use-subagent)
+seq_case "PermissionRequest then PostToolUse in a subagent: working only, no sub_tool" "$WP" "$W"
+SEQ=(post-tool-use post-tool-use-subagent)
+seq_case "PostToolUse without waiting: nothing spooled"
+SEQ=(permission-request post-tool-use-tool-space)
+seq_case "waiting then a PostToolUse with a hostile tool name: working still spooled" "$WP" "$W"
+SEQ=(permission-request subagent-start-bad-type subagent-start-bad-type)
+seq_case "waiting then a SubagentStart failing its pattern: working spooled once, event dropped" "$WP" "$W"
+SEQ=(pre-tool-use-ask-user-question pre-tool-use-subagent-bad-id)
+seq_case "waiting then a subagent PreToolUse with a bad id: working spooled, event dropped" "$WQ" "$W"
+SEQ=(notification-permission-prompt subagent-start subagent-start)
+seq_case "permission_prompt then SubagentStart: working first, once" "$WP" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+SEQ=(pre-tool-use-ask-user-question pre-tool-use-subagent)
+seq_case "waiting then a subagent tool: working first" "$WQ" "$W" '{"type":"sub_tool","tool":"Read","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+SEQ=(pre-tool-use-ask-user-question stop pre-tool-use)
+seq_case "waiting then Stop then a tool: Stop leaves waiting, no working" "$WQ" '{"type":"state","state":"idle","code":"turn_ended"}' '{"type":"tool","tool":"Bash"}'
+SEQ=(pre-tool-use-ask-user-question subagent-stop)
+seq_case "waiting then SubagentStop: no working (not a trigger)" "$WQ" '{"type":"sub_stop","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+SEQ=(pre-tool-use pre-tool-use)
+seq_case "no waiting: no working is inserted" '{"type":"tool","tool":"Bash"}' '{"type":"tool","tool":"Bash"}'
+SEQ=(permission-request pre-tool-use-tool-space pre-tool-use)
+seq_case "a dropped PreToolUse still spools working once; the next tool follows" "$WP" "$W" '{"type":"tool","tool":"Bash"}'
+
+# ─── AC-02 / AC-14: no marker and no raw session id anywhere ────────────────
+echo "== markers and the raw session id (AC-02, AC-14) =="
+new_case; mkcred
+for f in "$FIX"/*.json; do cp "$f" "$SB/stdin"; run_hook; [ -z "$OUT$ERR" ] || echo "  (output from $(basename "$f"))"; done
+ALLTXT="$SB/all.txt"; { find "$DATA" -type f -exec cat {} +; find "$DATA" -print; cat "$SB/log"/* "$SB/api/requests.log" 2>/dev/null; } >"$ALLTXT"
+for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$m" "$ALLTXT" || true)"; done
+check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
+check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
+check "files are keyed by sha256(session id): spool and state" "$(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
+check "every spool line holds only contract fields of this slice" "0" "$("$JQ_BIN" -c 'select((keys - ["at","type","state","tool","code","sub"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+end_case
+
+echo "== a payload that is not JSON, or a session id that fails its pattern =="
+new_case; mkcred; : >"$SB/stdin"; run_hook
+check "empty stdin: exits 0, silent, nothing spooled, no live dir" "0||0|no" "$RC|$OUT$ERR|$(find "$DATA" -name "*.spool" | wc -l | tr -d " ")|$([ -e "$DATA/live" ] && echo yes || echo no)"; end_case
+new_case; mkcred; printf '%s' 'not json MARKER_PROMPT_xyz' >"$SB/stdin"; run_hook
+check "not JSON: silent, nothing created in live" "0||0" "$RC|$OUT$ERR|$(find "$DATA" -name '*.spool' | wc -l | tr -d ' ')"
+printf '%s' '{"hook_event_name":"Stop","session_id":"bad id MARKER_CMD"}' >"$SB/stdin"; run_hook
+check "session id failing its pattern: nothing spooled" "0" "$(find "$DATA" -name '*.spool' | wc -l | tr -d ' ')"
+printf '%s' '{"hook_event_name":"Stop"}' >"$SB/stdin"; run_hook
+check "no session id: nothing spooled" "0" "$(find "$DATA" -name '*.spool' | wc -l | tr -d ' ')"
 end_case
 
 # ─── fake ingest API (harness self-check) ───────────────────────────────────
