@@ -758,6 +758,10 @@ check "counter with mode 0644 heals to a private file" "600 $(seqs | tail -n 1)"
 end_case
 
 echo "== lock primitive (BR-04, D-03) =="
+# ALY-211: now_ms keeps millisecond precision when date ignores the width of %3N and prints nanoseconds (uutils).
+mkdir -p "$ROOT_TMP/nsdate"; printf '#!/bin/bash\n[ "$1" = "+%%s%%3N" ] && echo 1792783222668076324 || exec "%s" "$@"\n' "$(type -P date)" >"$ROOT_TMP/nsdate/date"; chmod +x "$ROOT_TMP/nsdate/date"
+check "now_ms: nanoseconds from date %3N are cut to milliseconds" "1792783222668" "$(env -i PATH="$ROOT_TMP/nsdate:$REALBIN" "$BASH_BIN" -c "$(fn_body "$HOOK" now_ms); now_ms")"
+check "now_ms: a plain millisecond date result is kept" "yes" "$(env -i PATH="$REALBIN" "$BASH_BIN" -c "$(fn_body "$HOOK" now_ms); now_ms" | grep -qE '^[0-9]{13}$' && echo yes || echo no)"
 prim() { env -i PATH="$REALBIN" "$BASH_BIN" -c "LC_ALL=C; $(fn_body "$HOOK" lock_is_stale); $(fn_body "$HOOK" lock_take); $(fn_body "$HOOK" lock_drop); $1"; }
 tok_of() { cut -d' ' -f2 "$1/t" 2>/dev/null; }   # the owner token a lock directory holds
 new_case
