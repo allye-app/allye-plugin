@@ -90,17 +90,7 @@ CFP=""
 #   included, only when it differs from the last set sent ($HASH.gates, same owner/mode/symlink checks; absent
 #   means the empty set, so a first all-dash journal sends nothing). No Gates line: nothing. Nothing about the
 #   file (path, other lines, sha values) leaves.
-INPUT=$(cat 2>/dev/null) || INPUT=""
-[ -n "$INPUT" ] || exit 0
-
-SID=$(printf '%s' "$INPUT" | jq -r 'if (.session_id | type) == "string" and (.session_id | test("\\A[A-Za-z0-9._:-]{1,128}\\z")) then .session_id else empty end' 2>/dev/null) || exit 0
-[ -n "$SID" ] || exit 0
-HASH=$(printf '%s' "$SID" | sha_hex) || exit 0
-SID=""
-[[ "$HASH" =~ ^[0-9a-f]{64}$ ]] || exit 0
-
-SPOOL="$LIVE_DIR/$HASH.spool"
-STATEF="$LIVE_DIR/$HASH.state"
+# (The payload is read further down, after the function definitions and the watcher-mode dispatch of ALY-217.)
 
 # A path we may use: absent, or a regular file (no symlink) owned by the user with exactly mode 0600.
 private_file_ok() {
@@ -440,6 +430,105 @@ flush_sleeper() {
   flush_loop
 }
 
+# ─── ALY-217.2: the session watcher (D-21, BR-03, BR-06, BR-07) ───
+# The owner is the Claude Code process the session belongs to. owner_find PID walks up from PID (the hook's parent):
+# shells (sh, bash, dash, zsh, ksh, fish; a leading `-` stripped) and wrappers (env, timeout, nohup, stdbuf, setsid,
+# flock, script) are skipped; the walk stops at a process of another uid, at PID 1 or after 8 levels; the first other
+# process is the owner only if its name (the 15-character comm) is exactly claude, node, bun or node-MainThread (the
+# main-thread name Node 26 gives itself); fail safe: tmux, screen, sshd, systemd are never owners. Prints "<pid> <start>". Linux reads only /proc/<pid>/stat and the owner of /proc/<pid>;
+# elsewhere `ps -o ppid=,uid=,state=,comm=` (checked manually on macOS). Every value is matched as digits before use.
+owner_find() {
+  local p="$1" lvl=0 l c pp u st
+  while [ "$lvl" -lt 8 ]; do
+    lvl=$((lvl + 1))
+    [[ "$p" =~ ^[1-9][0-9]{0,9}$ ]] && [ "$p" != 1 ] || return 1
+    if [ -r "/proc/$p/stat" ]; then
+      { IFS= read -r l <"/proc/$p/stat"; } 2>/dev/null || return 1
+      c=${l#*\(}; c=${c%\)*}; l=${l##*) }; set -- $l; st="${1:-}"; pp="${2:-}"
+      [ -n "$(find "/proc/$p" -prune -user "$UID_NOW" -print 2>/dev/null)" ] || return 1
+    elif [ ! -d /proc/self ]; then
+      l=$(ps -o ppid=,uid=,state=,comm= -p "$p" 2>/dev/null) || return 1
+      set -- $l; pp="${1:-}"; u="${2:-}"; st="${3:-}"; shift 3 2>/dev/null || return 1; c="$*"; c=${c##*/}
+      [[ "$u" =~ ^[0-9]+$ ]] && [ "$u" = "$UID_NOW" ] || return 1
+    else return 1; fi
+    case "$st" in Z*) return 1 ;; esac
+    c=${c#-}
+    case "$c" in
+      sh|bash|dash|zsh|ksh|fish|env|timeout|nohup|stdbuf|setsid|flock|script) p="$pp"; continue ;;
+      claude|node|bun|node-MainThread) st=$(proc_start "$p") || return 1; [[ "$st" =~ ^[0-9]+$ ]] || return 1; printf '%s %s' "$p" "$st"; return 0 ;;
+      *) return 1 ;;
+    esac
+  done
+  return 1
+}
+# watch_held: a live watcher holds $HASH.watch.lock (a pid lock naming it).
+watch_held() { [ -d "$WLOCK" ] && ! lock_is_stale "$WLOCK"; }
+# watch_start: called with $HASH.watch.lock taken for this hook ($$). Execs this script in watcher mode under env -i
+# with only PATH, HOME, CLAUDE_PLUGIN_DATA, LIVE_HASH and the digit-only test knobs ALLYE_LIVE_WATCH,
+# ALLYE_LIVE_WATCH_INTERVAL and ALLYE_LIVE_WATCH_CAP (run-cap override, ALY-217.3); stdio on /dev/null, SIGHUP
+# ignored, in a session of its own through setsid when present. The lock record then moves to the watcher's pid.
+watch_start() {
+  local w ss="" v x
+  command -v setsid >/dev/null 2>&1 && ss=setsid
+  (
+    trap '' HUP
+    set -- PATH="${PATH:-/usr/bin:/bin}" CLAUDE_PLUGIN_DATA="$DIR" LIVE_HASH="$HASH"
+    [ -z "${HOME:-}" ] || set -- "$@" HOME="$HOME"
+    for v in ALLYE_LIVE_WATCH ALLYE_LIVE_WATCH_INTERVAL ALLYE_LIVE_WATCH_CAP; do
+      x="${!v:-}"; [[ "$x" =~ ^[0-9]{1,9}$ ]] && set -- "$@" "$v=$x"
+    done
+    exec $ss env -i "$@" "$BASH" "$_src" watch
+  ) </dev/null >/dev/null 2>&1 &
+  w=$!
+  pidlock_pass "$WLOCK" "$$" "$w" || pidlock_drop "$WLOCK" "$$"
+}
+# watch_main: watcher mode (`live-report.sh watch`), reached only after the checks at the top of this file (absolute
+# data dir, tools, valid credential, Live not off or disabled). Holds $HASH.watch.lock: each interval (ALLYE_LIVE_WATCH_INTERVAL,
+# whole seconds clamped to 1-20, default 15) it sleeps, refreshes its lock record (only while it names this watcher)
+# and reads the state; it exits when the lock is no longer its own or the session is ended. On exit, if it still
+# holds the lock, it removes `watch` and the lock. Owner polling and the end event: ALY-217.3.
+watch_main() {
+  local iv="${ALLYE_LIVE_WATCH_INTERVAL:-15}" st
+  HASH="${LIVE_HASH:-}"
+  [[ "$HASH" =~ ^[0-9a-f]{64}$ ]] || return 0
+  [[ "$iv" =~ ^[0-9]{1,9}$ ]] || iv=15
+  iv=$((10#$iv)); [ "$iv" -ge 1 ] || iv=1; [ "$iv" -le 20 ] || iv=20
+  live_dir_ok || return 0
+  STATEF="$LIVE_DIR/$HASH.state"; WATCHF="$LIVE_DIR/$HASH.watch"; WLOCK="$LIVE_DIR/$HASH.watch.lock"
+  ME=$$; WSLEEP=""
+  trap watch_exit EXIT
+  trap 'exit 0' INT TERM
+  cd / 2>/dev/null
+  while :; do
+    sleep "$iv" & WSLEEP=$!
+    wait "$WSLEEP"; WSLEEP=""
+    pidlock_pass "$WLOCK" "$ME" "$ME" || return 0   # lock_touch of a pid lock: fails once the lock is not ours
+    st=""
+    if [ -f "$STATEF" ] && [ ! -L "$STATEF" ]; then { IFS= read -r st <"$STATEF"; } 2>/dev/null; fi
+    [ "$st" != ended ] || return 0
+  done
+}
+watch_exit() {
+  local p=""
+  [ -z "$WSLEEP" ] || kill "$WSLEEP" 2>/dev/null   # this watcher's own sleep child
+  { IFS=' ' read -r p _ <"$WLOCK/p"; } 2>/dev/null
+  if [ "$p" = "$ME" ]; then rm -f "$WATCHF" 2>/dev/null; pidlock_drop "$WLOCK" "$ME"; fi
+  return 0
+}
+if [ "${1:-}" = watch ]; then watch_main; exit 0; fi
+
+INPUT=$(cat 2>/dev/null) || INPUT=""
+[ -n "$INPUT" ] || exit 0
+
+SID=$(printf '%s' "$INPUT" | jq -r 'if (.session_id | type) == "string" and (.session_id | test("\\A[A-Za-z0-9._:-]{1,128}\\z")) then .session_id else empty end' 2>/dev/null) || exit 0
+[ -n "$SID" ] || exit 0
+HASH=$(printf '%s' "$SID" | sha_hex) || exit 0
+SID=""
+[[ "$HASH" =~ ^[0-9a-f]{64}$ ]] || exit 0
+
+SPOOL="$LIVE_DIR/$HASH.spool"
+STATEF="$LIVE_DIR/$HASH.state"
+
 # The live directory is checked before the first read or write (SHD-01), then every read-modify-write of this
 # session (state, bind, gates, seq, spool) runs under one lock, so parallel hooks of a session are consistent.
 # A hook that cannot get the lock within about 10 seconds gives up and drops its events (it exits 0, silent).
@@ -570,19 +659,23 @@ def gatec:
   (try ($in | bindc) catch null | if . == null then "-" else tojson end),
   (try ($in | cwdc) catch null | . // "-"),
   (try ($in | gatec) catch null | if . == null then "-", "-" else .[] end),
+  (if sstart then "start" elif .hook_event_name == "UserPromptSubmit" then "prompt" else "-" end),
   ($r.out[] | . + {at: $at} | tojson),
   "."'
 
 RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" "$JQ_PROG" 2>/dev/null) || exit 0
-# Output: new last state, bind candidate (or -), cwd for the branch source (or -), events, "." terminator.
+# Output: new last state, bind candidate (or -), cwd for the branch source (or -), gates path and cwd (or -, -),
+# watcher trigger (start = a SessionStart of a known source, prompt = UserPromptSubmit, or -), events, "." terminator.
 NEWLAST="${RESULT%%$'\n'*}"; REST="${RESULT#*$'\n'}"
 CAND="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 CWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 GFP="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 GCWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+WEV="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 case "$REST" in .) EVENTS="" ;; *$'\n'.) EVENTS="${REST%$'\n'.}" ;; *) exit 0 ;; esac
 case "$NEWLAST" in ""|started|working|waiting_input|idle|error|ended) ;; *) exit 0 ;; esac
 [ -n "$CAND" ] && [ -n "$CWD" ] && [ -n "$GFP" ] && [ -n "$GCWD" ] || exit 0
+case "$WEV" in start|prompt|-) ;; *) exit 0 ;; esac
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
 BINDF="$LIVE_DIR/$HASH.bind"
@@ -756,6 +849,21 @@ fi
 if [ -n "$GATELINE" ]; then
   TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$GNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
+
+# Session watcher (ALY-217.2, D-21), still under the state lock: at a SessionStart, or at a UserPromptSubmit when no
+# watcher holds the watch lock, and unless ALLYE_LIVE_WATCH is 0 or the session is ended, the trusted owner is recorded
+# in $HASH.watch ("<pid> <start>", set -C temp + mv, 0600; a later SessionStart under another owner rewrites it) and,
+# when the watch lock can be taken at the first try, one watcher is started. No trusted owner: nothing is written.
+WATCHF="$LIVE_DIR/$HASH.watch"; WLOCK="$LIVE_DIR/$HASH.watch.lock"
+if [ "${ALLYE_LIVE_WATCH:-1}" != 0 ] && [ "$NEWLAST" != ended ] && { [ "$WEV" = start ] || { [ "$WEV" = prompt ] && ! watch_held; }; }; then
+  OWNER=$(owner_find "$PPID") || OWNER=""
+  if [[ "$OWNER" =~ ^[0-9]+\ [0-9]+$ ]] && private_file_ok "$WATCHF"; then
+    TMP="$WATCHF.$$.$RANDOM"; TMPF="$TMP"
+    if ( set -C; printf '%s' "$OWNER" >"$TMP" ) 2>/dev/null && mv -f "$TMP" "$WATCHF" 2>/dev/null; then
+      lock_take "$WLOCK" 0 "$$" && watch_start
+    else rm -f "$TMP" 2>/dev/null; fi
+  fi
 fi
 
 # Flush trigger (BR-04, D-20): an important event (state change, subagent start or stop, bind, gates) or 2 seconds since

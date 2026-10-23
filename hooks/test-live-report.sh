@@ -37,7 +37,17 @@ contains() { case "$2" in *"$1"*) echo yes ;; *) echo no ;; esac; }
 ROOT_TMP="$(mktemp -d)"
 APID=""
 FAKE_WAIT_PID=""
-cleanup() { [ -z "$APID" ] || kill "$APID" 2>/dev/null; [ -z "$FAKE_WAIT_PID" ] || kill "$FAKE_WAIT_PID" 2>/dev/null; rm -rf "$ROOT_TMP"; }
+# TRACK (ALY-217): "<pid> <start>" of every fake owner and watcher a case started; at exit each is killed only while that
+# pid still has that start time (never by name), so a failing run leaves no process behind.
+TRACK=()
+cleanup() {
+  local e p s
+  for e in ${TRACK[@]+"${TRACK[@]}"}; do
+    p=${e%% *}; s=${e#* }
+    [[ "$p" =~ ^[0-9]+$ ]] && [[ "$s" =~ ^[0-9]+$ ]] && [ "$(pstart "$p")" = "$s" ] && kill "$p" 2>/dev/null
+  done
+  [ -z "$APID" ] || kill "$APID" 2>/dev/null; [ -z "$FAKE_WAIT_PID" ] || kill "$FAKE_WAIT_PID" 2>/dev/null; rm -rf "$ROOT_TMP"
+}
 trap cleanup EXIT
 
 make_realbin() {  # $1 = dir, rest = tools to leave out. node and stat are deliberately absent.
@@ -93,7 +103,7 @@ run_script() {
   local script="$1"; shift
   env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" \
     ${DATA_ENV:+CLAUDE_PLUGIN_DATA="$DATA_ENV"} \
-    PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+    PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
     ${RUN_ENV[@]+"${RUN_ENV[@]}"} "$BASH_BIN" "$script" "$@" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
   RC=$?
   [ "$script" != "$HOOK" ] || wait_idle
@@ -118,7 +128,7 @@ wait_idle() {
   done
 }
 # pstart PID: the start time of PID (field 22 of /proc/PID/stat), as the reporter records it.
-pstart() { local l; { IFS= read -r l <"/proc/$1/stat"; } 2>/dev/null || return 1; l=${l##*) }; set -- $l; printf '%s' "${20}"; }
+pstart() { local l; [[ "${1:-}" =~ ^[0-9]+$ ]] || return 1; { IFS= read -r l <"/proc/$1/stat"; } 2>/dev/null || return 1; l=${l##*) }; set -- $l; [ -n "${20:-}" ] || return 1; printf '%s' "${20}"; }
 # fake_wait_on: a live process of the harness holds $RAWSID's flush.wait, so no hook can arm a sleeper; fake_wait_off ends it.
 fake_wait_on() {
   local d="$DATA/live/$(test_sha "$RAWSID").flush.wait"
@@ -861,7 +871,7 @@ check "a hook that maps to nothing releases the lock too" "no" "$([ -n "$(find "
 # bg_hook IN OUT: the hook in the background with its own stdin and capture files (parallel-safe run_script).
 bg_hook() {
   env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" \
-    PATH="$SHIMD:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
+    PATH="$SHIMD:$REALBIN" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REALBIN" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
     "$BASH_BIN" "$HOOK" <"$1" >"$2" 2>&1 &
   BGPIDS="$BGPIDS $!"
 }
@@ -1105,7 +1115,7 @@ check "a stale line in the spool is never sent: the request holds only the new e
 echo "== correction round: flusher rechecks, bounded body, late 401, advisories =="
 hook_once() {  # FILE: the hook once, without waiting for its detached flusher
   cp "$1" "$SB/stdin"
-  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
 }
 wait_for() {  # CONDITION-COMMAND: poll up to 10 s
   local i; for i in $(seq 1 200); do eval "$1" && return 0; sleep 0.05; done; return 1
@@ -1143,7 +1153,7 @@ check "re-pair then a SessionStart: exactly one started in that request (no dupl
 echo "== SessionEnd (AC-10, BR-12) =="
 new7; printf '3000' >"$SB/api/ingest-delay"; at 0; run_fixture user-prompt-submit; wait_idle; printf '3000' >"$SB/api/ingest-delay"
 cp "$FIX/session-end-clear.json" "$SB/stdin"; M0=$(date +%s%N)
-env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; M1=$(date +%s%N)
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; M1=$(date +%s%N)
 check "SessionEnd with a 3 s API returns in under 1 s, silent" "yes|" "$([ $(( (M1 - M0) / 1000000 )) -lt 1000 ] && echo yes || echo no)|$(cat "$SB/out" "$SB/err")"
 wait_idle
 check "the final event was still delivered (received by the API) through a request limited to 1 second" "ended end_clear max-time = 1" \
@@ -1192,7 +1202,7 @@ echo "== flush_run directly: boundaries, progress, lock_touch (ALY-203.6 correct
 # the real logging curl shim, as the detached flusher would, holding the flush lock like the hook does.
 flush_direct() {
   local H; H=$(test_sha "$RAWSID")
-  env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" CLAUDE_PLUGIN_DATA="$DATA" "$BASH_BIN" -c "
+  env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REALBIN" CLAUDE_PLUGIN_DATA="$DATA" "$BASH_BIN" -c "
     LC_ALL=C; umask 077; UID_NOW=\$(id -u); . '$LIB'; CFP=''; SEND_MAXTIME=8; SEND_CONNECT=3
     $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
     HASH='$H'; LIVE_DIR='$DATA/live'; SPOOL=\"\$LIVE_DIR/\$HASH.spool\"; LOCKD=\"\$LIVE_DIR/\$HASH.lock\"; FLOCK=\"\$LIVE_DIR/\$HASH.flush.lock\"
@@ -1246,7 +1256,7 @@ rm -rf "$D"; check "lock_touch on a missing lock fails and creates nothing" "1 n
 end_case
 # a flusher whose lock was taken over stops before sending
 direct_case; line6 1001 0 >"$SPF"
-env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" "$BASH_BIN" -c "
+env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REALBIN" "$BASH_BIN" -c "
   LC_ALL=C; umask 077; UID_NOW=\$(id -u); . '$LIB'; CFP=''; SEND_MAXTIME=8; SEND_CONNECT=3
   $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
   HASH='$(test_sha "$RAWSID")'; LIVE_DIR='$DATA/live'; SPOOL='$SPF'; LOCKD=\"\$LIVE_DIR/x.lock\"; FLOCK=\"\$LIVE_DIR/x.flush.lock\"; BATCHF=\"\$LIVE_DIR/x.batch\"; HDRF=\"\$LIVE_DIR/x.hdr\"; RESPF=\"\$LIVE_DIR/x.resp\"; DIR='$DATA'; BACKOFFF=\"\$LIVE_DIR/backoff\"
@@ -1256,7 +1266,7 @@ check "flusher that no longer owns its lock sends nothing and keeps the spool" "
 
 echo "== append while a request is in flight =="
 new_case; mkcred; SHIMD="$SHIMS"; printf '1500' >"$SB/api/ingest-delay"; at 0
-run_fixture_bg() { cp "$FIX/$1.json" "$SB/stdin"; env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" SHIM_DATE_NOW="$((T0 + 0))" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; }
+run_fixture_bg() { cp "$FIX/$1.json" "$SB/stdin"; env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" SHIM_DATE_NOW="$((T0 + 0))" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; }
 run_fixture_bg user-prompt-submit
 for i in $(seq 1 100); do [ "$(nbodies)" -ge 1 ] && break; sleep 0.05; done
 check "the first request is in flight (received, answer delayed)" "1" "$(nbodies)"
@@ -1270,7 +1280,7 @@ end_case
 echo "== the hook does not wait for curl =="
 new_case; mkcred; SHIMD="$SHIMS"; printf '3000' >"$SB/api/ingest-delay"
 S0=$(date +%s); cp "$FIX/user-prompt-submit.json" "$SB/stdin"
-env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; S1=$(date +%s)
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; S1=$(date +%s)
 check "a hook whose flush meets a 3 s API returns in under 2 s, silent" "yes|" "$([ $((S1 - S0)) -lt 2 ] && echo yes || echo no)|$(cat "$SB/out" "$SB/err")"
 wait_idle; check "and the detached flush still delivers" "1" "$(nbodies)"
 end_case
@@ -1280,7 +1290,7 @@ echo "== delayed tool flush (ALY-217 AC-01..AC-08) =="
 # hook_at OFFSET FIXTURE: the hook once at T0+OFFSET ("" = the real clock), without waiting for its flusher or sleeper.
 hook_at() {
   cp "$FIX/$2.json" "$SB/stdin"
-  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
     ${1:+SHIM_DATE_NOW="$((T0 + $1))"} "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
 }
 # sleeps: the sleeper's own waits (S.mmm; lock retries are 0.02 / 0.1), comma-separated.
@@ -1395,11 +1405,209 @@ end_case
 new_case; mkcred; SHIMD="$SHIMS"
 at 0; run_fixture user-prompt-submit
 cp "$FIX/pre-tool-use.json" "$SB/stdin"; M0=$(date +%s%N)
-PIPED=$(env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" SHIM_DATE_NOW="$T0" "$BASH_BIN" "$HOOK" <"$SB/stdin" 2>&1)
+PIPED=$(env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" SHIM_DATE_NOW="$T0" "$BASH_BIN" "$HOOK" <"$SB/stdin" 2>&1)
 M1=$(date +%s%N); DMS=$(( (M1 - M0) / 1000000 ))
 check "AC-08: with a sleeper armed the piped hook returns (pipe closed) in under 2 s and prints nothing (observed ${DMS} ms)" "yes yes " "$(yn '[ -e "$(W7)" ]') $(yn '[ "$DMS" -lt 2000 ]') $PIPED"
 wait_idle; check "AC-08: the sleeper still delivers" "2" "$(nbodies)"
 end_case
+
+# ─── ALY-217.2: the session watcher is started for a trusted owner (BR-03, BR-06, BR-07, D-21) ──────────
+# The fake owner (hooks/test/fake-owner.mjs, run by node outside the sandbox PATH) runs `sh -c '. chain.sh'`, which
+# waits for go.N files and runs the hook under `env -i` for each (node -> sh -c -> env -> bash live-report.sh); only
+# these cases set ALLYE_LIVE_WATCH=1 (interval 1 s). Every pid is recorded with its start time in TRACK; cleanup kills
+# only the pid recorded in watch.lock (and the fake owner by its recorded pid), after checking that start time.
+echo "== session watcher start (ALY-217 AC-08..AC-13, AC-24) =="
+SH_BIN="$(type -P sh)"
+FOWNER="$SCRIPT_DIR/test/fake-owner.mjs"
+WL7() { echo "$DATA/live/$H7.watch.lock"; }; WF7() { echo "$DATA/live/$H7.watch"; }
+# watchers_under PREFIX: live watcher processes (cmdline `<bash> <live-report.sh> watch`) whose CLAUDE_PLUGIN_DATA starts
+# with PREFIX (read-only scan of /proc; the environment is read only for processes with that exact cmdline).
+watchers_under() {
+  local f c n=0
+  for f in /proc/[0-9]*; do
+    c=$({ tr '\0' ' ' <"$f/cmdline"; } 2>/dev/null) || continue
+    [ "$c" = "$BASH_BIN $HOOK watch " ] || continue
+    { tr '\0' '\n' <"$f/environ"; } 2>/dev/null | grep -q "^CLAUDE_PLUGIN_DATA=$1" && n=$((n + 1))
+  done
+  echo "$n"
+}
+check "AC-13: no pre-existing case started a watcher (none running, no watch file or watch lock in any sandbox)" "0 0" \
+  "$(watchers_under "$ROOT_TMP") $(find "$ROOT_TMP" \( -name '*.watch' -o -name '*.watch.lock' \) | wc -l | tr -d ' ')"
+
+# wcase [REALBIN]: a watcher sandbox. The watcher's whitelisted environment has no SHIM_LOG, so its PATH gets shims
+# wrapped with this case's SHIM_LOG/SHIM_REAL as defaults (the hook's own values win).
+wcase() {
+  new_case; mkcred; REAL="${1:-$REALBIN}"
+  local s; mkdir -p "$SB/wshims" "$SB/own"
+  for s in "$SHIMD"/*; do
+    case "${s##*/}" in _wrap.sh) continue ;; esac
+    printf '#!%s\n: "${SHIM_LOG:=%s}" "${SHIM_REAL:=%s}"; export SHIM_LOG SHIM_REAL\nexec %s "$@"\n' "$BASH_BIN" "$SB/log" "$REAL" "$s" >"$SB/wshims/${s##*/}"
+    chmod +x "$SB/wshims/${s##*/}"
+  done
+  SHIMD="$SB/wshims"; OWN="$SB/own"; GO=0; OPID=""; OSTART=""
+  # chain.sh, sourced by `sh -c '. "$1"' sh chain.sh DEPTH`: DEPTH more shells in between, then one hook per go.N file
+  # (`<stdin file> plain|pipe [NAME=VALUE...]`); done.N holds the hook's wall time in ms; `exit` or 60 s idle ends it.
+  {
+    printf 'if [ "$2" -gt 0 ]; then %q -c %q sh "$1" $(($2 - 1)); exit $?; fi\n' "$SH_BIN" '. "$1"'
+    printf 'i=1\nwhile [ "$i" -le 30 ]; do\n'
+    printf '  w=0; while [ ! -e %q/go.$i ]; do [ -d %q ] || exit 0; w=$((w + 1)); [ "$w" -le 1200 ] || exit 0; sleep 0.05; done\n' "$OWN" "$OWN"
+    printf '  read -r in mode extra <%q/go.$i; [ "$in" != exit ] || exit 0\n' "$OWN"
+    printf '  t0=$(date +%%s%%N)\n'
+    printf '  set -- env -i HOME=%q XDG_CONFIG_HOME=%q XDG_CACHE_HOME=%q CLAUDE_PLUGIN_DATA=%q PATH=%q SHIM_LOG=%q SHIM_REAL=%q' \
+      "$SB/home" "$SB/config" "$SB/cache" "$DATA" "$SHIMD:$REAL" "$SB/log" "$REAL"
+    printf ' ALLYE_LIVE_WATCH=1 ALLYE_LIVE_WATCH_INTERVAL=1 ALLYE_LIVE_MARKER=MARKER_ABCDEF CLAUDE_PROJECT_DIR=/work/MARKER_CWD CLAUDE_SESSION_ID=%q $extra %q %q\n' "$RAWSID" "$BASH_BIN" "$HOOK"
+    printf '  if [ "$mode" = pipe ]; then "$@" <"$in" 2>&1 | cat >%q/piped.$i; else "$@" <"$in" >%q/out.$i 2>&1; echo $? >%q/rc.$i; fi\n' "$OWN" "$OWN" "$OWN"
+    printf '  t1=$(date +%%s%%N); echo $(( (t1 - t0) / 1000000 )) >%q/ms.$i; mv %q/ms.$i %q/done.$i\n' "$OWN" "$OWN" "$OWN"
+    printf '  i=$((i + 1))\ndone\n'
+  } >"$SB/chain.sh"
+}
+# owner_start [DEPTH] [EXE]: the fake owner (EXE: node, or a symlink to node with another name) running chain.sh.
+owner_start() {
+  "${2:-$NODE_BIN}" "$FOWNER" "$OWN" "$SH_BIN" -c '. "$1"' sh "$SB/chain.sh" "${1:-0}"
+  wait_for '[ -s "$OWN/owner" ]'
+  OPID=""; OPGID=""; { read -r OPID OPGID <"$OWN/owner"; } 2>/dev/null; OSTART=$(pstart "$OPID")
+  [[ "$OPID" =~ ^[0-9]+$ ]] && [[ "$OSTART" =~ ^[0-9]+$ ]] && TRACK+=("$OPID $OSTART")
+}
+# owner_go FIXTURE [plain|pipe] [NAME=VALUE...]: one hook through the chain; waits for it, then for its flusher/sleeper.
+owner_go() {
+  local f="$1" m="${2:-plain}"; shift; [ $# -gt 0 ] && shift
+  cp "$FIX/$f.json" "$OWN/in.$((GO + 1))"
+  GO=$((GO + 1)); printf '%s %s %s\n' "$OWN/in.$GO" "$m" "$*" >"$OWN/go.$GO.tmp"; mv "$OWN/go.$GO.tmp" "$OWN/go.$GO"
+  wait_for '[ -e "$OWN/done.$GO" ]'; HMS=$(cat "$OWN/done.$GO" 2>/dev/null)
+  watch_track
+}
+# wpid: the watcher pid recorded in watch.lock ("" when none); watch_track adds it to TRACK with its start time.
+wpid() { local p="" s=""; { read -r p s <"$(WL7)/p"; } 2>/dev/null; [[ "$p" =~ ^[0-9]+$ ]] && printf '%s' "$p"; }
+watch_track() { local p; p=$(wpid); [ -n "$p" ] && [ -n "$(pstart "$p")" ] && TRACK+=("$p $(pstart "$p")"); return 0; }
+# alive PID START: the process PID still runs with that start time.
+alive() { [[ "$1" =~ ^[0-9]+$ ]] && [ -n "$2" ] && [ "$(pstart "$1")" = "$2" ]; }
+# watch_cleanup: kills only the pid recorded in watch.lock after checking its start time, then waits until watch.lock,
+# flush.lock and flush.wait are gone; prints "clean" or what is left.
+watch_cleanup() {
+  local p="" s="" i
+  { read -r p s <"$(WL7)/p"; } 2>/dev/null
+  [[ "$p" =~ ^[0-9]+$ ]] && [[ "$s" =~ ^[0-9]+$ ]] && alive "$p" "$s" && kill "$p" 2>/dev/null
+  for i in $(seq 1 200); do
+    [ ! -e "$(WL7)" ] && [ ! -e "$DATA/live/$H7.flush.lock" ] && [ ! -e "$(W7)" ] && { echo clean; return 0; }
+    sleep 0.05
+  done
+  echo "left: $(ls "$DATA/live" | grep -E 'watch.lock|flush.lock|flush.wait' | tr '\n' ' ')"
+}
+# owner_stop: ends the chain loop, then kills the fake owner by its recorded pid after checking its start time.
+owner_stop() {
+  [ -n "$OWN" ] && [ -d "$OWN" ] && { printf 'exit\n' >"$OWN/go.$((GO + 1)).tmp"; mv "$OWN/go.$((GO + 1)).tmp" "$OWN/go.$((GO + 1))"; }
+  alive "$OPID" "$OSTART" && kill "$OPID" 2>/dev/null
+  wait_for '! alive "$OPID" "$OSTART"'
+  OPID=""; OSTART=""
+}
+wend() { echo "$(watch_cleanup)"; owner_stop; end_case; }
+envkeys() { tr '\0' '\n' <"/proc/$1/environ" 2>/dev/null | sed 's/=.*//' | sort | tr '\n' ' '; }
+sigign_hup() { local m; m=$(sed -n 's/^SigIgn:[[:space:]]*//p' "/proc/$1/status" 2>/dev/null); [ -n "$m" ] && echo $(( 0x$m & 1 )); }
+sess_of() { local l; { IFS= read -r l <"/proc/$1/stat"; } 2>/dev/null; l=${l##*) }; set -- $l; printf '%s' "${4:-}"; }
+
+if [ ! -d /proc/self ]; then
+  echo "  SKIP: watcher cases need /proc (Linux); the macOS ps path is checked manually (D-21)"
+else
+# AC-09 / AC-12 / BR-06: node -> sh -c -> env -> bash live-report.sh at SessionStart
+wcase; owner_start
+check "AC-09: the fake owner runs as node in a process group of its own (not vacuous)" "node $OPID" "$(cat "/proc/$OPID/comm" 2>/dev/null) $OPGID"
+owner_go session-start-startup
+W=$(wpid); WS=$(pstart "$W")
+check "AC-09: the hook returned 0 silently and spooled the start" "0||{\"state\":\"started\",\"type\":\"state\"}" "$(cat "$OWN/rc.1" 2>/dev/null)|$(cat "$OWN/out.1")|$(spooled)"
+check "AC-09: <hash>.watch names the node owner as '<pid> <start>', mode 0600" "$OPID $OSTART|600" "$(cat "$(WF7)" 2>/dev/null)|$(find "$(WF7)" -printf '%m' 2>/dev/null)"
+check "AC-09: <hash>.watch matches ^[0-9]+ [0-9]+\$" "yes" "$(yn 'grep -qxE "[0-9]+ [0-9]+" "$(WF7)"')"
+check "AC-09: watch.lock records a live watcher '<pid> <start>' running live-report.sh in watcher mode" "yes $BASH_BIN $HOOK watch " \
+  "$(yn '[ -n "$W" ] && [ "$(cut -d" " -f2 "$(WL7)/p")" = "$WS" ]') $(tr '\0' ' ' <"/proc/$W/cmdline" 2>/dev/null)"
+check "AC-09: exactly one watcher runs for this sandbox" "1" "$(watchers_under "$DATA")"
+check "AC-12: the watcher's environment holds only the whitelisted names" "ALLYE_LIVE_WATCH ALLYE_LIVE_WATCH_INTERVAL CLAUDE_PLUGIN_DATA HOME LIVE_HASH PATH " "$(envkeys "$W")"
+check "AC-12: the hash and data dir are this session's; no raw session id, marker or token in its environment or argv" "LIVE_HASH=$H7|CLAUDE_PLUGIN_DATA=$DATA|0" \
+  "$(tr '\0' '\n' <"/proc/$W/environ" | grep '^LIVE_HASH=')|$(tr '\0' '\n' <"/proc/$W/environ" | grep '^CLAUDE_PLUGIN_DATA=')|$(cat "/proc/$W/environ" "/proc/$W/cmdline" | tr '\0' '\n' | grep -cE -- "$RAWSID|MARKER_|$TOKEN|SHIM_")"
+check "AC-12: stdin, stdout and stderr of the watcher are /dev/null" "/dev/null /dev/null /dev/null" "$(readlink "/proc/$W/fd/0") $(readlink "/proc/$W/fd/1") $(readlink "/proc/$W/fd/2")"
+check "BR-06: without setsid on the PATH the watcher ignores SIGHUP (not a session leader)" "1 no" "$(sigign_hup "$W") $(yn '[ "$(sess_of "$W")" = "$W" ]')"
+alive "$W" "$WS" && kill -HUP "$W" 2>/dev/null; sleep 1.5
+check "BR-06: a SIGHUP to the recorded watcher pid leaves it running and holding watch.lock" "yes $W" "$(yn 'alive "$W" "$WS"') $(wpid)"
+check "the watcher made no curl call while it polled (only the hook's flush: one stub curl)" "1" "$(curl_calls)"
+check "AC-13: cleanup by the recorded pid: watch.lock, flush.lock and flush.wait gone, watcher gone, its watch file removed" "clean no no" \
+  "$(watch_cleanup) $(yn 'alive "$W" "$WS"') $(yn '[ -e "$(WF7)" ]')"
+owner_stop; end_case
+
+# AC-11: SessionStart again (compact, resume) for the same session and owner keeps exactly one watcher
+wcase; owner_start
+owner_go session-start-startup; W1=$(wpid); W1S=$(pstart "$W1")
+owner_go session-start-compact; owner_go session-start-resume
+check "AC-11: after three SessionStarts under one owner, watch.lock still names the first watcher, alive" "yes yes" "$(yn '[ -n "$W1" ] && [ "$(wpid)" = "$W1" ]') $(yn 'alive "$W1" "$W1S"')"
+check "AC-11: exactly one watcher runs; watch still names the owner" "1 $OPID $OSTART" "$(watchers_under "$DATA") $(cat "$(WF7)" 2>/dev/null)"
+check "AC-11 / AC-13: cleanup" "clean" "$(watch_cleanup)"; owner_stop; end_case
+
+# AC-08: stdout through a pipe while a watcher and a sleeper are both started (second SessionStart within 2 s: no
+# state change, so the line waits for a sleeper)
+wcase; at 0; run_fixture session-start-startup
+check "AC-08 setup: the first SessionStart (ALLYE_LIVE_WATCH=0) started no watcher" "no no" "$(yn '[ -e "$(WF7)" ]') $(yn '[ -e "$(WL7)" ]')"
+owner_start; owner_go session-start-startup pipe "SHIM_DATE_NOW=$T0"
+check "AC-08: with a watcher and a sleeper started, the piped hook returned (pipe closed) in under 2 s, printing nothing (observed ${HMS} ms)" "yes yes yes " \
+  "$(yn '[ -n "$(wpid)" ]') $(yn '[ -e "$(W7)" ]') $(yn '[ "${HMS:-9999}" -lt 2000 ]') $(cat "$OWN/piped.1" 2>/dev/null)"
+wait_idle
+check "AC-08: the sleeper ended; the watcher still holds watch.lock" "no yes" "$(yn '[ -e "$(W7)" ]') $(yn '[ -n "$(wpid)" ]')"
+check "AC-08 / AC-13: cleanup" "clean" "$(watch_cleanup)"; owner_stop; end_case
+
+# AC-10: no trusted owner -> no watcher, no watch file, the hook spools and flushes as before
+for kind in tmux claude node-MainThread node-Main depth6 depth7; do
+  wcase
+  case "$kind" in
+    tmux|claude|node-MainThread|node-Main) mkdir -p "$SB/obin"; ln -s "$NODE_BIN" "$SB/obin/$kind"; owner_start 0 "$SB/obin/$kind"
+                 check "AC-10 $kind: the owner's comm is $kind (not vacuous)" "$kind" "$(cat "/proc/$OPID/comm" 2>/dev/null)" ;;
+    depth6) owner_start 6 ;;
+    depth7) owner_start 7 ;;
+  esac
+  owner_go session-start-startup
+  case "$kind" in
+    claude|node-MainThread|depth6) EXP="yes yes 1"; L="an owner named $kind is trusted: watch file, watch.lock, one watcher" ;;
+    *) EXP="no no 0"; L="no trusted owner ($kind) -> no watch file, no watch.lock, no watcher" ;;
+  esac
+  [ "$kind" = depth6 ] && L="a trusted owner 8 levels up (7 shells, then node) gets a watcher"
+  [ "$kind" = depth7 ] && L="no trusted owner within 8 levels (8 shells before node) -> no watch file, no watch.lock, no watcher"
+  check "AC-10: $L" "$EXP" "$(yn '[ -e "$(WF7)" ]') $(yn '[ -e "$(WL7)" ]') $(watchers_under "$DATA")"
+  check "AC-10 $kind: the hook spooled and flushed as before (start line, one flush attempt through the stub curl), silent" \
+    "{\"state\":\"started\",\"type\":\"state\"}|1|" "$(spooled)|$(curl_calls)|$(cat "$OWN/out.1")"
+  check "AC-10 $kind / AC-13: cleanup" "clean" "$(watch_cleanup)"; owner_stop; end_case
+done
+# AC-10: the uid rule (owner_find alone: the same live node owner is refused under another uid) and PID 1
+wcase; owner_start
+ownerp() { env -i PATH="$REALBIN" "$BASH_BIN" -c "LC_ALL=C; UID_NOW=$1; $(fn_body "$HOOK" proc_start); $(fn_body "$HOOK" owner_find); owner_find $2; echo \" rc=\$?\""; }
+check "AC-10: owner_find on the live node owner under its own uid -> '<pid> <start>'" "$OPID $OSTART rc=0" "$(ownerp "$(id -u)" "$OPID")"
+check "AC-10: owner_find on the same process with another uid -> no owner" " rc=1" "$(ownerp "$(( $(id -u) + 1 ))" "$OPID")"
+check "AC-10: owner_find from PID 1 -> no owner" " rc=1" "$(ownerp 0 1)"
+check "AC-10: owner_find on a non-numeric pid -> no owner" " rc=1" "$(ownerp "$(id -u)" "1x")"
+owner_stop; end_case
+
+# AC-24: after the watcher ended (state ended), later hooks spool normally; only a UserPromptSubmit with no lock holder
+# and a session not ended starts a new watcher, and a second one keeps it
+wcase; owner_start
+owner_go session-start-startup; W1=$(wpid); W1S=$(pstart "$W1")
+printf 'ended' >"$DATA/live/$H7.state"
+wait_for '! alive "$W1" "$W1S"'
+check "AC-24 setup: the watcher saw the state ended and exited, removing watch and watch.lock" "no no no" "$(yn 'alive "$W1" "$W1S"') $(yn '[ -e "$(WL7)" ]') $(yn '[ -e "$(WF7)" ]')"
+owner_go pre-tool-use
+check "AC-24: a tool hook after the end spools its line and starts no watcher" "yes no" "$(yn 'spooled | grep -q "\"type\":\"tool\""') $(yn '[ -e "$(WL7)" ]')"
+owner_go user-prompt-submit; W2=$(wpid); W2S=$(pstart "$W2")
+check "AC-24: UserPromptSubmit with no lock holder starts a new watcher and rewrites watch; its line is spooled" "yes yes $OPID $OSTART yes" \
+  "$(yn '[ -n "$W2" ] && alive "$W2" "$W2S"') $(yn '[ "$W2 $W2S" != "$W1 $W1S" ]') $(cat "$(WF7)" 2>/dev/null) $(yn 'spooled | grep -q "\"state\":\"working\""')"
+owner_go user-prompt-submit
+check "AC-24: a second UserPromptSubmit keeps that watcher, exactly one" "$W2 1" "$(wpid) $(watchers_under "$DATA")"
+check "AC-24 / AC-13: cleanup" "clean" "$(watch_cleanup)"; owner_stop; end_case
+
+# BR-06 / D-21: with setsid on the PATH the watcher leads a session of its own
+if SETSID_BIN=$(type -P setsid); then
+  REALBIN_SS="$ROOT_TMP/realbin-ss"; make_realbin "$REALBIN_SS"; ln -s "$SETSID_BIN" "$REALBIN_SS/setsid"
+  wcase "$REALBIN_SS"; owner_start; owner_go session-start-startup; W=$(wpid)
+  check "BR-06: with setsid present the watcher is a session leader outside the owner's process group, stdio /dev/null" "yes yes /dev/null /dev/null /dev/null" \
+    "$(yn '[ -n "$W" ] && [ "$(sess_of "$W")" = "$W" ]') $(yn '[ "$(cat /proc/$W/stat 2>/dev/null | sed "s/.*) //" | cut -d" " -f3)" != "$OPGID" ]') $(readlink "/proc/$W/fd/0") $(readlink "/proc/$W/fd/1") $(readlink "/proc/$W/fd/2")"
+  check "BR-06 setsid / AC-13: cleanup" "clean" "$(watch_cleanup)"; owner_stop; end_case
+else
+  echo "  SKIP: setsid not available on this host"
+fi
+check "AC-13: after the watcher cases no watcher of the harness is left running" "0" "$(watchers_under "$ROOT_TMP")"
+fi
 
 # ─── fake ingest API (harness self-check) ───────────────────────────────────
 echo "== fake ingest API =="

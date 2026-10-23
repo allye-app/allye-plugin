@@ -494,7 +494,7 @@ LV() { echo "$DATA/live/$1"; }
 run_live() {
   local f="$1" sid="${2:-}" i
   if [ -n "$sid" ]; then "$JQ_BIN" -c --arg s "$sid" '.session_id = $s' "$FIXD/$f.json" >"$SB/lstdin"; else cp "$FIXD/$f.json" "$SB/lstdin"; fi
-  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
     "$BASH_BIN" "$LIVE" <"$SB/lstdin" >"$SB/lout" 2>"$SB/lerr"
   for i in $(seq 1 200); do compgen -G "$DATA/live/*.flush.lock" >/dev/null || return 0; sleep 0.05; done
 }
@@ -595,7 +595,7 @@ run_script live off "$DATA"; check "off when the API answers 5xx: the flag is se
 new_case; mkcred; SHIMD="$SHIMS"; printf 'ok' >"$SB/api/ingest-mode"
 H=$(sha_of SESS-A-0001); mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; mkdir "$(LV $H.lock)"; printf '%s %s' "$(date +%s)" "busy.1" >"$(LV $H.lock)/t"
 "$JQ_BIN" -c --arg s SESS-A-0001 '.session_id = $s' "$FIXD/user-prompt-submit.json" >"$SB/lstdin"
-env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
   "$BASH_BIN" "$LIVE" <"$SB/lstdin" >"$SB/lout" 2>"$SB/lerr" &
 HP=$!
 sleep 0.4; : >"$(LV off)"; chmod 600 "$(LV off)"; rm -rf "${DATA:?}/live/${H:?}.lock"
@@ -608,7 +608,7 @@ SIDX=SESS-A-0001; H=$(sha_of $SIDX); mkdir -p "$DATA/live"; chmod 700 "$DATA/liv
 NOWI=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 "$JQ_BIN" -nc --arg at "$NOWI" 'range(1; 121) | {seq: ., at: $at, type: "state", state: "working"}' >"$(LV $H.spool)"; chmod 600 "$(LV $H.spool)"
 "$JQ_BIN" -c --arg s $SIDX '.session_id = $s' "$FIXD/user-prompt-submit.json" >"$SB/lstdin"
-env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
   "$BASH_BIN" "$LIVE" <"$SB/lstdin" >"$SB/lout" 2>"$SB/lerr"
 for i in $(seq 1 100); do [ "$(nbodies)" -ge 1 ] && break; sleep 0.05; done
 run_script live off "$DATA"
@@ -625,7 +625,7 @@ SIDX=SESS-A-0001; H=$(sha_of $SIDX); mkdir -p "$DATA/live"; chmod 700 "$DATA/liv
 NOWI=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 "$JQ_BIN" -nc --arg at "$NOWI" 'range(1; 121) | {seq: ., at: $at, type: "state", state: "working"}' >"$(LV $H.spool)"; chmod 600 "$(LV $H.spool)"
 "$JQ_BIN" -c --arg s $SIDX '.session_id = $s' "$FIXD/user-prompt-submit.json" >"$SB/lstdin"
-env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
   "$BASH_BIN" "$LIVE" <"$SB/lstdin" >"$SB/lout" 2>"$SB/lerr"
 for i in $(seq 1 100); do [ "$(nbodies)" -ge 1 ] && break; sleep 0.05; done
 : >"$(LV off)"; chmod 600 "$(LV off)"
@@ -635,7 +635,7 @@ end_case
 
 # the lock primitives are copies of the reporter's: pinned
 fnb() { awk -v n="$2" '$0 ~ "^" n "\\(\\)" { print; if ($0 ~ /\}[ \t]*$/) exit; inf = 1; next } inf { print; if ($0 ~ /^\}/) exit }' "$1"; }
-for f in lock_is_stale lock_take lock_drop; do
+for f in lock_is_stale lock_take lock_drop proc_start pidlock_rec pidlock_stale; do
   check "$f: body identical to live-report.sh" "$(fnb "$LIVE" "$f")" "$(fnb "$HOOK" "$f")"
   check "$f: defined in allye-hooks.sh" "yes" "$([ -n "$(fnb "$HOOK" "$f")" ] && echo yes || echo no)"
 done
