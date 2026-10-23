@@ -4,6 +4,9 @@
 #   allye-hooks.sh begin   <dataDir>                        verifier -> pairing file, prints the challenge
 #   allye-hooks.sh finish  <dataDir> <challenge> <code>     exchanges code + verifier for the credential
 #   allye-hooks.sh unpair  <dataDir>                        deletes the local credential and pairing files
+#   allye-hooks.sh live    off|on|status <dataDir>          Live reporter switch (ALY-203): off ends the open runs, sets
+#                                                           the flag and deletes the spools; on clears the flag; status
+#                                                           prints state, spool size and last result (no network call)
 #
 # Runtime: bash 3.2+, curl, jq and sha256sum or shasum. No node, openssl, python or GNU stat.
 # The verifier and the token never reach argv, the environment or any output: they travel only
@@ -23,7 +26,7 @@ trap 'exit 130' INT TERM
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 usage() {
-  printf '%s\n' "Usage: allye-hooks.sh begin <dataDir> | finish <dataDir> <challenge> <pairingCode> | unpair <dataDir>" >&2
+  printf '%s\n' "Usage: allye-hooks.sh begin <dataDir> | finish <dataDir> <challenge> <pairingCode> | unpair <dataDir> | live off|on|status <dataDir>" >&2
   exit 2
 }
 
@@ -280,6 +283,189 @@ cmd_unpair() {
   fi
 }
 
+# ─── live off | on | status (ALY-203, BR-11, BR-12) ─────────────────────────
+
+# The three lock functions are verbatim copies of those in hooks/live-report.sh (the reporter's per-session state lock
+# protects the seq counter and the spool); hooks/test-allye-hooks.sh pins the bodies so the copies cannot drift.
+# lock_is_stale DIR: the holder time (first field of DIR/t) is more than 30 seconds old; without a readable time,
+# the directory itself is more than a minute old (find -mmin).
+lock_is_stale() {
+  local ts="" now
+  { IFS=' ' read -r ts _ <"$1/t"; } 2>/dev/null
+  now=$(date +%s 2>/dev/null) || now=""
+  if [[ "$ts" =~ ^[0-9]{1,12}$ ]] && [[ "$now" =~ ^[0-9]{1,12}$ ]]; then [ $((now - ts)) -gt 30 ]; return; fi
+  [ -d "$1" ] && [ ! -L "$1" ] && [ -n "$(find "$1" -prune -mmin +1 -print 2>/dev/null)" ]
+}
+# lock_take DIR TRIES: a mkdir lock (D-03, portable). TRIES x 20 ms of waiting after the first attempt (0 = try
+# once). The holder writes "<epoch> <token>" into DIR/t and keeps its token in LOCK_TOKEN. A stale lock is renamed
+# to a unique name by the one breaker holding DIR.brk, judged again there, and only then removed; if the renamed lock turns out fresh (it was replaced
+# meanwhile) it is put back and this try fails closed.
+lock_take() {
+  local d="$1" n="${2:-0}" i=0 old
+  LOCK_TOKEN="$$.$RANDOM$RANDOM"
+  while :; do
+    if mkdir "$d" 2>/dev/null; then printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t" 2>/dev/null; return 0; fi
+    if lock_is_stale "$d"; then
+      # Only one breaker at a time (a second mkdir lock, itself broken after a minute), so nobody can replace the
+      # lock between the verdict and the rename; the renamed lock is judged once more as a safety net.
+      [ -n "$(find "$d.brk" -prune -mmin +1 -print 2>/dev/null)" ] && rm -rf "$d.brk" 2>/dev/null
+      if mkdir "$d.brk" 2>/dev/null; then
+        old="$d.old.$$.$RANDOM"
+        if lock_is_stale "$d" && mv "$d" "$old" 2>/dev/null; then
+          if lock_is_stale "$old"; then rm -rf "$old" 2>/dev/null
+          else [ -e "$d" ] || mv "$old" "$d" 2>/dev/null; rm -rf "$old" "$d.brk" 2>/dev/null; return 1; fi
+        fi
+        rm -rf "$d.brk" 2>/dev/null
+        continue
+      fi
+    fi
+    i=$((i + 1)); [ "$i" -gt "$n" ] && return 1
+    sleep 0.02
+  done
+}
+# lock_drop DIR TOKEN: removes the lock only while DIR/t still holds this hook's own token.
+lock_drop() {
+  local t=""
+  { IFS=' ' read -r _ t <"$1/t"; } 2>/dev/null
+  [ -n "${2:-}" ] && [ "$t" = "$2" ] && rm -rf "$1" 2>/dev/null
+  return 0
+}
+
+private_regular() { [ -n "$(find "$1" -prune -type f -user "$UID_NOW" -perm 0600 -print 2>/dev/null)" ]; }
+
+# live_send BODYFILE: one POST to the ingest route of the credential's host, the credential only in a curl config on
+# stdin, a 1-second limit (the SessionEnd budget of BR-12); succeeds only on a 2xx. The answer is never read or printed.
+live_send() {
+  local code
+  code=$({
+    printf 'url = "%s/api/agent-runs/events"\n' "$LIVE_API"
+    printf 'header = "Authorization: Bearer %s"\n' "$LIVE_TOKEN"
+    printf 'header = "Content-Type: application/json"\n'
+    printf 'header = "Accept: application/json"\n'
+    printf 'data-binary = "@%s"\n' "$1"
+    printf 'max-time = 1\nconnect-timeout = 1\nmax-filesize = 65536\nnoproxy = "*"\n'
+  } | curl -q --silent -K - -o /dev/null -w '%{http_code}' 2>/dev/null) || return 1
+  case "$code" in 2[0-9][0-9]) return 0 ;; *) return 1 ;; esac
+}
+
+cmd_live() {
+  [ "$#" -eq 2 ] || usage
+  local action="$1" dir="$2" live src h f base sessions="" n_spool=0 n_bytes=0 n_sess=0 lines bytes
+  local ended=0 failed=0 body seqf statef prev ms new at pids=() p running=0 until_ fp now tok send
+  case "$action" in off|on|status) ;; *) usage ;; esac
+  valid_dir_arg "$dir" || fail "The data directory must be an absolute path (got an empty, relative or unexpanded value)."
+  src="${BASH_SOURCE[0]}"; case "$src" in */*) ;; *) src="./$src" ;; esac
+  command -v jq >/dev/null 2>&1 || fail "jq is required."
+  # shellcheck source=lib/credential.sh
+  . "${src%/*}/lib/credential.sh" 2>/dev/null || fail "The reporter's credential helper is missing."
+  if ! load_live_credential "$dir"; then
+    printf 'Live reporting is not available: this install is not paired with Allye (run /allye:hooks pair).\n'
+    return 0
+  fi
+  live="${dir:?}/live"
+  if [ -L "$live" ]; then fail "The live directory is a symlink; refusing to use it."; fi
+  if [ -e "$live" ] && [ -z "$(find "$live" -prune -type d -user "$UID_NOW" -perm 0700 -print 2>/dev/null)" ]; then
+    fail "The live directory is not a private directory you own (mode 0700); refusing to use it."
+  fi
+
+  # Sessions known locally: the distinct <sha256> prefixes of the reporter's files.
+  if [ -d "$live" ]; then
+    for f in "$live"/*; do
+      [ -e "$f" ] || continue
+      base="${f##*/}"
+      if [[ "$base" =~ ^([0-9a-f]{64})\.(spool|seq|state|bind|gates|cred|flushed)$ ]]; then
+        h="${BASH_REMATCH[1]}"
+        case " $sessions " in *" $h "*) ;; *) sessions="$sessions $h"; n_sess=$((n_sess + 1)) ;; esac
+      fi
+    done
+  fi
+
+  case "$action" in
+    status)
+      for f in "$live"/*.spool; do
+        [ -f "$f" ] && [ ! -L "$f" ] || continue
+        lines=$(wc -l <"$f" 2>/dev/null) || continue; lines=${lines//[[:space:]]/}
+        bytes=$(wc -c <"$f" 2>/dev/null) || continue; bytes=${bytes//[[:space:]]/}
+        [[ "$lines" =~ ^[0-9]+$ ]] && [[ "$bytes" =~ ^[0-9]+$ ]] || continue
+        n_spool=$((n_spool + lines)); n_bytes=$((n_bytes + bytes))
+      done
+      if [ -e "$live/off" ] || [ -L "$live/off" ]; then printf 'Live reporting: off\n'; else printf 'Live reporting: on\n'; fi
+      printf 'Sessions with local data: %s\n' "$n_sess"
+      printf 'Spooled events: %s (%s bytes)\n' "$n_spool" "$n_bytes"
+      if [ -e "$live/disabled" ] || [ -L "$live/disabled" ]; then
+        printf 'Last result: credential rejected by Allye (401); pair again to resume\n'
+      else
+        until_=""; fp=""
+        if [ -f "$live/backoff" ] && [ ! -L "$live/backoff" ] && private_regular "$live/backoff"; then { IFS=' ' read -r until_ fp <"$live/backoff"; } 2>/dev/null; fi
+        now=$(date +%s 2>/dev/null) || now=0
+        if [[ "$until_" =~ ^[0-9]{1,12}$ ]] && [ "$fp" = "$(printf '%s' "$LIVE_TOKEN" | sha_hex)" ] && [ "$now" -lt "$until_" ]; then
+          printf 'Last result: backing off for %s more seconds after an Allye answer\n' "$((until_ - now))"
+        else
+          printf 'Last result: none recorded\n'
+        fi
+      fi
+      LIVE_TOKEN=""
+      ;;
+    on)
+      if [ -e "$live/off" ] || [ -L "$live/off" ]; then rm -f "${live:?}/off" || fail "Could not remove the live-off flag."; fi
+      printf 'Live reporting is on.\n'
+      LIVE_TOKEN=""
+      ;;
+    off)
+      case "$live" in *[\"\\]*) fail "The data directory path cannot be used for the live reporter." ;; esac
+      [ -d "$live" ] || mkdir -m 700 "$live" 2>/dev/null || fail "Could not create the live directory."
+      # The flag first, so no new hook spools or sends while the runs are ended below.
+      new_tmp "$live" off; : >"$NEW_TMP" || fail "Could not write the live-off flag."
+      mv -f "$NEW_TMP" "$live/off" || fail "Could not write the live-off flag."
+      at=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || at=""
+      ms=$(date +%s%3N 2>/dev/null); [[ "$ms" =~ ^[0-9]{13,16}$ ]] || ms="$(date +%s 2>/dev/null)000"
+      for h in $sessions; do
+        statef="$live/$h.state"; seqf="$live/$h.seq"
+        if [ -f "$statef" ] && [ ! -L "$statef" ] && private_regular "$statef"; then
+          prev=""; { IFS= read -r prev <"$statef"; } 2>/dev/null
+          if [ "$prev" = ended ]; then rm -f "${live:?}/${h:?}.spool"; continue; fi
+        fi
+        # A session whose lock stays taken cannot be ended cleanly, but its spool is still deleted (off means nothing
+        # is sent afterwards); the run is then ended by Allye after a period of silence.
+        if ! lock_take "$live/$h.lock" 50; then failed=$((failed + 1)); rm -f "${live:?}/${h:?}.spool"; continue; fi
+        tok="$LOCK_TOKEN"; send=1
+        if [ -e "$live/disabled" ] || [ -L "$live/disabled" ] || [ -z "$at" ]; then send=0; fi
+        if [ "$send" = 1 ]; then
+          # seq as the reporter allocates it: max(previous + 1, Unix ms), previous read from the same counter file.
+          prev=0
+          if [ -f "$seqf" ] && [ ! -L "$seqf" ] && private_regular "$seqf"; then { IFS= read -r prev <"$seqf"; } 2>/dev/null; fi
+          if [[ "$prev" =~ ^(0|[1-9][0-9]{0,15})$ ]] && [ "$prev" -lt 9007199254740991 ] && [ "$prev" -le $((ms + 86400000)) ]; then :; else prev=0; fi
+          new=$((prev + 1)); [ "$new" -ge "$ms" ] || new="$ms"
+          new_tmp "$live" seq; printf '%s' "$new" >"$NEW_TMP" && mv -f "$NEW_TMP" "$seqf"
+          new_tmp "$live" offbody; body="$NEW_TMP"
+          jq -nc --arg h "$h" --argjson s "$new" --arg at "$at" \
+            '{client: {kind: "claude-code"}, session: {hash: $h}, events: [{seq: $s, at: $at, type: "state", state: "ended", code: "end_live_off"}]}' >"$body" || send=0
+          # The state is set to ended before the request is made, and a failed end is not retried: Allye ends the
+          # run by itself after a period of silence (the reporter is off, so nothing else will resend it).
+          if [ "$send" = 1 ]; then
+            new_tmp "$live" state; printf 'ended' >"$NEW_TMP" && mv -f "$NEW_TMP" "$statef"
+          fi
+        fi
+        rm -f "${live:?}/${h:?}.spool"
+        lock_drop "$live/$h.lock" "$tok"
+        if [ "$send" = 1 ]; then
+          live_send "$body" &
+          pids+=("$!"); running=$((running + 1))
+          if [ "$running" -ge 4 ]; then
+            for p in "${pids[@]}"; do if wait "$p"; then ended=$((ended + 1)); else failed=$((failed + 1)); fi; done
+            pids=(); running=0
+          fi
+        fi
+      done
+      for p in ${pids[@]+"${pids[@]}"}; do if wait "$p"; then ended=$((ended + 1)); else failed=$((failed + 1)); fi; done
+      LIVE_TOKEN=""
+      printf 'Live reporting is off; local spools deleted.\n'
+      printf 'Ended %s session(s) on Allye.\n' "$ended"
+      if [ "$failed" -gt 0 ]; then printf '%s session(s) could not be ended now (their local spools were deleted); Allye ends them by itself after a period of silence.\n' "$failed"; fi
+      ;;
+  esac
+}
+
 [ "$ORIGINAL_COUNT" -ge 1 ] || usage
 sub="$1"
 shift
@@ -287,5 +473,6 @@ case "$sub" in
   begin) cmd_begin "$@" ;;
   finish) cmd_finish "$@" ;;
   unpair) cmd_unpair "$@" ;;
+  live) cmd_live "$@" ;;
   *) usage ;;
 esac

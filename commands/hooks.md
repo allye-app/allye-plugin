@@ -1,10 +1,10 @@
 ---
-description: Pair or unpair this Claude Code install with Allye so every new session starts with your pinned preferences
-argument-hint: pair | unpair
+description: Pair or unpair this Claude Code install with Allye so every new session starts with your pinned preferences, and switch Live session reporting off, on or show its status
+argument-hint: pair | unpair | live off | on | status
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh:*), mcp__plugin_allye_allye__hooks
 ---
 
-Run the Allye hooks pairing for this Claude Code install. The argument is `$ARGUMENTS`: `pair` or `unpair`. With any other value, or none, ask which of the two the user wants.
+Run the Allye hooks pairing for this Claude Code install. The argument is `$ARGUMENTS`: `pair`, `unpair`, or `live` followed by `off`, `on` or `status`. With any other value, or none, ask which the user wants.
 
 Rules for both:
 - Never read, print, open or copy `hook-credential.json` or any `pairing-*.json` file in the data directory. Do not look at their contents even to debug; the script handles them.
@@ -22,3 +22,11 @@ Rules for both:
 ## unpair
 
 Run `"${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh" unpair "${CLAUDE_PLUGIN_DATA}"` and show its output. It deletes the local files only and makes no network call; remind the user to revoke the device in Settings → Devices.
+
+## live
+
+`live off|on|status` controls the Live reporter that tells Allye what this install's sessions are doing (metadata only: state, tool names, subagent type and outcome, spec and task keys). It needs a paired install; otherwise the script says so and does nothing.
+
+- `live off`: run `"${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh" live off "${CLAUDE_PLUGIN_DATA}"`. It first ends the open runs of this install on Allye (a final `state ended` event with the code `end_live_off`, one second at most per request), then sets the flag so nothing more is spooled or sent, and deletes the local spools. Show its output.
+- `live on`: run `"${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh" live on "${CLAUDE_PLUGIN_DATA}"`. It removes the flag; reporting resumes with the next hook event of each session.
+- `live status`: run `"${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh" live status "${CLAUDE_PLUGIN_DATA}"`. It prints whether reporting is on or off, the local sessions and spooled events and the last result (a rejected credential or a back-off), with no network call. Show its output.

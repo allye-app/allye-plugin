@@ -292,7 +292,7 @@ flush_run() {
   while [ "$rounds" -lt 20 ]; do
     rounds=$((rounds + 1))
     # at the top of every round: another session may have been told to back off or to disable meanwhile
-    if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ] || backoff_active; then return 1; fi
+    if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ] || [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ] || backoff_active; then return 1; fi
     before=$(wc -c <"$SPOOL" 2>/dev/null) || return 1
     batch_build || return 0
     if [ -z "$BODY" ]; then
@@ -372,6 +372,8 @@ trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
 lock_take "$LOCKD" 500 || exit 0
 STATE_TOKEN="$LOCK_TOKEN"; HAVE_LOCK=1
+# `/allye:hooks live off` may have run while this hook waited for the lock: it then drops its events (AC-11).
+if [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ]; then exit 0; fi
 FLOCK="$LIVE_DIR/$HASH.flush.lock"; FLUSHED="$LIVE_DIR/$HASH.flushed"; BATCHF="$LIVE_DIR/$HASH.batch"; HDRF="$LIVE_DIR/$HASH.hdr"; RESPF="$LIVE_DIR/$HASH.resp"; BACKOFFF="$LIVE_DIR/backoff"; CREDF="$LIVE_DIR/$HASH.cred"
 
 LAST=""
