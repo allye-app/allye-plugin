@@ -73,6 +73,10 @@ Pair this install with your Allye account and every new, cleared or compacted se
 - **Session start.** The hook makes one short request and prints the preferences, or one hint line when the credential is rejected, unsafe or the account is inactive. It is silent when you are not paired, offline or the API is unavailable. It needs `curl` and `jq`.
 - **Before uninstalling.** Run `/allye:hooks unpair`, then revoke the device in Allye → Settings → Devices; unpair only deletes local files, so the credential keeps working on the server until revoked. Pair again before the expiry date shown at pairing.
 
+#### Live session reporting (Claude Code only, optional)
+
+When paired, hooks send Allye the state of your sessions (started, working, waiting, idle, ended), the tool names in use, subagent ids and types with their outcome, and the spec and task keys the session is bound to. The subagent type, tool names and `allye:<action>` / spec / task keys DO leave your machine; prompts, commands, tool inputs and outputs, file paths, notification and assistant messages, transcripts, the working directory, branch names and credentials never do. Allye keeps ended runs 7 days. Control it with `/allye:hooks live off|on|status`; events, fields and local files are in [docs/live-reporting.md](docs/live-reporting.md).
+
 ### Codex, OpenCode
 
 Paste into the agent. The install and update guides install one pinned release: the latest GitHub release unless you name a version. They check that it exists, never download from a branch, and keep a timestamped backup of any config they rewrite (`opencode.json`, `~/.codex/AGENTS.md`, `~/.codex/skills/bridge*`) under `~/.allye/backups/<harness>/`.
@@ -114,15 +118,11 @@ Who can install, where skills go, how edited, deleted and moved copies are handl
 ```
 bootstrap/allye.md          shared bootstrap text (single source)
 skills/bridge/              the Bridge skill and its references
-skills/bridge-*/            the crew skills (Armorer, Recon, Strategist, Architect, Dispatcher,
-                            Pilot, Navigator, Copilot, Medic, Optimizer, Shield, Watcher)
-agents/bridge-*.md          native crew subagents (Claude Code; OpenCode registers them from here):
-                            load the matching crew skill under a per-role tool allowlist
-hooks/                      Claude Code SessionStart hooks (bootstrap, pinned preferences) and
-                            the pairing script behind /allye:hooks
+skills/bridge-*/            the crew skills (Armorer, Recon, Strategist, Architect, Dispatcher, Pilot, Navigator, Copilot, Medic, Optimizer, Shield, Watcher)
+agents/bridge-*.md          native crew subagents (Claude Code; OpenCode registers them from here): load the crew skill under a per-role tool allowlist
+hooks/                      Claude Code hooks (bootstrap, pinned preferences, Live reporter) and the script behind /allye:hooks
 .claude-plugin/, .mcp.json  Claude Code plugin and marketplace manifests
-manifests/codex/AGENTS.md   Codex copy of the bootstrap (synced)
-manifests/opencode/         sample OpenCode config
+manifests/                  Codex copy of the bootstrap (codex/AGENTS.md, synced) and a sample OpenCode config (opencode/)
 packages/allye-opencode/    OpenCode plugin (npm: allye-opencode)
 packages/allye-pi/          Pi/OMP extension (npm: allye-pi, root package.json)
 install.sh, install/        organization skills installer and its tests
