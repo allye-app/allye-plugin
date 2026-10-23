@@ -56,6 +56,10 @@ REALBIN_NOTO="$ROOT_TMP/realbin-nto";    make_realbin "$REALBIN_NOTO" timeout
 SHIMS_NOCURL="$ROOT_TMP/shims-nc";       link_shims "$SHIMS_NOCURL" curl
 SHIMS_NOJQ="$ROOT_TMP/shims-nj";         link_shims "$SHIMS_NOJQ" jq
 SHIMS_NOSHA="$ROOT_TMP/shims-nosha";     link_shims "$SHIMS_NOSHA" sha256sum shasum
+# The default shim dir of a case: curl is a stub that fails at once, so the (detached) flush of every spool-oriented
+# test leaves the spool as it is. The ALY-203.6 tests switch to the real logging curl shim with SHIMD="$SHIMS".
+SHIMS_STUB="$ROOT_TMP/shims-stub";       link_shims "$SHIMS_STUB" curl
+printf '#!/bin/bash\ncat >/dev/null\nprintf "curl [stub]\\n" >>"${SHIM_LOG:?}/calls.log"\nexit 7\n' >"$SHIMS_STUB/curl"; chmod +x "$SHIMS_STUB/curl"
 
 TOKEN="alyh_$(printf 'Ab1_-%.0s' $(seq 1 8))xyz"    # 5*8+3 = 43 characters
 
@@ -64,7 +68,7 @@ new_case() {
   N=$((N + 1)); SB="$ROOT_TMP/case$N"
   mkdir -p "$SB/home" "$SB/config" "$SB/cache" "$SB/log" "$SB/api"
   DATA="$SB/plugindata"; CRED="$DATA/hook-credential.json"
-  REAL="$REALBIN"; SHIMD="$SHIMS"; RUN_ENV=(); DATA_ENV="$DATA"
+  REAL="$REALBIN"; SHIMD="$SHIMS_STUB"; RUN_ENV=(); DATA_ENV="$DATA"
   : >"$SB/api/requests.log"
   "$NODE_BIN" "$FAKE" "$SB/api" >"$SB/api/node.log" 2>&1 &
   APID=$!
@@ -88,8 +92,11 @@ run_script() {
     PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
     ${RUN_ENV[@]+"${RUN_ENV[@]}"} "$BASH_BIN" "$script" "$@" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
   RC=$?
+  [ "$script" != "$HOOK" ] || wait_idle
   OUT=$(cat "$SB/out"); ERR=$(cat "$SB/err")
 }
+# wait_idle: the flusher is detached; its flush lock is taken before the hook returns, so "no flush lock" = done.
+wait_idle() { local i; for i in $(seq 1 400); do compgen -G "$DATA/live/*.flush.lock" >/dev/null || return 0; sleep 0.05; done; }
 run_hook() { run_script "$HOOK"; }
 curl_calls() { [ -f "$SB/log/calls.log" ] && { grep -c '^curl' "$SB/log/calls.log" || true; } || echo 0; }
 reqs() { wc -l <"$SB/api/requests.log" | tr -d ' '; }
@@ -178,7 +185,7 @@ expect_fixture() {
   new_case; mkcred; run_fixture "$1"
   check "$1: exits 0, silent" "0||" "$RC|$OUT|$ERR"
   check "$1: spools exactly the listed events" "$(expected_of "$1" | "$JQ_BIN" -cS .)" "$(spooled)"
-  check "$1: no request sent in this slice" "0 0" "$(curl_calls) $(reqs)"
+  check "$1: the flush reached no API (the stub curl fails; no request arrived)" "0" "$(reqs)"
   end_case
 }
 # expect_spooled LABEL: the discriminating counterpart of an inert case: same default payload, condition removed.
@@ -216,16 +223,16 @@ rm "$DATA/live/disabled"; run_hook; expect_spooled "disabled marker"
 end_case
 
 echo "== missing tools =="
-new_case; mkcred; REAL="$REALBIN_NOJQ"; SHIMD="$SHIMS_NOJQ"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "jq missing"; REAL="$REALBIN"; SHIMD="$SHIMS"; run_hook; expect_spooled "jq missing"; end_case
-new_case; mkcred; REAL="$REALBIN_NOCURL"; SHIMD="$SHIMS_NOCURL"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "curl missing"; REAL="$REALBIN"; SHIMD="$SHIMS"; run_hook; expect_spooled "curl missing"; end_case
-new_case; mkcred; REAL="$REALBIN_NOSHA"; SHIMD="$SHIMS_NOSHA"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "SHA-256 tool missing"; REAL="$REALBIN"; SHIMD="$SHIMS"; run_hook; expect_spooled "SHA-256 tool missing"; end_case
+new_case; mkcred; REAL="$REALBIN_NOJQ"; SHIMD="$SHIMS_NOJQ"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "jq missing"; REAL="$REALBIN"; SHIMD="$SHIMS_STUB"; run_hook; expect_spooled "jq missing"; end_case
+new_case; mkcred; REAL="$REALBIN_NOCURL"; SHIMD="$SHIMS_NOCURL"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "curl missing"; REAL="$REALBIN"; SHIMD="$SHIMS_STUB"; run_hook; expect_spooled "curl missing"; end_case
+new_case; mkcred; REAL="$REALBIN_NOSHA"; SHIMD="$SHIMS_NOSHA"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "SHA-256 tool missing"; REAL="$REALBIN"; SHIMD="$SHIMS_STUB"; run_hook; expect_spooled "SHA-256 tool missing"; end_case
 
-echo "== enabled: spools, sends nothing yet, seq on each line (positive control) =="
+echo "== enabled: spools, flush with a failing curl keeps the spool, seq on each line (positive control) =="
 new_case; mkcred; run_hook
 check "paired and on: exits 0" "0" "$RC"
 check "paired and on: stdout empty" "" "$OUT"
 check "paired and on: stderr empty" "" "$ERR"
-check "paired and on: sends nothing yet (no curl, no request)" "0 0" "$(curl_calls) $(reqs)"
+check "paired and on: one flush attempt through the stub curl, no request reached an API" "1 0" "$(curl_calls) $(reqs)"
 check "paired and on: the event is spooled, keyed by the hash" '{"state":"working","type":"state"}' "$(spooled "$DEFAULT_SID")"
 check "paired and on: live dir 0700, spool 0600, state file present" "700 600 working" \
   "$(find "$DATA/live" -maxdepth 0 -printf '%m' ) $(find "$(spool_of "$DEFAULT_SID")" -printf '%m') $(cat "${DATA}/live/$(test_sha "$DEFAULT_SID").state")"
@@ -411,7 +418,7 @@ check "cwd through a symlink to a directory is passed as given, safe argv" "$GIT
 echo "== git limited to one second, with and without timeout(1) =="
 slow_case() {  # LABEL REALDIR
   new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; REAL="$2"
-  SHIMD="$SB/slowshims"; link_shims "$SHIMD" git
+  SHIMD="$SB/slowshims"; link_shims "$SHIMD" git; ln -sf "$SHIMS_STUB/curl" "$SHIMD/curl"
   printf '#!/bin/bash\necho "git [$*]" >>"${SHIM_LOG:?}/calls.log"\nexec sleep 5\n' >"$SHIMD/git"; chmod +x "$SHIMD/git"
   cwd_pay session-start-startup "$SB/repo"
   local t0 t1; t0=$(date +%s); run_hook; t1=$(date +%s)
@@ -662,7 +669,7 @@ echo "== gates: the 64 KB read limit (AC-16) =="
 # A logging `head` shim (the shim dir is locked, so it is built here) is the read-size probe: the oversized file must
 # never be opened at all, the accepted one is read through head -c 65536.
 head_probe() {
-  SHIMD="$SB/probeshims"; link_shims "$SHIMD"
+  SHIMD="$SB/probeshims"; link_shims "$SHIMD"; ln -sf "$SHIMS_STUB/curl" "$SHIMD/curl"
   printf '#!/bin/bash\nexec "%s/_wrap.sh" head "$@"\n' "$SHIMS" >"$SHIMD/head"; chmod +x "$SHIMD/head"
 }
 padto() {  # FILE SIZE: append x bytes until the file is exactly SIZE bytes
@@ -674,7 +681,7 @@ new_case; mkcred; head_probe; mkdir -p "$SB/proj/.allye/missions/m-1"
 gates_line "$SHA1" - - - >"$SB/proj/.allye/missions/m-1/log.md"; padto "$SB/proj/.allye/missions/m-1/log.md" 65537
 check "fixture: oversized file is exactly 65537 bytes" "65537" "$(find "$SB/proj/.allye/missions/m-1/log.md" -printf '%s')"
 fire Write; no_gates "65537-byte file (valid Gates line inside the first 64 KB)"
-check "oversized file: never read (no head call at all)" "0" "$(grep -c '^head' "$SB/log/calls.log" || true)"
+check "oversized file: never read (no head -c call at all)" "0" "$(grep -c '^head \[-c\]' "$SB/log/calls.log" || true)"
 end_case
 # the same file at exactly 65536 bytes is accepted, read through head -c 65536 and nothing else
 new_case; mkcred; head_probe; mkdir -p "$SB/proj/.allye/missions/m-1"
@@ -682,7 +689,7 @@ gates_line "$SHA1" - - - >"$SB/proj/.allye/missions/m-1/log.md"; padto "$SB/proj
 check "fixture: boundary file is exactly 65536 bytes" "65536" "$(find "$SB/proj/.allye/missions/m-1/log.md" -printf '%s')"
 fire Write
 check "65536-byte file is accepted (counterpart)" '{"gates":["SHIELD_CLEAR"],"type":"gates"}' "$(gev)"
-check "the read is bounded: exactly one head call, head -c 65536" "1|head [-c] [65536] [$SB/proj/.allye/missions/m-1/log.md]" "$(grep -c '^head' "$SB/log/calls.log")|$(grep '^head' "$SB/log/calls.log")"
+check "the read is bounded: exactly one head call, head -c 65536" "1|head [-c] [65536] [$SB/proj/.allye/missions/m-1/log.md]" "$(grep -c '^head \[-c\]' "$SB/log/calls.log")|$(grep '^head \[-c\]' "$SB/log/calls.log")"
 end_case
 # a valid line after 64 KB in a file of unrelated size is simply never reached: file over the limit, Gates line only at the end
 new_case; mkcred; head_probe; mkdir -p "$SB/proj/.allye/missions/m-1"
@@ -704,7 +711,7 @@ ALLTXT="$SB/all.txt"; { find "$DATA" -type f -exec cat {} +; find "$DATA" -print
 for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$m" "$ALLTXT" || true)"; done
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
-check "files are keyed by sha256(session id): bind, seq, spool and state (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): bind, flushed, seq, spool and state (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
 check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
@@ -804,12 +811,12 @@ check "a hook that maps to nothing releases the lock too" "no" "$([ -n "$(find "
 # bg_hook IN OUT: the hook in the background with its own stdin and capture files (parallel-safe run_script).
 bg_hook() {
   env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" \
-    PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
+    PATH="$SHIMD:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" ${RUN_ENV[@]+"${RUN_ENV[@]}"} \
     "$BASH_BIN" "$HOOK" <"$1" >"$2" 2>&1 &
   BGPIDS="$BGPIDS $!"
 }
 BGPIDS=""
-wait_bg() { wait $BGPIDS; BGPIDS=""; }   # never a bare `wait`: it would also wait for the fake API server
+wait_bg() { wait $BGPIDS; BGPIDS=""; wait_idle; }   # never a bare `wait`: it would also wait for the fake API server
 echo "== skill vs mcp binding race (SHD-02) =="
 for round in 1 2 3 4 5 6; do
   new_case; mkcred; RUN_ENV=()
@@ -874,6 +881,202 @@ check "symlinked live dir: no lock, seq or any entry created through it" "0" "$(
 new_case; mkcred; mkdir -p "$DATA/live"; chmod 755 "$DATA/live"; run_fixture user-prompt-submit
 check "live dir mode 0755: no lock, seq or any entry created in it" "0" "$(find "$DATA/live" -mindepth 1 | wc -l | tr -d ' ')"; end_case
 
+# ─── ALY-203.6: batching, flush lock and sending (BR-04, BR-06, AC-03, AC-04, AC-12) ──────
+echo "== sending: contract body, token only on curl's stdin (AC-03) =="
+nbodies() { if [ -f "$SB/api/ingest-bodies.log" ]; then wc -l <"$SB/api/ingest-bodies.log" | tr -d ' '; else echo 0; fi; }
+sent_seqs() { [ -f "$SB/api/ingest-bodies.log" ] && "$JQ_BIN" -r '.events[].seq' "$SB/api/ingest-bodies.log" || true; }
+spool_seqs() { "$JQ_BIN" -r '.seq' "$(spool_of "${1:-$RAWSID}")" 2>/dev/null || true; }
+new_case; mkcred; SHIMD="$SHIMS"; SH=$(test_sha "$RAWSID")
+run_fixture user-prompt-submit
+check "first state change is sent at once: exit 0, silent" "0||" "$RC|$OUT|$ERR"
+check "one request, to the ingest route only, with the credential's host" "1 /api/agent-runs/events" "$(reqs) $("$JQ_BIN" -r '.path' "$SB/api/requests.log")"
+check "body: client kind, session hash = sha256 of the id, one event with seq/at/type/state" "claude-code $SH 1 working yes" \
+  "$("$JQ_BIN" -r '"\(.client.kind) \(.session.hash) \(.events | length) \(.events[0].state) \(.events[0] | (.seq >= 1000000000000 and (.at | test("Z$")) and .type == "state") | if . then "yes" else "no" end)"' "$SB/api/ingest-bodies.log")"
+check "body: only the contract keys at the top and in events" "client,session,events|at,seq,state,type" \
+  "$("$JQ_BIN" -r 'keys_unsorted | join(",")' "$SB/api/ingest-bodies.log")|$("$JQ_BIN" -r '.events[0] | keys | join(",")' "$SB/api/ingest-bodies.log")"
+check "positive control: the token reached the API in the Authorization header" "Bearer $TOKEN" "$("$JQ_BIN" -r '.authorization' "$SB/api/requests.log")"
+check "the shim saw curl run with the config on stdin: url/limits logged, argv is only flags" "yes yes" \
+  "$(grep -q "^url = \"$API/api/agent-runs/events\"" "$SB/log/curl-config.log" && grep -q '^max-time ' "$SB/log/curl-config.log" && echo yes || echo no) $(grep -c '^curl \[-q\] \[--silent\] \[-K\] \[-\] \[-o\] \[/dev/null\] \[-w\] \[%{http_code}\]$' "$SB/log/calls.log" | sed 's/^1$/yes/')"
+ALLTXT="$SB/all.txt"; { find "$DATA" -type f ! -name hook-credential.json -exec cat {} +; find "$DATA" -print; cat "$SB/log"/* "$SB/out" "$SB/err" "$SB/api/ingest-bodies.log" 2>/dev/null; } >"$ALLTXT"
+check "the token is in no argv, environment, spool, state file, batch, body, shim log, stdout or stderr" "0" "$(grep -cF -- "$TOKEN" "$ALLTXT" || true)"
+check "the raw token is not even in a piece (prefix alyh_ + 8) outside the credential file" "0" "$(grep -cF -- "${TOKEN:0:13}" "$ALLTXT" || true)"
+check "sent lines are removed from the spool; counter, flushed stamp stay; no batch file, no lock" "0 yes yes no no" \
+  "$(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ') $([ -s "$DATA/live/$SH.seq" ] && echo yes || echo no) $([ -s "$DATA/live/$SH.flushed" ] && echo yes || echo no) $([ -e "$DATA/live/$SH.batch" ] && echo yes || echo no) $([ -n "$(find "$DATA/live" -name '*.lock' -o -name '.*.??????')" ] && echo yes || echo no)"
+SENT1=$(sent_seqs | tail -n 1); run_fixture pre-tool-use
+check "seq counter survives the emptied spool: the next seq is higher" "yes" "$([ "$(spool_seqs | tail -n 1)" -gt "$SENT1" ] && echo yes || echo no)"
+end_case
+
+echo "== flush policy: 5 seconds or an important event (AC-04) =="
+T0=1800000000
+at() { RUN_ENV=("SHIM_DATE_NOW=$((T0 + $1))"); }
+new_case; mkcred; SHIMD="$SHIMS"
+at 0; run_fixture user-prompt-submit
+check "t+0: the first state change is sent" "1" "$(nbodies)"
+at 1; run_fixture pre-tool-use; at 2; run_fixture pre-tool-use; at 4; run_fixture pre-tool-use
+check "three non-important events within 5 s: nothing sent, all three spooled" "1 3" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+at 4; run_fixture post-tool-use
+check "still nothing at 4 s (a PostToolUse adds no line)" "1 3" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+at 5; run_fixture pre-tool-use
+check "at 5 s since the last flush: one request carrying the 4 spooled events" "2 4 0" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tail -n 1) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+at 6; run_fixture pre-tool-use
+check "1 s after that flush a plain event waits" "2 1" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+at 6; run_fixture subagent-start
+check "a subagent start is important: sent at once with the waiting event" "3 tool,sub_start" "$(nbodies) $("$JQ_BIN" -r '[.events[].type] | join(",")' "$SB/api/ingest-bodies.log" | tail -n 1)"
+at 6; run_fixture subagent-stop
+check "a subagent stop is important" "4" "$(nbodies)"
+at 6; run_fixture skill-bridge-spec
+check "a binding is important (tool + bind in one request)" "5" "$(nbodies)"
+at 6; run_fixture notification-idle-prompt
+check "a state change (working -> idle) is important" "6" "$(nbodies)"
+at 6; run_fixture notification-idle-prompt
+check "idle -> idle is not a change: nothing sent within the interval" "6" "$(nbodies)"
+end_case
+new_case; mkcred; SHIMD="$SHIMS"; mkdir -p "$SB/proj/.allye/missions/m-1"
+SHA1=$(printf 'a%.0s' $(seq 1 40)); printf -- '- Gates: SHIELD_CLEAR %s · WATCHER_APPROVED — · MISSION_COMPLETE — · CI_PENDING —\n' "$SHA1" >"$SB/proj/.allye/missions/m-1/log.md"
+at 0; run_fixture user-prompt-submit; at 1; GCWDV="$SB/proj"; FPV="$SB/proj/.allye/missions/m-1/log.md"
+"$JQ_BIN" -c --arg c "$SB/proj" --arg f "$FPV" '. + {hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, cwd:$c}' "$FIX/post-tool-use.json" >"$SB/stdin"; run_hook
+check "gates are important: sent at once" "2 gates" "$(nbodies) $("$JQ_BIN" -r '.events[-1].type' "$SB/api/ingest-bodies.log" | tail -n 1)"
+end_case
+
+echo "== batches of at most 50 events and 16384 bytes =="
+fill6() {  # LINES PADBYTES: contract-shaped lines with seq 1..N; PAD makes the code field long
+  local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"
+  "$JQ_BIN" -nc --argjson n "$1" --arg pad "$pad" 'range(1; $n + 1) | {seq: ., at: "2026-01-01T00:00:00Z", type: "state", state: "working"} + (if $pad == "" then {} else {code: $pad} end)' >"$SPF"
+}
+new_case; mkcred; SHIMD="$SHIMS"; fill6 120 0; run_fixture user-prompt-submit
+check "121 lines: three requests of 50, 50 and 21 events" "3 50,50,21" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tr '\n' ',' | sed 's/,$//')"
+check "every event sent once, in order, none left" "121 121 0" "$(sent_seqs | wc -l | tr -d ' ') $(sent_seqs | sort -n | uniq | wc -l | tr -d ' ') $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+check "events arrive in increasing seq order" "yes" "$(sent_seqs | awk 'NR > 1 && $1 <= p { b = 1 } { p = $1 } END { print (b ? "no" : "yes") }')"
+end_case
+new_case; mkcred; SHIMD="$SHIMS"; fill6 100 400; run_fixture user-prompt-submit
+check "400-byte events: more than three requests, each body at most 16384 bytes and under 50 events (bytes bind first)" "yes yes yes" \
+  "$([ "$(nbodies)" -ge 3 ] && echo yes || echo no) $([ "$(awk '{ if (length($0) > m) m = length($0) } END { print m }' "$SB/api/ingest-bodies.log")" -le 16384 ] && echo yes || echo no) $([ "$("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | sort -n | tail -n 1)" -lt 50 ] && echo yes || echo no)"
+check "byte-limited batches still deliver all 101 events once" "101 101 0" "$(sent_seqs | wc -l | tr -d ' ') $(sent_seqs | sort -n | uniq | wc -l | tr -d ' ') $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+end_case
+new_case; mkcred; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"
+{ printf '%s\n' '{"seq":1,"at":"2026-01-01T00:00:00Z","type":"state","state":"working"}' 'not json at all' '{"seq":"x","type":"state"}' '{"seq":2,"at":"2026-01-01T00:00:00Z","type":"nope"}' '{"seq":3,"at":"2026-01-01T00:00:00Z","type":"tool","tool":"Bash","extra":"MARKER_PATH"}'; printf '{"seq":4,"at":"20'; } >"$SPF"; chmod 600 "$SPF"
+run_fixture user-prompt-submit
+check "torn and invalid lines are skipped and dropped, unknown keys are not forwarded" "1,3,$(sent_seqs | tail -n 1) 0 0" "$(sent_seqs | head -n 2 | tr '\n' ',')$(sent_seqs | tail -n 1) $(wc -l <"$SPF" | tr -d ' ') $(grep -c MARKER_PATH "$SB/api/ingest-bodies.log" || true)"
+end_case
+
+echo "== failures keep the spool (details are ALY-203.7) =="
+for m in 5xx drop 400; do
+  new_case; mkcred; SHIMD="$SHIMS"; printf '%s' "$m" >"$SB/api/ingest-mode"; at 0; run_fixture user-prompt-submit
+  check "answer '$m': request made, line kept, exit 0 silent, flush lock released" "1 1 0|" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ') $RC|$OUT$ERR"
+  { find "$DATA" -type f ! -name hook-credential.json -exec cat {} +; find "$DATA" -print; cat "$SB/log"/* "$SB/out" "$SB/err" "$SB/api/ingest-bodies.log" 2>/dev/null; } >"$SB/all.txt"
+  check "answer '$m': the token reached the API's header and is in no other file, log, output or body" "Bearer $TOKEN 0" "$("$JQ_BIN" -r '.authorization' "$SB/api/requests.log" | tail -n 1) $(grep -cF -- "$TOKEN" "$SB/all.txt" || true)"
+  printf 'ok' >"$SB/api/ingest-mode"; at 5; run_fixture pre-tool-use
+  check "after '$m' and 5 s with an OK API: the kept line goes out with the new one" "2 0" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+  end_case
+done
+
+echo "== one flusher at a time (AC-12) =="
+new_case; mkcred; SHIMD="$SHIMS"; printf '400' >"$SB/api/ingest-delay"
+mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; H=$(test_sha "$RAWSID"); mkdir "$DATA/live/$H.flush.lock"; printf '%s %s' "$(date +%s)" "other.1" >"$DATA/live/$H.flush.lock/t"
+run_fixture user-prompt-submit
+check "a fresh flush lock held by another flusher: no request, the line stays, the lock is untouched" "0 1 other.1" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ') $(cut -d' ' -f2 "$DATA/live/$H.flush.lock/t")"
+printf '%s %s' "$(( $(date +%s) - 40 ))" "dead.1" >"$DATA/live/$H.flush.lock/t"; run_fixture subagent-start
+check "a flush lock older than 30 s is broken: the spool goes out" "1 0" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+end_case
+new_case; mkcred; SHIMD="$SHIMS"; printf '400' >"$SB/api/ingest-delay"; RUN_ENV=()
+n=0; for i in 1 2 3 4 5 6 7 8 9 10; do n=$((n + 1)); bg_hook "$FIX/subagent-start.json" "$SB/par.$n"; done; wait_bg
+SP=$(spool_of "$RAWSID")
+check "ten hooks, each an important event, a slow API: never more than one request in flight" "1" "$(cat "$SB/api/ingest-maxinflight" 2>/dev/null)"
+check "at least one request was made" "yes" "$([ "$(nbodies)" -ge 1 ] && echo yes || echo no)"
+SENTN=$(sent_seqs | wc -l | tr -d ' '); LEFT=$( [ -f "$SP" ] && wc -l <"$SP" | tr -d ' ' || echo 0)
+check "sent plus left in the spool is exactly the ten events" "10" "$((SENTN + LEFT))"
+check "no event was sent twice, none is both sent and left" "0 0" "$( { sent_seqs; spool_seqs; } | sort -n | uniq -d | wc -l | tr -d ' ') $(sent_seqs | sort -n | uniq -d | wc -l | tr -d ' ')"
+check "outputs empty, no flush lock, no state lock, no batch file left" "|no" "$(cat "$SB"/par.*)|$([ -n "$(find "$DATA/live" -name '*.lock' -o -name '*.batch')" ] && echo yes || echo no)"
+end_case
+echo "== flush_run directly: boundaries, progress, lock_touch (ALY-203.6 correction) =="
+# flush_direct: runs flush_run (and the functions it needs, extracted from the hook) against $SB's spool, fake API and
+# the real logging curl shim, as the detached flusher would, holding the flush lock like the hook does.
+flush_direct() {
+  local H; H=$(test_sha "$RAWSID")
+  env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" CLAUDE_PLUGIN_DATA="$DATA" "$BASH_BIN" -c "
+    LC_ALL=C; umask 077; UID_NOW=\$(id -u)
+    $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
+    HASH='$H'; LIVE_DIR='$DATA/live'; SPOOL=\"\$LIVE_DIR/\$HASH.spool\"; LOCKD=\"\$LIVE_DIR/\$HASH.lock\"; FLOCK=\"\$LIVE_DIR/\$HASH.flush.lock\"
+    BATCHF=\"\$LIVE_DIR/\$HASH.batch\"; LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
+    lock_take \"\$FLOCK\" 0 && { FTOK=\$LOCK_TOKEN; flush_run; lock_drop \"\$FLOCK\" \"\$FTOK\"; }"
+}
+BASE_LEN() { printf '{"client":{"kind":"claude-code"},"session":{"hash":"%s"},"events":[]}' "$(test_sha "$RAWSID")" | wc -c | tr -d ' '; }
+line6() {  # SEQ PADBYTES: a valid spool line; the code field pads it
+  local pad=""; [ "$2" -gt 0 ] && pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
+  "$JQ_BIN" -nc --argjson s "$1" --arg p "$pad" '{seq: $s, at: "2026-01-01T00:00:00Z", type: "state", state: "working"} + (if $p == "" then {} else {code: $p} end)'
+}
+len6() { line6 "$1" "$2" | wc -c | tr -d ' '; }   # includes the newline
+direct_case() { new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"; }
+body_sizes() { awk '{ print length($0) }' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//'; }
+ev_counts() { "$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//'; }
+
+# 50 events: the boundary
+direct_case; for i in $(seq 1 50); do line6 "$((1000 + i))" 0; done >"$SPF"; flush_direct
+check "exactly 50 events: one request of 50, spool empty" "1 50 0" "$(nbodies) $(ev_counts) $(wc -l <"$SPF" | tr -d ' ')"; end_case
+direct_case; for i in $(seq 1 51); do line6 "$((1000 + i))" 0; done >"$SPF"; flush_direct
+check "51 events: two requests, 50 then 1" "2 50 1" "$(nbodies) $(ev_counts | cut -d' ' -f1) $(ev_counts | cut -d' ' -f2)"; end_case
+# 16384 bytes: the body of two events is exactly 16384 / 16385 bytes
+BL=$(BASE_LEN); L1=$(len6 1001 100)
+direct_case; PADB=$((16384 - BL - (L1 - 1) - 1 - ($(len6 1002 1) - 1) + 1)); { line6 1001 100; line6 1002 "$PADB"; } >"$SPF"; flush_direct
+check "two events making a body of exactly 16384 bytes: one request, 16384 bytes" "1 16384 2" "$(nbodies) $(body_sizes) $(ev_counts)"; end_case
+direct_case; { line6 1001 100; line6 1002 "$((PADB + 1))"; } >"$SPF"; flush_direct
+check "the same with 16385 bytes: split in two requests, both events delivered, spool empty" "2 1 1 0" "$(nbodies) $(ev_counts | cut -d' ' -f1) $(ev_counts | cut -d' ' -f2) $(wc -l <"$SPF" | tr -d ' ')"; end_case
+# a single event: exactly at the limit is sent, one byte more is dropped
+ONE=$((16384 - BL - ($(len6 1001 1) - 1) + 1)); direct_case; line6 1001 "$ONE" >"$SPF"; flush_direct
+check "a single event making a body of exactly 16384 bytes is sent" "1 16384 0" "$(nbodies) $(body_sizes) $(wc -l <"$SPF" | tr -d ' ')"; end_case
+direct_case; line6 1001 "$((ONE + 1))" >"$SPF"; flush_direct
+check "a single oversize event (16385 bytes) is dropped, nothing sent, spool empty, flusher stops (SHD-03 no-progress)" "0 0" "$(nbodies) $(wc -l <"$SPF" | tr -d ' ')"
+check "the flusher left no lock and no batch file" "no" "$([ -n "$(find "$DATA/live" -name '*.lock' -o -name '*.batch')" ] && echo yes || echo no)"; end_case
+direct_case; { line6 1001 0; line6 1002 20000; } >"$SPF"; flush_direct
+check "valid line then an oversize valid line as the LAST line: first sent, oversize dropped, spool empty" "1 1 0" "$(nbodies) $(ev_counts) $(wc -l <"$SPF" | tr -d ' ')"; end_case
+direct_case; { line6 1001 0; printf '%s\n' '{"seq":1002,"at":"2026-01-01T00:00:00Z","type":"nope"}'; } >"$SPF"; flush_direct
+check "an object with an unknown type as the last line is dropped too (no endless rounds)" "1 0" "$(nbodies) $(wc -l <"$SPF" | tr -d ' ')"; end_case
+direct_case; printf '%s\n' '{"seq":1002,"at":"2026-01-01T00:00:00Z","type":"nope"}' 'junk' >"$SPF"; flush_direct
+check "a spool of only invalid lines is emptied without a request" "0 0" "$(nbodies) $(wc -l <"$SPF" | tr -d ' ')"; end_case
+# 2xx that removes nothing: the spool is replaced by a read-only directory trick is not needed; a line of an equal size is covered above.
+
+# lock_touch (SHD-01)
+touchp() { env -i PATH="$REALBIN" "$BASH_BIN" -c "LC_ALL=C; $(fn_body "$HOOK" lock_touch); $1"; }
+new_case; D="$SB/tt.lock"; mkdir "$D"; printf '%s %s' "$(( $(date +%s) - 20 ))" "mine.1" >"$D/t"
+check "lock_touch with the stored token refreshes the time and keeps the token" "0 mine.1 fresh" "$(touchp "lock_touch '$D' mine.1; echo \$?" | tr -d '\n') $(cut -d' ' -f2 "$D/t") $([ "$(( $(date +%s) - $(cut -d' ' -f1 "$D/t") ))" -lt 5 ] && echo fresh || echo old)"
+printf '%s %s' "$(( $(date +%s) - 20 ))" "theirs.2" >"$D/t"; B=$(cat "$D/t")
+check "lock_touch with another token fails and changes nothing" "1 yes" "$(touchp "lock_touch '$D' mine.1; echo \$?" | tr -d '\n') $([ "$(cat "$D/t")" = "$B" ] && echo yes || echo no)"
+check "lock_touch with an empty token fails" "1" "$(touchp "lock_touch '$D' ''; echo \$?" | tr -d '\n')"
+check "lock_touch leaves no temp file" "t" "$(ls "$D" | tr '\n' ' ' | sed 's/ $//')"
+rm -rf "$D"; check "lock_touch on a missing lock fails and creates nothing" "1 no" "$(touchp "lock_touch '$D' mine.1; echo \$?" | tr -d '\n') $([ -e "$D" ] && echo yes || echo no)"
+end_case
+# a flusher whose lock was taken over stops before sending
+direct_case; line6 1001 0 >"$SPF"
+env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" SHIM_REAL="$REALBIN" "$BASH_BIN" -c "
+  LC_ALL=C; umask 077; UID_NOW=\$(id -u)
+  $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
+  HASH='$(test_sha "$RAWSID")'; LIVE_DIR='$DATA/live'; SPOOL='$SPF'; LOCKD=\"\$LIVE_DIR/x.lock\"; FLOCK=\"\$LIVE_DIR/x.flush.lock\"; BATCHF=\"\$LIVE_DIR/x.batch\"
+  LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
+  mkdir \"\$FLOCK\"; printf '%s %s' \"\$(date +%s)\" 'someone-else' >\"\$FLOCK/t\"; FTOK=not-mine; flush_run"
+check "flusher that no longer owns its lock sends nothing and keeps the spool" "0 1" "$(nbodies) $(wc -l <"$SPF" | tr -d ' ')"; end_case
+
+echo "== append while a request is in flight =="
+new_case; mkcred; SHIMD="$SHIMS"; printf '1500' >"$SB/api/ingest-delay"; at 0
+run_fixture_bg() { cp "$FIX/$1.json" "$SB/stdin"; env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" SHIM_DATE_NOW="$((T0 + 0))" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; }
+run_fixture_bg user-prompt-submit
+for i in $(seq 1 100); do [ "$(nbodies)" -ge 1 ] && break; sleep 0.05; done
+check "the first request is in flight (received, answer delayed)" "1" "$(nbodies)"
+run_fixture_bg pre-tool-use
+check "a line appended during the request is in the spool (the in-flight line still is too)" "2" "$(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+wait_idle
+check "the flusher picked the appended line up in a second request: both delivered once, spool empty" "2 1 1 0" "$(nbodies) $(ev_counts | cut -d' ' -f1) $(ev_counts | cut -d' ' -f2) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+check "seqs delivered are distinct and increasing" "2 yes" "$(sent_seqs | sort -n | uniq | wc -l | tr -d ' ') $(sent_seqs | awk 'NR > 1 && $1 <= p { b = 1 } { p = $1 } END { print (b ? "no" : "yes") }')"
+end_case
+
+echo "== the hook does not wait for curl =="
+new_case; mkcred; SHIMD="$SHIMS"; printf '3000' >"$SB/api/ingest-delay"
+S0=$(date +%s); cp "$FIX/user-prompt-submit.json" "$SB/stdin"
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; S1=$(date +%s)
+check "a hook whose flush meets a 3 s API returns in under 2 s, silent" "yes|" "$([ $((S1 - S0)) -lt 2 ] && echo yes || echo no)|$(cat "$SB/out" "$SB/err")"
+wait_idle; check "and the detached flush still delivers" "1" "$(nbodies)"
+end_case
+
 # ─── fake ingest API (harness self-check) ───────────────────────────────────
 echo "== fake ingest API =="
 ingest() {  # MODE [file...]: POST two events with the stored token; sets HTTP and RBODY; extra control files as NAME=VALUE
@@ -906,11 +1109,10 @@ end_case
 # live-report.sh all run through the shim PATH; the shim log (curl-config.log) is the observation. The
 # assertion covers every request made BY THESE THREE SCRIPTS. The one test-only call that is outside it
 # is the stand-in for the MCP tool (POST /api/hook-pairings), made with the real curl as in
-# test-allye-hooks.sh. At this slice live-report.sh sends nothing, so the ingest route is in the allowed
-# set but not yet observed; the observed set must be a subset of the allowed set and equal the two
-# routes the other scripts use.
+# test-allye-hooks.sh. live-report.sh sends its first event as soon as it spools it (a state change), so all three routes
+# are observed and the observed set must equal the allowed set.
 echo "== hosts and routes (AC-17) =="
-new_case
+new_case; SHIMD="$SHIMS"
 RUN_ENV=("ALLYE_API_URL=$API")
 printf '' >"$SB/stdin"
 run_script "$PAIRHOOK" begin "$DATA"
@@ -932,7 +1134,7 @@ ALLOWED="/api/agent-runs/events /api/hook-pairings/exchange /api/memories/prefer
 check "observed requests exist (pin is not vacuous)" "yes" "$([ -n "$OBS_ROUTES" ] && echo yes || echo no)"
 check "host set equals exactly the host of the credential file" "$CRED_HOST " "$OBS_HOSTS"
 check "route set is a subset of the three allowed routes" "0" "$(for r in $OBS_ROUTES; do case " $ALLOWED " in *" $r "*) ;; *) echo bad;; esac; done | wc -l | tr -d ' ')"
-check "route set observed now: exchange and preferences" "/api/hook-pairings/exchange /api/memories/preferences " "$OBS_ROUTES"
+check "route set observed: exactly the exchange, the preferences read and the ingest route" "/api/agent-runs/events /api/hook-pairings/exchange /api/memories/preferences " "$OBS_ROUTES"
 check "no request was refused by the shim (no non-loopback host)" "no" "$([ -s "$SB/log/refused.log" ] && echo yes || echo no)"
 check "every request the API saw is in the allowed set or the test-only stand-in" "0" \
   "$("$JQ_BIN" -r '.path' "$SB/api/requests.log" | while read -r p; do case " $ALLOWED /api/hook-pairings " in *" $p "*) ;; *) echo bad;; esac; done | wc -l | tr -d ' ')"

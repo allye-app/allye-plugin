@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Code Live reporter (ALY-203). One asynchronous hook script that branches on hook_event_name.
-# Slices ALY-203.2/.3/.5: confirmed events are reduced to contract events and spooled locally with a seq (no sending yet);
+# Slices ALY-203.2/.3/.5/.6: confirmed events are reduced to contract events, spooled locally with a seq, and sent in batches;
 # MCP tools are reduced (BR-13) and bind events are derived from four sources (BR-08).
 #
 # Contract (BR-01, BR-03): always exits 0 and prints nothing to stdout or stderr. It does nothing, and
@@ -36,7 +36,8 @@ if [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then exit 0; fi
 # enumeration inside it; a value that fails is DROPPED (never truncated, never sent). Prompts, commands,
 # tool inputs and outputs, paths, messages, transcripts and the cwd are never read into the output.
 # AC-14: files are keyed by the SHA-256 hex of the session id; the raw id is never written anywhere.
-# Not in this file yet: sending and flush (ALY-203.6/.7).
+# Flush (ALY-203.6, BR-04/BR-06): see the block before the end of the file. Failure back-off, stale-line drop and the
+# SessionEnd flush are ALY-203.7.
 #
 # ALY-203.3 (BR-13, BR-08):
 # - Tool reduction runs BEFORE the 32-character name rule. A name starting `mcp__` is an MCP tool named
@@ -166,17 +167,122 @@ spool_trim() {
   return 0
 }
 
+# ─── ALY-203.6: flush (BR-04, BR-06) ───
+# The flusher is a detached subshell started by the hook that appended the lines, holding the flush lock
+# $HASH.flush.lock (a mkdir lock taken in the foreground, try once, so at most one flusher runs; its time is
+# refreshed before every batch so the 30-second break never hits a live flusher). It never takes the state lock
+# while talking to curl: it reads a snapshot of the complete spool lines, sends, and only then takes the state lock
+# briefly to rewrite the spool without the sent lines (seq order is file order, so "sent" is seq <= the batch max).
+# Invalid or torn lines are skipped and dropped with the sent ones.
+# lock_touch DIR TOKEN: refresh the holder time, only while DIR/t still holds this token; written by temp + mv.
+lock_touch() {
+  local t=""
+  { IFS=' ' read -r _ t <"$1/t"; } 2>/dev/null
+  [ -n "${2:-}" ] && [ "$t" = "$2" ] || return 1
+  printf '%s %s' "$(date +%s 2>/dev/null)" "$2" >"$1/t.$$" 2>/dev/null && mv -f "$1/t.$$" "$1/t" 2>/dev/null || { rm -f "$1/t.$$" 2>/dev/null; return 1; }
+}
+# jq_valid_def: the jq definitions shared by the batch builder and the spool rewrite (a line is a valid event or it is dropped).
+jq_valid_def() {
+  printf '%s' 'def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates")));
+    def ok: type == "object" and (.seq | type == "number" and . == floor and . >= 1) and (.at | type == "string")
+            and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates"));'
+}
+# batch_build: sets BK (physical lines consumed), BMAX (highest seq in the batch) and BODY (the request body, empty
+# when the consumed lines held no valid event). At most 50 events and 16384 bytes of body; only contract keys are kept.
+batch_build() {
+  local n base out rest
+  BK=0; BMAX=0; BODY=""
+  [ -f "$SPOOL" ] && [ ! -L "$SPOOL" ] || return 1
+  n=$(wc -l <"$SPOOL" 2>/dev/null); n=${n//[[:space:]]/}
+  [[ "$n" =~ ^[1-9][0-9]*$ ]] || return 1
+  base=$(printf '{"client":{"kind":"claude-code"},"session":{"hash":"%s"},"events":[' "$HASH")
+  out=$(head -n "$n" "$SPOOL" 2>/dev/null | jq -Rn -r --arg base "$base" "$(jq_valid_def)"'
+    [inputs] as $L
+    | (reduce range(0; $L | length) as $i ({evs: [], size: (($base | utf8bytelength) + 2), k: 0, max: 0, done: false};
+        if .done then .
+        else (($L[$i] | try fromjson catch null)) as $e
+          | if ($e | ok | not) then .k = $i + 1
+            else ($e | keep) as $ev | ($ev | tojson | utf8bytelength) as $len
+              | (if (.evs | length) > 0 then 1 else 0 end) as $sep
+              | if ((.evs | length) >= 50) or (((.evs | length) > 0) and ((.size + $sep + $len) > 16384)) then .done = true
+                elif (.size + $sep + $len) > 16384 then .k = $i + 1 | .max = ([.max, $ev.seq] | max)
+                else .evs += [$ev] | .size += $sep + $len | .k = $i + 1 | .max = ([.max, $ev.seq] | max) end
+            end
+        end)) as $r
+    | $r.k, $r.max, (if ($r.evs | length) > 0 then ($base + ($r.evs | map(tojson) | join(",")) + "]}") else "" end)' 2>/dev/null) || return 1
+  BK=${out%%$'\n'*}; rest=${out#*$'\n'}; BMAX=${rest%%$'\n'*}; BODY=""; case "$rest" in *$'\n'*) BODY=${rest#*$'\n'} ;; esac   # an empty body leaves no third line
+  [[ "$BK" =~ ^[0-9]+$ ]] && [[ "$BMAX" =~ ^[0-9]+$ ]] && [ "$BK" -gt 0 ] || { BK=0; BMAX=0; BODY=""; return 1; }
+  return 0
+}
+# spool_drop_sent MAX: under the state lock, rewrite the spool without invalid lines and without lines with
+# seq <= MAX, MAX being the highest seq of every line the snapshot consumed, sent or skipped (lines appended since
+# have a higher seq and stay). The file is replaced by mv, no fd held.
+spool_drop_sent() {
+  local tmp tok
+  lock_take "$LOCKD" 250 || return 1
+  tok="$LOCK_TOKEN"
+  if private_file_ok "$SPOOL" && tmp=$(mktemp "$LIVE_DIR/.spool.XXXXXX" 2>/dev/null); then
+    TMPF="$tmp"
+    if jq -R -c --argjson m "$1" "$(jq_valid_def)"' fromjson? | select(ok and .seq > $m)' "$SPOOL" >"$tmp" 2>/dev/null; then
+      mv -f "$tmp" "$SPOOL" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+    else rm -f "$tmp" 2>/dev/null; fi
+  fi
+  lock_drop "$LOCKD" "$tok"
+  return 0
+}
+# flush_run: the detached part. A non-2xx answer or a curl failure keeps the spool (back-off is ALY-203.7).
+flush_run() {
+  local rounds=0 code before
+  case "$LIVE_DIR" in *[\"\\]*) return 0 ;; esac   # the path goes into a curl config string
+  while [ "$rounds" -lt 20 ]; do
+    rounds=$((rounds + 1))
+    before=$(wc -c <"$SPOOL" 2>/dev/null) || break
+    batch_build || break
+    if [ -z "$BODY" ]; then
+      spool_drop_sent "$BMAX" || break
+      [ "$(wc -c <"$SPOOL" 2>/dev/null)" != "$before" ] || break   # nothing was removed: no progress
+      continue
+    fi
+    lock_touch "$FLOCK" "$FTOK" || break   # the lock is no longer ours: stop
+    printf '%s' "$BODY" >"$BATCHF" 2>/dev/null || break
+    code=$({
+      printf 'url = "%s/api/agent-runs/events"\n' "$LIVE_API"
+      printf 'header = "Authorization: Bearer %s"\n' "$LIVE_TOKEN"
+      printf 'header = "Content-Type: application/json"\n'
+      printf 'header = "Accept: application/json"\n'
+      printf 'data-binary = "@%s"\n' "$BATCHF"
+      printf 'max-time = 8\nconnect-timeout = 3\nmax-filesize = 65536\nnoproxy = "*"\n'
+    } | curl -q --silent -K - -o /dev/null -w '%{http_code}' 2>/dev/null) || break
+    rm -f "$BATCHF" 2>/dev/null
+    case "$code" in
+      2[0-9][0-9]) spool_drop_sent "$BMAX" || break
+                   [ "$(wc -c <"$SPOOL" 2>/dev/null)" != "$before" ] || break ;;   # a 2xx that removed nothing: stop
+      *) break ;;
+    esac
+  done
+  return 0
+}
+flush_due() {  # important events flush at once, others when 5 seconds passed since the last flush started
+  local last="" now
+  [ "$IMPORTANT" = 1 ] && return 0
+  if [ -f "$FLUSHED" ] && [ ! -L "$FLUSHED" ] && private_file_ok "$FLUSHED"; then IFS= read -r last <"$FLUSHED" 2>/dev/null; fi
+  now=$(date +%s 2>/dev/null) || return 1
+  [[ "$last" =~ ^[0-9]{1,12}$ ]] && [[ "$now" =~ ^[0-9]{1,12}$ ]] || return 0
+  [ $((now - last)) -ge 5 ]
+}
+
 # The live directory is checked before the first read or write (SHD-01), then every read-modify-write of this
 # session (state, bind, gates, seq, spool) runs under one lock, so parallel hooks of a session are consistent.
 # A hook that cannot get the lock within about 10 seconds gives up and drops its events (it exits 0, silent).
 live_dir_ok || exit 0
 HAVE_LOCK=0; LOCKD="$LIVE_DIR/$HASH.lock"
 TMPF=""
-cleanup() { [ -z "$TMPF" ] || rm -f "$TMPF" "$TMPF.2" 2>/dev/null; [ "$HAVE_LOCK" = 1 ] && lock_drop "$LOCKD" "$LOCK_TOKEN"; return 0; }
+cleanup() { [ -z "$TMPF" ] || rm -f "$TMPF" "$TMPF.2" 2>/dev/null; [ "$HAVE_LOCK" = 1 ] && lock_drop "$LOCKD" "$STATE_TOKEN"; return 0; }
 trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
 lock_take "$LOCKD" 500 || exit 0
-HAVE_LOCK=1
+STATE_TOKEN="$LOCK_TOKEN"; HAVE_LOCK=1
+FLOCK="$LIVE_DIR/$HASH.flush.lock"; FLUSHED="$LIVE_DIR/$HASH.flushed"; BATCHF="$LIVE_DIR/$HASH.batch"
 
 LAST=""
 if [ -f "$STATEF" ] && [ ! -L "$STATEF" ] && private_file_ok "$STATEF"; then
@@ -462,4 +568,21 @@ if [ -n "$GATELINE" ]; then
   TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$GNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
+
+# Flush trigger (BR-04): an important event (state change, subagent start or stop, bind, gates) or 5 seconds since
+# the last flush. The state lock is released first; the flusher is detached so the hook returns at once.
+IMPORTANT=0
+case "$EVENTS" in *'"type":"sub_start"'*|*'"type":"sub_stop"'*|*'"type":"bind"'*|*'"type":"gates"'*) IMPORTANT=1 ;; esac
+if [ -n "$NEWLAST" ] && [ "$NEWLAST" != "$LAST" ]; then IMPORTANT=1; fi
+lock_drop "$LOCKD" "$STATE_TOKEN"; HAVE_LOCK=0
+if flush_due && lock_take "$FLOCK" 0; then
+  FTOK="$LOCK_TOKEN"
+  TMP=$(mktemp "$LIVE_DIR/.flushed.XXXXXX" 2>/dev/null) && { TMPF="$TMP"; date +%s >"$TMP" 2>/dev/null && mv -f "$TMP" "$FLUSHED" 2>/dev/null || rm -f "$TMP" 2>/dev/null; }
+  (
+    trap 'rm -f "$BATCHF" "$TMPF" "$TMPF.2" 2>/dev/null; lock_drop "$FLOCK" "$FTOK"' EXIT
+    trap 'exit 0' HUP INT TERM
+    flush_run
+  ) </dev/null >/dev/null 2>&1 &
+fi
+LIVE_TOKEN=""
 exit 0
