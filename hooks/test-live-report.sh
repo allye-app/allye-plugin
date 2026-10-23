@@ -795,6 +795,19 @@ check "ten waiting flushers: all ten ran, one at a time" "10 yes no" "$(grep -c 
 : >"$FLOG"; mkdir "$FL"; printf '%s' "$(( $(date +%s) - 40 ))" >"$FL/t"
 for i in 1 2 3 4 5 6 7 8 9 10; do prim "lock_take '$FL' 1000 && { echo in >>'$FLOG'; sleep 0.05; echo out >>'$FLOG'; lock_drop '$FL' \"\$LOCK_TOKEN\"; }" & FP="$FP $!"; done; wait $FP; FP=""
 check "ten waiting takers over a 40 s old lock: all ten ran, one at a time, nothing left" "10 yes 0" "$(grep -c '^in' "$FLOG") $([ -z "$(tr '\n' ' ' <"$FLOG" | sed 's/in out //g')" ] && echo yes || echo no) $(find "$SB" -name 'fl.lock*' | wc -l | tr -d ' ')"
+# ALY-211: uutils coreutils (Ubuntu 25.10+, the 26.04 runner) lets several concurrent mkdir calls on one new directory
+# all succeed, so mkdir alone is no lock. The shim below is the worst case (mkdir never fails); ownership must still be
+# decided by the exclusive claim of DIR/t, for the lock and for the breaker mutex.
+mkdir -p "$SB/mk"; printf '#!/bin/bash\n"%s" "$@" 2>/dev/null\nexit 0\n' "$(type -P mkdir)" >"$SB/mk/mkdir"; chmod +x "$SB/mk/mkdir"
+primmk() { env -i PATH="$SB/mk:$REALBIN" "$BASH_BIN" -c "LC_ALL=C; $(fn_body "$HOOK" lock_is_stale); $(fn_body "$HOOK" lock_take); $(fn_body "$HOOK" lock_drop); $1"; }
+: >"$FLOG"; rm -rf "$FL"
+for i in 1 2 3 4 5 6 7 8 9 10; do primmk "lock_take '$FL' 1000 && { echo in >>'$FLOG'; sleep 0.05; echo out >>'$FLOG'; lock_drop '$FL' \"\$LOCK_TOKEN\"; }" & FP="$FP $!"; done; wait $FP; FP=""
+check "mkdir that always succeeds: ten waiting flushers still run one at a time, nothing left" "10 yes 0" "$(grep -c '^in' "$FLOG") $([ -z "$(tr '\n' ' ' <"$FLOG" | sed 's/in out //g')" ] && echo yes || echo no) $(find "$SB" -name 'fl.lock*' | wc -l | tr -d ' ')"
+: >"$FLOG"; mkdir "$FL"; printf '%s' "$(( $(date +%s) - 40 ))" >"$FL/t"
+for i in 1 2 3 4 5 6 7 8 9 10; do primmk "lock_take '$FL' 1000 && { echo in >>'$FLOG'; sleep 0.05; echo out >>'$FLOG'; lock_drop '$FL' \"\$LOCK_TOKEN\"; }" & FP="$FP $!"; done; wait $FP; FP=""
+check "mkdir that always succeeds: ten takers over a 40 s old lock run one at a time, nothing left" "10 yes 0" "$(grep -c '^in' "$FLOG") $([ -z "$(tr '\n' ' ' <"$FLOG" | sed 's/in out //g')" ] && echo yes || echo no) $(find "$SB" -name 'fl.lock*' | wc -l | tr -d ' ')"
+rm -rf "$FL"; mkdir "$FL"; printf '%s %s' "$(date +%s)" "owner.1" >"$FL/t"
+check "mkdir that always succeeds: a held fresh lock is not taken" "1" "$(primmk "lock_take '$FL' 0; echo \$?" | tr -d '\n')"
 end_case
 
 echo "== lock in the hook (SHD-02) =="
