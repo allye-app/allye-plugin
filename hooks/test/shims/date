@@ -1,0 +1,15 @@
+#!/bin/bash
+# Pass-through to the real date (logged by _wrap.sh) unless SHIM_DATE_NOW (a fake Unix epoch in
+# seconds) is set, in which case the clock reads that instant: `+%s`, `+%s%3N`/`+%s000`-style
+# millisecond formats and every `+FORMAT` rendering of that instant (UTC).
+if [ -n "${SHIM_DATE_NOW:-}" ]; then
+  fmt=""
+  for a in "$@"; do case "$a" in +*) fmt="$a" ;; esac; done
+  printf 'date [%s]\n' "$*" >>"${SHIM_LOG:?}/calls.log"
+  case "$fmt" in
+    '+%s') printf '%s\n' "$SHIM_DATE_NOW"; exit 0 ;;
+    '+%s%3N'|'+%s000') printf '%s000\n' "$SHIM_DATE_NOW"; exit 0 ;;
+    +*) exec "${SHIM_REAL:?}/date" -u -d "@$SHIM_DATE_NOW" "$fmt" ;;
+  esac
+fi
+exec "$(dirname "$0")/_wrap.sh" date "$@"

@@ -103,6 +103,29 @@ const server = createServer((req, res) => {
         absoluteExpiresAt: "2026-04-01T00:00:00.000Z",
       }));
     }
+    // Ingest route of the Live reporter (hooks/test-live-report.sh). Its own control files, so the
+    // `mode` file above keeps its meaning: ingest-mode = ok (default) | ok-null | 400 | 401 | 401-inactive |
+    // 403 | 413 | 422 | 429 | 5xx | drop; ingest-counts = "accepted,ignored,dropped" (default: all events
+    // accepted); ingest-retry-after (default 30). Raw bodies are also appended to ingest-bodies.log.
+    if (req.method === "POST" && req.url === "/api/agent-runs/events") {
+      appendFileSync(`${dir}/ingest-bodies.log`, raw.replace(/\n/g, " ") + "\n");
+      const im = read("ingest-mode", "ok");
+      if (im === "drop") return void req.socket.destroy();
+      if (im === "400") return failure(res, req.url, 400, "VALIDATION_FAILED");
+      if (im === "401") return failure(res, req.url, 401, "HOOK_CREDENTIAL_INVALID");
+      if (im === "401-inactive") return failure(res, req.url, 401, "USER_INACTIVE");
+      if (im === "403") return failure(res, req.url, 403, "HOOK_CREDENTIAL_ROUTE_FORBIDDEN");
+      if (im === "413") return failure(res, req.url, 413, "PAYLOAD_TOO_LARGE");
+      if (im === "422") return failure(res, req.url, 422, "AGENT_RUN_LIMIT");
+      if (im === "5xx") return failure(res, req.url, 503, undefined);
+      if (im === "429") {
+        res.writeHead(429, { "content-type": "application/json", "retry-after": read("ingest-retry-after", "30") });
+        return void res.end(JSON.stringify({ error: { statusCode: 429, message: { code: "RATE_LIMITED", message: "SERVER-TEXT-LEAK" } } }));
+      }
+      const n = Array.isArray(body?.events) ? body.events.length : 0;
+      const [a, i, d] = read("ingest-counts", `${n},0,0`).split(",").map(Number);
+      return send(res, 202, envelope({ accepted: a, ignored: i, dropped: d, shortId: im === "ok-null" ? null : "ab12cd", bound: false }));
+    }
     return failure(res, req.url, 404, "NOT_FOUND");
   });
 });
