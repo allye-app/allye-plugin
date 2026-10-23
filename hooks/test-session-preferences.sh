@@ -118,7 +118,8 @@ check "the hook is executable" "yes" "$([ -x "$HOOK" ] && echo yes || echo no)"
 
 # ─── hooks.json (AC-12) ─────────────────────────────────────────────────────
 echo "== hooks.json =="
-check "SessionStart holds two entries" "2" "$("$JQ_BIN" '.hooks.SessionStart | length' "$HOOKS_JSON")"
+check "SessionStart holds the two ALY-195 entries (the Live reporter's own entry is not counted)" "2" "$("$JQ_BIN" '[.hooks.SessionStart[] | select(.hooks[0].command | endswith("/live-report.sh") | not)] | length' "$HOOKS_JSON")"
+check "exactly one Live reporter SessionStart entry, after the two ALY-195 entries" "1|live-report.sh" "$("$JQ_BIN" -r '[.hooks.SessionStart | to_entries[] | select(.value.hooks[0].command | endswith("/live-report.sh")) | .key] | "\(length)|\(if length == 1 and .[0] == 2 then "live-report.sh" else "misplaced" end)"' "$HOOKS_JSON")"
 check "first entry: session-start.sh unchanged (no matcher, timeout 15)" '{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh","timeout":15}]}' "$("$JQ_BIN" -c '.hooks.SessionStart[0]' "$HOOKS_JSON")"
 check "second entry: matcher startup|clear|compact" "startup|clear|compact" "$("$JQ_BIN" -r '.hooks.SessionStart[1].matcher' "$HOOKS_JSON")"
 check "second entry: command is session-preferences.sh" '${CLAUDE_PLUGIN_ROOT}/hooks/session-preferences.sh' "$("$JQ_BIN" -r '.hooks.SessionStart[1].hooks[0].command' "$HOOKS_JSON")"

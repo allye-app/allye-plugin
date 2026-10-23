@@ -1287,6 +1287,34 @@ check "every request the API saw is in the allowed set or the test-only stand-in
   "$("$JQ_BIN" -r '.path' "$SB/api/requests.log" | while read -r p; do case " $ALLOWED /api/hook-pairings " in *" $p "*) ;; *) echo bad;; esac; done | wc -l | tr -d ' ')"
 end_case
 
+# ─── hooks/hooks.json registration (AC-13, BR-15, D-09) ─────────────────────
+echo "== hooks.json registers the reporter for exactly the confirmed events =="
+HJ="$SCRIPT_DIR/hooks.json"; PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+check "hooks.json parses as JSON with a single top-level key, hooks" "yes hooks" "$("$JQ_BIN" -e 'type == "object"' "$HJ" >/dev/null 2>&1 && echo yes || echo no) $("$JQ_BIN" -r 'keys | join(",")' "$HJ" 2>/dev/null)"
+# The confirmed list is the set of hook_event_name values of the event fixtures; the negative controls
+# (unmapped-event-*, unknown-event*) are fixtures of events that are NOT registered.
+FIX_EVENTS=$(for f in "$FIX"/*.json; do case "$(basename "$f")" in unmapped-event-*|unknown-event*) continue ;; esac; "$JQ_BIN" -r '.hook_event_name' "$f"; done | sort -u | tr '\n' ' ')
+REG_EVENTS=$("$JQ_BIN" -r '.hooks | keys[]' "$HJ" 2>/dev/null | sort -u | tr '\n' ' ')
+check "the fixture event list is the 12 confirmed events (not vacuous)" "12" "$(printf '%s' "$FIX_EVENTS" | wc -w | tr -d ' ')"
+check "registered events == fixture events, no extra event" "$FIX_EVENTS" "$REG_EVENTS"
+check "no negative-control event is registered" "0" "$("$JQ_BIN" -r '.hooks | keys[] | select(IN("FileChanged","PostToolUseFailure","PostToolBatch","PermissionDenied","PreCompact") or startswith("MARKER"))' "$HJ" | wc -l | tr -d ' ')"
+REPORTER_CMD='${CLAUDE_PLUGIN_ROOT}/hooks/live-report.sh'
+rep() { "$JQ_BIN" -r --arg c "$REPORTER_CMD" "$1" "$HJ"; }
+check "every event has exactly one reporter hook, in one entry of its own" "12 12" "$(rep '[.hooks[][] | select(.hooks | map(.command) | index($c))] | length') $(rep '[.hooks | to_entries[] | select(.value | map(.hooks[] | select(.command == $c)) | length == 1)] | length')"
+check "every reporter entry holds the reporter command alone (no other hook shares it)" "0" "$(rep '[.hooks[][] | select(.hooks | map(.command) | index($c)) | select((.hooks | length) != 1)] | length')"
+check "every reporter hook is a command hook with the exact path under CLAUDE_PLUGIN_ROOT" "12" "$(rep '[.hooks[][].hooks[] | select(.command == $c and .type == "command")] | length')"
+check "every reporter hook except SessionEnd is async" "11 0" "$(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c and .async == true)] | length') $(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c and .async != true)] | length')"
+check "SessionEnd is synchronous (no async) with a 2 second timeout" "null 2" "$(rep '.hooks.SessionEnd[].hooks[] | select(.command == $c) | (.async // null | tostring)') $(rep '.hooks.SessionEnd[].hooks[] | select(.command == $c) | .timeout')"
+check "async reporter hooks carry a 20 second timeout (state lock wait plus git, as the flush is detached)" "11 20" "$(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c and (.timeout | type == "number"))] | length') $(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c) | .timeout] | unique | .[0]')"
+check "every reporter timeout is a number between 1 and 60" "0" "$(rep '[.hooks[][].hooks[] | select(.command == $c) | select((.timeout | type) != "number" or .timeout < 1 or .timeout > 60)] | length')"
+check "the reporter registrations add no matcher (the script filters by itself)" "0" "$(rep '[.hooks[][] | select(.hooks | map(.command) | index($c)) | select(has("matcher"))] | length')"
+check "the existing SessionStart hooks are unchanged (same entries, same order, first)" '[{"hooks":[{"command":"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh","timeout":15,"type":"command"}]},{"hooks":[{"command":"${CLAUDE_PLUGIN_ROOT}/hooks/session-preferences.sh","timeout":5,"type":"command"}],"matcher":"startup|clear|compact"}]' \
+  "$("$JQ_BIN" -cS '.hooks.SessionStart[0:2]' "$HJ")"
+check "the existing hooks are the only non-reporter hooks" "session-preferences.sh session-start.sh" "$(rep '[.hooks[][].hooks[].command | select(. != $c) | sub("^.*/"; "")] | sort | join(" ")')"
+check "SessionStart has the two existing entries plus the reporter's" "3" "$(rep '.hooks.SessionStart | length')"
+check "the command resolves to an existing executable file in this plugin" "yes" "$(p="${REPORTER_CMD/\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"; [ -f "$p" ] && [ -x "$p" ] && echo yes || echo no)"
+check "the other commands also resolve to executable files" "yes" "$(for c in session-start.sh session-preferences.sh; do [ -x "$PLUGIN_ROOT/hooks/$c" ] || echo no; done | grep -c no | sed 's/^0$/yes/')"
+
 echo
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
