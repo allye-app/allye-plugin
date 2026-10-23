@@ -37,7 +37,7 @@ Prompts, commands, tool inputs and outputs, file paths, notification messages, a
 
 ## What does leave it
 
-Be aware of these labels (LVH-15): the type and id of a subagent (for example `allye:bridge-pilot`), the name of each tool in use (`Bash`, `Edit`, ...; an Allye MCP call is reduced to `allye:<action>`, any other MCP tool to `mcp`), and spec and task keys such as `ALY-203` or `ALY-203.5` taken from `/bridge`, Allye MCP calls, `ALLYE_SPEC` / `ALLYE_TASK` or a branch name that starts with a key (only the key leaves, not the branch). Allye keeps the reported events for 7 days.
+Be aware of these labels: the type and id of a subagent (for example `allye:bridge-pilot`), the name of each tool in use (`Bash`, `Edit`, ...; an Allye MCP call is reduced to `allye:<action>`, any other MCP tool to `mcp`), and spec and task keys such as `ALY-203` or `ALY-203.5` taken from `/bridge`, Allye MCP calls, `ALLYE_SPEC` / `ALLYE_TASK` or a branch name that starts with a key (only the key leaves, not the branch). Allye keeps ended runs for 7 days.
 
 ## Binding a session to a spec
 
@@ -49,7 +49,7 @@ The `outcome` of a subagent comes from the `status:` line at the start of its fi
 
 ## Local files
 
-Everything lives in `${CLAUDE_PLUGIN_DATA}/live` (directory 0700, files 0600), keyed by the session hash: `<hash>.spool` (events waiting to be sent), `.seq`, `.state`, `.bind`, `.gates`, `.cred` (a fingerprint of the credential last used), `.flushed` (time of the last send) and `.lock`; plus `off` (set by `live off`), `disabled` (set after a rejected credential) and `backoff`. The spool keeps at most 500 lines and 256 KB (the oldest go first), and lines older than 23 hours are dropped instead of sent.
+Everything lives in `${CLAUDE_PLUGIN_DATA}/live` (directory 0700, files 0600), keyed by the session hash: `<hash>.spool` (events waiting to be sent), `.seq`, `.state`, `.bind`, `.gates`, `.cred` (a fingerprint of the credential last used), `.flushed` (time of the last send) and `.lock`, with short-lived `.flush.lock`, `.batch`, `.hdr` and `.resp` files while a send runs; plus `off` (set by `live off`), `disabled` (set after a rejected credential) and `backoff`. The spool keeps at most 500 lines and 256 KB (the oldest go first), and lines older than 23 hours are dropped instead of sent.
 
 ## Sending
 

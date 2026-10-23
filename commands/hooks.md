@@ -17,11 +17,11 @@ Rules for both:
 1. Run `"${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh" begin "${CLAUDE_PLUGIN_DATA}"`. It prints `challenge`, `deviceName` and `clientKind`. If it fails, show its message and stop.
 2. Call the Allye MCP tool `hooks` with action `hooks_pair_start` and exactly those three values (`challenge`, `deviceName`, `clientKind`). It returns a `pairingCode`, the account email and the organization name. If the call fails, tell the user and stop.
 3. Proceed only if the challenge matches `^[0-9a-f]{64}$` and the `pairingCode` matches `^alyp_[0-9a-f]{32}$`; otherwise stop and tell the user the pairing failed. Run `"${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh" finish "${CLAUDE_PLUGIN_DATA}" <challenge> <pairingCode>` with the challenge from step 1 and the `pairingCode` from step 2, each passed as a single quoted argument.
-4. Show the line the script prints ("Paired <device> as <email> in <organization>; ..."). Ask the user to check that the email and organization are theirs; if not, they should run `/allye:hooks unpair` and revoke the device in Settings → Devices.
+4. Show the line the script prints ("Paired <device> as <email> in <organization>; ..."). Ask the user to check that the email and organization are theirs; if not, they should run `/allye:hooks unpair` and revoke the device in Settings → Devices. Then tell the user that pairing also turns on Live session reporting: Allye receives the session state, tool names, subagent type and outcome, and spec and task keys (never prompts, commands, file contents, paths or messages), and `/allye:hooks live off` turns it off.
 
 ## unpair
 
-Run `"${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh" unpair "${CLAUDE_PLUGIN_DATA}"` and show its output. It deletes the local files only and makes no network call; remind the user to revoke the device in Settings → Devices.
+Run `"${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh" unpair "${CLAUDE_PLUGIN_DATA}"` and show its output. It deletes the local files only and makes no network call; remind the user to revoke the device in Settings → Devices. Live reporting stops sending at once (no credential), but runs still open on Allye are not ended; run `/allye:hooks live off` first to end them.
 
 ## live
 

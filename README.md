@@ -75,7 +75,7 @@ Pair this install with your Allye account and every new, cleared or compacted se
 
 #### Live session reporting (Claude Code only, optional)
 
-When paired, hooks send Allye the state of your sessions (started, working, waiting, idle, ended), the tool names in use, subagent ids and types with their outcome, and the spec and task keys the session is bound to. The subagent type, tool names and `allye:<action>` / spec / task keys DO leave your machine; prompts, commands, tool inputs and outputs, file paths, notification and assistant messages, transcripts, the working directory, branch names and credentials never do. Allye keeps events 7 days. Control it with `/allye:hooks live off|on|status`; events, fields and local files are in [docs/live-reporting.md](docs/live-reporting.md).
+When paired, hooks send Allye the state of your sessions (started, working, waiting, idle, ended), the tool names in use, subagent ids and types with their outcome, and the spec and task keys the session is bound to. The subagent type, tool names and `allye:<action>` / spec / task keys DO leave your machine; prompts, commands, tool inputs and outputs, file paths, notification and assistant messages, transcripts, the working directory, branch names and credentials never do. Allye keeps ended runs 7 days. Control it with `/allye:hooks live off|on|status`; events, fields and local files are in [docs/live-reporting.md](docs/live-reporting.md).
 
 ### Codex, OpenCode
 
