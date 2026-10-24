@@ -67,6 +67,11 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   identical. Calls inside a subagent never bind. A task key does not supply a spec part.
 - skill: `Skill` tool call (`bridge`/`allye:bridge`) or `UserPromptExpansion` (`command_name` bridge/allye:bridge) with
   `<mode> [KEY]`. Invalid mode: no bind. Invalid key: the key only is dropped. A key with a dot is `task`, else `spec`.
+- mcp: main-session Allye MCP call (server `allye` or `*_allye`) whose `tool_input.action` is exactly `task_start` or
+  `task_submit` (ALY-217.4, D-22); `tool_input.spec` / `tool_input.task` each kept only when it matches the key pattern, no
+  bind when neither does. Every other action (reads such as `spec_get`, `spec_list`, `task_get`, approvals such as
+  `spec_approve`, other transitions, a missing or invalid action, `TASK_START`) spools only its tool event, no bind.
+  Key-validation fixtures: `mcp-allye-task-start-*`; the rank and tie cases use `mcp-allye-task-start-half-bad-key`.
 - env: `ALLYE_SPEC`/`ALLYE_TASK`, read through jq `$ENV` (never argv), at SessionStart, role `session`.
 - branch: SessionStart only, no bind of rank above branch stored, cwd absolute + existing directory + no control characters,
   `git -c core.fsmonitor= -c core.hooksPath=/dev/null -C <cwd> branch --show-current`, 1 s (`timeout` if present, else a

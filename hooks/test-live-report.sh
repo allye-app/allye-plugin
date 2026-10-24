@@ -441,7 +441,7 @@ new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; RUN_ENV=("ALLYE_SPEC=AL
 check "env binding present: git not called, env bind sent" "0 1" "$(git_count) $(spooled | grep -c '"source":"env"' || true)"; end_case
 new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; run_fixture skill-bridge-spec; cwd_pay session-start-startup "$SB/repo"; run_hook
 check "skill binding already sent: git not called, no branch bind" "0 0" "$(git_count) $(spooled | grep -c '"source":"branch"' || true)"; end_case
-new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; run_fixture mcp-allye-spec-get; cwd_pay session-start-startup "$SB/repo"; run_hook
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; run_fixture mcp-allye-task-start-half-bad-key; cwd_pay session-start-startup "$SB/repo"; run_hook
 check "mcp binding already sent: git not called" "0" "$(git_count)"; end_case
 new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; RUN_ENV=("ALLYE_SPEC=ALY-5"); cwd_pay session-start-startup "$SB/repo"; run_hook; RUN_ENV=(); cwd_pay session-start-resume "$SB/repo"; run_hook
 check "env binding sent earlier in the session: git not called later" "0" "$(git_count)"; end_case
@@ -478,26 +478,26 @@ echo "== strength ordering and repeats =="
 S1='{"type":"tool","tool":"Skill"}'
 BSK='{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"mission","spec":"ALY-203"}}'
 BMC='{"type":"bind","bind":{"source":"mcp","spec":"ALY-203"}}'
-TMC='{"type":"tool","tool":"allye:spec_get"}'
-SEQ=(skill-bridge-spec mcp-allye-spec-get)
+TMC='{"type":"tool","tool":"allye:task_start"}'   # ALY-217.4: only task_start/task_submit bind
+SEQ=(skill-bridge-spec mcp-allye-task-start-half-bad-key)
 seq_case "skill then mcp: the weaker mcp bind is not sent" "$S1" "$BSK" "$TMC"
-SEQ=(mcp-allye-spec-get skill-bridge-spec)
+SEQ=(mcp-allye-task-start-half-bad-key skill-bridge-spec)
 seq_case "mcp then skill: the stronger skill bind is sent" "$TMC" "$BMC" "$S1" "$BSK"
 SEQ=(skill-bridge-spec skill-bridge-spec)
 seq_case "skill twice: the same bind is sent once" "$S1" "$BSK" "$S1"
-SEQ=(mcp-allye-spec-get mcp-allye-spec-get)
+SEQ=(mcp-allye-task-start-half-bad-key mcp-allye-task-start-half-bad-key)
 seq_case "mcp twice: the same bind is sent once" "$TMC" "$BMC" "$TMC"
-SEQ=(mcp-allye-spec-get mcp-allye-task-start)
+SEQ=(mcp-allye-task-start-half-bad-key mcp-allye-task-start)
 seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{"type":"tool","tool":"allye:task_start"}' '{"type":"bind","bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"}}'
 SEQ=(skill-bridge-spec expansion-bridge-spec)
 seq_case "skill via Skill tool then via expansion with another key: sent again" "$S1" "$BSK" '{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"launch","spec":"ALY-7"}}'
 SEQ=(skill-bridge-subagent mcp-allye-subagent)
 seq_case "calls made inside a subagent never bind" '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:spec_get","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
-new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture session-start-startup mcp-allye-spec-get skill-bridge-spec
+new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture session-start-startup mcp-allye-task-start-half-bad-key skill-bridge-spec
 check "env then mcp then skill: each stronger source is sent" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"env","role":"session","spec":"ALY-5"}}' "$TMC" "$BMC" "$S1" "$BSK" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture skill-bridge-spec session-start-startup
 check "skill then env at SessionStart: the weaker env bind is not sent" "$(printf '%s\n' "$S1" "$BSK" "$SSB" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
-new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; cwd_pay session-start-startup "$SB/repo"; run_hook; run_fixture mcp-allye-spec-get skill-bridge-spec
+new_case; mkcred; mkrepo "bridge/aly-203-live-reporter"; cwd_pay session-start-startup "$SB/repo"; run_hook; run_fixture mcp-allye-task-start-half-bad-key skill-bridge-spec
 check "branch then mcp then skill: each stronger source is sent" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"branch","spec":"ALY-203"}}' "$TMC" "$BMC" "$S1" "$BSK" | "$JQ_BIN" -cS .)" "$(spooled)"
 cwd_pay session-start-resume "$SB/repo"; run_hook
 check "then a resume SessionStart: git not called again, no bind" "1" "$(git_count)"; end_case
@@ -516,7 +516,7 @@ check "garbage in the bind state is treated as no binding" "$(printf '%s\n' "$S1
 
 echo "== markers in bindings =="
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-203" "ALLYE_TASK=MARKER_ABCDEF"); mkrepo "bridge/aly-203-MARKER_BRANCH"
-for n in skill-bridge-task skill-bridge-bad-key2 expansion-bridge-bad-key mcp-allye-bad-action mcp-bad-chars mcp-other-server; do run_fixture "$n"; done
+for n in skill-bridge-task skill-bridge-bad-key2 expansion-bridge-bad-key mcp-allye-bad-action mcp-allye-task-start-bad-key mcp-allye-task-start-half-bad-key mcp-allye-task-submit mcp-bad-chars mcp-other-server; do run_fixture "$n"; done
 cwd_pay session-start-startup "$SB/repo"; run_hook
 check "ARGS, tool_input, branch and cwd markers absent from every file and log" "0" "$( { bind_files; cat "$SB/out" "$SB/err" "$SB/log/calls.log"; } | grep -cE 'MARKER_(ARGS|BRANCH|CMD|ABCDEF|CWD)' || true)"
 check "every bind holds only contract keys and patterns" "0" "$("$JQ_BIN" -c 'select(.type == "bind") | .bind | select((keys - ["source","spec","task","role","mode"] | length > 0) or (.source | IN("skill","mcp","env","branch") | not) or ((.spec // "ALY-1") | test("\\A[A-Z][A-Z0-9]{1,9}-[0-9]+(\\.[0-9]+)?\\z") | not) or ((.task // "ALY-1.1") | test("\\A[A-Z][A-Z0-9]{1,9}-[0-9]+(\\.[0-9]+)?\\z") | not))' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
@@ -880,7 +880,7 @@ wait_bg() { wait $BGPIDS; BGPIDS=""; wait_idle; }   # never a bare `wait`: it wo
 echo "== skill vs mcp binding race (SHD-02) =="
 for round in 1 2 3 4 5 6; do
   new_case; mkcred; RUN_ENV=()
-  bg_hook "$FIX/skill-bridge-spec.json" "$SB/o1"; bg_hook "$FIX/mcp-allye-spec-get.json" "$SB/o2"; bg_hook "$FIX/mcp-allye-task-start.json" "$SB/o3"; wait_bg
+  bg_hook "$FIX/skill-bridge-spec.json" "$SB/o1"; bg_hook "$FIX/mcp-allye-task-start-half-bad-key.json" "$SB/o2"; bg_hook "$FIX/mcp-allye-task-start.json" "$SB/o3"; wait_bg
   BF="$DATA/live/$(test_sha "$RAWSID").bind"
   ORDER=$("$JQ_BIN" -r 'select(.type=="bind") | {skill:4,mcp:3,env:2,branch:1}[.bind.source]' "$(spool_of "$RAWSID")" | tr -d '\n')
   check "race $round: a skill bind is sent, no weaker bind after it, and the file holds the strongest" "yes 4 4" "$(case "$ORDER" in *4) echo yes ;; *) echo "no($ORDER)" ;; esac) $(echo "$ORDER" | grep -o 4 | head -n 1) $(cut -d'|' -f1 "$BF")"

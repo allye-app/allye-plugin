@@ -769,10 +769,12 @@ def skillb($name; $args):
     [$args | match("[^ \t\r\n]+"; "g").string] as $t
     | if ($t | length) > 0 and ($t[0] | IN(modes[])) then {source: "skill", role: "bridge", mode: $t[0]} + kv($t[1] // null) else null end
   else null end;
+# ALY-217.4 (BR-08, D-03, D-22): only the claim-like writes task_start and task_submit (exact, lowercase) bind.
 def mcpb:
   ((.tool_input | objects) // {}) as $i
-  | ({source: "mcp"} + (if ($i.spec | keyok) then {spec: $i.spec} else {} end) + (if ($i.task | keyok) then {task: $i.task} else {} end))
-  | if has("spec") or has("task") then . else null end;
+  | if ($i.action | IN("task_start","task_submit") | not) then null else
+    ({source: "mcp"} + (if ($i.spec | keyok) then {spec: $i.spec} else {} end) + (if ($i.task | keyok) then {task: $i.task} else {} end))
+  | if has("spec") or has("task") then . else null end end;
 def envb:
   ({source: "env", role: "session"} + (if ($ENV.ALLYE_SPEC | keyok) then {spec: $ENV.ALLYE_SPEC} else {} end) + (if ($ENV.ALLYE_TASK | keyok) then {task: $ENV.ALLYE_TASK} else {} end))
   | if has("spec") or has("task") then . else null end;
