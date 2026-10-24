@@ -78,3 +78,25 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   background watchdog). The git shim wraps the real git, so branch tests use throwaway repositories in the sandbox.
 - New fixtures: `skill-*`, `expansion-*`, `mcp-*` (the `.expect` lists the tool and bind lines; the environment and
   branch sources are covered by generated payloads in `hooks/test-live-report.sh`).
+
+## ALY-217.6: activity phrases
+
+- Sources (D-24), PreToolUse only: Bash and Agent/Task `tool_input.description`; TodoWrite the `activeForm` of the first
+  `tool_input.todos` item whose `status` is `in_progress`. No other field (command, prompt, todo `content`, other
+  `activeForm` values) is read. The phrase goes on the event's own `tool` / `sub_tool` line as `activity`.
+- Cleanup and redaction (D-23) run in the reporter's jq program: whitespace (tabs, line breaks, Unicode spaces) to one
+  space; C0/C1 controls, DEL, bidi controls, zero-width and every other format character, U+034F, variation selectors and
+  tag characters stripped; backticked spans removed; tokens dropped when they look like a path, URL, email, IP address,
+  long base64/hex string, any `[A-Za-z0-9_-]{24,}` run, a known token prefix (`sk-`, `pk-`, `rk-`, `ghp_`, `gho_`, `ghs_`,
+  `github_pat_`, `xox[abprs]-`, `AKIA`, `ASIA`, `eyJ`, `glpat-`) or a secret: `key=value` / `key:value`, a bare `key:`,
+  `key = value` / `key : value`, `password|passwd|secret|token|apikey|api_key|... [is|as] value`, `Authorization[:]
+  Basic|Bearer|Token|Digest value` and `Bearer value` (key, separator, scheme and value all dropped, chained; Shield
+  SHD-01/SHD-03 of ALY-217.6); fewer than 3 words or 8 characters: no `activity`; above 48 code points: cut at the last
+  space plus U+2026. The Agent stash reaches jq through `--rawfile`, never argv (SHD-02).
+- Fixtures: `activity-bash*`, `activity-todowrite*` and the redaction table `activity-redact-*` (one dropped kind per
+  file; the parts that are dropped hold markers). Invisible characters are written as JSON `\uXXXX` escapes only.
+- `pre-tool-use.json` keeps the one-word description `MARKER_MSG`: too short, so its `.expect` has no `activity`.
+- `mcp-allye-subagent` is a `task_start` with valid keys (a call that binds in the main session), so "calls inside a
+  subagent never bind" is not vacuous; the harness also runs it without `agent_id` and expects the bind.
+- The Agent/Task stash (`<hash>.agents`, FIFO by subagent type within 60 s), the cap and the `activity-off` switch are
+  covered by generated payloads in `hooks/test-live-report.sh`.

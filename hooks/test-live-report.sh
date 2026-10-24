@@ -492,7 +492,9 @@ seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{
 SEQ=(skill-bridge-spec expansion-bridge-spec)
 seq_case "skill via Skill tool then via expansion with another key: sent again" "$S1" "$BSK" '{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"launch","spec":"ALY-7"}}'
 SEQ=(skill-bridge-subagent mcp-allye-subagent)
-seq_case "calls made inside a subagent never bind" '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:spec_get","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+new_case; mkcred; "$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/mcp-allye-subagent.json" >"$SB/stdin"; run_hook
+check "control: the same task_start payload outside a subagent binds (the subagent case is not vacuous)" '{"bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"},"type":"bind"}' "$(spooled | grep '"bind"')"; end_case
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture session-start-startup mcp-allye-task-start-half-bad-key skill-bridge-spec
 check "env then mcp then skill: each stronger source is sent" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"env","role":"session","spec":"ALY-5"}}' "$TMC" "$BMC" "$S1" "$BSK" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture skill-bridge-spec session-start-startup
@@ -756,9 +758,125 @@ check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool 
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
 check "files are keyed by sha256(session id): bind, cred, flushed, seq, spool and state (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
-check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+end_case
+
+# ─── ALY-217.6: activity phrases (BR-10..BR-13, AC-27..AC-33) ────────────────
+# The fixtures activity-bash*, activity-todowrite* and activity-redact-* (the redaction table of AC-30) are checked by
+# the generic fixture loop above; these cases cover the cap, the Agent/Task stash, the switch and the privacy scan.
+echo "== activity phrases: cap, Agent stash, switch and privacy (ALY-217.6) =="
+H6=$(test_sha "$RAWSID"); AGF() { echo "$DATA/live/$H6.agents"; }
+# bash_act DESC-JSON: a Bash PreToolUse whose description is the JSON string DESC-JSON (escapes allowed).
+bash_act() { "$JQ_BIN" --argjson d "$1" '.tool_input.description = $d' "$FIX/activity-bash.json" >"$SB/stdin"; run_hook; }
+# last_act: the activity of the last spooled line ("<none>" when absent), as JSON (escapes for non-ASCII).
+last_act() { spooled | tail -n 1 | "$JQ_BIN" -a '.activity // "<none>"'; }
+cplen() { "$JQ_BIN" -rn --argjson s "$1" '$s | length'; }
+new_case; mkcred
+P48='"Atualizando as configura\u00e7\u00f5es do m\u00f3dulo de lan\u00e7ar"'
+check "AC-31: the 48-code-point test phrase has 48 code points (more bytes)" "48 yes" "$(cplen "$P48") $([ "$("$JQ_BIN" -rn --argjson s "$P48" '$s | utf8bytelength')" -gt 48 ] && echo yes || echo no)"
+bash_act "$P48"; check "AC-31: a phrase of exactly 48 code points is sent unchanged" "$P48" "$(last_act)"
+bash_act '"Atualizando as configura\u00e7\u00f5es do m\u00f3dulo de lan\u00e7amento agora"'
+check "AC-31: a longer phrase is cut at the last space and ends in an ellipsis" '"Atualizando as configura\u00e7\u00f5es do m\u00f3dulo de\u2026"' "$(last_act)"
+bash_act '"\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9 ok go"'
+check "AC-31: no space in the first 48 code points: a hard cut at 47 multi-byte code points plus the ellipsis" "48 yes" "$(cplen "$(last_act)") $(case "$(last_act)" in *'\u00e9\u2026"') echo yes ;; *) echo no ;; esac)"
+bash_act '"Run\tthe\n  unit\r\n\u2028tests   now"'; check "AC-31: tabs, line breaks and runs of spaces become one space" '"Run the unit tests now"' "$(last_act)"
+bash_act '"Rebuild the shield report for the release candidate before the gate"'
+check "AC-31: a cut phrase ends at a word boundary with the ellipsis" '42 "Rebuild the shield report for the release\u2026"' "$(cplen "$(last_act)") $(last_act)"
+end_case
+
+echo "== activity: the Agent/Task stash, FIFO by subagent type within 60 s (AC-28) =="
+T6=1800000000
+# agent_pay TOOL TYPE-or-- DESC: a main-session PreToolUse of TOOL with a prompt marker (TYPE -- = no subagent_type).
+agent_pay() {
+  "$JQ_BIN" -n --arg t "$1" --arg ty "$2" --arg d "$3" --arg s "$RAWSID" '{session_id: $s, cwd: "/work/MARKER_CWD", hook_event_name: "PreToolUse", tool_name: $t,
+    tool_input: ({description: $d, prompt: "MARKER_PROMPT_xyz read /etc/MARKER_PATH"} + (if $ty == "--" then {} else {subagent_type: $ty} end)), tool_use_id: "toolu_ag"}' >"$SB/stdin"
+}
+start_pay() { "$JQ_BIN" -n --arg id "$1" --arg ty "$2" --arg s "$RAWSID" '{session_id: $s, cwd: "/work/MARKER_CWD", hook_event_name: "SubagentStart", agent_id: $id, agent_type: $ty}' >"$SB/stdin"; }
+at6() { RUN_ENV=("SHIM_DATE_NOW=$((T6 + $1))"); }
+agent() { at6 "$1"; agent_pay "$2" "$3" "$4"; run_hook; }
+sstart() { at6 "$1"; start_pay "$2" "$3"; run_hook; }
+lines_of() { spooled | "$JQ_BIN" -c "select($1)"; }
+new_case; mkcred
+agent 0 Agent allye:bridge-medic "Review the spec for gaps"
+check "AC-28: the Agent tool event carries the cleaned description" '{"activity":"Review the spec for gaps","tool":"Agent","type":"tool"}' "$(spooled | tail -n 1)"
+check "AC-28/AC-33: the agents stash exists, mode 0600, and holds the phrase and the type only" "600 yes" "$(find "$(AGF)" -printf '%m') $("$JQ_BIN" -e 'length == 1 and .[0].t == "allye:bridge-medic" and .[0].a == "Review the spec for gaps" and (.[0] | keys) == ["a","ms","t"]' "$(AGF)" >/dev/null && echo yes || echo no)"
+sstart 5 agent-m1 allye:bridge-medic
+check "AC-28: sub_start then sub_tool {tool: Agent, activity} for the new subagent" \
+  '{"sub":{"id":"agent-m1","type":"allye:bridge-medic"},"type":"sub_start"}|{"activity":"Review the spec for gaps","sub":{"id":"agent-m1","type":"allye:bridge-medic"},"tool":"Agent","type":"sub_tool"}' \
+  "$(spooled | tail -n 2 | tr '\n' '|' | sed 's/|$//')"
+check "AC-28: the sub_tool comes right after its sub_start (seq order)" "yes" "$("$JQ_BIN" -s 'map(select(.sub.id == "agent-m1")) | (.[0].type == "sub_start" and .[1].type == "sub_tool" and .[1].seq == .[0].seq + 1)' "$(spool_of "$RAWSID")" | sed 's/true/yes/;s/false/no/')"
+check "AC-28: the consumed entry left the stash (an empty stash is removed)" "no" "$([ -e "$(AGF)" ] && echo yes || echo no)"
+sstart 6 agent-m2 allye:bridge-medic
+check "AC-28: a second sub_start of the type with nothing stashed gets no sub_tool" "1" "$(lines_of '.type == "sub_tool"' | grep -c .)"
+end_case
+new_case; mkcred
+agent 0 Agent allye:bridge-pilot "First pilot slice phrase"; agent 1 Task allye:bridge-pilot "Second pilot slice phrase"
+check "AC-28: Task works like Agent (its own tool event carries the phrase)" '"Second pilot slice phrase"' "$(last_act)"
+sstart 2 agent-p1 allye:bridge-pilot; sstart 3 agent-p2 allye:bridge-pilot
+check "AC-28: two launches of one type: the first sub_start gets the first phrase, the second the second" \
+  'agent-p1 First pilot slice phrase|agent-p2 Second pilot slice phrase' "$(lines_of '.type == "sub_tool"' | "$JQ_BIN" -r '"\(.sub.id) \(.activity)"' | tr '\n' '|' | sed 's/|$//')"
+end_case
+new_case; mkcred
+agent 0 Agent allye:bridge-pilot "Pilot phrase for another type"; sstart 1 agent-x allye:bridge-medic
+check "AC-28: a sub_start of another type gets no sub_tool and leaves the entry stashed" "0 1" "$(lines_of '.type == "sub_tool"' | grep -c . || true) $("$JQ_BIN" 'length' "$(AGF)")"
+sstart 59 agent-y allye:bridge-pilot
+check "AC-28: within 60 s the matching type still gets it" '"Pilot phrase for another type"' "$(last_act)"
+end_case
+new_case; mkcred
+agent 0 Agent allye:bridge-pilot "Pilot phrase that will expire"; sstart 61 agent-z allye:bridge-pilot
+check "AC-28: an entry older than 60 s yields no sub_tool and is pruned" "0 no" "$(lines_of '.type == "sub_tool"' | grep -c . || true) $([ -e "$(AGF)" ] && echo yes || echo no)"
+end_case
+new_case; mkcred
+agent 0 Agent allye:bridge-pilot "Go"; agent 1 Agent allye:bridge-pilot "Pilot phrase kept in line"
+check "AC-28: a launch with no usable phrase has a tool event without activity but keeps its stash place" '<none>|2' "$(spooled | head -n 1 | "$JQ_BIN" -r '.activity // "<none>"')|$("$JQ_BIN" 'length' "$(AGF)")"
+sstart 2 agent-a1 allye:bridge-pilot; sstart 3 agent-a2 allye:bridge-pilot
+check "AC-28: the empty entry consumes the first sub_start (no sub_tool), the next phrase goes to the second" "agent-a2 Pilot phrase kept in line" "$(lines_of '.type == "sub_tool"' | "$JQ_BIN" -r '"\(.sub.id) \(.activity)"' | tr '\n' '|' | sed 's/|$//')"
+end_case
+new_case; mkcred
+agent 0 Agent -- "General purpose search task"; sstart 1 agent-g1 general-purpose
+check "AC-28: an absent subagent_type counts as general-purpose" '"General purpose search task"' "$(last_act)"
+agent 2 Agent 'bad type with spaces' "Phrase with a bad type"
+check "AC-28: a subagent_type failing its pattern is not stashed (the tool event keeps its phrase)" '"Phrase with a bad type" no' "$(last_act) $([ -e "$(AGF)" ] && echo yes || echo no)"
+end_case
+new_case; mkcred
+for i in $(seq 1 20); do agent "$i" Agent allye:bridge-pilot "Pilot launch number $(printf '%02d' "$i") here"; done
+check "AC-28: the stash keeps at most 16 entries (the oldest dropped)" "16 Pilot launch number 05 here" "$("$JQ_BIN" 'length' "$(AGF)") $("$JQ_BIN" -r '.[0].a' "$(AGF)")"
+end_case
+
+echo "== activity: on by default, the activity-off flag, live off (AC-32) =="
+new_case; mkcred
+run_fixture activity-bash; check "AC-32: no flag: the phrase is sent" '"Run the agent runs unit tests"' "$(last_act)"
+: >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"
+run_fixture activity-bash activity-todowrite; agent 0 Agent allye:bridge-pilot "Pilot phrase while off"; sstart 1 agent-o1 allye:bridge-pilot
+check "AC-32: flag set: tool events still spooled, none carries activity, no sub_tool, no agents stash" "4 0 0 no" \
+  "$(spooled | tail -n 4 | grep -c .) $(spooled | tail -n 4 | grep -c '"activity"' || true) $(lines_of '.type == "sub_tool"' | grep -c . || true) $([ -e "$(AGF)" ] && echo yes || echo no)"
+rm -f "$DATA/live/activity-off"; run_fixture activity-bash
+check "AC-32: flag removed: phrases are sent again from the next hook" '"Run the agent runs unit tests"' "$(last_act)"
+ln -s "$SB/nowhere" "$DATA/live/activity-off"; run_fixture activity-todowrite
+check "AC-32: a dangling symlink named activity-off also counts as off (fail safe)" '"<none>"' "$(last_act)"
+rm -f "$DATA/live/activity-off"
+N6=$(spooled | grep -c .); : >"$DATA/live/off"; chmod 600 "$DATA/live/off"; run_fixture activity-bash
+check "AC-32: live off: nothing is spooled whatever the activity flag" "$N6" "$(spooled | grep -c .)"
+end_case
+
+echo "== activity: privacy (BR-13, AC-33) =="
+new_case; mkcred; SHIMD="$SHIMS"
+for n in activity-bash activity-bash-subagent activity-todowrite activity-todowrite-subagent activity-redact-path activity-redact-secret activity-redact-bearer activity-redact-backticks activity-redact-token activity-redact-email activity-redact-url; do run_fixture "$n"; done
+agent 0 Agent allye:bridge-pilot "Inspect /etc/MARKER_PATH with token=MARKER_ARGS now please"
+agent 1 Agent allye:bridge-medic "Second launch phrase read back from the stash"
+check "AC-33: the agents stash is 0600 in the 0700 live directory and holds only the cleaned phrase" "600 700 Inspect with now please" "$(find "$(AGF)" -printf '%m') $(find "$DATA/live" -maxdepth 0 -printf '%m') $("$JQ_BIN" -r '.[0].a' "$(AGF)")"
+for i in $(seq 1 100); do [ -s "$SB/api/ingest-bodies.log" ] && break; sleep 0.05; done; wait_idle
+SCAN6="$SB/scan6.txt"; { find "$DATA" -type f ! -name hook-credential.json -exec cat {} +; find "$DATA" -print; cat "$SB/log/calls.log" "$SB/log/curl-config.log" "$SB/api/requests.log" "$SB/api/ingest-bodies.log" 2>/dev/null; } >"$SCAN6"
+check "AC-33: phrases reached the API (the scan is not vacuous)" "yes" "$(grep -q 'Run the agent runs unit tests' "$SB/api/ingest-bodies.log" 2>/dev/null && echo yes || echo no)"
+N6=0; for m in "$RAWSID" "${MARKERS[@]}"; do [ "$(grep -cF -- "$m" "$SCAN6" || true)" = 0 ] || { N6=$((N6 + 1)); echo "    found: $m"; }; done
+check "AC-33: no command, prompt, todo content or dropped description part in files, names, curl argv/config or request bodies" "0" "$N6"
+sstart 2 agent-q1 allye:bridge-medic
+wait_idle
+check "ALY-217.6 SHD-02: the stash was read back (a sub_tool carries its phrase), so the argv check below is not vacuous" "yes" "$(cat "$(spool_of "$RAWSID")" "$SB/api/ingest-bodies.log" 2>/dev/null | "$JQ_BIN" -r 'select(.type == "sub_tool"), (.events[]? | select(.type == "sub_tool")) | .activity' 2>/dev/null | grep -qx 'Second launch phrase read back from the stash' && echo yes || echo no)"
+check "ALY-217.6 SHD-02: no phrase or stash text in the argv of any jq, curl or other tool call (calls.log)" "0" \
+  "$(grep -cE 'Run the agent runs unit tests|Writing the activity phrase tests|Inspect with now please|Second launch phrase|Login with and then' "$SB/log/calls.log" || true)"
 end_case
 
 echo "== a payload that is not JSON, or a session id that fails its pattern =="

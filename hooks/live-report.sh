@@ -47,7 +47,9 @@ CFP=""
 # ─── ALY-203.2: extract allowlisted events from the payload and spool them ───
 # BR-02: every value is read by the allowlisted jq program below and matched against its pattern or
 # enumeration inside it; a value that fails is DROPPED (never truncated, never sent). Prompts, commands,
-# tool inputs and outputs, paths, messages, transcripts and the cwd are never read into the output.
+# tool inputs and outputs, paths, messages, transcripts and the cwd are never read into the output; the one exception is
+# the activity phrase of ALY-217.6 (an agent-written description or todo form, cleaned and redacted by actphrase in that
+# same jq program before anything is spooled or stashed; off while $CLAUDE_PLUGIN_DATA/live/activity-off exists).
 # AC-14: files are keyed by the SHA-256 hex of the session id; the raw id is never written anywhere.
 # Flush (ALY-203.6/.7, BR-04/06/07/12): see the block before the end of the file.
 #
@@ -228,7 +230,7 @@ lock_touch() {
 }
 # jq_valid_def: the jq definitions shared by the batch builder and the spool rewrite (a line is a valid event or it is dropped).
 jq_valid_def() {
-  printf '%s' 'def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates")));
+  printf '%s' 'def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity")));
     def ok: type == "object" and (.seq | type == "number" and . == floor and . >= 1) and (.at | type == "string")
             and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates"));
     def fresh($now): ((.at | try fromdateiso8601 catch 0) >= ($now - 82800));'
@@ -737,11 +739,78 @@ def substop: outcome as $r | (tkline // null) as $t
 # BR-14 trigger: {type:"trig"} is never output; it only makes a pending waiting_input become working.
 # A value failing its pattern drops the tool event but the hook still counts as activity.
 def trig: [{type: "trig"}];
+# ─── ALY-217.6: the activity phrase (BR-10, BR-11, D-23, D-24) ───
+# Code points stripped (D-04 forbidden set, plus the other format characters the API refuses: \p{Cf}, U+034F, the
+# variation selectors and the tag characters; U+FFFD and surrogates as a safety net) and code points read as a space.
+def actbad: . < 32 or (. >= 127 and . <= 159) or . == 173 or . == 847 or (. >= 1536 and . <= 1541) or . == 1564 or . == 1757
+  or . == 1807 or . == 2192 or . == 2193 or . == 2274 or . == 6158 or (. >= 8203 and . <= 8207) or (. >= 8234 and . <= 8238)
+  or (. >= 8288 and . <= 8303) or (. >= 55296 and . <= 57343) or (. >= 65024 and . <= 65039) or . == 65279
+  or (. >= 65529 and . <= 65533) or . == 69821 or . == 69837 or (. >= 78896 and . <= 78911) or (. >= 113824 and . <= 113827)
+  or (. >= 119155 and . <= 119162) or (. >= 917504 and . <= 917631) or (. >= 917760 and . <= 917999);
+def actws: . == 9 or . == 10 or . == 11 or . == 12 or . == 13 or . == 133 or . == 160 or . == 5760 or (. >= 8192 and . <= 8202)
+  or . == 8232 or . == 8233 or . == 8239 or . == 8287 or . == 12288;
+# D-23 step 4, one token: dropped as a path, URL, email, IP address, long base64/hex string or secret.
+def actcore: gsub("\\A[\"\u0027(\\[{<,;.!?]+|[\"\u0027)\\]}>,;.!?]+\\z"; "");
+def actdrop:
+  actcore as $c
+  | test("[/\\\\]") or ($c | test("\\A(~|[A-Za-z]:)")) or contains("://") or ($c | ascii_downcase | startswith("www."))
+    or test("[^@]@[^@]+\\.[^@]") or ($c | test("\\A[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]{1,5})?\\z")) or contains("::")
+    or ($c | test("\\A[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{0,4}){2,}\\z")) or test("[0-9A-Fa-f]{16,}")
+    or ([match("[A-Za-z0-9+/=_-]{20,}"; "g").string | select(test("[0-9]"))] | length > 0)
+    or test("[A-Za-z0-9_-]{24,}")
+    or ($c | test("\\A(sk-|pk-|rk-|ghp_|gho_|ghs_|github_pat_|xox[abprs]-|AKIA|ASIA|eyJ|glpat-)"));
+# Secrets (D-23 step 4 and Shield SHD-01/03 of ALY-217.6). actkv: `key=value` / `key:value` (also bare `key:`, actbare);
+# actkey: a key-like word alone; actsep: a standalone `=` / `:`; actscheme: an auth scheme; actauth: auth/authorization;
+# actword: a secret word whose next token (after an optional is/as/=) is its value.
+def actkv: test("\\A[^=:]*(key|token|secret|pass|auth|credential)[^=:]*[=:]"; "i");
+def actbare: test("\\A[^=:]*(key|token|secret|pass|auth|credential)[^=:]*[=:]+[\"\u0027]?\\z"; "i");
+def actkey: actcore | test("(key|token|secret|pass|auth|credential)"; "i");
+def actsep: actcore | test("\\A[=:]+\\z");
+def actscheme: (actcore | ascii_downcase) | IN("basic","bearer","token","digest");
+def actauth: (actcore | ascii_downcase | sub("[=:]+\\z"; "")) | IN("auth","authorization","proxy-authorization");
+def actword: (actcore | ascii_downcase) | IN("password","passwd","secret","token","apikey","api_key","access_key","private_key","credential","credentials");
+def actbearer: (actcore | ascii_downcase) == "bearer";
+# The cleaned phrase of a field, or null: (1) strings only; (2) whitespace to spaces, forbidden code points stripped;
+# (3) backticked spans removed; (4) token drops (a bare `key:` / `key=`, `key = value`, `key : value`, `password is x`,
+# `Authorization [:] Basic|Bearer|Token|Digest x` and `Bearer x` drop the value too, chained); (5) at
+# least 3 words and 8 characters; (6) at most 48 code points, cut at the last space (hard cut at 47 when there is none or
+# when that would leave fewer than 8) plus U+2026.
+def actphrase:
+  if type != "string" then null else
+    .[0:4096] | explode | map(if actws then 32 elif actbad then empty else . end) | implode
+    | (try gsub("[\\p{Cc}\\p{Cf}\\p{Cs}]"; "") catch .)
+    | gsub("`[^`]*(`|\\z)"; " ")
+    | [splits(" +") | select(length > 0)] as $t
+    | (reduce range(0; $t | length) as $k ({o: [], s: 0};
+        $t[$k] as $w | ($t[$k + 1] // "") as $n
+        | if .s > 0 then .s -= 1 | (if ($w | actscheme) or ($w | actbare) or ($w | actsep) then .s += 1 else . end)
+          elif ($w | actbearer) then .s = 1
+          elif ($w | actauth) and ($n | actscheme) then .s = 1   # the scheme, then (chained) its value
+          elif ($w | actkv) then (if ($w | actbare) then .s = 1 else . end)
+          elif ($w | actkey) and ($n | actsep) then .s = 1   # the separator, then (chained) the value
+          elif ($w | actword) then (if ($n | ascii_downcase | IN("is","as")) then .s = 2 else .s = 1 end)
+          elif ($w | actdrop) then .
+          else .o += [$w] end)) as $r
+    | ($r.o | join(" ")) as $p
+    | if ($r.o | length) < 3 or ($p | length) < 8 then null
+      elif ($p | length) <= 48 then $p
+      else ($p | explode) as $e
+        | ([range(0; 48) | select($e[.] == 32)] | last) as $i
+        | (if $i != null and $i >= 8 then $e[0:$i] else $e[0:47] end | implode | sub(" +\\z"; "")) + "\u2026"
+      end
+  end;
+# BR-10 (D-24 a, b, c): the one field read per tool; nothing while the activity-off flag exists.
+def actof:
+  if $act != "1" then null
+  elif .tool_name | IN("Bash","Agent","Task") then ((.tool_input | objects | .description) // null) | actphrase
+  elif .tool_name == "TodoWrite" then [.tool_input | objects | .todos | arrays | .[] | objects | select(.status == "in_progress")] | .[0] | (objects | .activeForm) // null | actphrase
+  else null end;
+def withact($a): if $a != null then . + {activity: $a} else . end;
 def toolev:
-  redtool as $t
+  redtool as $t | actof as $a
   | if (.agent_id // null) != null then
-    (subof) as $s | if $s != null and $t != null then [{type: "sub_tool", tool: $t, sub: $s}] else trig end
-  elif $t != null then [{type: "tool", tool: $t}]
+    (subof) as $s | if $s != null and $t != null then [{type: "sub_tool", tool: $t, sub: $s} | withact($a)] else trig end
+  elif $t != null then [{type: "tool", tool: $t} | withact($a)]
   else trig end;
 def failcode: .error as $x | if ($x | type) == "string" and (["rate_limit","authentication_failed","billing_error","invalid_request","server_error","max_output_tokens"] | index($x)) != null then "cli_error_" + $x else "cli_error_unknown" end;
 def endcode: .reason as $x | if ($x | type) == "string" and (["clear","resume","logout","prompt_input_exit"] | index($x)) != null then "end_" + $x else "end_other" end;
@@ -796,9 +865,29 @@ def gatec:
   | if .hook_event_name == "PostToolUse" and (.tool_name | IN("Write","Edit")) and (.agent_id // null) == null
        and ($fp | pathok) and (.cwd | pathok)
     then [$fp, .cwd] else null end;
+# ALY-217.6 (D-24 b): the Agent/Task stash, [{t: subagent type, ms: Unix ms, a: cleaned phrase or ""}] oldest first.
+# $stash is the content of $HASH.agents read by the hook (empty when absent); entries are checked again, pruned after
+# 60 s and capped at 16. stashc: {ev: extra events, st: the new stash or null when the file is left as it is}.
+def stashin:
+  ($stash | try fromjson catch []) | (if type == "array" then . else [] end)
+  | map(select(type == "object" and (.t | typeok) and (.ms | type == "number") and .ms > ($nowms - 60000) and .ms <= ($nowms + 60000)
+               and (.a | type == "string") and (.a == "" or (.a | actphrase) == .a)))
+  | .[-16:];
+def stashc:
+  if $act != "1" then {ev: [], st: null}
+  elif .hook_event_name == "PreToolUse" and (.tool_name | IN("Agent","Task")) then
+    ((.tool_input | objects | .subagent_type) // "general-purpose") as $ty
+    | if ($ty | typeok) then {ev: [], st: ((stashin + [{t: $ty, ms: $nowms, a: (actof // "")}]) | .[-16:])} else {ev: [], st: null} end
+  elif .hook_event_name == "SubagentStart" and subof != null then
+    subof as $s | stashin as $q
+    | ([range(0; $q | length) | select($q[.].t == $s.type)] | .[0]) as $i
+    | if $i == null then {ev: [], st: $q}
+      else {ev: (if $q[$i].a != "" then [{type: "sub_tool", tool: "Agent", activity: $q[$i].a, sub: $s}] else [] end), st: ($q | del(.[$i]))} end
+  else {ev: [], st: null} end;
 # BR-14: the first tool/subagent-start event after waiting_input is preceded by a `state working`.
 . as $in
-| (reduce evs[] as $ev ({out: [], last: $last};
+| (try stashc catch {ev: [], st: null}) as $sc
+| (reduce (evs + $sc.ev)[] as $ev ({out: [], last: $last};
     (if ($ev.type | IN("tool","sub_tool","sub_start","trig")) and .last == "waiting_input"
        then .out += [{type: "state", state: "working"}] | .last = "working" else . end)
     | (if $ev.type == "trig" then . else .out += [$ev] end)
@@ -808,22 +897,39 @@ def gatec:
   (try ($in | cwdc) catch null | . // "-"),
   (try ($in | gatec) catch null | if . == null then "-", "-" else .[] end),
   (if sstart then "start" elif .hook_event_name == "UserPromptSubmit" then "prompt" else "-" end),
+  (if $sc.st == null or ($sc.st | tojson) == $stash or ($sc.st == [] and $stash == "") then "-" else ($sc.st | tojson) end),
   ($r.out[] | . + {at: $at} | tojson),
   "."'
 
-RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" "$JQ_PROG" 2>/dev/null) || exit 0
+# ALY-217.6 (D-25, D-24 b): activity phrases unless $LIVE_DIR/activity-off exists (any kind of entry: fail safe); the
+# Agent/Task stash $HASH.agents is read once (bounded, private file only) and passed to the jq program.
+ACT=1; if [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ]; then ACT=0; fi
+# The stash goes to jq through --rawfile (never argv, Shield SHD-02): the file itself when it is private and at most
+# 16384 bytes (one find), else /dev/null (an oversized private stash is then simply rewritten).
+AGENTSF="$LIVE_DIR/$HASH.agents"; STASHSRC=/dev/null; AGOK=0
+if [ "$ACT" = 1 ]; then
+  if [ ! -e "$AGENTSF" ] && [ ! -L "$AGENTSF" ]; then AGOK=1
+  elif [ ! -L "$AGENTSF" ] && [ -n "$(find "$AGENTSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then AGOK=1; STASHSRC="$AGENTSF"
+  elif private_file_ok "$AGENTSF"; then AGOK=1; fi
+fi
+MS=$(now_ms)
+[[ "$MS" =~ ^[1-9][0-9]{0,15}$ ]] || exit 0
+RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg act "$ACT" --rawfile stash "$STASHSRC" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
 # Output: new last state, bind candidate (or -), cwd for the branch source (or -), gates path and cwd (or -, -),
-# watcher trigger (start = a SessionStart of a known source, prompt = UserPromptSubmit, or -), events, "." terminator.
+# watcher trigger (start = a SessionStart of a known source, prompt = UserPromptSubmit, or -), the new Agent/Task
+# stash (or - to leave it), events, "." terminator.
 NEWLAST="${RESULT%%$'\n'*}"; REST="${RESULT#*$'\n'}"
 CAND="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 CWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 GFP="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 GCWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 WEV="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+AGT="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 case "$REST" in .) EVENTS="" ;; *$'\n'.) EVENTS="${REST%$'\n'.}" ;; *) exit 0 ;; esac
 case "$NEWLAST" in ""|started|working|waiting_input|idle|error|ended) ;; *) exit 0 ;; esac
 [ -n "$CAND" ] && [ -n "$CWD" ] && [ -n "$GFP" ] && [ -n "$GCWD" ] || exit 0
 case "$WEV" in start|prompt|-) ;; *) exit 0 ;; esac
+case "$AGT" in -|'['*']') ;; *) exit 0 ;; esac
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
 BINDF="$LIVE_DIR/$HASH.bind"
@@ -964,7 +1070,7 @@ fi
 # (more than a day ahead of the clock, 2^53 or more) counter heals to 0. The counter is written before the
 # lines, so a crash can leave a gap but never a repeated seq.
 SEQF="$LIVE_DIR/$HASH.seq"
-MS=$(now_ms); PREV=0
+PREV=0   # MS: read once before the jq program (ALY-217.6), shared by the stash times and the seq
 if [ -f "$SEQF" ] && [ ! -L "$SEQF" ] && private_file_ok "$SEQF"; then
   IFS= read -r PREV <"$SEQF" 2>/dev/null
   if [[ "$PREV" =~ ^(0|[1-9][0-9]{0,15})$ ]] && [ "$PREV" -lt 9007199254740991 ] && [ "$PREV" -le $((MS + 86400000)) ]; then :; else PREV=0; fi
@@ -997,6 +1103,14 @@ fi
 if [ -n "$GATELINE" ]; then
   TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$GNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
+# The Agent/Task stash (D-24 b): one atomic write (temp 0600 + mv) when it changed; an emptied stash is removed.
+if [ "$AGT" != "-" ] && [ "$AGOK" = 1 ]; then
+  if [ "$AGT" = "[]" ]; then rm -f "$AGENTSF" 2>/dev/null
+  else
+    TMP=$(mktemp "$LIVE_DIR/.agents.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
+    printf '%s' "$AGT" >"$TMP" 2>/dev/null && mv -f "$TMP" "$AGENTSF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+  fi
 fi
 
 # Session watcher (ALY-217.2, D-21), still under the state lock: at a SessionStart, or at a UserPromptSubmit when no

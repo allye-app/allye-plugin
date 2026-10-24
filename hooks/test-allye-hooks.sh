@@ -553,6 +553,48 @@ run_script live on "$DATA"; run_live user-prompt-submit SESS-A-0001
 check "after on the reporter resumes: its event reaches the API (the server reopens a live_off run on any event)" "$((BODIES + 1)) working" "$(nbodies) $("$JQ_BIN" -r '.events[-1].state' "$SB/api/ingest-bodies.log" | tail -n 1)"
 end_case
 
+# ─── live activity off | on | status (ALY-217.6: BR-12, D-25, AC-32) ─────────
+echo "== live activity: off, on, status =="
+new_case
+for a in off on status; do
+  run_script live activity "$a" "$DATA"
+  check "live activity $a, never paired: exit 0, says not available, creates nothing, no curl" "0 yes no 0" "$RC $(contains 'not paired' "$OUT") $([ -e "$DATA" ] && echo yes || echo no) $(curl_n)"
+done
+run_script live activity bogus "$DATA"; check "live activity with an unknown action prints usage and exits 2" "2" "$RC"
+run_script live activity off; check "live activity off without a data directory exits 2" "2" "$RC"
+end_case
+new_case; mkcred
+run_script live activity status "$DATA"
+check "activity status, paired, no flag: on by default, no network" "0 Live activity phrases: on 0" "$RC $OUT $(curl_n)"
+run_script live status "$DATA"; check "live status shows the activity line (on)" "yes" "$(contains 'Live activity phrases: on' "$OUT")"
+run_script live activity off "$DATA"
+check "activity off: exit 0, live directory 0700, flag 0600, says off, no request" "0 700 600 0|Live activity phrases are off; tool events are still reported." "$RC $(find "$DATA/live" -maxdepth 0 -printf '%m') $(find "$(LV activity-off)" -printf '%m') $(curl_n)|$OUT"
+run_script live activity status "$DATA"; check "activity status after off" "Live activity phrases: off" "$OUT"
+run_script live status "$DATA"; check "live status after activity off: reporting still on, phrases off" "yes yes" "$(contains 'Live reporting: on' "$OUT") $(contains 'Live activity phrases: off' "$OUT")"
+check "activity off leaves the live-off flag alone" "no" "$([ -e "$(LV off)" ] && echo yes || echo no)"
+printf '5xx' >"$SB/api/ingest-mode"   # the API fails: the reporter's lines stay in the spool
+run_live activity-bash
+check "activity off: the reporter spools the tool event without the phrase" '{"tool":"Bash","type":"tool"}' "$("$JQ_BIN" -cS 'del(.at, .seq)' "$DATA"/live/*.spool | tail -n 1)"
+run_script live activity off "$DATA"; check "activity off twice is harmless" "0 600" "$RC $(find "$(LV activity-off)" -printf '%m')"
+run_script live activity on "$DATA"
+check "activity on removes the flag and says on" "0 no|Live activity phrases are on." "$RC $([ -e "$(LV activity-off)" ] && echo yes || echo no)|$OUT"
+run_live activity-bash
+check "activity on: the next hook sends the phrase again" '"Run the agent runs unit tests"' "$("$JQ_BIN" -c '.activity' "$DATA"/live/*.spool | tail -n 1)"
+run_script live activity on "$DATA"; check "activity on twice is harmless" "0" "$RC"
+run_script live activity status "$DATA"; check "activity status after on" "Live activity phrases: on" "$OUT"
+end_case
+new_case; mkcred; mkdir -p "$SB/elsewhere"; chmod 700 "$SB/elsewhere"; ln -s "$SB/elsewhere" "$DATA/live"
+run_script live activity off "$DATA"; check "activity off on a symlinked live directory: refused, nothing written through it" "yes 0" "$([ "$RC" -ne 0 ] && echo yes || echo no) $(find "$SB/elsewhere" -mindepth 1 | wc -l | tr -d ' ')"
+end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 755 "$DATA/live"
+run_script live activity off "$DATA"; check "activity off on a live directory that is not 0700: refused, no flag" "yes no" "$([ "$RC" -ne 0 ] && echo yes || echo no) $([ -e "$(LV activity-off)" ] && echo yes || echo no)"
+end_case
+# live off still stops everything, whatever the activity flag
+new_case; mkcred; SHIMD="$SHIMS"
+run_script live activity on "$DATA"; run_script live off "$DATA"; BODIES=$(nbodies); run_live activity-bash
+check "live off with activity on: the reporter spools and sends nothing" "$BODIES 0" "$(nbodies) $(ls "$DATA/live"/*.spool 2>/dev/null | wc -l | tr -d ' ')"
+end_case
+
 # status prints state, spool size and last result, with no network and no token
 new_case; mkcred; SHIMD="$SHIMS"; sessions3
 run_script live status "$DATA"
@@ -641,7 +683,10 @@ for f in lock_is_stale lock_take lock_drop proc_start pidlock_rec pidlock_stale;
 done
 
 echo "== commands/hooks.md: live =="
-check "argument-hint names live off | on | status" "yes" "$(contains 'argument-hint: pair | unpair | live off | on | status' "$CMD_TEXT")"
+check "argument-hint names live off | on | status and live activity off | on | status" "argument-hint: pair | unpair | live off | on | status | live activity off | on | status" "$(printf '%s\n' "$CMD_TEXT" | grep '^argument-hint:')"
+check "documents live activity off, on and status in the live section (AC-34)" "yes yes yes" "$(contains 'allye-hooks.sh" live activity off "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live activity on "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live activity status "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT")"
+check "the pairing message discloses the activity phrase word for word (AC-34)" "yes" "$(printf '%s\n' "$CMD_TEXT" | sed -n '/^## pair$/,/^## unpair$/p' | grep -qF 'Live also sends a short activity phrase written by the agent (≤ 48 chars, paths/URLs/secrets stripped); /allye:hooks live activity off turns it off.' && echo yes || echo no)"
+check "the live section no longer says metadata only" "no" "$(contains 'metadata only' "$CMD_TEXT")"
 check "documents a live section with the three actions" "yes yes yes yes" "$(contains '## live' "$CMD_TEXT") $(contains 'allye-hooks.sh" live off "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live on "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live status "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT")"
 check "tells the user what off does and that status makes no network call" "yes yes" "$(contains 'end_live_off' "$CMD_TEXT") $(contains 'no network call' "$CMD_TEXT")"
 check "allowed-tools line is unchanged" "allowed-tools: Bash(\${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh:*), mcp__plugin_allye_allye__hooks" "$(printf '%s\n' "$CMD_TEXT" | grep '^allowed-tools:')"

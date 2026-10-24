@@ -7,6 +7,8 @@
 #   allye-hooks.sh live    off|on|status <dataDir>          Live reporter switch (ALY-203): off ends the open runs, sets
 #                                                           the flag and deletes the spools; on clears the flag; status
 #                                                           prints state, spool size and last result (no network call)
+#   allye-hooks.sh live    activity off|on|status <dataDir> activity phrases switch (ALY-217.6): off sets the flag
+#                                                           live/activity-off, on clears it, status prints it
 #
 # Runtime: bash 3.2+, curl, jq and sha256sum or shasum. No node, openssl, python or GNU stat.
 # The verifier and the token never reach argv, the environment or any output: they travel only
@@ -26,7 +28,7 @@ trap 'exit 130' INT TERM
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 usage() {
-  printf '%s\n' "Usage: allye-hooks.sh begin <dataDir> | finish <dataDir> <challenge> <pairingCode> | unpair <dataDir> | live off|on|status <dataDir>" >&2
+  printf '%s\n' "Usage: allye-hooks.sh begin <dataDir> | finish <dataDir> <challenge> <pairingCode> | unpair <dataDir> | live off|on|status <dataDir> | live activity off|on|status <dataDir>" >&2
   exit 2
 }
 
@@ -375,6 +377,8 @@ live_send() {
 }
 
 cmd_live() {
+  local scope=""
+  if [ "$#" -ge 1 ] && [ "$1" = activity ]; then scope=activity; shift; fi
   [ "$#" -eq 2 ] || usage
   local action="$1" dir="$2" live src h f base sessions="" n_spool=0 n_bytes=0 n_sess=0 lines bytes
   local ended=0 failed=0 body seqf statef prev ms new at pids=() p running=0 until_ fp now tok send
@@ -393,6 +397,7 @@ cmd_live() {
   if [ -e "$live" ] && [ -z "$(find "$live" -prune -type d -user "$UID_NOW" -perm 0700 -print 2>/dev/null)" ]; then
     fail "The live directory is not a private directory you own (mode 0700); refusing to use it."
   fi
+  if [ "$scope" = activity ]; then LIVE_TOKEN=""; cmd_live_activity "$action" "$live"; return 0; fi
 
   # Sessions known locally: the distinct <sha256> prefixes of the reporter's files.
   if [ -d "$live" ]; then
@@ -416,6 +421,7 @@ cmd_live() {
         n_spool=$((n_spool + lines)); n_bytes=$((n_bytes + bytes))
       done
       if [ -e "$live/off" ] || [ -L "$live/off" ]; then printf 'Live reporting: off\n'; else printf 'Live reporting: on\n'; fi
+      activity_line "$live"
       printf 'Sessions with local data: %s\n' "$n_sess"
       printf 'Spooled events: %s (%s bytes)\n' "$n_spool" "$n_bytes"
       if [ -e "$live/disabled" ] || [ -L "$live/disabled" ]; then
@@ -488,6 +494,29 @@ cmd_live() {
       printf 'Live reporting is off; local spools deleted.\n'
       printf 'Ended %s session(s) on Allye.\n' "$ended"
       if [ "$failed" -gt 0 ]; then printf '%s session(s) could not be ended now (their local spools were deleted); Allye ends them by itself after a period of silence.\n' "$failed"; fi
+      ;;
+  esac
+}
+
+# ─── live activity off | on | status (ALY-217.6: BR-12, D-25) ───────────────
+# The reporter attaches no activity phrase and keeps no Agent stash while $live/activity-off exists (any kind of entry).
+# Called after the pairing and live-directory checks of cmd_live (owner, mode 0700, no symlink); no network call.
+activity_line() {
+  if [ -e "$1/activity-off" ] || [ -L "$1/activity-off" ]; then printf 'Live activity phrases: off\n'; else printf 'Live activity phrases: on\n'; fi
+}
+cmd_live_activity() {
+  local action="$1" live="$2"
+  case "$action" in
+    status) activity_line "$live" ;;
+    on)
+      if [ -e "$live/activity-off" ] || [ -L "$live/activity-off" ]; then rm -f "${live:?}/activity-off" || fail "Could not remove the activity-off flag."; fi
+      printf 'Live activity phrases are on.\n'
+      ;;
+    off)
+      [ -d "$live" ] || mkdir -m 700 "$live" 2>/dev/null || fail "Could not create the live directory."
+      new_tmp "$live" activity-off; : >"$NEW_TMP" || fail "Could not write the activity-off flag."
+      mv -f "$NEW_TMP" "$live/activity-off" || fail "Could not write the activity-off flag."
+      printf 'Live activity phrases are off; tool events are still reported.\n'
       ;;
   esac
 }
