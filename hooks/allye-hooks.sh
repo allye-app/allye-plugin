@@ -7,6 +7,8 @@
 #   allye-hooks.sh live    off|on|status <dataDir>          Live reporter switch (ALY-203): off ends the open runs, sets
 #                                                           the flag and deletes the spools; on clears the flag; status
 #                                                           prints state, spool size and last result (no network call)
+#   allye-hooks.sh live    activity off|on|status <dataDir> activity phrases switch (ALY-217.6): off sets the flag
+#                                                           live/activity-off, on clears it, status prints it
 #
 # Runtime: bash 3.2+, curl, jq and sha256sum or shasum. No node, openssl, python or GNU stat.
 # The verifier and the token never reach argv, the environment or any output: they travel only
@@ -26,7 +28,7 @@ trap 'exit 130' INT TERM
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 usage() {
-  printf '%s\n' "Usage: allye-hooks.sh begin <dataDir> | finish <dataDir> <challenge> <pairingCode> | unpair <dataDir> | live off|on|status <dataDir>" >&2
+  printf '%s\n' "Usage: allye-hooks.sh begin <dataDir> | finish <dataDir> <challenge> <pairingCode> | unpair <dataDir> | live off|on|status <dataDir> | live activity off|on|status <dataDir>" >&2
   exit 2
 }
 
@@ -285,19 +287,43 @@ cmd_unpair() {
 
 # ─── live off | on | status (ALY-203, BR-11, BR-12) ─────────────────────────
 
-# The three lock functions are verbatim copies of those in hooks/live-report.sh (the reporter's per-session state lock
-# protects the seq counter and the spool); hooks/test-allye-hooks.sh pins the bodies so the copies cannot drift.
+# The three lock functions and the pid-lock helpers they call (proc_start, pidlock_rec, pidlock_stale, ALY-217) are
+# verbatim copies of those in hooks/live-report.sh (the reporter's per-session state lock protects the seq counter and
+# the spool); hooks/test-allye-hooks.sh pins the bodies so the copies cannot drift. This script takes only time locks;
+# a pid lock (DIR/p, "<holder pid> <holder start>") is stale once its holder is gone.
+proc_start() {
+  local l
+  [[ "$1" =~ ^[1-9][0-9]{0,9}$ ]] || return 1
+  if [ -r "/proc/$1/stat" ]; then
+    { IFS= read -r l <"/proc/$1/stat"; } 2>/dev/null || return 1
+    l=${l##*) }; set -- $l
+    [ "${1:-}" != Z ] && [[ "${20:-}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s' "${20}"; return 0
+  fi
+  kill -0 "$1" 2>/dev/null || return 1
+  l=$(ps -o lstart= -p "$1" 2>/dev/null) || l=""; l=${l//[!0-9]/}
+  printf '%s' "${l:-0}"
+}
+pidlock_rec() { local s; s=$(proc_start "$1") || s=""; printf '%s %s' "$1" "$s"; }
+pidlock_stale() {
+  local p="" s="" cur
+  { IFS=' ' read -r p s <"$1/p"; } 2>/dev/null
+  if [[ "$p" =~ ^[0-9]{1,10}$ ]]; then cur=$(proc_start "$p") || return 0; [ "$cur" != "$s" ]; return; fi
+  [ -d "$1" ] && [ ! -L "$1" ] && [ -n "$(find "$1" -prune -mmin +1 -print 2>/dev/null)" ]   # no readable holder
+}
 # lock_is_stale DIR: the holder time (first field of DIR/t) is more than 30 seconds old; without a readable time,
 # the directory itself is more than a minute old (find -mmin).
 lock_is_stale() {
   local ts="" now
+  if [ -e "$1/p" ]; then pidlock_stale "$1"; return; fi   # a pid lock (ALY-217): stale once its holder is gone
   { IFS=' ' read -r ts _ <"$1/t"; } 2>/dev/null
   now=$(date +%s 2>/dev/null) || now=""
   if [[ "$ts" =~ ^[0-9]{1,12}$ ]] && [[ "$now" =~ ^[0-9]{1,12}$ ]]; then [ $((now - ts)) -gt 30 ]; return; fi
   [ -d "$1" ] && [ ! -L "$1" ] && [ -n "$(find "$1" -prune -mmin +1 -print 2>/dev/null)" ]
 }
-# lock_take DIR TRIES: a mkdir lock (D-03, portable). TRIES x 20 ms of waiting after the first attempt (0 = try
-# once). The holder writes "<epoch> <token>" into DIR/t and keeps its token in LOCK_TOKEN. A stale lock is renamed
+# lock_take DIR TRIES [PID]: a mkdir lock (D-03, portable). TRIES x 20 ms of waiting after the first attempt (0 = try
+# once). The holder writes "<epoch> <token>" into DIR/t and keeps its token in LOCK_TOKEN; with PID it is a pid lock
+# instead (DIR/p, see pidlock_rec). A stale lock is renamed
 # to a unique name by the one breaker holding DIR.brk, judged again there, and only then removed; if the renamed lock turns out fresh (it was replaced
 # meanwhile) it is put back and this try fails closed.
 lock_take() {
@@ -306,7 +332,7 @@ lock_take() {
   while :; do
     # mkdir alone does not decide: uutils coreutils (Ubuntu 25.10+) can report success to several concurrent callers, so
     # the lock is the exclusive (noclobber, O_EXCL) creation of DIR/t; a mkdir "winner" that loses that claim has not got it.
-    if mkdir "$d" 2>/dev/null && ( set -C; printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t" ) 2>/dev/null; then return 0; fi
+    if mkdir "$d" 2>/dev/null && ( set -C; if [ -n "${3:-}" ]; then pidlock_rec "$3" >"$d/p"; else printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t"; fi ) 2>/dev/null; then return 0; fi
     if lock_is_stale "$d"; then
       # Only one breaker at a time (a second mkdir lock, itself broken after a minute), so nobody can replace the
       # lock between the verdict and the rename; the renamed lock is judged once more as a safety net.
@@ -335,6 +361,23 @@ lock_drop() {
 
 private_regular() { [ -n "$(find "$1" -prune -type f -user "$UID_NOW" -perm 0600 -print 2>/dev/null)" ]; }
 
+# live_off_purge LIVEDIR (ALY-217.7, D-26): `live off` also deletes every session's seen sub ids (<hash>.subs) and Agent
+# activity stash (<hash>.agents), only when the name is a regular file owned by the user (never a symlink or what it
+# points to), and every <hash>.final.lock whose holder is gone (a real directory owned by the user, judged by
+# lock_is_stale); a running final flusher keeps its lock and exits by itself on the off flag.
+live_off_purge() {
+  local f base
+  for f in "$1"/*; do
+    base="${f##*/}"
+    if [[ "$base" =~ ^[0-9a-f]{64}\.(subs|agents)$ ]]; then
+      [ -f "$f" ] && [ ! -L "$f" ] && [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ] && rm -f "$f" 2>/dev/null
+    elif [[ "$base" =~ ^[0-9a-f]{64}\.final\.lock$ ]]; then
+      [ -d "$f" ] && [ ! -L "$f" ] && [ -n "$(find "$f" -prune -type d -user "$UID_NOW" -print 2>/dev/null)" ] && lock_is_stale "$f" && rm -rf "$f" 2>/dev/null
+    fi
+  done
+  return 0
+}
+
 # live_send BODYFILE: one POST to the ingest route of the credential's host, the credential only in a curl config on
 # stdin, a 1-second limit (the SessionEnd budget of BR-12); succeeds only on a 2xx. The answer is never read or printed.
 live_send() {
@@ -351,6 +394,8 @@ live_send() {
 }
 
 cmd_live() {
+  local scope=""
+  if [ "$#" -ge 1 ] && [ "$1" = activity ]; then scope=activity; shift; fi
   [ "$#" -eq 2 ] || usage
   local action="$1" dir="$2" live src h f base sessions="" n_spool=0 n_bytes=0 n_sess=0 lines bytes
   local ended=0 failed=0 body seqf statef prev ms new at pids=() p running=0 until_ fp now tok send
@@ -369,6 +414,7 @@ cmd_live() {
   if [ -e "$live" ] && [ -z "$(find "$live" -prune -type d -user "$UID_NOW" -perm 0700 -print 2>/dev/null)" ]; then
     fail "The live directory is not a private directory you own (mode 0700); refusing to use it."
   fi
+  if [ "$scope" = activity ]; then LIVE_TOKEN=""; cmd_live_activity "$action" "$live"; return 0; fi
 
   # Sessions known locally: the distinct <sha256> prefixes of the reporter's files.
   if [ -d "$live" ]; then
@@ -392,6 +438,7 @@ cmd_live() {
         n_spool=$((n_spool + lines)); n_bytes=$((n_bytes + bytes))
       done
       if [ -e "$live/off" ] || [ -L "$live/off" ]; then printf 'Live reporting: off\n'; else printf 'Live reporting: on\n'; fi
+      activity_line "$live"
       printf 'Sessions with local data: %s\n' "$n_sess"
       printf 'Spooled events: %s (%s bytes)\n' "$n_spool" "$n_bytes"
       if [ -e "$live/disabled" ] || [ -L "$live/disabled" ]; then
@@ -460,10 +507,34 @@ cmd_live() {
         fi
       done
       for p in ${pids[@]+"${pids[@]}"}; do if wait "$p"; then ended=$((ended + 1)); else failed=$((failed + 1)); fi; done
+      live_off_purge "$live"
       LIVE_TOKEN=""
       printf 'Live reporting is off; local spools deleted.\n'
       printf 'Ended %s session(s) on Allye.\n' "$ended"
       if [ "$failed" -gt 0 ]; then printf '%s session(s) could not be ended now (their local spools were deleted); Allye ends them by itself after a period of silence.\n' "$failed"; fi
+      ;;
+  esac
+}
+
+# ─── live activity off | on | status (ALY-217.6: BR-12, D-25) ───────────────
+# The reporter attaches no activity phrase and keeps no Agent stash while $live/activity-off exists (any kind of entry).
+# Called after the pairing and live-directory checks of cmd_live (owner, mode 0700, no symlink); no network call.
+activity_line() {
+  if [ -e "$1/activity-off" ] || [ -L "$1/activity-off" ]; then printf 'Live activity phrases: off\n'; else printf 'Live activity phrases: on\n'; fi
+}
+cmd_live_activity() {
+  local action="$1" live="$2"
+  case "$action" in
+    status) activity_line "$live" ;;
+    on)
+      if [ -e "$live/activity-off" ] || [ -L "$live/activity-off" ]; then rm -f "${live:?}/activity-off" || fail "Could not remove the activity-off flag."; fi
+      printf 'Live activity phrases are on.\n'
+      ;;
+    off)
+      [ -d "$live" ] || mkdir -m 700 "$live" 2>/dev/null || fail "Could not create the live directory."
+      new_tmp "$live" activity-off; : >"$NEW_TMP" || fail "Could not write the activity-off flag."
+      mv -f "$NEW_TMP" "$live/activity-off" || fail "Could not write the activity-off flag."
+      printf 'Live activity phrases are off; tool events are still reported.\n'
       ;;
   esac
 }

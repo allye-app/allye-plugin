@@ -1,0 +1,35 @@
+{
+  "session_id": "RAWSESSION-7f3a9c1e-0b2d-4e11-9a55-c0ffee123456",
+  "transcript_path": "/home/u/MARKER_TRANSCRIPT/t.jsonl",
+  "cwd": "/work/MARKER_CWD",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "TodoWrite",
+  "tool_input": {
+    "todos": [
+      {
+        "content": "MARKER_MSG done item",
+        "status": "completed",
+        "activeForm": "Finishing MARKER_TITLE old work"
+      },
+      {
+        "content": "MARKER_MSG current item",
+        "status": "in_progress",
+        "activeForm": "Writing the activity phrase tests"
+      },
+      {
+        "content": "MARKER_MSG second current",
+        "status": "in_progress",
+        "activeForm": "Checking MARKER_TITLE second item"
+      },
+      {
+        "content": "MARKER_MSG later",
+        "status": "pending",
+        "activeForm": "Shipping MARKER_TITLE later work"
+      }
+    ]
+  },
+  "tool_use_id": "toolu_act",
+  "agent_id": "agent-abc123",
+  "agent_type": "allye:bridge-pilot"
+}

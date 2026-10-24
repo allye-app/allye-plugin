@@ -494,7 +494,7 @@ LV() { echo "$DATA/live/$1"; }
 run_live() {
   local f="$1" sid="${2:-}" i
   if [ -n "$sid" ]; then "$JQ_BIN" -c --arg s "$sid" '.session_id = $s' "$FIXD/$f.json" >"$SB/lstdin"; else cp "$FIXD/$f.json" "$SB/lstdin"; fi
-  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
     "$BASH_BIN" "$LIVE" <"$SB/lstdin" >"$SB/lout" 2>"$SB/lerr"
   for i in $(seq 1 200); do compgen -G "$DATA/live/*.flush.lock" >/dev/null || return 0; sleep 0.05; done
 }
@@ -553,6 +553,48 @@ run_script live on "$DATA"; run_live user-prompt-submit SESS-A-0001
 check "after on the reporter resumes: its event reaches the API (the server reopens a live_off run on any event)" "$((BODIES + 1)) working" "$(nbodies) $("$JQ_BIN" -r '.events[-1].state' "$SB/api/ingest-bodies.log" | tail -n 1)"
 end_case
 
+# ─── live activity off | on | status (ALY-217.6: BR-12, D-25, AC-32) ─────────
+echo "== live activity: off, on, status =="
+new_case
+for a in off on status; do
+  run_script live activity "$a" "$DATA"
+  check "live activity $a, never paired: exit 0, says not available, creates nothing, no curl" "0 yes no 0" "$RC $(contains 'not paired' "$OUT") $([ -e "$DATA" ] && echo yes || echo no) $(curl_n)"
+done
+run_script live activity bogus "$DATA"; check "live activity with an unknown action prints usage and exits 2" "2" "$RC"
+run_script live activity off; check "live activity off without a data directory exits 2" "2" "$RC"
+end_case
+new_case; mkcred
+run_script live activity status "$DATA"
+check "activity status, paired, no flag: on by default, no network" "0 Live activity phrases: on 0" "$RC $OUT $(curl_n)"
+run_script live status "$DATA"; check "live status shows the activity line (on)" "yes" "$(contains 'Live activity phrases: on' "$OUT")"
+run_script live activity off "$DATA"
+check "activity off: exit 0, live directory 0700, flag 0600, says off, no request" "0 700 600 0|Live activity phrases are off; tool events are still reported." "$RC $(find "$DATA/live" -maxdepth 0 -printf '%m') $(find "$(LV activity-off)" -printf '%m') $(curl_n)|$OUT"
+run_script live activity status "$DATA"; check "activity status after off" "Live activity phrases: off" "$OUT"
+run_script live status "$DATA"; check "live status after activity off: reporting still on, phrases off" "yes yes" "$(contains 'Live reporting: on' "$OUT") $(contains 'Live activity phrases: off' "$OUT")"
+check "activity off leaves the live-off flag alone" "no" "$([ -e "$(LV off)" ] && echo yes || echo no)"
+printf '5xx' >"$SB/api/ingest-mode"   # the API fails: the reporter's lines stay in the spool
+run_live activity-bash
+check "activity off: the reporter spools the tool event without the phrase" '{"tool":"Bash","type":"tool"}' "$("$JQ_BIN" -cS 'del(.at, .seq)' "$DATA"/live/*.spool | tail -n 1)"
+run_script live activity off "$DATA"; check "activity off twice is harmless" "0 600" "$RC $(find "$(LV activity-off)" -printf '%m')"
+run_script live activity on "$DATA"
+check "activity on removes the flag and says on" "0 no|Live activity phrases are on." "$RC $([ -e "$(LV activity-off)" ] && echo yes || echo no)|$OUT"
+run_live activity-bash
+check "activity on: the next hook sends the phrase again" '"Run the agent runs unit tests"' "$("$JQ_BIN" -c '.activity' "$DATA"/live/*.spool | tail -n 1)"
+run_script live activity on "$DATA"; check "activity on twice is harmless" "0" "$RC"
+run_script live activity status "$DATA"; check "activity status after on" "Live activity phrases: on" "$OUT"
+end_case
+new_case; mkcred; mkdir -p "$SB/elsewhere"; chmod 700 "$SB/elsewhere"; ln -s "$SB/elsewhere" "$DATA/live"
+run_script live activity off "$DATA"; check "activity off on a symlinked live directory: refused, nothing written through it" "yes 0" "$([ "$RC" -ne 0 ] && echo yes || echo no) $(find "$SB/elsewhere" -mindepth 1 | wc -l | tr -d ' ')"
+end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 755 "$DATA/live"
+run_script live activity off "$DATA"; check "activity off on a live directory that is not 0700: refused, no flag" "yes no" "$([ "$RC" -ne 0 ] && echo yes || echo no) $([ -e "$(LV activity-off)" ] && echo yes || echo no)"
+end_case
+# live off still stops everything, whatever the activity flag
+new_case; mkcred; SHIMD="$SHIMS"
+run_script live activity on "$DATA"; run_script live off "$DATA"; BODIES=$(nbodies); run_live activity-bash
+check "live off with activity on: the reporter spools and sends nothing" "$BODIES 0" "$(nbodies) $(ls "$DATA/live"/*.spool 2>/dev/null | wc -l | tr -d ' ')"
+end_case
+
 # status prints state, spool size and last result, with no network and no token
 new_case; mkcred; SHIMD="$SHIMS"; sessions3
 run_script live status "$DATA"
@@ -591,11 +633,31 @@ check "the unreachable-in-time sessions are reported (exit 0)" "0 yes" "$RC $(co
 new_case; mkcred; SHIMD="$SHIMS"; sessions3; printf '5xx' >"$SB/api/ingest-mode"
 run_script live off "$DATA"; check "off when the API answers 5xx: the flag is set, spools deleted, the failure is reported, exit 0" "0 600 0 yes" "$RC $(find "$(LV off)" -printf '%m') $(ls "$DATA/live"/*.spool 2>/dev/null | wc -l | tr -d ' ') $(contains 'could not' "$OUT")"; end_case
 
+# ALY-217.7 (D-26): off also deletes the seen sub ids (<hash>.subs), the Agent stash (<hash>.agents) and every final.lock
+# whose holder is gone; only regular files owned by the user, never a symlink or its target; a live holder keeps its lock
+new_case; mkcred; SHIMD="$SHIMS"; sessions3; HX=$(sha_of SESS-X-0009)
+printf 'agent-1\n' >"$(LV $HA.subs)"; printf '[]' >"$(LV $HA.agents)"; printf 'agent-2\n' >"$(LV $HX.subs)"; chmod 600 "$(LV $HA.subs)" "$(LV $HA.agents)" "$(LV $HX.subs)"
+printf '[]' >"$(LV $HB.agents)"; chmod 644 "$(LV $HB.agents)"
+printf 'KEEP\n' >"$SB/outside.txt"; chmod 600 "$SB/outside.txt"; ln -s "$SB/outside.txt" "$(LV $HB.subs)"
+mkdir -p "$SB/outdir"; ln -s "$SB/outdir" "$(LV $HC.final.lock)"
+sh -c ':' & DEADP=$!; wait "$DEADP"
+mkdir "$(LV $HA.final.lock)"; printf '%s %s' "$DEADP" 12345 >"$(LV $HA.final.lock)/p"
+sleep 30 & LIVEP=$!; LIVES=$(sed 's/.*) //' "/proc/$LIVEP/stat" 2>/dev/null | cut -d' ' -f20)
+mkdir "$(LV $HB.final.lock)"; printf '%s %s' "$LIVEP" "$LIVES" >"$(LV $HB.final.lock)/p"
+run_script live off "$DATA"
+check "off deletes the subs and agents files of every session (also one with no other file), whatever their mode, exit 0" "0 no no no no" \
+  "$RC $([ -e "$(LV $HA.subs)" ] && echo yes || echo no) $([ -e "$(LV $HA.agents)" ] && echo yes || echo no) $([ -e "$(LV $HX.subs)" ] && echo yes || echo no) $([ -e "$(LV $HB.agents)" ] && echo yes || echo no)"
+check "off never deletes through a symlink: the subs link stays and its target keeps its content" "yes KEEP" "$([ -L "$(LV $HB.subs)" ] && echo yes || echo no) $(cat "$SB/outside.txt")"
+check "off removes a final.lock whose holder is gone, keeps one whose holder runs and a symlinked one" "no yes yes yes" \
+  "$([ -e "$(LV $HA.final.lock)" ] && echo yes || echo no) $([ -d "$(LV $HB.final.lock)" ] && echo yes || echo no) $([ -L "$(LV $HC.final.lock)" ] && echo yes || echo no) $([ -d "$SB/outdir" ] && echo yes || echo no)"
+kill "$LIVEP" 2>/dev/null; wait "$LIVEP" 2>/dev/null
+end_case
+
 # AC-11 "send nothing afterwards": a hook that waited for the session lock while off was set, and a flusher in flight
 new_case; mkcred; SHIMD="$SHIMS"; printf 'ok' >"$SB/api/ingest-mode"
 H=$(sha_of SESS-A-0001); mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; mkdir "$(LV $H.lock)"; printf '%s %s' "$(date +%s)" "busy.1" >"$(LV $H.lock)/t"
 "$JQ_BIN" -c --arg s SESS-A-0001 '.session_id = $s' "$FIXD/user-prompt-submit.json" >"$SB/lstdin"
-env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
   "$BASH_BIN" "$LIVE" <"$SB/lstdin" >"$SB/lout" 2>"$SB/lerr" &
 HP=$!
 sleep 0.4; : >"$(LV off)"; chmod 600 "$(LV off)"; rm -rf "${DATA:?}/live/${H:?}.lock"
@@ -608,7 +670,7 @@ SIDX=SESS-A-0001; H=$(sha_of $SIDX); mkdir -p "$DATA/live"; chmod 700 "$DATA/liv
 NOWI=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 "$JQ_BIN" -nc --arg at "$NOWI" 'range(1; 121) | {seq: ., at: $at, type: "state", state: "working"}' >"$(LV $H.spool)"; chmod 600 "$(LV $H.spool)"
 "$JQ_BIN" -c --arg s $SIDX '.session_id = $s' "$FIXD/user-prompt-submit.json" >"$SB/lstdin"
-env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
   "$BASH_BIN" "$LIVE" <"$SB/lstdin" >"$SB/lout" 2>"$SB/lerr"
 for i in $(seq 1 100); do [ "$(nbodies)" -ge 1 ] && break; sleep 0.05; done
 run_script live off "$DATA"
@@ -625,7 +687,7 @@ SIDX=SESS-A-0001; H=$(sha_of $SIDX); mkdir -p "$DATA/live"; chmod 700 "$DATA/liv
 NOWI=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 "$JQ_BIN" -nc --arg at "$NOWI" 'range(1; 121) | {seq: ., at: $at, type: "state", state: "working"}' >"$(LV $H.spool)"; chmod 600 "$(LV $H.spool)"
 "$JQ_BIN" -c --arg s $SIDX '.session_id = $s' "$FIXD/user-prompt-submit.json" >"$SB/lstdin"
-env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" SHIM_REAL="$REAL" \
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" \
   "$BASH_BIN" "$LIVE" <"$SB/lstdin" >"$SB/lout" 2>"$SB/lerr"
 for i in $(seq 1 100); do [ "$(nbodies)" -ge 1 ] && break; sleep 0.05; done
 : >"$(LV off)"; chmod 600 "$(LV off)"
@@ -635,13 +697,16 @@ end_case
 
 # the lock primitives are copies of the reporter's: pinned
 fnb() { awk -v n="$2" '$0 ~ "^" n "\\(\\)" { print; if ($0 ~ /\}[ \t]*$/) exit; inf = 1; next } inf { print; if ($0 ~ /^\}/) exit }' "$1"; }
-for f in lock_is_stale lock_take lock_drop; do
+for f in lock_is_stale lock_take lock_drop proc_start pidlock_rec pidlock_stale; do
   check "$f: body identical to live-report.sh" "$(fnb "$LIVE" "$f")" "$(fnb "$HOOK" "$f")"
   check "$f: defined in allye-hooks.sh" "yes" "$([ -n "$(fnb "$HOOK" "$f")" ] && echo yes || echo no)"
 done
 
 echo "== commands/hooks.md: live =="
-check "argument-hint names live off | on | status" "yes" "$(contains 'argument-hint: pair | unpair | live off | on | status' "$CMD_TEXT")"
+check "argument-hint names live off | on | status and live activity off | on | status" "argument-hint: pair | unpair | live off | on | status | live activity off | on | status" "$(printf '%s\n' "$CMD_TEXT" | grep '^argument-hint:')"
+check "documents live activity off, on and status in the live section (AC-34)" "yes yes yes" "$(contains 'allye-hooks.sh" live activity off "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live activity on "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live activity status "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT")"
+check "the pairing message discloses the activity phrase word for word (AC-34)" "yes" "$(printf '%s\n' "$CMD_TEXT" | sed -n '/^## pair$/,/^## unpair$/p' | grep -qF 'Live also sends a short activity phrase written by the agent (≤ 48 chars, paths/URLs/secrets stripped); /allye:hooks live activity off turns it off.' && echo yes || echo no)"
+check "the live section no longer says metadata only" "no" "$(contains 'metadata only' "$CMD_TEXT")"
 check "documents a live section with the three actions" "yes yes yes yes" "$(contains '## live' "$CMD_TEXT") $(contains 'allye-hooks.sh" live off "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live on "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live status "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT")"
 check "tells the user what off does and that status makes no network call" "yes yes" "$(contains 'end_live_off' "$CMD_TEXT") $(contains 'no network call' "$CMD_TEXT")"
 check "allowed-tools line is unchanged" "allowed-tools: Bash(\${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh:*), mcp__plugin_allye_allye__hooks" "$(printf '%s\n' "$CMD_TEXT" | grep '^allowed-tools:')"
