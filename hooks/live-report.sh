@@ -444,11 +444,11 @@ owner_find() {
     [[ "$p" =~ ^[1-9][0-9]{0,9}$ ]] && [ "$p" != 1 ] || return 1
     if [ -r "/proc/$p/stat" ]; then
       { IFS= read -r l <"/proc/$p/stat"; } 2>/dev/null || return 1
-      c=${l#*\(}; c=${c%\)*}; l=${l##*) }; set -- $l; st="${1:-}"; pp="${2:-}"
+      c=${l#*\(}; c=${c%\)*}; l=${l##*) }; set -f; set -- $l; set +f; st="${1:-}"; pp="${2:-}"
       [ -n "$(find "/proc/$p" -prune -user "$UID_NOW" -print 2>/dev/null)" ] || return 1
     elif [ ! -d /proc/self ]; then
       l=$(ps -o ppid=,uid=,state=,comm= -p "$p" 2>/dev/null) || return 1
-      set -- $l; pp="${1:-}"; u="${2:-}"; st="${3:-}"; shift 3 2>/dev/null || return 1; c="$*"; c=${c##*/}
+      set -f; set -- $l; set +f; pp="${1:-}"; u="${2:-}"; st="${3:-}"; shift 3 2>/dev/null || return 1; c="$*"; c=${c##*/}   # no globbing (set -f)
       [[ "$u" =~ ^[0-9]+$ ]] && [ "$u" = "$UID_NOW" ] || return 1
     else return 1; fi
     case "$st" in Z*) return 1 ;; esac
@@ -483,36 +483,182 @@ watch_start() {
   pidlock_pass "$WLOCK" "$$" "$w" || pidlock_drop "$WLOCK" "$$"
 }
 # watch_main: watcher mode (`live-report.sh watch`), reached only after the checks at the top of this file (absolute
-# data dir, tools, valid credential, Live not off or disabled). Holds $HASH.watch.lock: each interval (ALLYE_LIVE_WATCH_INTERVAL,
-# whole seconds clamped to 1-20, default 15) it sleeps, refreshes its lock record (only while it names this watcher)
-# and reads the state; it exits when the lock is no longer its own or the session is ended. On exit, if it still
-# holds the lock, it removes `watch` and the lock. Owner polling and the end event: ALY-217.3.
+# data dir, tools, valid credential, Live not off or disabled). The fingerprint of the credential is recorded at start
+# and the token dropped. It holds $HASH.watch.lock; each interval (ALLYE_LIVE_WATCH_INTERVAL, whole seconds clamped to
+# 1-20, default 15) it sleeps, then (ALY-217.3, BR-04, BR-05, NFR-02) refreshes its lock record (only while it names this
+# watcher) and exits without sending when the lock is no longer its own, the live directory fails its owner/mode check,
+# Live is off or disabled, the credential file is gone, the state is `ended`, `watch` is missing or malformed, or the
+# run cap (ALLYE_LIVE_WATCH_CAP seconds, test-only; default and maximum 24 h) is reached. Then one liveness check of the
+# owner named in `watch` (re-read every poll, so a later SessionStart under another owner is followed). No jq or curl
+# while the owner lives. Owner gone on a first poll: $HASH.watch.gone is created; gone on the next poll too: if
+# `state` or `seq` (written only by hooks; flushers rewrite only the spool) is newer than that marker a hook ran, so
+# nothing is sent and the count starts over (two more clean misses are needed); otherwise watch_end. On exit, if it still holds the lock, it removes `watch`, the marker, a `flush.wait` whose holder
+# is gone, and the lock.
 watch_main() {
-  local iv="${ALLYE_LIVE_WATCH_INTERVAL:-15}" st
+  local iv="${ALLYE_LIVE_WATCH_INTERVAL:-15}" cap="${ALLYE_LIVE_WATCH_CAP:-86400}" st own="" miss=0
   HASH="${LIVE_HASH:-}"
   [[ "$HASH" =~ ^[0-9a-f]{64}$ ]] || return 0
   [[ "$iv" =~ ^[0-9]{1,9}$ ]] || iv=15
   iv=$((10#$iv)); [ "$iv" -ge 1 ] || iv=1; [ "$iv" -le 20 ] || iv=20
+  [[ "$cap" =~ ^[0-9]{1,9}$ ]] || cap=86400
+  cap=$((10#$cap)); [ "$cap" -ge 1 ] && [ "$cap" -le 86400 ] || cap=86400
   live_dir_ok || return 0
-  STATEF="$LIVE_DIR/$HASH.state"; WATCHF="$LIVE_DIR/$HASH.watch"; WLOCK="$LIVE_DIR/$HASH.watch.lock"
-  ME=$$; WSLEEP=""
+  STATEF="$LIVE_DIR/$HASH.state"; WATCHF="$LIVE_DIR/$HASH.watch"; WLOCK="$LIVE_DIR/$HASH.watch.lock"; GONEF="$LIVE_DIR/$HASH.watch.gone"
+  SPOOL="$LIVE_DIR/$HASH.spool"; SEQF="$LIVE_DIR/$HASH.seq"; LOCKD="$LIVE_DIR/$HASH.lock"; FLOCK="$LIVE_DIR/$HASH.flush.lock"
+  WAITD="$LIVE_DIR/$HASH.flush.wait"; FLUSHED="$LIVE_DIR/$HASH.flushed"; BATCHF="$LIVE_DIR/$HASH.batch"; HDRF="$LIVE_DIR/$HASH.hdr"
+  RESPF="$LIVE_DIR/$HASH.resp"; BACKOFFF="$LIVE_DIR/backoff"
+  CFP=""; credfp; WCFP="$CFP"; LIVE_TOKEN=""; LIVE_API=""
+  [[ "$WCFP" =~ ^[0-9a-f]{64}$ ]] || return 0
+  ME=$$; WSLEEP=""; WHAVE=0; STATE_TOKEN=""; FTOK=""; TMPF=""; ENDF=""
   trap watch_exit EXIT
   trap 'exit 0' INT TERM
   cd / 2>/dev/null
+  SECONDS=0
   while :; do
     sleep "$iv" & WSLEEP=$!
     wait "$WSLEEP"; WSLEEP=""
     pidlock_pass "$WLOCK" "$ME" "$ME" || return 0   # lock_touch of a pid lock: fails once the lock is not ours
+    [ -d "$LIVE_DIR" ] && live_dir_ok || return 0
+    watch_flags_ok || return 0
     st=""
     if [ -f "$STATEF" ] && [ ! -L "$STATEF" ]; then { IFS= read -r st <"$STATEF"; } 2>/dev/null; fi
     [ "$st" != ended ] || return 0
+    watch_read || return 0
+    [ "$SECONDS" -lt "$cap" ] || return 0
+    if [ "$WOWN" != "$own" ]; then own="$WOWN"; miss=0; rm -f "$GONEF" 2>/dev/null; fi   # a new owner: start over
+    if ! owner_gone "${own% *}" "${own#* }"; then
+      [ "$miss" = 0 ] || { miss=0; rm -f "$GONEF" 2>/dev/null; }
+      continue
+    fi
+    miss=$((miss + 1))
+    if [ "$miss" = 1 ]; then
+      rm -f "$GONEF" 2>/dev/null; ( set -C; : >"$GONEF" ) 2>/dev/null || return 0
+      continue
+    fi
+    # a hook ran since the first miss (state or seq changed; flushers only rewrite the spool): start over
+    if hook_since state seq; then miss=0; rm -f "$GONEF" 2>/dev/null; continue; fi
+    watch_end "$own"; [ $? = 3 ] || return 0   # 3: another owner now, or a hook ran meanwhile: keep polling
+    own=""; miss=0
   done
 }
+# watch_flags_ok: Live not off, not disabled, and the credential file still there (its content is read only at send time).
+watch_flags_ok() {
+  [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ] || [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ] && return 1
+  [ -f "$DIR/hook-credential.json" ] && [ ! -L "$DIR/hook-credential.json" ]
+}
+# watch_read: WOWN = the whole content of `watch`, which must be "<pid> <start>" (^[0-9]+ [0-9]+$, the pid 1-10 digits
+# without a leading 0), in a private file; fails otherwise (missing, symlink, foreign mode, extra fields or lines).
+watch_read() {
+  local l=""
+  WOWN=""
+  [ -f "$WATCHF" ] && [ ! -L "$WATCHF" ] && private_file_ok "$WATCHF" || return 1
+  { IFS= read -r -n 64 -d '' l <"$WATCHF"; } 2>/dev/null
+  [ "${#l}" -lt 64 ] && [[ "$l" =~ ^[0-9]+\ [0-9]+$ ]] && [[ "${l%% *}" =~ ^[1-9][0-9]{0,9}$ ]] || return 1
+  WOWN="$l"
+}
+# owner_gone PID START: the owner is gone when `kill -0` says there is no such process, or (Linux) /proc/PID/stat is
+# absent, the process is a zombie or its start time is not START. EPERM from kill -0 never means gone (elsewhere the
+# process is then taken as alive; on Linux /proc decides).
+owner_gone() {
+  local e cur
+  e=$(kill -0 "$1" 2>&1) || case "$e" in *"No such process"*) return 0 ;; esac
+  if [ -d /proc/self ]; then
+    [ -r "/proc/$1/stat" ] || return 0
+    cur=$(proc_start "$1") || return 0
+    [ "$cur" != "$2" ]; return
+  fi
+  [ -z "$e" ] || return 1
+  cur=$(proc_start "$1") || return 1
+  [ "$cur" != "$2" ]
+}
+# hook_since NAME...: one of $LIVE_DIR/$HASH.NAME was modified after the marker was created (a hook ran); also when the
+# marker is missing (fail safe: nothing is sent). Called with `state seq`: both are written only by hooks.
+hook_since() {
+  local n f=()
+  [ -f "$GONEF" ] && [ ! -L "$GONEF" ] || return 0
+  for n in "$@"; do f+=("$LIVE_DIR/$HASH.$n"); done
+  [ -n "$(find "${f[@]}" -prune -newer "$GONEF" -print 2>/dev/null)" ]
+}
+# watch_end OWNER: the owner was gone on two polls and no hook ran. The credential is loaded again and must have the
+# fingerprint recorded at start; one flush attempt of the pending lines (1 s limits; skipped when flush.lock is busy);
+# then under the state lock `watch` and `state` are read again (another owner now, or a hook since the marker: return 3,
+# the watcher keeps polling; ended or off: nothing is sent), the seq is allocated like `/allye:hooks live off`
+# (max(previous + 1, Unix ms), and above every line left in the spool) and the state is written `ended`; after the lock
+# is released, unless Live is now off or disabled or a back-off is active (e.g. set by that flush), the event
+# `state ended` with code end_process_gone is sent alone in one request (1 s limits). It is never retried. The token
+# and API origin are cleared on every return.
+watch_end() {
+  local rc
+  watch_end_run "$@"; rc=$?
+  LIVE_TOKEN=""; LIVE_API=""
+  return "$rc"
+}
+watch_end_run() {
+  local prev=0 ms new m at body tmp
+  case "$LIVE_DIR" in *[\"\\]*) return 0 ;; esac   # the path goes into a curl config string
+  watch_flags_ok || return 0
+  load_live_credential "$DIR" || return 0
+  CFP=""; credfp; [ "$CFP" = "$WCFP" ] || return 0
+  SEND_MAXTIME=1; SEND_CONNECT=1
+  if [ -s "$SPOOL" ] && lock_take "$FLOCK" 0; then FTOK="$LOCK_TOKEN"; flush_run; lock_drop "$FLOCK" "$FTOK"; FTOK=""; fi
+  lock_take "$LOCKD" 50 || return 0
+  STATE_TOKEN="$LOCK_TOKEN"; WHAVE=1
+  if ! watch_read; then watch_unlock; return 0; fi
+  if [ "$WOWN" != "$1" ] || hook_since state seq; then watch_unlock; return 3; fi
+  m=""
+  if [ -f "$STATEF" ] && [ ! -L "$STATEF" ]; then { IFS= read -r m <"$STATEF"; } 2>/dev/null; fi
+  # off under the lock: `/allye:hooks live off` ends the session itself (end_live_off); disabled is checked before the send
+  if [ "$m" = ended ] || [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ] || ! private_file_ok "$STATEF" || ! private_file_ok "$SEQF"; then watch_unlock; return 0; fi
+  at=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || at=""
+  [[ "$at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { watch_unlock; return 0; }
+  ms=$(now_ms)
+  if [ -f "$SEQF" ] && [ ! -L "$SEQF" ]; then { IFS= read -r prev <"$SEQF"; } 2>/dev/null; fi
+  if [[ "$prev" =~ ^(0|[1-9][0-9]{0,15})$ ]] && [ "$prev" -lt 9007199254740991 ] && [ "$prev" -le $((ms + 86400000)) ]; then :; else prev=0; fi
+  new=$((prev + 1)); [ "$new" -ge "$ms" ] || new="$ms"
+  if [ -s "$SPOOL" ] && private_file_ok "$SPOOL"; then
+    m=$(jq -R -n '[inputs | fromjson? | objects | .seq | numbers | floor] | max // 0' "$SPOOL" 2>/dev/null) || m=0
+    [[ "$m" =~ ^[0-9]{1,16}$ ]] && [ "$m" -ge "$new" ] && new=$((m + 1))
+  fi
+  [ "$new" -lt 9007199254740991 ] || { watch_unlock; return 0; }
+  body=$(jq -nc --arg h "$HASH" --argjson s "$new" --arg at "$at" \
+    '{client: {kind: "claude-code"}, session: {hash: $h}, events: [{seq: $s, at: $at, type: "state", state: "ended", code: "end_process_gone"}]}' 2>/dev/null) || body=""
+  [ -n "$body" ] || { watch_unlock; return 0; }
+  tmp=$(mktemp "$LIVE_DIR/.seq.XXXXXX" 2>/dev/null) || { watch_unlock; return 0; }; TMPF="$tmp"
+  printf '%s' "$new" >"$tmp" 2>/dev/null && mv -f "$tmp" "$SEQF" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; watch_unlock; return 0; }
+  tmp=$(mktemp "$LIVE_DIR/.state.XXXXXX" 2>/dev/null) || { watch_unlock; return 0; }; TMPF="$tmp"
+  printf 'ended' >"$tmp" 2>/dev/null && mv -f "$tmp" "$STATEF" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; watch_unlock; return 0; }
+  TMPF=""
+  watch_unlock
+  if ! watch_flags_ok || backoff_active; then return 0; fi   # the flush above may have disabled or backed off
+  ENDF=$(mktemp "$LIVE_DIR/.end.XXXXXX" 2>/dev/null) || { ENDF=""; return 0; }
+  printf '%s' "$body" >"$ENDF" 2>/dev/null || return 0
+  {
+    printf 'url = "%s/api/agent-runs/events"\n' "$LIVE_API"
+    printf 'header = "Authorization: Bearer %s"\n' "$LIVE_TOKEN"
+    printf 'header = "Content-Type: application/json"\n'
+    printf 'header = "Accept: application/json"\n'
+    printf 'data-binary = "@%s"\n' "$ENDF"
+    printf 'max-time = 1\nconnect-timeout = 1\nmax-filesize = 65536\nnoproxy = "*"\n'
+  } | curl -q --silent -K - -o /dev/null 2>/dev/null
+  LIVE_TOKEN=""
+  return 0
+}
+watch_unlock() { [ "$WHAVE" = 1 ] && lock_drop "$LOCKD" "$STATE_TOKEN"; WHAVE=0; return 0; }
 watch_exit() {
   local p=""
   [ -z "$WSLEEP" ] || kill "$WSLEEP" 2>/dev/null   # this watcher's own sleep child
+  LIVE_TOKEN=""
+  [ -z "$TMPF" ] || rm -f "$TMPF" "$TMPF.2" 2>/dev/null
+  [ -z "$ENDF" ] || rm -f "$ENDF" 2>/dev/null
+  if [ -n "$FTOK" ]; then rm -f "$BATCHF" "$HDRF" "$RESPF" 2>/dev/null; lock_drop "$FLOCK" "$FTOK"; fi
+  watch_unlock
   { IFS=' ' read -r p _ <"$WLOCK/p"; } 2>/dev/null
-  if [ "$p" = "$ME" ]; then rm -f "$WATCHF" 2>/dev/null; pidlock_drop "$WLOCK" "$ME"; fi
+  if [ "$p" = "$ME" ]; then
+    rm -f "$WATCHF" "$GONEF" 2>/dev/null
+    # a flush.wait whose holder is gone: taken through lock_take (which breaks only a stale lock), then dropped
+    [ -d "$WAITD" ] && lock_take "$WAITD" 0 "$ME" && pidlock_drop "$WAITD" "$ME"
+    pidlock_drop "$WLOCK" "$ME"
+  fi
   return 0
 }
 if [ "${1:-}" = watch ]; then watch_main; exit 0; fi

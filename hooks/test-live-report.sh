@@ -1434,19 +1434,25 @@ watchers_under() {
 check "AC-13: no pre-existing case started a watcher (none running, no watch file or watch lock in any sandbox)" "0 0" \
   "$(watchers_under "$ROOT_TMP") $(find "$ROOT_TMP" \( -name '*.watch' -o -name '*.watch.lock' \) | wc -l | tr -d ' ')"
 
-# wcase [REALBIN]: a watcher sandbox. The watcher's whitelisted environment has no SHIM_LOG, so its PATH gets shims
-# wrapped with this case's SHIM_LOG/SHIM_REAL as defaults (the hook's own values win).
+# wcase [REALBIN] [SHIMDIR]: a watcher sandbox. The watcher's whitelisted environment has no SHIM_LOG, so its PATH gets
+# shims wrapped with this case's SHIM_LOG/SHIM_REAL as defaults (the hook's own values win). SHIMDIR (ALY-217.3): the shim
+# set to wrap, e.g. "$SHIMS" for the real logging curl (default: the failing stub curl).
 wcase() {
-  new_case; mkcred; REAL="${1:-$REALBIN}"
+  new_case; mkcred; REAL="${1:-$REALBIN}"; [ -z "${2:-}" ] || SHIMD="$2"
   local s; mkdir -p "$SB/wshims" "$SB/own"
   for s in "$SHIMD"/*; do
     case "${s##*/}" in _wrap.sh) continue ;; esac
     printf '#!%s\n: "${SHIM_LOG:=%s}" "${SHIM_REAL:=%s}"; export SHIM_LOG SHIM_REAL\nexec %s "$@"\n' "$BASH_BIN" "$SB/log" "$REAL" "$s" >"$SB/wshims/${s##*/}"
     chmod +x "$SB/wshims/${s##*/}"
   done
-  SHIMD="$SB/wshims"; OWN="$SB/own"; GO=0; OPID=""; OSTART=""
-  # chain.sh, sourced by `sh -c '. "$1"' sh chain.sh DEPTH`: DEPTH more shells in between, then one hook per go.N file
-  # (`<stdin file> plain|pipe [NAME=VALUE...]`); done.N holds the hook's wall time in ms; `exit` or 60 s idle ends it.
+  SHIMD="$SB/wshims"; OWN="$SB/own"; CHAIN="$SB/chain.sh"; GO=0; OPID=""; OSTART=""
+  mkchain "$OWN" >"$CHAIN"
+}
+# mkchain OWNDIR: prints chain.sh for a fake owner whose control files live in OWNDIR.
+# chain.sh, sourced by `sh -c '. "$1"' sh chain.sh DEPTH`: DEPTH more shells in between, then one hook per go.N file
+# (`<stdin file> plain|pipe [NAME=VALUE...]`); done.N holds the hook's wall time in ms; `exit` or 60 s idle ends it.
+mkchain() {
+  local OWN="$1"
   {
     printf 'if [ "$2" -gt 0 ]; then %q -c %q sh "$1" $(($2 - 1)); exit $?; fi\n' "$SH_BIN" '. "$1"'
     printf 'i=1\nwhile [ "$i" -le 30 ]; do\n'
@@ -1459,11 +1465,11 @@ wcase() {
     printf '  if [ "$mode" = pipe ]; then "$@" <"$in" 2>&1 | cat >%q/piped.$i; else "$@" <"$in" >%q/out.$i 2>&1; echo $? >%q/rc.$i; fi\n' "$OWN" "$OWN" "$OWN"
     printf '  t1=$(date +%%s%%N); echo $(( (t1 - t0) / 1000000 )) >%q/ms.$i; mv %q/ms.$i %q/done.$i\n' "$OWN" "$OWN" "$OWN"
     printf '  i=$((i + 1))\ndone\n'
-  } >"$SB/chain.sh"
+  }
 }
 # owner_start [DEPTH] [EXE]: the fake owner (EXE: node, or a symlink to node with another name) running chain.sh.
 owner_start() {
-  "${2:-$NODE_BIN}" "$FOWNER" "$OWN" "$SH_BIN" -c '. "$1"' sh "$SB/chain.sh" "${1:-0}"
+  "${2:-$NODE_BIN}" "$FOWNER" "$OWN" "$SH_BIN" -c '. "$1"' sh "$CHAIN" "${1:-0}"
   wait_for '[ -s "$OWN/owner" ]'
   OPID=""; OPGID=""; { read -r OPID OPGID <"$OWN/owner"; } 2>/dev/null; OSTART=$(pstart "$OPID")
   [[ "$OPID" =~ ^[0-9]+$ ]] && [[ "$OSTART" =~ ^[0-9]+$ ]] && TRACK+=("$OPID $OSTART")
@@ -1606,6 +1612,211 @@ if SETSID_BIN=$(type -P setsid); then
 else
   echo "  SKIP: setsid not available on this host"
 fi
+# ─── ALY-217.3: the watcher ends a dead session with end_process_gone, else exits cleanly (BR-04, BR-05, BR-09) ──────
+# Owners are killed only by their recorded pid after a start-time check; every wait is a poll of up to 10 s.
+echo "== session watcher end (ALY-217 AC-14..AC-24) =="
+GN7() { echo "$DATA/live/$H7.watch.gone"; }
+# owner_kill [SIG]: ends the chain loop (so no shell is left behind), then sends SIG (default KILL) to the fake owner's
+# recorded pid after checking its start time, and waits until it is gone.
+owner_kill() {
+  [ -n "$OWN" ] && [ -d "$OWN" ] && { printf 'exit\n' >"$OWN/go.$((GO + 1)).tmp"; mv "$OWN/go.$((GO + 1)).tmp" "$OWN/go.$((GO + 1))"; }
+  wait_for '[ -e "$OWN/rc" ]'
+  alive "$OPID" "$OSTART" && kill "-${1:-KILL}" "$OPID" 2>/dev/null
+  wait_for '! alive "$OPID" "$OSTART"'
+}
+# touches W: how many lock refreshes (pidlock_pass temp + mv of watch.lock/p) watcher W made so far, from the mv shim log.
+touches() { { grep -F "watch.lock/p.$1." "$SB/log/calls.log" 2>/dev/null | grep -c '^mv' ; } || true; }
+# polls W N: waits until watcher W made N more lock refreshes (N more poll intervals).
+polls() { local t0; t0=$(touches "$1"); wait_for "[ \"\$(touches $1)\" -ge $((t0 + $2)) ]"; }
+jqcurl() { { grep -cE '^(jq|curl) ' "$SB/log/calls.log" 2>/dev/null; } || true; }
+nend() { { grep -c 'end_process_gone' "$SB/api/ingest-bodies.log" 2>/dev/null; } || true; }
+body() { sed -n "${1}p" "$SB/api/ingest-bodies.log"; }
+wfiles() { echo "$(yn '[ -e "$(WF7)" ]') $(yn '[ -e "$(WL7)" ]') $(yn '[ -e "$(GN7)" ]')"; }
+stateof() { cat "$DATA/live/$H7.state" 2>/dev/null; }
+# privacy_scan LABEL (AC-22): no raw session id and no marker in any file or file name under the data dir, in the shim
+# argv/config logs or in what the API received (environ.log is left out: it is the hooks' own environment, which the
+# harness fills with markers on purpose; the watcher's environment is checked by AC-12).
+privacy_scan() {
+  local all="$SB/scan.txt" m n=0
+  { find "$DATA" -type f ! -name hook-credential.json -exec cat {} +; find "$DATA" -print; cat "$SB/log/calls.log" "$SB/log/curl-config.log" "$SB/api/requests.log" "$SB/api/ingest-bodies.log" 2>/dev/null; } >"$all"
+  for m in "$RAWSID" "${MARKERS[@]}"; do [ "$(grep -cF -- "$m" "$all" || true)" = 0 ] || n=$((n + 1)); done
+  check "$1: no raw session id and no marker in files, names, curl argv/config or request bodies (scan not empty)" "0 yes" "$n $(yn '[ -s "$all" ]')"
+}
+
+# AC-14 / AC-22 / AC-23 / AC-24 / BR-09: pending lines (the API answered 5xx), owner killed -> flush, then one end event
+wcase "" "$SHIMS"; printf '5xx' >"$SB/api/ingest-mode"; owner_start
+owner_go session-start-startup; owner_go pre-tool-use; wait_idle
+W=$(wpid); WS=$(pstart "$W"); SP=$(spool_seqs | tr '\n' ' '); N0=$(nbodies)
+check "AC-14 setup: a watcher runs and two lines are pending after failed sends" "yes 2" "$(yn 'alive "$W" "$WS"') $(spool_seqs | grep -c .)"
+J0=$(jqcurl); polls "$W" 3
+check "AC-23: over three polls with a live owner the watcher made no jq or curl call (shim logs), and kept running" "$J0 yes" "$(jqcurl) $(yn 'alive "$W" "$WS"')"
+printf 'ok' >"$SB/api/ingest-mode"
+owner_kill KILL
+wait_for '! alive "$W" "$WS"'
+check "AC-14: the watcher exited after the owner was killed" "no" "$(yn 'alive "$W" "$WS"')"
+wait_for '[ "$(nbodies)" -ge $((N0 + 2)) ]'
+check "AC-14: exactly two more requests: the pending lines first, then the end event" "$((N0 + 2)) $SP" "$(nbodies) $(body $((N0 + 1)) | "$JQ_BIN" -r '.events[].seq' | tr '\n' ' ')"
+EB=$(body $((N0 + 2)))
+check "AC-14: the end request holds exactly one event {type: state, state: ended, code: end_process_gone} and the session hash" \
+  "1|state ended end_process_gone|at,code,seq,state,type|$H7|claude-code" \
+  "$(printf '%s' "$EB" | "$JQ_BIN" -r '"\(.events | length)|\(.events[0] | "\(.type) \(.state) \(.code)")|\(.events[0] | keys | join(","))|\(.session.hash)|\(.client.kind)"')"
+check "AC-14: its at is strict ISO-8601 UTC and its seq is above every spooled seq" "yes yes" \
+  "$(yn 'printf "%s" "$EB" | "$JQ_BIN" -r ".events[0].at" | grep -qxE "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"') $(yn '[ "$(printf "%s" "$EB" | "$JQ_BIN" -r ".events[0].seq")" -gt "$(printf "%s\n" $SP | sort -n | tail -n 1)" ]')"
+check "AC-14: the end request was limited to 1 s (max-time and connect-timeout)" "max-time = 1 connect-timeout = 1" "$(tail -n 4 "$SB/log/curl-config.log" | grep -E '^(max-time|connect-timeout)' | tr '\n' ' ' | sed 's/ $//')"
+check "AC-14: state ended, spool empty, watch, watch.lock and the gone marker removed; one end event in all" "ended 0 no no no 1" "$(stateof) $(spool_seqs | grep -c .) $(wfiles) $(nend)"
+privacy_scan "AC-22 after an end event"
+# BR-09 / AC-24: a later hook of the session reports normally; a UserPromptSubmit under a new owner starts a new watcher
+hook_at "" user-prompt-submit; wait_idle
+check "AC-24: a hook after the watcher end spools and sends its event (state working) normally" "$((N0 + 3)) working 0 working" \
+  "$(nbodies) $(body $((N0 + 3)) | "$JQ_BIN" -r '.events[-1].state') $(spool_seqs | grep -c .) $(stateof)"
+OWN="$SB/own2"; mkdir -p "$OWN"; CHAIN="$SB/chain2.sh"; mkchain "$OWN" >"$CHAIN"; GO=0; owner_start
+owner_go user-prompt-submit; W2=$(wpid)
+check "AC-24: a UserPromptSubmit under a new owner after the end starts a new watcher" "yes yes 1" "$(yn '[ -n "$W2" ] && [ "$W2" != "$W" ]') $(yn 'alive "$W2" "$(pstart "$W2")"') $(watchers_under "$DATA")"
+check "AC-14 / AC-24: cleanup" "clean" "$(watch_cleanup)"; owner_stop; end_case
+
+# AC-15 (correction SHD-01): a hook runs after the watcher first saw the owner missing -> nothing is sent at the next
+# poll and the count starts over; the owner stays gone, so the end comes after two more clean misses
+wcase "" "$SHIMS"; owner_start; owner_go session-start-startup plain ALLYE_LIVE_WATCH_INTERVAL=2; wait_idle
+W=$(wpid); WS=$(pstart "$W")
+owner_kill KILL
+wait_for '[ -e "$(GN7)" ]'
+check "AC-15 setup: the watcher saw the owner missing once and still runs" "yes yes" "$(yn '[ -e "$(GN7)" ]') $(yn 'alive "$W" "$WS"')"
+hook_at "" pre-tool-use
+polls "$W" 2   # the next poll (which sees the hook) and the one after it: both decided, the end can come one poll later
+check "AC-15: at the poll after the hook nothing was sent and the watcher kept polling" "yes 0 started" "$(yn 'alive "$W" "$WS"') $(nend) $(stateof)"
+wait_for '! alive "$W" "$WS"'; wait_for '[ "$(nend)" -ge 1 ]'
+check "AC-15: two clean misses later exactly one end event, state ended, watch files removed" "no 1 ended no no no" \
+  "$(yn 'alive "$W" "$WS"') $(nend) $(stateof) $(wfiles)"
+privacy_scan "AC-22 after a hook during the debounce"
+end_case
+
+# SHD-01: a flusher rewrites the spool between the two misses (delayed API) -> the end is still sent, exactly once
+wcase "" "$SHIMS"; owner_start; owner_go session-start-startup plain ALLYE_LIVE_WATCH_INTERVAL=2; wait_idle
+W=$(wpid); WS=$(pstart "$W"); N0=$(nbodies)
+printf '2500' >"$SB/api/ingest-delay"
+polls "$W" 1
+owner_go subagent-start   # an important event: its flusher sends at once and rewrites the spool about 2.5 s later
+owner_kill KILL
+wait_for '[ -e "$(GN7)" ]'
+check "SHD-01 setup: at the first miss the hook's flusher is still in flight (the spool is rewritten after the marker)" "yes yes" \
+  "$(yn '[ -e "$DATA/live/$H7.flush.lock" ]') $(yn 'alive "$W" "$WS"')"
+wait_for '[ "$(nbodies)" -ge $((N0 + 1)) ]'; printf '0' >"$SB/api/ingest-delay"
+wait_for '! alive "$W" "$WS"'; wait_for '[ "$(nend)" -ge 1 ]'; wait_idle
+check "SHD-01: the spool rewrite by a flusher is not a hook: one end event after the flush, state ended, spool empty, watch files removed" \
+  "no 1 $((N0 + 2)) ended 0 no no no" "$(yn 'alive "$W" "$WS"') $(nend) $(nbodies) $(stateof) $(spool_seqs | grep -c .) $(wfiles)"
+end_case
+
+# SHD-03: the pre-end flush gets 429 (back-off) or 401 (disabled) -> no end request; the state is still ended
+for m in 429 401; do
+  wcase "" "$SHIMS"; printf '5xx' >"$SB/api/ingest-mode"; owner_start; owner_go session-start-startup; wait_idle
+  W=$(wpid); WS=$(pstart "$W"); N0=$(nbodies)
+  printf '%s' "$m" >"$SB/api/ingest-mode"
+  owner_kill KILL
+  wait_for '! alive "$W" "$WS"'; wait_idle
+  check "SHD-03 $m: only the flush request, no end event, state ended, back-off or disabled marker in place, watch files removed" \
+    "$((N0 + 1)) 0 ended yes no no no" "$(nbodies) $(nend) $(stateof) $(yn '[ -e "$DATA/live/backoff" ] || [ -e "$DATA/live/disabled" ]') $(wfiles)"
+  end_case
+done
+
+# AC-16: SessionEnd ran -> the watcher exits within one interval without a request, also once the owner is killed
+wcase "" "$SHIMS"; owner_start; owner_go session-start-startup; wait_idle
+W=$(wpid); WS=$(pstart "$W")
+owner_go session-end-clear; wait_idle; M0=$(date +%s%N); N0=$(nbodies)
+wait_for '! alive "$W" "$WS"'; M1=$(date +%s%N)
+check "AC-16: after SessionEnd the watcher exited within about one interval (observed $(( (M1 - M0) / 1000000 )) ms), removing watch and watch.lock" \
+  "no yes no no no" "$(yn 'alive "$W" "$WS"') $(yn '[ $(( (M1 - M0) / 1000000 )) -lt 2500 ]') $(wfiles)"
+owner_kill KILL; wait_idle
+check "AC-16: no request from the watcher, also after the owner was killed; no end_process_gone" "$N0 0 ended" "$(nbodies) $(nend) $(stateof)"
+end_case
+
+# AC-17: a later SessionStart under another owner rewrites watch; the old owner's death sends nothing, the new one's ends
+wcase "" "$SHIMS"; owner_start; owner_go session-start-startup; wait_idle
+W=$(wpid); WS=$(pstart "$W"); AOWN="$OWN"; AGO="$GO"; APID_="$OPID"; ASTART="$OSTART"
+OWN="$SB/own2"; mkdir -p "$OWN"; CHAIN="$SB/chain2.sh"; mkchain "$OWN" >"$CHAIN"; GO=0; owner_start
+owner_go session-start-resume; wait_idle
+check "AC-17: watch now names the new owner; the same single watcher runs" "$OPID $OSTART|$W|1" "$(cat "$(WF7)" 2>/dev/null)|$(wpid)|$(watchers_under "$DATA")"
+BOWN="$OWN"; BGO="$GO"; BPID="$OPID"; BSTART="$OSTART"; N0=$(nbodies)
+OWN="$AOWN"; GO="$AGO"; OPID="$APID_"; OSTART="$ASTART"; owner_kill KILL
+polls "$W" 3
+check "AC-17: the old owner killed -> after three polls the watcher still runs and sent nothing" "yes $N0 0" "$(yn 'alive "$W" "$WS"') $(nbodies) $(nend)"
+OWN="$BOWN"; GO="$BGO"; OPID="$BPID"; OSTART="$BSTART"; owner_kill KILL
+wait_for '! alive "$W" "$WS"'; wait_for '[ "$(nend)" -ge 1 ]'
+check "AC-17: the new owner killed -> one end event, state ended, watch files removed" "no 1 $((N0 + 1)) ended no no no" "$(yn 'alive "$W" "$WS"') $(nend) $(nbodies) $(stateof) $(wfiles)"
+end_case
+
+# AC-18: SIGHUP to the fake owner's recorded process group keeps the watcher; the owner's later death still ends
+wcase "" "$SHIMS"; owner_start; owner_go session-start-startup; wait_idle
+W=$(wpid); WS=$(pstart "$W"); N0=$(nbodies)
+HPG=$(sed 's/.*) //' "/proc/$$/stat" | cut -d' ' -f3)
+check "AC-18 setup: the recorded owner pgid is a number other than the harness's, 0 and 1 (not vacuous)" "yes" \
+  "$(yn '[[ "$OPGID" =~ ^[0-9]+$ ]] && [ "$OPGID" -gt 1 ] && [ "$OPGID" != "$HPG" ]')"
+[[ "$OPGID" =~ ^[0-9]+$ ]] && [ "$OPGID" -gt 1 ] && [ "$OPGID" != "$HPG" ] && alive "$OPID" "$OSTART" && kill -HUP -- "-$OPGID" 2>/dev/null
+polls "$W" 2
+check "AC-18: after SIGHUP to the owner's group the watcher and the owner still run; nothing was sent" "yes yes $N0" "$(yn 'alive "$W" "$WS"') $(yn 'alive "$OPID" "$OSTART"') $(nbodies)"
+owner_kill KILL
+wait_for '! alive "$W" "$WS"'; wait_for '[ "$(nend)" -ge 1 ]'
+check "AC-18: the owner killed later -> exactly one end event, state ended, watch files removed" "no 1 $((N0 + 1)) ended no no no" "$(yn 'alive "$W" "$WS"') $(nend) $(nbodies) $(stateof) $(wfiles)"
+end_case
+
+# AC-19: off, disabled, credential removed -> exit without a request; a changed credential at send time -> no request
+for kind in off disabled nocred repaired; do
+  wcase "" "$SHIMS"; owner_start; owner_go session-start-startup; wait_idle
+  W=$(wpid); WS=$(pstart "$W"); N0=$(nbodies)
+  case "$kind" in
+    off) : >"$DATA/live/off"; chmod 600 "$DATA/live/off" ;;
+    disabled) printf 'cred:%s' "$(test_sha "$TOKEN")" >"$DATA/live/disabled"; chmod 600 "$DATA/live/disabled" ;;
+    nocred) rm -f "$CRED" ;;
+    repaired) TOKEN="$TOKEN2" mkcred; polls "$W" 2
+              check "AC-19 repaired: a re-pair alone does not stop the watcher (fingerprint checked at send time)" "yes" "$(yn 'alive "$W" "$WS"')"
+              owner_kill KILL ;;
+  esac
+  wait_for '! alive "$W" "$WS"'; wait_idle
+  check "AC-19 $kind: the watcher exited without any request, removing watch and watch.lock" "no $N0 0 no no no" "$(yn 'alive "$W" "$WS"') $(nbodies) $(nend) $(wfiles)"
+  [ "$kind" = repaired ] && check "AC-19 repaired: the state was not set to ended" "started" "$(stateof)"
+  owner_stop; end_case
+done
+wcase "" "$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/off"; chmod 600 "$DATA/live/off"
+owner_start; owner_go session-start-startup
+check "AC-19: the reporter is inert at SessionStart (off) -> no watch file, no watch.lock, no watcher, no request" "no no 0 0" \
+  "$(yn '[ -e "$(WF7)" ]') $(yn '[ -e "$(WL7)" ]') $(watchers_under "$DATA") $(nbodies)"
+owner_stop; end_case
+
+# AC-20: the run cap (test override ALLYE_LIVE_WATCH_CAP=2 s, fresh sandbox) -> exit without sending, owner alive
+wcase "" "$SHIMS"; owner_start; owner_go session-start-startup plain ALLYE_LIVE_WATCH_CAP=2; wait_idle
+W=$(wpid); WS=$(pstart "$W"); N0=$(nbodies)
+check "AC-20 setup: the watcher got the cap override" "ALLYE_LIVE_WATCH_CAP=2" "$(tr '\0' '\n' <"/proc/$W/environ" 2>/dev/null | grep '^ALLYE_LIVE_WATCH_CAP=')"
+wait_for '! alive "$W" "$WS"'
+check "AC-20: at its cap the watcher exited without a request, removing watch and watch.lock, while the owner lives" "no yes $N0 no no no" \
+  "$(yn 'alive "$W" "$WS"') $(yn 'alive "$OPID" "$OSTART"') $(nbodies) $(wfiles)"
+owner_stop; end_case
+
+# AC-21: a malformed or missing watch file, or a live directory failing its owner/mode check -> exit without sending
+for kind in letters three-fields two-lines zero-pid missing dir-mode; do
+  wcase "" "$SHIMS"; owner_start; owner_go session-start-startup; wait_idle
+  W=$(wpid); WS=$(pstart "$W"); N0=$(nbodies)
+  case "$kind" in
+    letters) printf 'abc def' >"$SB/w.tmp" ;;
+    three-fields) printf '%s %s 7' "$OPID" "$OSTART" >"$SB/w.tmp" ;;
+    two-lines) printf '%s %s\n1 2' "$OPID" "$OSTART" >"$SB/w.tmp" ;;
+    zero-pid) printf '0 %s' "$OSTART" >"$SB/w.tmp" ;;
+  esac
+  case "$kind" in
+    missing) rm -f "$(WF7)" ;;
+    dir-mode) chmod 755 "$DATA/live" ;;
+    *) chmod 600 "$SB/w.tmp"; mv -f "$SB/w.tmp" "$(WF7)" ;;
+  esac
+  wait_for '! alive "$W" "$WS"'
+  check "AC-21 $kind: the watcher exited without any request and released watch.lock" "no $N0 0 no" "$(yn 'alive "$W" "$WS"') $(nbodies) $(nend) $(yn '[ -e "$(WL7)" ]')"
+  chmod 700 "$DATA/live"
+  owner_stop; end_case
+done
+
+# owner_find on the ps branch (Shield LOW of ALY-217.2): a comm holding glob characters is never expanded
+wcase; mkdir -p "$SB/psbin" "$SB/globdir"; : >"$SB/globdir/claude"
+printf '#!%s\nprintf "  1234 %%s S c*\\n" "$(id -u)"\n' "$BASH_BIN" >"$SB/psbin/ps"; chmod +x "$SB/psbin/ps"
+psfind() { (cd "$SB/globdir" && env -i PATH="$SB/psbin:$REALBIN" "$BASH_BIN" -c "LC_ALL=C; UID_NOW=$(id -u); $(fn_body "$HOOK" proc_start); $(fn_body "$HOOK" owner_find | sed 's#-r "/proc/\$p/stat"#-r /nonexistent#; s#! -d /proc/self#! -d /nonexistent#'); owner_find \$\$; echo \" rc=\$?\""); }
+check "owner_find (ps branch): a comm 'c*' next to a file named claude is not globbed into an owner" " rc=1" "$(psfind)"
+end_case
 check "AC-13: after the watcher cases no watcher of the harness is left running" "0" "$(watchers_under "$ROOT_TMP")"
 fi
 
