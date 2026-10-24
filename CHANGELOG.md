@@ -1,3 +1,20 @@
+# [2.10.0](https://github.com/allye-app/allye-plugin/compare/v2.9.0...v2.10.0) (2026-10-24)
+
+
+### Bug Fixes
+
+* **hooks:** keep allye-hooks.sh lock copies identical to the reporter's pid lock (ALY-217.1) ([4d18ff6](https://github.com/allye-app/allye-plugin/commit/4d18ff6781dcbf10e67e9b651858861fd3a8025f))
+* **hooks:** synthesize sub_start for unseen subagents and never leave an ended state in the spool (ALY-217.7) ([4c9f80b](https://github.com/allye-app/allye-plugin/commit/4c9f80b0399ffdde6281ffbb1f71c69d2e2b83d5))
+
+
+### Features
+
+* **hooks:** bind a Live session through MCP only on task_start and task_submit (ALY-217.4) ([998850a](https://github.com/allye-app/allye-plugin/commit/998850a37c915be71eca76cc5329e161f2eb114a))
+* **hooks:** end the session with end_process_gone when the owning process is gone (ALY-217.3) ([c25afe1](https://github.com/allye-app/allye-plugin/commit/c25afe11b7c91d35e2ffcc6e33ab6b0d662467af))
+* **hooks:** flush Live tool events within 2 seconds through one delayed flush (ALY-217.1) ([3ace767](https://github.com/allye-app/allye-plugin/commit/3ace76748456bc82b165016a114910ffdf23e0cc))
+* **hooks:** send a redacted 48-character activity phrase with Live tool events (ALY-217.6) ([33e51f5](https://github.com/allye-app/allye-plugin/commit/33e51f599e8329d6cf86fbdd2797803fc8d522bd))
+* **hooks:** start one detached watcher per session under the owning Claude Code process (ALY-217.2) ([7faab89](https://github.com/allye-app/allye-plugin/commit/7faab89d6483b29f643f0380295064f92de7e8c0))
+
 # [2.9.0](https://github.com/allye-app/allye-plugin/compare/v2.8.2...v2.9.0) (2026-10-23)
 
 
