@@ -100,3 +100,25 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   subagent never bind" is not vacuous; the harness also runs it without `agent_id` and expects the bind.
 - The Agent/Task stash (`<hash>.agents`, FIFO by subagent type within 60 s), the cap and the `activity-off` switch are
   covered by generated payloads in `hooks/test-live-report.sh`.
+
+## ALY-217.7: synthetic sub_start and the SessionEnd send
+
+- Background agents: the schema above gives `SubagentStart` its `agent_id` and `agent_type`, but nothing in this repository
+  (schema literals, fixtures) says whether it fires for `run_in_background` agents, and PROD spools showed `sub_tool` events
+  of background agents with no `sub_start`. So, whatever the CLI does (D-26): before the first `sub_tool` or `sub_stop` of a
+  sub id not yet seen in the session, the reporter spools a `sub_start` with the same `sub {id, type}` and `at` (seq just
+  below). The seen ids live in `<hash>.subs` (one id per line, ids checked by the sub id pattern, at most 64, oldest
+  dropped, 0600, written under the state lock by temp + mv). A real `SubagentStart` adds its id; a `SubagentStart` of an id
+  already in the set spools nothing. A set that is a symlink or not a private file is neither used nor written (no
+  synthetic `sub_start` then). The first `sub_start` of an id, real or synthetic, takes the Agent stash entry (D-24).
+- The fixtures of tool events inside a subagent (`*-subagent`, `subagent-stop`) are run alone in a fresh sandbox, so their
+  `.expect` now starts with the synthetic `sub_start`. New: `sub-tool-unseen` (sub_start + sub_tool),
+  `sub-tool-unseen-stop` (sub_start + sub_stop), `sub-tool-unseen-post` (a PostToolUse spools nothing, so no sub_start)
+  and `sub-tool-unseen-bad-id` (an id failing the pattern: nothing).
+- SessionEnd (D-27): the `state ended` line is sent by the hook itself, in the foreground, within 1.5 s: `flush.lock` is
+  tried every 100 ms for up to 400 ms, the spool goes out in order with 1 s curl limits cut to the budget. When the lock
+  stayed busy, the send failed or an ended line is still in the spool, a detached final flusher (`live-report.sh final`,
+  stdio on `/dev/null`, SIGHUP ignored, `setsid` when present, one per session through the pid lock `<hash>.final.lock`)
+  tries again at once and after 2, 5, 15, 30 and 60 s (test knob `ALLYE_LIVE_FINAL_DELAYS`), waiting up to 10 s for
+  `flush.lock` each time, honouring off, disabled, a changed credential and the back-off; it exits when no ended line is
+  left or after its last attempt, removing `final.lock`. The API idle expiry stays the backstop.

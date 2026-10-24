@@ -12,6 +12,7 @@ set -u
 umask 077
 LC_ALL=C   # plain shell variable (not exported): bash character ranges match bytes only
 exec >/dev/null 2>&1
+HOOK_T0="${EPOCHREALTIME:-}"   # ALY-217.7 (D-27): the start of this run, for the 1.5 s SessionEnd budget (bash 5; empty on 3.2)
 
 _src="${BASH_SOURCE[0]}"
 case "$_src" in */*) ;; *) _src="./$_src" ;; esac
@@ -192,6 +193,8 @@ lock_drop() {
   [ -n "${2:-}" ] && [ "$t" = "$2" ] && rm -rf "$1" 2>/dev/null
   return 0
 }
+# wall_ms [EPOCHREALTIME value]: wall-clock Unix ms from bash's EPOCHREALTIME (bash 5; never the date shim), else now_ms.
+wall_ms() { local t="${1-${EPOCHREALTIME:-}}"; if [[ "$t" =~ ^([0-9]{1,12})[.,]([0-9]{3}) ]]; then printf '%s' "${BASH_REMATCH[1]}${BASH_REMATCH[2]}"; else now_ms; fi; }
 # uutils coreutils (Ubuntu 25.10+) ignores the width in %3N and prints nanoseconds: keep seconds + the first 3 digits.
 now_ms() { local m; m=$(date +%s%3N 2>/dev/null); [[ "$m" =~ ^[0-9]{13,19}$ ]] && m=${m:0:13} || m="$(date +%s 2>/dev/null)000"; printf '%s' "$m"; }
 # spool_trim FILE DIR: bounded growth when sending never succeeds (SHD-03): keep the newest 500 lines and at most
@@ -289,7 +292,7 @@ batch_build() {
 spool_drop_sent() {
   local tmp tok now
   now=$(date +%s 2>/dev/null) || return 1; [[ "$now" =~ ^[0-9]{1,12}$ ]] || return 1
-  lock_take "$LOCKD" 250 || return 1
+  lock_take "$LOCKD" "${DROP_TRIES:-250}" || return 1
   tok="$LOCK_TOKEN"
   if private_file_ok "$SPOOL" && tmp=$(mktemp "$LIVE_DIR/.spool.XXXXXX" 2>/dev/null); then
     TMPF="$tmp"
@@ -321,8 +324,10 @@ mark_disabled() {
 # 403 back-off 1 h; 422 back-off 10 min; 429 back-off Retry-After (1 s to 1 h, 60 s when unreadable); anything
 # else (5xx, network, redirects) keeps the spool and retries at a later hook. The response code is read from a
 # bounded body with jq and never printed or stored.
+# ALY-217.7 (D-27): with FLUSH_DEADLINE (wall-clock Unix ms) set, a round starts only while at least 200 ms are left, and
+# its curl limits are cut to what is left (the SessionEnd budget).
 flush_run() {
-  local rounds=0 status ecode ra before
+  local rounds=0 status ecode ra before left mt ct
   case "$LIVE_DIR" in *[\"\\]*) return 1 ;; esac   # the path goes into a curl config string
   while [ "$rounds" -lt 20 ]; do
     rounds=$((rounds + 1))
@@ -335,6 +340,11 @@ flush_run() {
       [ "$(wc -c <"$SPOOL" 2>/dev/null)" != "$before" ] || return 1   # nothing was removed: no progress
       continue
     fi
+    mt="${SEND_MAXTIME:-8}"; ct="${SEND_CONNECT:-3}"
+    if [ -n "${FLUSH_DEADLINE:-}" ]; then
+      left=$((FLUSH_DEADLINE - $(wall_ms))); [ "$left" -ge 200 ] || return 1
+      if [ "$left" -lt $((mt * 1000)) ]; then mt=$(printf '%d.%03d' $((left / 1000)) $((left % 1000))); [ "$left" -ge $((ct * 1000)) ] || ct="$mt"; fi
+    fi
     lock_touch "$FLOCK" "$FTOK" || return 1   # the lock is no longer ours: stop
     printf '%s' "$BODY" >"$BATCHF" 2>/dev/null || return 1
     status=$({
@@ -343,7 +353,7 @@ flush_run() {
       printf 'header = "Content-Type: application/json"\n'
       printf 'header = "Accept: application/json"\n'
       printf 'data-binary = "@%s"\n' "$BATCHF"
-      printf 'max-time = %s\nconnect-timeout = %s\nmax-filesize = 65536\nnoproxy = "*"\n' "${SEND_MAXTIME:-8}" "${SEND_CONNECT:-3}"
+      printf 'max-time = %s\nconnect-timeout = %s\nmax-filesize = 65536\nnoproxy = "*"\n' "$mt" "$ct"
     } | curl -q --silent -K - -D "$HDRF" -o "$RESPF" -w '%{http_code}' 2>/dev/null) || { rm -f "$BATCHF" "$HDRF" "$RESPF" 2>/dev/null; return 1; }
     rm -f "$BATCHF" 2>/dev/null
     [[ "$status" =~ ^[0-9]{3}$ ]] || { rm -f "$HDRF" "$RESPF" 2>/dev/null; return 1; }
@@ -430,6 +440,107 @@ flush_sleeper() {
   stamp_flushed
   pidlock_drop "$WAITD" "$ME"
   flush_loop
+}
+
+# ─── ALY-217.7: the SessionEnd send and the final flusher (D-27, BR-15, NFR-06) ───
+# spool_has_end: the spool still holds a `state ended` line (lines are compact jq output, so the text match is exact).
+spool_has_end() { [ -f "$SPOOL" ] && [ ! -L "$SPOOL" ] && grep -q '"state":"ended"' "$SPOOL" 2>/dev/null; }
+# end_send: SessionEnd, after the state lock is released. In the foreground and bounded: the whole hook stays within 1.5 s
+# (deadline 1.3 s after its start, the rest left for the exit). Unless a back-off is active, flush.lock is tried every
+# 100 ms for up to 400 ms; with it the spool is sent in order (the ended event last, it has the highest seq) with 1 s
+# limits cut to the budget. When the lock stayed busy, a send failed, the budget ran out or an ended line is still in the
+# spool, the send is handed to the final flusher. A send that delivered everything starts nothing.
+end_send() {
+  local i=0 t0
+  t0=$(wall_ms "$HOOK_T0"); [ -n "$HOOK_T0" ] || t0=$((t0 - 300))   # bash 3.2: no start stamp, assume 300 ms spent
+  [[ "$t0" =~ ^[0-9]{13}$ ]] || return 0
+  FLUSH_DEADLINE=$((t0 + 1300))
+  if ! backoff_active; then
+    while [ $((FLUSH_DEADLINE - $(wall_ms))) -ge 300 ]; do
+      if lock_take "$FLOCK" 0; then
+        FTOK="$LOCK_TOKEN"; EFTOK="$FTOK"; stamp_flushed
+        SEND_MAXTIME=1; SEND_CONNECT=1; DROP_TRIES=10
+        flush_run
+        rm -f "$BATCHF" "$HDRF" "$RESPF" 2>/dev/null
+        lock_drop "$FLOCK" "$EFTOK"; EFTOK=""; FTOK=""
+        break
+      fi
+      i=$((i + 1)); [ "$i" -le 4 ] || break
+      sleep 0.1
+    done
+  fi
+  FLUSH_DEADLINE=""; DROP_TRIES=""
+  spool_has_end && final_start
+  return 0
+}
+# final_start: at most one final flusher per session through $HASH.final.lock (a pid lock, taken at the first try for this
+# hook, then passed to the flusher). The flusher is this script in `final` mode: stdio on /dev/null, SIGHUP ignored, in a
+# session of its own through setsid when present.
+final_start() {
+  local ss=""
+  command -v setsid >/dev/null 2>&1 && ss=setsid
+  lock_take "$FINALD" 0 "$$" || return 0   # one is already running: it keeps the send (AC-39)
+  (
+    trap '' HUP
+    LIVE_HASH="$HASH" exec $ss "$BASH" "$_src" final
+  ) </dev/null >/dev/null 2>&1 &
+  pidlock_pass "$FINALD" "$$" "$!" || pidlock_drop "$FINALD" "$$"
+}
+# final_main: final mode (`live-report.sh final`), reached only after the checks at the top of this file. It runs while
+# final.lock names it (it waits up to 2 s for the hook to pass the record), records the credential fingerprint, then
+# makes one attempt at once and one after each delay of 2, 5, 15, 30 and 60 s (ALLYE_LIVE_FINAL_DELAYS, test-only: up
+# to 5 whole seconds of at most 2 digits). It exits when an attempt leaves no ended line in the spool, when Live is off
+# or disabled or the credential is gone or changed, or after its last attempt; on exit it removes final.lock.
+final_main() {
+  local i=0 d p="" old delays="${ALLYE_LIVE_FINAL_DELAYS:-2 5 15 30 60}"
+  HASH="${LIVE_HASH:-}"
+  [[ "$HASH" =~ ^[0-9a-f]{64}$ ]] || return 0
+  [[ "$delays" =~ ^[0-9]{1,2}( [0-9]{1,2}){0,4}$ ]] || delays="2 5 15 30 60"
+  live_dir_ok || return 0
+  SPOOL="$LIVE_DIR/$HASH.spool"; STATEF="$LIVE_DIR/$HASH.state"; LOCKD="$LIVE_DIR/$HASH.lock"; FLOCK="$LIVE_DIR/$HASH.flush.lock"
+  FLUSHED="$LIVE_DIR/$HASH.flushed"; BATCHF="$LIVE_DIR/$HASH.batch"; HDRF="$LIVE_DIR/$HASH.hdr"; RESPF="$LIVE_DIR/$HASH.resp"
+  BACKOFFF="$LIVE_DIR/backoff"; FINALD="$LIVE_DIR/$HASH.final.lock"
+  ME=""; FSLEEP=""; FTOK=""; TMPF=""
+  trap final_exit EXIT
+  trap 'exit 0' INT TERM
+  cd / 2>/dev/null
+  until { p=""; { IFS=' ' read -r p _ <"$FINALD/p"; } 2>/dev/null; [ "$p" = "$$" ]; }; do
+    i=$((i + 1)); [ "$i" -le 20 ] || return 0
+    sleep 0.1
+  done
+  ME=$$
+  CFP=""; credfp; old="$CFP"; LIVE_TOKEN=""
+  [[ "$old" =~ ^[0-9a-f]{64}$ ]] || return 0
+  for d in 0 $delays; do
+    if [ "$d" != 0 ]; then sleep "$d" & FSLEEP=$!; wait "$FSLEEP"; FSLEEP=""; fi
+    final_attempt "$old" && return 0
+  done
+  return 0
+}
+# final_attempt FINGERPRINT: returns 1 when the send must be tried again, 0 when there is nothing (more) to do.
+final_attempt() {
+  local i=0
+  if [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ] || [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then return 0; fi
+  spool_has_end || return 0
+  load_live_credential "$DIR" || return 0
+  CFP=""; credfp; [ "$CFP" = "$1" ] || { LIVE_TOKEN=""; return 0; }
+  backoff_active && { LIVE_TOKEN=""; return 1; }   # honoured: this attempt sends nothing
+  until lock_take "$FLOCK" 0; do i=$((i + 1)); [ "$i" -lt 100 ] || { LIVE_TOKEN=""; return 1; }; sleep 0.1; done
+  FTOK="$LOCK_TOKEN"; stamp_flushed
+  SEND_MAXTIME=8; SEND_CONNECT=3
+  flush_run
+  rm -f "$BATCHF" "$HDRF" "$RESPF" 2>/dev/null
+  lock_drop "$FLOCK" "$FTOK"; FTOK=""; LIVE_TOKEN=""
+  if spool_has_end; then return 1; fi
+  return 0
+}
+final_exit() {
+  [ -z "$FSLEEP" ] || kill "$FSLEEP" 2>/dev/null   # this flusher's own sleep child
+  LIVE_TOKEN=""
+  [ -z "$TMPF" ] || rm -f "$TMPF" "$TMPF.2" 2>/dev/null
+  if [ -n "$FTOK" ]; then rm -f "$BATCHF" "$HDRF" "$RESPF" 2>/dev/null; lock_drop "$FLOCK" "$FTOK"; fi
+  [ -z "$ME" ] || pidlock_drop "$FINALD" "$ME"
+  return 0
 }
 
 # ─── ALY-217.2: the session watcher (D-21, BR-03, BR-06, BR-07) ───
@@ -664,6 +775,7 @@ watch_exit() {
   return 0
 }
 if [ "${1:-}" = watch ]; then watch_main; exit 0; fi
+if [ "${1:-}" = final ]; then final_main; exit 0; fi
 
 INPUT=$(cat 2>/dev/null) || INPUT=""
 [ -n "$INPUT" ] || exit 0
@@ -683,7 +795,9 @@ STATEF="$LIVE_DIR/$HASH.state"
 live_dir_ok || exit 0
 HAVE_LOCK=0; LOCKD="$LIVE_DIR/$HASH.lock"
 TMPF=""
-cleanup() { [ -z "$TMPF" ] || rm -f "$TMPF" "$TMPF.2" 2>/dev/null; [ "$HAVE_LOCK" = 1 ] && lock_drop "$LOCKD" "$STATE_TOKEN"; return 0; }
+# EFTOK: the flush lock held by this hook's own SessionEnd send (never the lock of a flusher it detached).
+EFTOK=""
+cleanup() { [ -z "$TMPF" ] || rm -f "$TMPF" "$TMPF.2" 2>/dev/null; [ "$HAVE_LOCK" = 1 ] && lock_drop "$LOCKD" "$STATE_TOKEN"; [ -z "$EFTOK" ] || lock_drop "$FLOCK" "$EFTOK"; return 0; }
 trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
 lock_take "$LOCKD" 500 || exit 0
@@ -691,6 +805,7 @@ STATE_TOKEN="$LOCK_TOKEN"; HAVE_LOCK=1
 # `/allye:hooks live off` may have run while this hook waited for the lock: it then drops its events (AC-11).
 if [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ]; then exit 0; fi
 FLOCK="$LIVE_DIR/$HASH.flush.lock"; WAITD="$LIVE_DIR/$HASH.flush.wait"; FTOK=""; FLUSHED="$LIVE_DIR/$HASH.flushed"; BATCHF="$LIVE_DIR/$HASH.batch"; HDRF="$LIVE_DIR/$HASH.hdr"; RESPF="$LIVE_DIR/$HASH.resp"; BACKOFFF="$LIVE_DIR/backoff"; CREDF="$LIVE_DIR/$HASH.cred"
+FINALD="$LIVE_DIR/$HASH.final.lock"
 
 LAST=""
 if [ -f "$STATEF" ] && [ ! -L "$STATEF" ] && private_file_ok "$STATEF"; then
@@ -873,24 +988,52 @@ def stashin:
   | map(select(type == "object" and (.t | typeok) and (.ms | type == "number") and .ms > ($nowms - 60000) and .ms <= ($nowms + 60000)
                and (.a | type == "string") and (.a == "" or (.a | actphrase) == .a)))
   | .[-16:];
-def stashc:
-  if $act != "1" then {ev: [], st: null}
-  elif .hook_event_name == "PreToolUse" and (.tool_name | IN("Agent","Task")) then
-    ((.tool_input | objects | .subagent_type) // "general-purpose") as $ty
-    | if ($ty | typeok) then {ev: [], st: ((stashin + [{t: $ty, ms: $nowms, a: (actof // "")}]) | .[-16:])} else {ev: [], st: null} end
-  elif .hook_event_name == "SubagentStart" and subof != null then
-    subof as $s | stashin as $q
-    | ([range(0; $q | length) | select($q[.].t == $s.type)] | .[0]) as $i
-    | if $i == null then {ev: [], st: $q}
-      else {ev: (if $q[$i].a != "" then [{type: "sub_tool", tool: "Agent", activity: $q[$i].a, sub: $s}] else [] end), st: ($q | del(.[$i]))} end
-  else {ev: [], st: null} end;
+# stashc($starts): $starts are the subs whose first sub_start (real or synthetic, ALY-217.7) this event spools; each one
+# takes the oldest entry of its type. {ev: {sub id: [the sub_tool Agent event]}, st: the new stash or null}.
+def stashc($starts):
+  if $act != "1" then {ev: {}, st: null}
+  else
+    (reduce $starts[] as $s ({q: stashin, ev: {}};
+       .q as $q | ([range(0; $q | length) | select($q[.].t == $s.type)] | .[0]) as $i
+       | if $i == null then .
+         else (if $q[$i].a != "" then .ev[$s.id] = [{type: "sub_tool", tool: "Agent", activity: $q[$i].a, sub: $s}] else . end) | .q |= del(.[$i]) end)) as $c
+    | if .hook_event_name == "PreToolUse" and (.tool_name | IN("Agent","Task")) then
+        ((.tool_input | objects | .subagent_type) // "general-purpose") as $ty
+        | if ($ty | typeok) then {ev: $c.ev, st: (($c.q + [{t: $ty, ms: $nowms, a: (actof // "")}]) | .[-16:])}
+          elif ($starts | length) > 0 then {ev: $c.ev, st: $c.q} else {ev: {}, st: null} end
+      elif ($starts | length) > 0 then {ev: $c.ev, st: $c.q}
+      else {ev: {}, st: null} end
+  end;
+# ─── ALY-217.7: synthetic sub_start (BR-14 of ALY-217, D-26) ───
+# $subs is the content of $HASH.subs (one sub id per line), usable only when $subok is "1"; ids failing idok are dropped
+# and at most the newest 64 kept. subsc: {out: the events with a sub_start before the first sub_tool / sub_stop of an id not
+# in the set and without the sub_start of an id already in it, seen: the new set, new: the subs that got their first sub_start}.
+# A sub_start put before a sub_stop carries syn (removed before output): like the sub_stop, it does not end waiting_input.
+# Without a usable set ($subok "0"): the events as they are, every real SubagentStart taking its stash entry.
+def seenin: [$subs | split("\n")[] | select(idok)] | .[-64:];
+def subsc($e):
+  if $subok != "1" then {out: $e, seen: null, new: [$e[] | select(.type == "sub_start") | .sub]}
+  else
+    reduce $e[] as $ev ({out: [], seen: seenin, new: []};
+      if ($ev.type | IN("sub_start","sub_tool","sub_stop")) then
+        ($ev.sub | {id, type}) as $s
+        | if (.seen | any(. == $s.id)) then (if $ev.type == "sub_start" then . else .out += [$ev] end)
+          else .seen = ((.seen + [$s.id]) | .[-64:]) | .new += [$s]
+            | .out += (if $ev.type == "sub_start" then [$ev]
+                      elif $ev.type == "sub_stop" then [{type: "sub_start", sub: $s, syn: true}, $ev]   # not a BR-14 trigger
+                      else [{type: "sub_start", sub: $s}, $ev] end) end
+      else .out += [$ev] end)
+  end;
 # BR-14: the first tool/subagent-start event after waiting_input is preceded by a `state working`.
 . as $in
-| (try stashc catch {ev: [], st: null}) as $sc
-| (reduce (evs + $sc.ev)[] as $ev ({out: [], last: $last};
-    (if ($ev.type | IN("tool","sub_tool","sub_start","trig")) and .last == "waiting_input"
+| evs as $e0
+| (try subsc($e0) catch {out: $e0, seen: null, new: []}) as $sb
+| (try stashc($sb.new) catch {ev: {}, st: null}) as $sc
+| [$sb.out[] | if .type == "sub_start" then ., ($sc.ev[.sub.id] // [])[] else . end] as $all
+| (reduce $all[] as $ev ({out: [], last: $last};
+    (if ($ev.type | IN("tool","sub_tool","sub_start","trig")) and ($ev.syn | not) and .last == "waiting_input"
        then .out += [{type: "state", state: "working"}] | .last = "working" else . end)
-    | (if $ev.type == "trig" then . else .out += [$ev] end)
+    | (if $ev.type == "trig" then . else .out += [$ev | del(.syn)] end)
     | if $ev.type == "state" then .last = $ev.state else . end)) as $r
 | $r.last,
   (try ($in | bindc) catch null | if . == null then "-" else tojson end),
@@ -898,6 +1041,7 @@ def stashc:
   (try ($in | gatec) catch null | if . == null then "-", "-" else .[] end),
   (if sstart then "start" elif .hook_event_name == "UserPromptSubmit" then "prompt" else "-" end),
   (if $sc.st == null or ($sc.st | tojson) == $stash or ($sc.st == [] and $stash == "") then "-" else ($sc.st | tojson) end),
+  (if $sb.seen == null or ($sb.new | length) == 0 then "-" else ($sb.seen | join(" ")) end),
   ($r.out[] | . + {at: $at} | tojson),
   "."'
 
@@ -912,12 +1056,19 @@ if [ "$ACT" = 1 ]; then
   elif [ ! -L "$AGENTSF" ] && [ -n "$(find "$AGENTSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then AGOK=1; STASHSRC="$AGENTSF"
   elif private_file_ok "$AGENTSF"; then AGOK=1; fi
 fi
+# ALY-217.7 (D-26): the seen sub ids $HASH.subs, read under the state lock like the stash: through --rawfile, the file
+# itself when it is private and at most 8192 bytes. Absent: an empty set. An oversized private file is rewritten. Any
+# other entry (symlink, foreign owner or mode): the set is neither used nor written (SUBOK=0, no synthetic sub_start).
+SUBSF="$LIVE_DIR/$HASH.subs"; SUBSRC=/dev/null; SUBOK=0
+if [ ! -e "$SUBSF" ] && [ ! -L "$SUBSF" ]; then SUBOK=1
+elif [ ! -L "$SUBSF" ] && [ -n "$(find "$SUBSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ]; then SUBOK=1; SUBSRC="$SUBSF"
+elif private_file_ok "$SUBSF"; then SUBOK=1; fi
 MS=$(now_ms)
 [[ "$MS" =~ ^[1-9][0-9]{0,15}$ ]] || exit 0
-RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg act "$ACT" --rawfile stash "$STASHSRC" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
+RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg act "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
 # Output: new last state, bind candidate (or -), cwd for the branch source (or -), gates path and cwd (or -, -),
 # watcher trigger (start = a SessionStart of a known source, prompt = UserPromptSubmit, or -), the new Agent/Task
-# stash (or - to leave it), events, "." terminator.
+# stash (or - to leave it), the new seen-set as space-separated ids (or - to leave it), events, "." terminator.
 NEWLAST="${RESULT%%$'\n'*}"; REST="${RESULT#*$'\n'}"
 CAND="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 CWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
@@ -925,11 +1076,13 @@ GFP="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 GCWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 WEV="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 AGT="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+SUBS="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 case "$REST" in .) EVENTS="" ;; *$'\n'.) EVENTS="${REST%$'\n'.}" ;; *) exit 0 ;; esac
 case "$NEWLAST" in ""|started|working|waiting_input|idle|error|ended) ;; *) exit 0 ;; esac
 [ -n "$CAND" ] && [ -n "$CWD" ] && [ -n "$GFP" ] && [ -n "$GCWD" ] || exit 0
 case "$WEV" in start|prompt|-) ;; *) exit 0 ;; esac
 case "$AGT" in -|'['*']') ;; *) exit 0 ;; esac
+[ "$SUBS" = - ] || [[ "$SUBS" =~ ^[A-Za-z0-9_-]{1,64}( [A-Za-z0-9_-]{1,64}){0,63}$ ]] || exit 0
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
 BINDF="$LIVE_DIR/$HASH.bind"
@@ -1112,6 +1265,11 @@ if [ "$AGT" != "-" ] && [ "$AGOK" = 1 ]; then
     printf '%s' "$AGT" >"$TMP" 2>/dev/null && mv -f "$TMP" "$AGENTSF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
   fi
 fi
+# The seen sub ids (D-26): one atomic write (temp 0600 + mv) when an id was added, one id per line, at most 64.
+if [ "$SUBS" != - ] && [ "$SUBOK" = 1 ]; then
+  TMP=$(mktemp "$LIVE_DIR/.subs.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
+  printf '%s\n' $SUBS >"$TMP" 2>/dev/null && mv -f "$TMP" "$SUBSF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
 
 # Session watcher (ALY-217.2, D-21), still under the state lock: at a SessionStart, or at a UserPromptSubmit when no
 # watcher holds the watch lock, and unless ALLYE_LIVE_WATCH is 0 or the session is ended, the trusted owner is recorded
@@ -1135,11 +1293,12 @@ IMPORTANT=0
 case "$EVENTS" in *'"type":"sub_start"'*|*'"type":"sub_stop"'*|*'"type":"bind"'*|*'"type":"gates"'*) IMPORTANT=1 ;; esac
 if [ -n "$NEWLAST" ] && [ "$NEWLAST" != "$LAST" ]; then IMPORTANT=1; fi
 [ "$CREDNEW" = 1 ] && IMPORTANT=1
-# SessionEnd (BR-12): the final event goes out through a request limited to one second.
+# SessionEnd (BR-12, ALY-217.7 BR-15/D-27): the ended event is sent from the hook itself, bounded, else by the final flusher.
 SEND_MAXTIME=8; SEND_CONNECT=3
-case "$EVENTS" in *'"state":"ended"'*) SEND_MAXTIME=1; SEND_CONNECT=1 ;; esac
+ENDING=0; case "$EVENTS" in *'"state":"ended"'*) ENDING=1 ;; esac
 lock_drop "$LOCKD" "$STATE_TOKEN"; HAVE_LOCK=0
-if backoff_active; then :
+if [ "$ENDING" = 1 ]; then end_send
+elif backoff_active; then :
 elif flush_due; then
   if lock_take "$FLOCK" 0; then
     FTOK="$LOCK_TOKEN"

@@ -361,6 +361,23 @@ lock_drop() {
 
 private_regular() { [ -n "$(find "$1" -prune -type f -user "$UID_NOW" -perm 0600 -print 2>/dev/null)" ]; }
 
+# live_off_purge LIVEDIR (ALY-217.7, D-26): `live off` also deletes every session's seen sub ids (<hash>.subs) and Agent
+# activity stash (<hash>.agents), only when the name is a regular file owned by the user (never a symlink or what it
+# points to), and every <hash>.final.lock whose holder is gone (a real directory owned by the user, judged by
+# lock_is_stale); a running final flusher keeps its lock and exits by itself on the off flag.
+live_off_purge() {
+  local f base
+  for f in "$1"/*; do
+    base="${f##*/}"
+    if [[ "$base" =~ ^[0-9a-f]{64}\.(subs|agents)$ ]]; then
+      [ -f "$f" ] && [ ! -L "$f" ] && [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ] && rm -f "$f" 2>/dev/null
+    elif [[ "$base" =~ ^[0-9a-f]{64}\.final\.lock$ ]]; then
+      [ -d "$f" ] && [ ! -L "$f" ] && [ -n "$(find "$f" -prune -type d -user "$UID_NOW" -print 2>/dev/null)" ] && lock_is_stale "$f" && rm -rf "$f" 2>/dev/null
+    fi
+  done
+  return 0
+}
+
 # live_send BODYFILE: one POST to the ingest route of the credential's host, the credential only in a curl config on
 # stdin, a 1-second limit (the SessionEnd budget of BR-12); succeeds only on a 2xx. The answer is never read or printed.
 live_send() {
@@ -490,6 +507,7 @@ cmd_live() {
         fi
       done
       for p in ${pids[@]+"${pids[@]}"}; do if wait "$p"; then ended=$((ended + 1)); else failed=$((failed + 1)); fi; done
+      live_off_purge "$live"
       LIVE_TOKEN=""
       printf 'Live reporting is off; local spools deleted.\n'
       printf 'Ended %s session(s) on Allye.\n' "$ended"

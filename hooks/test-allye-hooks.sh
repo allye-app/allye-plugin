@@ -633,6 +633,26 @@ check "the unreachable-in-time sessions are reported (exit 0)" "0 yes" "$RC $(co
 new_case; mkcred; SHIMD="$SHIMS"; sessions3; printf '5xx' >"$SB/api/ingest-mode"
 run_script live off "$DATA"; check "off when the API answers 5xx: the flag is set, spools deleted, the failure is reported, exit 0" "0 600 0 yes" "$RC $(find "$(LV off)" -printf '%m') $(ls "$DATA/live"/*.spool 2>/dev/null | wc -l | tr -d ' ') $(contains 'could not' "$OUT")"; end_case
 
+# ALY-217.7 (D-26): off also deletes the seen sub ids (<hash>.subs), the Agent stash (<hash>.agents) and every final.lock
+# whose holder is gone; only regular files owned by the user, never a symlink or its target; a live holder keeps its lock
+new_case; mkcred; SHIMD="$SHIMS"; sessions3; HX=$(sha_of SESS-X-0009)
+printf 'agent-1\n' >"$(LV $HA.subs)"; printf '[]' >"$(LV $HA.agents)"; printf 'agent-2\n' >"$(LV $HX.subs)"; chmod 600 "$(LV $HA.subs)" "$(LV $HA.agents)" "$(LV $HX.subs)"
+printf '[]' >"$(LV $HB.agents)"; chmod 644 "$(LV $HB.agents)"
+printf 'KEEP\n' >"$SB/outside.txt"; chmod 600 "$SB/outside.txt"; ln -s "$SB/outside.txt" "$(LV $HB.subs)"
+mkdir -p "$SB/outdir"; ln -s "$SB/outdir" "$(LV $HC.final.lock)"
+sh -c ':' & DEADP=$!; wait "$DEADP"
+mkdir "$(LV $HA.final.lock)"; printf '%s %s' "$DEADP" 12345 >"$(LV $HA.final.lock)/p"
+sleep 30 & LIVEP=$!; LIVES=$(sed 's/.*) //' "/proc/$LIVEP/stat" 2>/dev/null | cut -d' ' -f20)
+mkdir "$(LV $HB.final.lock)"; printf '%s %s' "$LIVEP" "$LIVES" >"$(LV $HB.final.lock)/p"
+run_script live off "$DATA"
+check "off deletes the subs and agents files of every session (also one with no other file), whatever their mode, exit 0" "0 no no no no" \
+  "$RC $([ -e "$(LV $HA.subs)" ] && echo yes || echo no) $([ -e "$(LV $HA.agents)" ] && echo yes || echo no) $([ -e "$(LV $HX.subs)" ] && echo yes || echo no) $([ -e "$(LV $HB.agents)" ] && echo yes || echo no)"
+check "off never deletes through a symlink: the subs link stays and its target keeps its content" "yes KEEP" "$([ -L "$(LV $HB.subs)" ] && echo yes || echo no) $(cat "$SB/outside.txt")"
+check "off removes a final.lock whose holder is gone, keeps one whose holder runs and a symlinked one" "no yes yes yes" \
+  "$([ -e "$(LV $HA.final.lock)" ] && echo yes || echo no) $([ -d "$(LV $HB.final.lock)" ] && echo yes || echo no) $([ -L "$(LV $HC.final.lock)" ] && echo yes || echo no) $([ -d "$SB/outdir" ] && echo yes || echo no)"
+kill "$LIVEP" 2>/dev/null; wait "$LIVEP" 2>/dev/null
+end_case
+
 # AC-11 "send nothing afterwards": a hook that waited for the session lock while off was set, and a flusher in flight
 new_case; mkcred; SHIMD="$SHIMS"; printf 'ok' >"$SB/api/ingest-mode"
 H=$(sha_of SESS-A-0001); mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; mkdir "$(LV $H.lock)"; printf '%s %s' "$(date +%s)" "busy.1" >"$(LV $H.lock)/t"

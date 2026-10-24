@@ -46,6 +46,7 @@ cleanup() {
     p=${e%% *}; s=${e#* }
     [[ "$p" =~ ^[0-9]+$ ]] && [[ "$s" =~ ^[0-9]+$ ]] && [ "$(pstart "$p")" = "$s" ] && kill "$p" 2>/dev/null
   done
+  for e in "$ROOT_TMP"/case*/plugindata; do final_reap "$e"; done
   [ -z "$APID" ] || kill "$APID" 2>/dev/null; [ -z "$FAKE_WAIT_PID" ] || kill "$FAKE_WAIT_PID" 2>/dev/null; rm -rf "$ROOT_TMP"
 }
 trap cleanup EXIT
@@ -90,7 +91,18 @@ new_case() {
   PORT=$(cat "$SB/api/port"); API="http://127.0.0.1:$PORT"
   printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"sess-0001","cwd":"/tmp/x"}' >"$SB/stdin"
 }
-end_case() { fake_wait_off; [ -z "$APID" ] || { kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null; APID=""; }; }
+end_case() { fake_wait_off; final_reap "$DATA"; [ -z "$APID" ] || { kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null; APID=""; }; }
+# final_reap DATADIR (ALY-217.7): a final flusher still running under DATADIR is killed by the pid its final.lock records,
+# only while that pid has the recorded start time (never by name); it removes its own lock on the way out.
+final_reap() {
+  local d p s
+  for d in "$1"/live/*.final.lock; do
+    [ -d "$d" ] || continue
+    p=""; s=""; { read -r p s <"$d/p"; } 2>/dev/null
+    [[ "$p" =~ ^[0-9]+$ ]] && [[ "$s" =~ ^[0-9]+$ ]] && [ "$(pstart "$p")" = "$s" ] && kill "$p" 2>/dev/null
+  done
+  return 0
+}
 
 mkcred() {  # [apiUrl]: private data dir and credential file (throwaway fake token)
   mkdir -p "$DATA" && chmod 700 "$DATA"
@@ -329,13 +341,13 @@ seq_case "waiting then a SubagentStart failing its pattern: working spooled once
 SEQ=(pre-tool-use-ask-user-question pre-tool-use-subagent-bad-id)
 seq_case "waiting then a subagent PreToolUse with a bad id: working spooled, event dropped" "$WQ" "$W"
 SEQ=(notification-permission-prompt subagent-start subagent-start)
-seq_case "permission_prompt then SubagentStart: working first, once" "$WP" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+seq_case "permission_prompt then SubagentStart twice: working first, once; the second start of the id is not spooled (AC-36)" "$WP" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
 SEQ=(pre-tool-use-ask-user-question pre-tool-use-subagent)
-seq_case "waiting then a subagent tool: working first" "$WQ" "$W" '{"type":"sub_tool","tool":"Read","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+seq_case "waiting then a subagent tool: working first, then the synthetic sub_start" "$WQ" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Read","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
 SEQ=(pre-tool-use-ask-user-question stop pre-tool-use)
 seq_case "waiting then Stop then a tool: Stop leaves waiting, no working" "$WQ" '{"type":"state","state":"idle","code":"turn_ended"}' '{"type":"tool","tool":"Bash"}'
 SEQ=(pre-tool-use-ask-user-question subagent-stop)
-seq_case "waiting then SubagentStop: no working (not a trigger)" "$WQ" '{"type":"sub_stop","sub":{"id":"agent-abc123","type":"allye:bridge-pilot","outcome":"pass","task":"ALY-1.2"}}'
+seq_case "waiting then SubagentStop: no working (not a trigger, nor is its synthetic sub_start)" "$WQ" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_stop","sub":{"id":"agent-abc123","type":"allye:bridge-pilot","outcome":"pass","task":"ALY-1.2"}}'
 SEQ=(pre-tool-use pre-tool-use)
 seq_case "no waiting: no working is inserted" '{"type":"tool","tool":"Bash"}' '{"type":"tool","tool":"Bash"}'
 SEQ=(permission-request pre-tool-use-tool-space pre-tool-use)
@@ -492,7 +504,7 @@ seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{
 SEQ=(skill-bridge-spec expansion-bridge-spec)
 seq_case "skill via Skill tool then via expansion with another key: sent again" "$S1" "$BSK" '{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"launch","spec":"ALY-7"}}'
 SEQ=(skill-bridge-subagent mcp-allye-subagent)
-seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
 new_case; mkcred; "$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/mcp-allye-subagent.json" >"$SB/stdin"; run_hook
 check "control: the same task_start payload outside a subagent binds (the subagent case is not vacuous)" '{"bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"},"type":"bind"}' "$(spooled | grep '"bind"')"; end_case
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture session-start-startup mcp-allye-task-start-half-bad-key skill-bridge-spec
@@ -527,10 +539,12 @@ end_case
 
 # ─── ALY-203.4: subagent outcome (BR-09, AC-07) ─────────────────────────────
 echo "== subagent outcome from the structured output only (AC-07) =="
+# stopped: the spooled lines without the synthetic sub_start that precedes the sub_stop of an unseen id (ALY-217.7, D-26).
+stopped() { spooled | grep -v '"type":"sub_start"' || true; }
 # stop_case LABEL MESSAGE-STRING EXPECTED-EVENT-JSON
 stop_case() {
   new_case; mkcred; "$JQ_BIN" --arg m "$2" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
-  check "$1" "$(printf '%s\n' "$3" | "$JQ_BIN" -cS .)" "$(spooled)"
+  check "$1" "$(printf '%s\n' "$3" | "$JQ_BIN" -cS .)" "$(stopped)"
   check "$1: exit 0, silent" "0||" "$RC|$OUT|$ERR"
   check "$1: the message text is not stored" "0" "$(bind_files | grep -cF -e MARKER_LASTMSG -e MARKER_PROSE || true)"
   end_case
@@ -576,20 +590,20 @@ see task: ALY-1.2 later" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pa
 stop_case "task with unknown status still carries the valid key" "task: ALY-9.1" "{\"type\":\"sub_stop\",\"code\":\"returned\",\"sub\":{$SUBP,\"outcome\":\"unknown\",\"task\":\"ALY-9.1\"}}"
 for badm in 'null' '7' '["status: passed"]' '{"a":1}' 'true'; do
   new_case; mkcred; "$JQ_BIN" --argjson m "$badm" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
-  check "non-string last_assistant_message $badm -> unknown/returned" "$(printf '%s\n' "$UNK" | "$JQ_BIN" -cS .)|0||" "$(spooled)|$RC|$OUT|$ERR"; end_case
+  check "non-string last_assistant_message $badm -> unknown/returned" "$(printf '%s\n' "$UNK" | "$JQ_BIN" -cS .)|0||" "$(stopped)|$RC|$OUT|$ERR"; end_case
 done
 new_case; mkcred; "$JQ_BIN" 'del(.last_assistant_message)' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
-check "missing last_assistant_message -> unknown/returned" "$(printf '%s\n' "$UNK" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
+check "missing last_assistant_message -> unknown/returned" "$(printf '%s\n' "$UNK" | "$JQ_BIN" -cS .)" "$(stopped)"; end_case
 # only the first 64 KB of the message is examined: a status line past it does not count, one inside it does
 new_case; mkcred
 HUGE=$(head -c 70000 /dev/zero | tr '\0' 'a')
 "$JQ_BIN" --arg m "$HUGE
 status: passed" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
-check "status line after 64 KB of text is not examined -> unknown" "$(printf '%s\n' "$UNK" | "$JQ_BIN" -cS .)|0||" "$(spooled)|$RC|$OUT|$ERR"; end_case
+check "status line after 64 KB of text is not examined -> unknown" "$(printf '%s\n' "$UNK" | "$JQ_BIN" -cS .)|0||" "$(stopped)|$RC|$OUT|$ERR"; end_case
 new_case; mkcred
 "$JQ_BIN" --arg m "status: failed
 $HUGE" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
-check "status line inside the first 64 KB of a huge message counts" "{\"sub\":{\"id\":\"agent-abc123\",\"outcome\":\"fail\",\"type\":\"allye:bridge-pilot\"},\"type\":\"sub_stop\"}|0||" "$(spooled)|$RC|$OUT|$ERR"; end_case
+check "status line inside the first 64 KB of a huge message counts" "{\"sub\":{\"id\":\"agent-abc123\",\"outcome\":\"fail\",\"type\":\"allye:bridge-pilot\"},\"type\":\"sub_stop\"}|0||" "$(stopped)|$RC|$OUT|$ERR"; end_case
 
 # ─── ALY-203.4: mission gates (BR-10, AC-08, AC-16) ─────────────────────────
 echo "== mission gates from the journal (AC-08, AC-16) =="
@@ -756,7 +770,8 @@ ALLTXT="$SB/all.txt"; { find "$DATA" -type f -exec cat {} +; find "$DATA" -print
 for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$m" "$ALLTXT" || true)"; done
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
-check "files are keyed by sha256(session id): bind, cred, flushed, seq, spool and state (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWSID").final.lock" ] || break; sleep 0.05; done   # the SessionEnd fixtures' final flusher (stub curl)
+check "files are keyed by sha256(session id): bind, cred, flushed, seq, spool, state and subs (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
 check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
@@ -843,6 +858,65 @@ end_case
 new_case; mkcred
 for i in $(seq 1 20); do agent "$i" Agent allye:bridge-pilot "Pilot launch number $(printf '%02d' "$i") here"; done
 check "AC-28: the stash keeps at most 16 entries (the oldest dropped)" "16 Pilot launch number 05 here" "$("$JQ_BIN" 'length' "$(AGF)") $("$JQ_BIN" -r '.[0].a' "$(AGF)")"
+end_case
+
+echo "== synthetic sub_start for unseen subagents (ALY-217.7 AC-35, AC-36, D-26) =="
+SUBF() { echo "$DATA/live/$H6.subs"; }
+# stool T ID TYPE [TOOL]: a PreToolUse inside subagent ID at T6 + T; ids_of: "<type>:<sub id>" of every spooled line.
+stool() {
+  at6 "$1"
+  "$JQ_BIN" -n --arg id "$2" --arg ty "$3" --arg t "${4:-Read}" --arg s "$RAWSID" '{session_id: $s, cwd: "/work/MARKER_CWD", hook_event_name: "PreToolUse",
+    tool_name: $t, tool_input: {file_path: "/x/MARKER_PATH"}, tool_use_id: "toolu_s", agent_id: $id, agent_type: $ty}' >"$SB/stdin"
+  run_hook
+}
+ids_of() { spooled | "$JQ_BIN" -r '"\(.type):\(.sub.id // "")"' | tr '\n' ',' | sed 's/,$//'; }
+subs_of() { tr '\n' ' ' <"$(SUBF)" 2>/dev/null | sed 's/ $//'; }
+new_case; mkcred
+stool 0 agent-bg1 allye:bridge-pilot
+check "AC-35: an unseen sub id: a sub_start with the same sub and at, seq just below its sub_tool" "true" \
+  "$("$JQ_BIN" -s 'length == 2 and .[0].type == "sub_start" and .[1].type == "sub_tool" and .[0].sub == .[1].sub and .[0].at == .[1].at and .[0].seq + 1 == .[1].seq' "$(spool_of "$RAWSID")")"
+check "AC-35/AC-36: the id is added to <hash>.subs (mode 0600, one id per line)" "600|agent-bg1" "$(find "$(SUBF)" -printf '%m' 2>/dev/null)|$(cat "$(SUBF)" 2>/dev/null)"
+stool 1 agent-bg1 allye:bridge-pilot
+check "AC-35: a later sub_tool of that id gets no second sub_start" "sub_start:agent-bg1,sub_tool:agent-bg1,sub_tool:agent-bg1" "$(ids_of)"
+sstart 2 agent-bg1 allye:bridge-pilot
+check "AC-36: a SubagentStart for an id already in the set spools no sub_start" "sub_start:agent-bg1,sub_tool:agent-bg1,sub_tool:agent-bg1" "$(ids_of)"
+sstart 3 agent-rs1 allye:bridge-medic; stool 4 agent-rs1 allye:bridge-medic
+check "AC-36: a real SubagentStart spools its sub_start and adds the id, so its sub_tool gets no synthetic one" \
+  "sub_start:agent-bg1,sub_tool:agent-bg1,sub_tool:agent-bg1,sub_start:agent-rs1,sub_tool:agent-rs1|agent-bg1 agent-rs1" "$(ids_of)|$(subs_of)"
+"$JQ_BIN" '.agent_id = "agent-rs1" | .agent_type = "allye:bridge-medic"' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "a SubagentStop of a seen id gets no sub_start" "sub_stop:agent-rs1" "$(ids_of | sed 's/.*,//')"
+end_case
+# AC-36: 64 ids at most, the oldest dropped; ids that fail the pattern are never used or written
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+for i in $(seq 1 64); do echo "agent-c$i"; done >"$(SUBF)"; chmod 600 "$(SUBF)"
+stool 0 agent-c1 allye:bridge-pilot
+check "AC-36: an id already in a full set: no sub_start, the set is left as it is" "sub_tool:agent-c1|64" "$(ids_of)|$(wc -l <"$(SUBF)" | tr -d ' ')"
+stool 1 agent-new allye:bridge-pilot
+check "AC-36: a new id in a full set: the set keeps 64 ids, the oldest dropped, the new one last, still 0600" "64 agent-c2 agent-new 600" \
+  "$(wc -l <"$(SUBF)" | tr -d ' ') $(head -n 1 "$(SUBF)") $(tail -n 1 "$(SUBF)") $(find "$(SUBF)" -printf '%m')"
+printf 'agent-ok\nbad id!\nagent/MARKER_AGENT\n%s\n' "$(printf 'x%.0s' $(seq 1 65))" >"$(SUBF)"
+stool 2 agent-x allye:bridge-pilot
+check "AC-36: ids failing the sub id pattern are dropped when the set is read and rewritten" "agent-ok agent-x" "$(subs_of)"
+run_fixture sub-tool-unseen-bad-id
+check "AC-36: a sub_tool whose id fails the pattern spools nothing and never reaches the set" "agent-ok agent-x|0" "$(subs_of)|$(grep -c MARKER_AGENT "$(spool_of "$RAWSID")" || true)"
+end_case
+# fail safe: a set that is not a private regular file is neither used nor rewritten (no synthetic sub_start then)
+for kind in mode symlink; do
+  new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'agent-f1\n' >"$SB/subs.real"; chmod 600 "$SB/subs.real"
+  if [ "$kind" = mode ]; then cp "$SB/subs.real" "$(SUBF)"; chmod 644 "$(SUBF)"; else ln -s "$SB/subs.real" "$(SUBF)"; fi
+  stool 0 agent-f2 allye:bridge-pilot
+  check "a set with a foreign $kind: the sub_tool is spooled alone and the set is not rewritten" "sub_tool:agent-f2|agent-f1" "$(ids_of)|$(cat "$SB/subs.real")"
+  end_case
+done
+# D-24/D-26: the synthetic sub_start consumes the Agent stash exactly like a real SubagentStart
+new_case; mkcred
+agent 0 Agent allye:bridge-pilot "Implement the slice now"
+stool 1 agent-bgp allye:bridge-pilot
+check "D-26: the synthetic sub_start of a background agent takes its Agent phrase: sub_start, sub_tool Agent, then the tool" \
+  "sub_start:|sub_tool:Agent:Implement the slice now|sub_tool:Read:" "$(lines_of '.sub.id == "agent-bgp"' | "$JQ_BIN" -r '"\(.type):\(.tool // "")\(if .activity then ":" + .activity else (if .tool then ":" else "" end) end)"' | tr '\n' '|' | sed 's/|$//')"
+check "D-26: the consumed stash entry is gone; seq order kept" "no true" "$([ -e "$(AGF)" ] && echo yes || echo no) $("$JQ_BIN" -s '[.[] | select(.sub.id == "agent-bgp") | .seq] | . == sort and (.[1] == .[0] + 1)' "$(spool_of "$RAWSID")")"
+stool 2 agent-bgq allye:bridge-pilot
+check "D-26: a second unseen agent of the type with nothing stashed gets only its sub_start" "sub_start:agent-bgq,sub_tool:agent-bgq" "$(ids_of | tr ',' '\n' | grep agent-bgq | tr '\n' ',' | sed 's/,$//')"
 end_case
 
 echo "== activity: on by default, the activity-off flag, live off (AC-32) =="
@@ -1117,6 +1191,14 @@ at 0; run_fixture user-prompt-submit; at 1; GCWDV="$SB/proj"; FPV="$SB/proj/.all
 "$JQ_BIN" -c --arg c "$SB/proj" --arg f "$FPV" '. + {hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, cwd:$c}' "$FIX/post-tool-use.json" >"$SB/stdin"; run_hook
 check "gates are important: sent at once" "2 gates" "$(nbodies) $("$JQ_BIN" -r '.events[-1].type' "$SB/api/ingest-bodies.log" | tail -n 1)"
 end_case
+# ALY-217.7 AC-35: the synthetic sub_start makes the first sub_tool of an unseen id important; the next one of that id waits
+new_case; mkcred; SHIMD="$SHIMS"
+at 0; run_fixture user-prompt-submit; fake_wait_on
+at 1; run_fixture sub-tool-unseen
+check "AC-35: an unseen sub id 1 s after a flush: sub_start and sub_tool sent at once" "2 sub_start,sub_tool" "$(nbodies) $("$JQ_BIN" -r '[.events[].type] | join(",")' "$SB/api/ingest-bodies.log" | tail -n 1)"
+at 1; run_fixture sub-tool-unseen
+check "AC-35: the next sub_tool of that id is not important (waits for the 2 s interval)" "2 1" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+end_case
 
 echo "== batches of at most 50 events and 16384 bytes =="
 fill6() {  # LINES PADBYTES: contract-shaped lines with seq 1..N; PAD makes the code field long
@@ -1268,15 +1350,99 @@ check "202 with accepted 0, ignored 2, dropped 1: the batch is consumed, no mark
 new7; at 0; run_fixture user-prompt-submit; TOKEN="$TOKEN2" mkcred; at 1; run_fixture session-start-startup
 check "re-pair then a SessionStart: exactly one started in that request (no duplicate prepend)" "1" "$("$JQ_BIN" -r '[.events[] | select(.state == "started")] | length' "$SB/api/ingest-bodies.log" | tail -n 1)"; end_case
 
-echo "== SessionEnd (AC-10, BR-12) =="
-new7; printf '3000' >"$SB/api/ingest-delay"; at 0; run_fixture user-prompt-submit; wait_idle; printf '3000' >"$SB/api/ingest-delay"
-cp "$FIX/session-end-clear.json" "$SB/stdin"; M0=$(date +%s%N)
-env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"; M1=$(date +%s%N)
-check "SessionEnd with a 3 s API returns in under 1 s, silent" "yes|" "$([ $(( (M1 - M0) / 1000000 )) -lt 1000 ] && echo yes || echo no)|$(cat "$SB/out" "$SB/err")"
-wait_idle
-check "the final event was still delivered (received by the API) through a request limited to 1 second" "ended end_clear max-time = 1" \
-  "$("$JQ_BIN" -r '.events[-1] | "\(.state) \(.code)"' "$SB/api/ingest-bodies.log" | tail -n 1) $(tail -n 8 "$SB/log/curl-config.log" | grep '^max-time' | tail -n 1)"
-check "the earlier (non-final) request used the normal limit" "max-time = 8" "$(grep '^max-time' "$SB/log/curl-config.log" | head -n 1)"
+echo "== SessionEnd: bounded send and the final flusher (AC-10, BR-12, ALY-217.7 AC-37..AC-39, NFR-06) =="
+FL7() { echo "$DATA/live/$(test_sha "$RAWSID").final.lock"; }
+fpid() { local p=""; { read -r p _ <"$(FL7)/p"; } 2>/dev/null; [[ "$p" =~ ^[0-9]+$ ]] && printf '%s' "$p"; }
+# finals_under PREFIX: running final flushers (cmdline `<bash> <live-report.sh> final`) whose CLAUDE_PLUGIN_DATA starts with
+# PREFIX (read-only scan of /proc; the environment is read only for processes with that exact cmdline).
+finals_under() {
+  local f c n=0
+  [ -d /proc/self ] || { echo 0; return; }
+  for f in /proc/[0-9]*; do
+    c=$({ tr '\0' ' ' <"$f/cmdline"; } 2>/dev/null) || continue
+    [ "$c" = "$BASH_BIN $HOOK final " ] || continue
+    { tr '\0' '\n' <"$f/environ"; } 2>/dev/null | grep -q "^CLAUDE_PLUGIN_DATA=$1" && n=$((n + 1))
+  done
+  echo "$n"
+}
+# end_timed [NAME=VALUE...]: SessionEnd (session-end-clear) run directly, without waiting for anything it detached.
+# EMS = its wall time in ms; FP / FPS = the final flusher recorded in final.lock right after it returned ("" when none).
+end_timed() {
+  local m0 m1
+  cp "$FIX/session-end-clear.json" "$SB/stdin"; m0=$(date +%s%N)
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMD:$REAL" \
+    SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" "$@" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
+  RC=$?; m1=$(date +%s%N); EMS=$(( (m1 - m0) / 1000000 ))
+  FP=$(fpid); FPS=""; [ -z "$FP" ] || FPS=$(pstart "$FP")
+}
+nended() { grep -c '"state":"ended"' "$SB/api/ingest-bodies.log" 2>/dev/null || true; }
+spool_end() { if grep -q '"state":"ended"' "$(spool_of "$RAWSID")" 2>/dev/null; then echo yes; else echo no; fi; }
+f_alive() { [[ "${1:-}" =~ ^[0-9]+$ ]] && [ -n "${2:-}" ] && [ "$(pstart "$1")" = "$2" ]; }
+# final_done SECONDS: polls until final.lock is gone and the recorded final flusher no longer runs.
+final_done() { local i; for i in $(seq 1 $(($1 * 20))); do [ ! -e "$(FL7)" ] && ! f_alive "$FP" "$FPS" && return 0; sleep 0.05; done; return 1; }
+endmt() { grep '^max-time' "$SB/log/curl-config.log" | sed 's/^max-time = //' | tr '\n' ' ' | sed 's/ $//'; }
+
+# AC-10/NFR-06 (updated by ALY-217.7): a 3 s API. The hook sends in the foreground with 1 s limits and returns within
+# 1.5 s; its request times out, so the final flusher sends again with the normal limits and exits once it is delivered.
+new7; printf '3000' >"$SB/api/ingest-delay"; at 0; run_fixture user-prompt-submit; wait_idle
+end_timed
+check "SessionEnd with a 3 s API returns within 1.5 s (observed $EMS ms), exit 0, silent" "yes 0|" "$([ "$EMS" -le 1500 ] && echo yes || echo no) $RC|$(cat "$SB/out" "$SB/err")"
+check "the timed-out final send handed off to a final flusher (final.lock names a live process)" "yes" "$(f_alive "$FP" "$FPS" && echo yes || echo no)"
+final_done 15
+check "the final flusher delivered the ended event and exited, removing final.lock; nothing left in the spool" "yes no no 0" \
+  "$([ "$(nended)" -ge 2 ] && echo yes || echo no) $(spool_end) $([ -e "$(FL7)" ] && echo yes || echo no) $(finals_under "$DATA")"
+check "limits: the earlier request 8 s, the hook's final request at most 1 s, the final flusher's request 8 s again" "yes" \
+  "$(endmt | grep -qE '^8 (1|0\.[0-9]{3}) 8$' && echo yes || echo no)"
+check "the final event is state ended with its end code" "ended end_clear" "$("$JQ_BIN" -r '.events[-1] | "\(.state) \(.code)"' "$SB/api/ingest-bodies.log" | tail -n 1)"
+end_case
+
+# AC-38: a send that succeeds starts no final flusher
+new7; at 0; run_fixture user-prompt-submit; wait_idle
+end_timed
+check "AC-38: SessionEnd with an OK API: delivered by the hook itself, no final flusher, empty spool (observed $EMS ms)" "1 no 0 0 yes" \
+  "$(nended) $([ -e "$(FL7)" ] && echo yes || echo no) $(finals_under "$DATA") $(spn) $([ "$EMS" -le 1500 ] && echo yes || echo no)"
+end_case
+
+# AC-38: the hook's send gets a 503, the final flusher's later attempt a 202: delivered exactly once, spool empty
+new7; printf 'ok\n5xx\nok\n' >"$SB/api/ingest-script"; at 0; run_fixture user-prompt-submit; wait_idle
+end_timed
+check "AC-38: a 503 on the hook's send: the hook returns within 1.5 s and a final flusher takes over" "yes yes" "$([ "$EMS" -le 1500 ] && echo yes || echo no) $(f_alive "$FP" "$FPS" && echo yes || echo no)"
+final_done 15
+sleep 2.5
+check "AC-38: two ended requests in all (the 503 and one 202), nothing left in the spool, final flusher gone" "2 3 0 no 0" \
+  "$(nended) $(nbodies) $(spn) $([ -e "$(FL7)" ] && echo yes || echo no) $(finals_under "$DATA")"
+end_case
+
+# AC-37: a slow flusher (3 s answer) holds flush.lock when SessionEnd runs: the hook waits at most its bound, hands off,
+# and the ended event is delivered, polled up to 15 s. The request after the slow one gets a 503 (whoever sends it: the slow
+# flusher's next round or the final flusher), so only a later attempt of the final flusher can deliver it.
+new7; printf 'ok:3000\n5xx\nok\n' >"$SB/api/ingest-script"; at 0; hook_once "$FIX/user-prompt-submit.json"
+check "AC-37: the first flusher holds flush.lock (not vacuous)" "yes" "$([ -d "$DATA/live/$(test_sha "$RAWSID").flush.lock" ] && echo yes || echo no)"
+end_timed
+check "AC-37: SessionEnd with flush.lock busy returns within 1.5 s (observed $EMS ms), exit 0, silent" "yes 0|" "$([ "$EMS" -le 1500 ] && echo yes || echo no) $RC|$(cat "$SB/out" "$SB/err")"
+for i in $(seq 1 300); do [ "$(nended)" -ge 1 ] && [ "$(spool_end)" = no ] && break; sleep 0.05; done
+final_done 15
+check "AC-37: the ended event reached the API and left the spool; no final flusher left" "yes no no 0" \
+  "$([ "$(nended)" -ge 1 ] && echo yes || echo no) $(spool_end) $([ -e "$(FL7)" ] && echo yes || echo no) $(finals_under "$DATA")"
+end_case
+
+# AC-39: one final flusher per session, stdio on /dev/null, SIGHUP survived, exit after its last attempt
+new7; printf '5xx' >"$SB/api/ingest-mode"
+end_timed ALLYE_LIVE_FINAL_DELAYS="2 2 2"
+check "AC-39: a failing API: the hook returns within 1.5 s, a final flusher runs, recorded '<pid> <start>' in final.lock" "yes yes" \
+  "$([ "$EMS" -le 1500 ] && echo yes || echo no) $(f_alive "$FP" "$FPS" && echo yes || echo no)"
+if [ -n "$FP" ] && [ -d /proc/self ]; then
+  check "AC-39: stdin, stdout and stderr of the final flusher are /dev/null" "/dev/null /dev/null /dev/null" "$(readlink "/proc/$FP/fd/0") $(readlink "/proc/$FP/fd/1") $(readlink "/proc/$FP/fd/2")"
+  check "AC-39: without setsid on the PATH the final flusher ignores SIGHUP" "1" "$(m=$(sed -n 's/^SigIgn:[[:space:]]*//p' "/proc/$FP/status"); echo $(( 0x$m & 1 )))"
+  f_alive "$FP" "$FPS" && kill -HUP "$FP" 2>/dev/null; sleep 0.5
+  check "AC-39: a SIGHUP to the recorded pid leaves it running" "yes" "$(f_alive "$FP" "$FPS" && echo yes || echo no)"
+fi
+FP1="$FP"; FPS1="$FPS"; end_timed ALLYE_LIVE_FINAL_DELAYS="2 2 2"
+check "AC-39: a second SessionEnd while it runs starts no second final flusher" "1 $FP1" "$(finals_under "$DATA") $(fpid)"
+FP="$FP1"; FPS="$FPS1"; final_done 20
+check "AC-39: after its last attempt it exits and removes final.lock; the ended line stays for the API expiry" "no no 0 yes" \
+  "$(f_alive "$FP" "$FPS" && echo yes || echo no) $([ -e "$(FL7)" ] && echo yes || echo no) $(finals_under "$DATA") $(spool_end)"
+check "AC-39: attempts: two hook sends and four from the final flusher (0, 2, 4, 6 s)" "6" "$(nbodies)"
 end_case
 
 echo "== a late line while the flusher finishes (SHD-02) =="
@@ -1306,7 +1472,9 @@ printf '%s %s' "$(( $(date +%s) - 40 ))" "dead.1" >"$DATA/live/$H.flush.lock/t";
 check "a flush lock older than 30 s is broken: the spool goes out" "1 0" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
 end_case
 new_case; mkcred; SHIMD="$SHIMS"; printf '400' >"$SB/api/ingest-delay"; RUN_ENV=()
-n=0; for i in 1 2 3 4 5 6 7 8 9 10; do n=$((n + 1)); bg_hook "$FIX/subagent-start.json" "$SB/par.$n"; done; wait_bg
+# ten distinct sub ids (ALY-217.7: a second SubagentStart of one id spools nothing)
+n=0; for i in 1 2 3 4 5 6 7 8 9 10; do n=$((n + 1)); "$JQ_BIN" --arg id "agent-par$n" '.agent_id = $id' "$FIX/subagent-start.json" >"$SB/pin.$n"; done
+n=0; for i in 1 2 3 4 5 6 7 8 9 10; do n=$((n + 1)); bg_hook "$SB/pin.$n" "$SB/par.$n"; done; wait_bg
 SP=$(spool_of "$RAWSID")
 check "ten hooks, each an important event, a slow API: never more than one request in flight" "1" "$(cat "$SB/api/ingest-maxinflight" 2>/dev/null)"
 check "at least one request was made" "yes" "$([ "$(nbodies)" -ge 1 ] && echo yes || echo no)"
@@ -2028,6 +2196,9 @@ check "the existing hooks are the only non-reporter hooks" "session-preferences.
 check "SessionStart has the two existing entries plus the reporter's" "3" "$(rep '.hooks.SessionStart | length')"
 check "the command resolves to an existing executable file in this plugin" "yes" "$(p="${REPORTER_CMD/\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"; [ -f "$p" ] && [ -x "$p" ] && echo yes || echo no)"
 check "the other commands also resolve to executable files" "yes" "$(for c in session-start.sh session-preferences.sh; do [ -x "$PLUGIN_ROOT/hooks/$c" ] || echo no; done | grep -c no | sed 's/^0$/yes/')"
+
+echo "== no final flusher left behind (ALY-217.7 AC-39) =="
+check "AC-39: every case ended with no final flusher still running under the sandbox" "0" "$(finals_under "$ROOT_TMP")"
 
 echo
 echo "$PASS passed, $FAIL failed"
