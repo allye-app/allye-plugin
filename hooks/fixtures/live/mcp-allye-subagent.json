@@ -4,9 +4,10 @@
   "cwd": "/work/MARKER_CWD",
   "permission_mode": "default",
   "hook_event_name": "PreToolUse",
-  "tool_name": "mcp__plugin_allye_allye__specs",
+  "tool_name": "mcp__plugin_allye_allye__tasks",
   "tool_input": {
-    "action": "spec_get",
+    "action": "task_start",
+    "task": "ALY-203.3",
     "spec": "ALY-203"
   },
   "tool_use_id": "toolu_x",

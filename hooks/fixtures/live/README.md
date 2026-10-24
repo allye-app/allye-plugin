@@ -67,9 +67,58 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   identical. Calls inside a subagent never bind. A task key does not supply a spec part.
 - skill: `Skill` tool call (`bridge`/`allye:bridge`) or `UserPromptExpansion` (`command_name` bridge/allye:bridge) with
   `<mode> [KEY]`. Invalid mode: no bind. Invalid key: the key only is dropped. A key with a dot is `task`, else `spec`.
+- mcp: main-session Allye MCP call (server `allye` or `*_allye`) whose `tool_input.action` is exactly `task_start` or
+  `task_submit` (ALY-217.4, D-22); `tool_input.spec` / `tool_input.task` each kept only when it matches the key pattern, no
+  bind when neither does. Every other action (reads such as `spec_get`, `spec_list`, `task_get`, approvals such as
+  `spec_approve`, other transitions, a missing or invalid action, `TASK_START`) spools only its tool event, no bind.
+  Key-validation fixtures: `mcp-allye-task-start-*`; the rank and tie cases use `mcp-allye-task-start-half-bad-key`.
 - env: `ALLYE_SPEC`/`ALLYE_TASK`, read through jq `$ENV` (never argv), at SessionStart, role `session`.
 - branch: SessionStart only, no bind of rank above branch stored, cwd absolute + existing directory + no control characters,
   `git -c core.fsmonitor= -c core.hooksPath=/dev/null -C <cwd> branch --show-current`, 1 s (`timeout` if present, else a
   background watchdog). The git shim wraps the real git, so branch tests use throwaway repositories in the sandbox.
 - New fixtures: `skill-*`, `expansion-*`, `mcp-*` (the `.expect` lists the tool and bind lines; the environment and
   branch sources are covered by generated payloads in `hooks/test-live-report.sh`).
+
+## ALY-217.6: activity phrases
+
+- Sources (D-24), PreToolUse only: Bash and Agent/Task `tool_input.description`; TodoWrite the `activeForm` of the first
+  `tool_input.todos` item whose `status` is `in_progress`. No other field (command, prompt, todo `content`, other
+  `activeForm` values) is read. The phrase goes on the event's own `tool` / `sub_tool` line as `activity`.
+- Cleanup and redaction (D-23) run in the reporter's jq program: whitespace (tabs, line breaks, Unicode spaces) to one
+  space; C0/C1 controls, DEL, bidi controls, zero-width and every other format character, U+034F, variation selectors and
+  tag characters stripped; backticked spans removed; tokens dropped when they look like a path, URL, email, IP address,
+  long base64/hex string, any `[A-Za-z0-9_-]{24,}` run, a known token prefix (`sk-`, `pk-`, `rk-`, `ghp_`, `gho_`, `ghs_`,
+  `github_pat_`, `xox[abprs]-`, `AKIA`, `ASIA`, `eyJ`, `glpat-`) or a secret: `key=value` / `key:value`, a bare `key:`,
+  `key = value` / `key : value`, `password|passwd|secret|token|apikey|api_key|... [is|as] value`, `Authorization[:]
+  Basic|Bearer|Token|Digest value` and `Bearer value` (key, separator, scheme and value all dropped, chained; Shield
+  SHD-01/SHD-03 of ALY-217.6); fewer than 3 words or 8 characters: no `activity`; above 48 code points: cut at the last
+  space plus U+2026. The Agent stash reaches jq through `--rawfile`, never argv (SHD-02).
+- Fixtures: `activity-bash*`, `activity-todowrite*` and the redaction table `activity-redact-*` (one dropped kind per
+  file; the parts that are dropped hold markers). Invisible characters are written as JSON `\uXXXX` escapes only.
+- `pre-tool-use.json` keeps the one-word description `MARKER_MSG`: too short, so its `.expect` has no `activity`.
+- `mcp-allye-subagent` is a `task_start` with valid keys (a call that binds in the main session), so "calls inside a
+  subagent never bind" is not vacuous; the harness also runs it without `agent_id` and expects the bind.
+- The Agent/Task stash (`<hash>.agents`, FIFO by subagent type within 60 s), the cap and the `activity-off` switch are
+  covered by generated payloads in `hooks/test-live-report.sh`.
+
+## ALY-217.7: synthetic sub_start and the SessionEnd send
+
+- Background agents: the schema above gives `SubagentStart` its `agent_id` and `agent_type`, but nothing in this repository
+  (schema literals, fixtures) says whether it fires for `run_in_background` agents, and PROD spools showed `sub_tool` events
+  of background agents with no `sub_start`. So, whatever the CLI does (D-26): before the first `sub_tool` or `sub_stop` of a
+  sub id not yet seen in the session, the reporter spools a `sub_start` with the same `sub {id, type}` and `at` (seq just
+  below). The seen ids live in `<hash>.subs` (one id per line, ids checked by the sub id pattern, at most 64, oldest
+  dropped, 0600, written under the state lock by temp + mv). A real `SubagentStart` adds its id; a `SubagentStart` of an id
+  already in the set spools nothing. A set that is a symlink or not a private file is neither used nor written (no
+  synthetic `sub_start` then). The first `sub_start` of an id, real or synthetic, takes the Agent stash entry (D-24).
+- The fixtures of tool events inside a subagent (`*-subagent`, `subagent-stop`) are run alone in a fresh sandbox, so their
+  `.expect` now starts with the synthetic `sub_start`. New: `sub-tool-unseen` (sub_start + sub_tool),
+  `sub-tool-unseen-stop` (sub_start + sub_stop), `sub-tool-unseen-post` (a PostToolUse spools nothing, so no sub_start)
+  and `sub-tool-unseen-bad-id` (an id failing the pattern: nothing).
+- SessionEnd (D-27): the `state ended` line is sent by the hook itself, in the foreground, within 1.5 s: `flush.lock` is
+  tried every 100 ms for up to 400 ms, the spool goes out in order with 1 s curl limits cut to the budget. When the lock
+  stayed busy, the send failed or an ended line is still in the spool, a detached final flusher (`live-report.sh final`,
+  stdio on `/dev/null`, SIGHUP ignored, `setsid` when present, one per session through the pid lock `<hash>.final.lock`)
+  tries again at once and after 2, 5, 15, 30 and 60 s (test knob `ALLYE_LIVE_FINAL_DELAYS`), waiting up to 10 s for
+  `flush.lock` each time, honouring off, disabled, a changed credential and the back-off; it exits when no ended line is
+  left or after its last attempt, removing `final.lock`. The API idle expiry stays the backstop.

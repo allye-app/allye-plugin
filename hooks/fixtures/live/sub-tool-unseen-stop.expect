@@ -1,0 +1,2 @@
+{"type":"sub_start","sub":{"id":"agent-bg0002","type":"allye:bridge-medic"}}
+{"type":"sub_stop","sub":{"id":"agent-bg0002","type":"allye:bridge-medic","outcome":"blocked"}}
