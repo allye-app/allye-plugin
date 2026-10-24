@@ -1,6 +1,7 @@
-import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -14,6 +15,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  *   `.allye/project.json` claim against the git remote. It loads no startup or
  *   per-prompt memory context.
  *   The team follows the project: nothing is gated on team selection.
+ * - In OMP, when no `allye` MCP server is configured, shows one notice with the
+ *   `/mcp add` command. It is informational only and never writes configuration.
  */
 
 const MCP_SERVER = "allye";
@@ -21,6 +24,7 @@ const LINK_FILE = ".allye/project.json";
 const PROJECT_KEY = /^[A-Z][A-Z0-9]{1,9}$/;
 const APP_NAME = /^[A-Za-z0-9._-]{1,120}$/;
 const MAX_LINK_BYTES = 4096;
+const MAX_MCP_CONFIG_BYTES = 256 * 1024;
 const MAX_CANDIDATES = 10;
 const MAX_REPO_CHARS = 4_000;
 
@@ -139,15 +143,15 @@ async function readRemote(cwd: string): Promise<string | null> {
   }
 }
 
-/** Reads at most MAX_LINK_BYTES from a regular file, refusing symlinks and FIFOs even if swapped in after lstat. */
-function readSmallRegularFile(path: string): string {
+/** Reads at most `maxBytes` from a regular file, refusing symlinks and FIFOs even if swapped in after lstat. */
+function readSmallRegularFile(path: string, maxBytes: number = MAX_LINK_BYTES): string {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.size > MAX_LINK_BYTES) throw new Error("not a small regular file");
-    const buffer = Buffer.alloc(MAX_LINK_BYTES + 1);
+    if (!stat.isFile() || stat.size > maxBytes) throw new Error("not a small regular file");
+    const buffer = Buffer.alloc(maxBytes + 1);
     const length = readSync(fd, buffer, 0, buffer.length, 0);
-    if (length > MAX_LINK_BYTES) throw new Error("file too large");
+    if (length > maxBytes) throw new Error("file too large");
     return buffer.subarray(0, length).toString("utf8");
   } finally {
     closeSync(fd);
@@ -295,6 +299,73 @@ async function buildRepoContext(cwd: string, online: boolean): Promise<string> {
   }
 }
 
+export const OMP_MCP_ADD_COMMAND = "/mcp add allye --scope user --url https://mcp.allye.app/mcp --transport http";
+export const OMP_MCP_NOTICE = `The Allye MCP server was not found in OMP's own mcp.json files. If it is not configured, add it once with: ${OMP_MCP_ADD_COMMAND}`;
+
+/** OMP reads MCP servers from <agentDir>/{mcp,.mcp}.json (user) and <cwd>/.omp/{mcp,.mcp}.json plus <cwd>/{mcp,.mcp}.json (project). */
+export function ompAgentDir(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+  return env.PI_CODING_AGENT_DIR && env.PI_CODING_AGENT_DIR.startsWith("/") ? env.PI_CODING_AGENT_DIR : join(home, ".omp", "agent");
+}
+
+export function ompMcpConfigPaths(cwd: string, env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string[] {
+  const agentDir = ompAgentDir(env, home);
+  return [
+    join(agentDir, "mcp.json"),
+    join(agentDir, ".mcp.json"),
+    join(cwd, ".omp", "mcp.json"),
+    join(cwd, ".omp", ".mcp.json"),
+    join(cwd, ".mcp.json"),
+    join(cwd, "mcp.json"),
+  ];
+}
+
+/** True when running inside OMP (oh-my-pi): the executable is `omp` or the agent dir is OMP's `.omp/agent`. */
+export function isOmp(env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv, execPath: string = process.execPath): boolean {
+  const names = [argv[1], execPath].map((value) => basename(value ?? "").replace(/\.(exe|js|mjs)$/, ""));
+  if (names.includes("omp")) return true;
+  const dir = env.PI_CODING_AGENT_DIR ?? "";
+  return /(^|\/)\.omp\/agent\/?$/.test(dir);
+}
+
+/**
+ * True when any readable config file defines the `allye` server. `readConfig` returns the file text or null
+ * when absent; unreadable or invalid files count as "not defined here". Never throws, never writes.
+ */
+export { readConfigFile as readMcpConfigFile };
+
+export function allyeMcpConfigured(paths: string[], readConfig: (path: string) => string | null): boolean {
+  for (const path of paths) {
+    try {
+      const text = readConfig(path);
+      if (text === null) continue;
+      const servers = (JSON.parse(text) as { mcpServers?: unknown } | null)?.mcpServers;
+      if (!servers || typeof servers !== "object" || !Object.prototype.hasOwnProperty.call(servers, MCP_SERVER)) continue;
+      const entry = (servers as Record<string, unknown>)[MCP_SERVER];
+      if (entry && typeof entry === "object" && (entry as { enabled?: unknown }).enabled === false) continue;
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+/**
+ * Config paths are cwd-controlled: symlinks, non-regular and oversized files read as absent, and so does a file
+ * whose real path (a symlinked parent directory) leaves the real path of `base`.
+ */
+function readConfigFile(path: string, base: string): string | null {
+  try {
+    const realBase = realpathSync(base);
+    const real = realpathSync(path);
+    if (real !== realBase && !real.startsWith(realBase.endsWith(sep) ? realBase : realBase + sep)) return null;
+    if (!lstatSync(path).isFile()) return null;
+    return readSmallRegularFile(path, MAX_MCP_CONFIG_BYTES);
+  } catch {
+    return null;
+  }
+}
+
 export function buildSystemSections(bootstrap: string, repo: string, nativeBootstrap = true): string[] {
   const sections: string[] = [];
   if (bootstrap) sections.push(`<allye-bootstrap>\n${bootstrap.trim()}\n</allye-bootstrap>`);
@@ -306,11 +377,22 @@ export default function allyePiExtension(pi: ExtensionAPI): void {
   const nativeBootstrap = process.env.ALLYE_PI_NATIVE_BOOTSTRAP !== "0";
   let bootstrap = "";
   let repo = "";
+  let mcpNoticeShown = false;
 
   pi.on("resources_discover", () => ({ skillPaths: [skillsPath()] }));
 
   pi.on("session_start", async (_event, ctx) => {
     bootstrap = loadBootstrap();
+    if (!mcpNoticeShown && isOmp()) {
+      mcpNoticeShown = true;
+      try {
+        const cwd = ctx.cwd ?? process.cwd();
+        const agentDir = ompAgentDir();
+        if (!allyeMcpConfigured(ompMcpConfigPaths(cwd), (path) => readConfigFile(path, path.startsWith(agentDir + sep) ? agentDir : cwd))) ctx.ui?.notify?.(OMP_MCP_NOTICE, "warning");
+      } catch {
+        // The notice is best effort; never block the session.
+      }
+    }
     if (nativeBootstrap) repo = await loadRepoContext(ctx.cwd ?? process.cwd(), mcpBridgeAvailable());
   });
 
