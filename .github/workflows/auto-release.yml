@@ -11,14 +11,9 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+# No tests on the runner: `npm test` runs locally before merging.
 jobs:
-  test:
-    permissions:
-      contents: read
-    uses: ./.github/workflows/test.yml
-
   release:
-    needs: test
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.head.outputs.sha }}

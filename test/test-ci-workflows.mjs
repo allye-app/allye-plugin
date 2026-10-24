@@ -46,7 +46,7 @@ function checkRelease(text) {
   bad(!/npm@latest/.test(text), 'no npm@latest');
   bad(!/pull_request_target/.test(text), 'no pull_request_target');
   bad(!/secrets:\s*inherit/.test(text), 'no secrets: inherit');
-  bad(jobs.release && JSON.stringify(needsOf(jobs.release)) === '["test"]', 'release needs exactly test');
+  bad(jobs.release && needsOf(jobs.release).length === 0, 'release needs nothing');
   bad(publish.length >= 2 && build.length >= 1, 'publish-* and build-* jobs exist');
   for (const n of [...publish, ...build]) bad(needsOf(jobs[n]).includes('release'), `${n} needs release`);
   for (const [n, b] of Object.entries(jobs)) {
@@ -78,7 +78,7 @@ function checkRelease(text) {
     bad(jobs[n] && jobs[n].includes(GUARD), `main push guard on ${n}`);
   }
   bad(!/write-all/.test(text), 'no write-all');
-  bad(/^ {4}uses:\s*\.\/\.github\/workflows\/test\.yml\s*$/m.test(jobs.test || '') && /contents:\s*read/.test(jobs.test || ''), 'test job calls test.yml with contents: read');
+  bad(!jobs.test && !/needs:\s*test\b/.test(text), 'no test job on the runner (tests run locally)');
   const relCo = b_checkouts(jobs.release || '');
   bad(relCo.length > 0 && relCo.every((c) => /persist-credentials:\s*false/.test(c)), 'release checkout persist-credentials: false');
   const up = /upload-artifact@[^\n]*\n(?:[^\n]*\n)*?\s+name:\s*(\S+)/.exec(text);
@@ -104,27 +104,13 @@ function b_checkouts(body) {
   return [...body.matchAll(/uses:\s*actions\/checkout@[^\n]*\n((?:\s{8,}.*\n?)*)/g)].map((m) => m[0]);
 }
 
-function checkTest(text) {
-  const errs = [];
-  const bad = (c, msg) => { if (!c) errs.push(msg); };
-  bad(/^ *pull_request:/m.test(text), 'pull_request');
-  bad(/workflow_call/.test(text), 'workflow_call');
-  bad(!/pull_request_target/.test(text), 'no pull_request_target');
-  bad(/^permissions:\s*\n\s+contents:\s*read/m.test(text), 'contents: read');
-  bad(/persist-credentials:\s*false/.test(text), 'persist-credentials: false');
-  for (const m of text.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)) bad(/@[0-9a-f]{40}$/.test(m[1]), `pinned: ${m[1]}`);
-  return errs;
-}
-
 let failed = 0;
 const report = (name, errs) => {
   if (errs.length) { failed++; console.error(`FAIL ${name}: ${errs.join('; ')}`); } else console.log(`ok ${name}`);
 };
 
 const release = read('.github/workflows/auto-release.yml');
-const testYml = read('.github/workflows/test.yml');
 report('auto-release.yml', checkRelease(release));
-report('test.yml', checkTest(testYml));
 
 // Self-check: mutated copies must fail, so the checks are not vacuous.
 const mutations = [
@@ -132,7 +118,7 @@ const mutations = [
   ['unpinned uses', release.replace(/(actions\/checkout)@[0-9a-f]{40} # v4/, '$1@v4')],
   ['id-token in build', release.replace(/(build-opencode:[\s\S]*?permissions:\n\s+contents: read)/, '$1\n      id-token: write')],
   ['top-level write', release.replace(/^permissions:\n  contents: read/m, 'permissions:\n  contents: write')],
-  ['release needs more', release.replace(/(  release:\n    needs: )test/, '$1[test, build-opencode]')],
+  ['test job back', release.replace(/^jobs:\n/m, 'jobs:\n  test:\n    uses: ./.github/workflows/test.yml\n\n')],
   ['global semantic-release', release.replace('npm ci --ignore-scripts --include=dev --prefix release', 'npm install -g semantic-release@25.0.9')],
   ['release install runs scripts', release.replace('npm ci --ignore-scripts --include=dev --prefix release', 'npm ci --include=dev --prefix release')],
   ['release install omits dev', release.replace(' --include=dev', '')],
@@ -140,7 +126,6 @@ const mutations = [
   ['publish runs scripts', release.replace(' --ignore-scripts', '')],
   ['no main guard', release.replace(/(build-opencode:[\s\S]*?)if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/, '$1if: true')],
   ['write-all', release.replace('id-token: write # npm', 'write-all # npm')],
-  ['test job perms', release.replace(/(  test:\n    permissions:\n      contents: )read/, '$1write')],
   ['release persist creds', release.replace(/(  release:[\s\S]*?persist-credentials: )false/, '$1true')],
   ['artifact name mismatch', release.replace(/name: allye-opencode-package\n          path: allye-opencode-package/, 'name: other\n          path: allye-opencode-package')],
   ['no retention', release.replace('retention-days: 1', '')],
@@ -153,8 +138,6 @@ for (const [n, t] of mutations) {
   if (checkRelease(t).length === 0) { failed++; console.error(`FAIL self-check ${n}: mutated sample passed`); }
   else console.log(`ok self-check ${n}`);
 }
-if (checkTest(testYml.replace('persist-credentials: false', '')).length === 0) { failed++; console.error('FAIL self-check test.yml'); }
-else console.log('ok self-check test.yml');
 
 // Release tooling is locked in release/package-lock.json and watched by Dependabot.
 function checkReleaseTooling(pkg, lock, dependabot) {
