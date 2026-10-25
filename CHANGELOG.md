@@ -1,3 +1,10 @@
+# [2.11.0](https://github.com/allye-app/allye-plugin/compare/v2.10.0...v2.11.0) (2026-10-25)
+
+
+### Features
+
+* **allye-pi:** ALY-51.4 notify in OMP when the allye MCP server is missing ([35235bf](https://github.com/allye-app/allye-plugin/commit/35235bf44c925626d8c7eb78324bc7480618ddc1))
+
 # [2.10.0](https://github.com/allye-app/allye-plugin/compare/v2.9.0...v2.10.0) (2026-10-24)
 
 
