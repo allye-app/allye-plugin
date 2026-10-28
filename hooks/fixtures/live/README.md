@@ -122,3 +122,24 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   tries again at once and after 2, 5, 15, 30 and 60 s (test knob `ALLYE_LIVE_FINAL_DELAYS`), waiting up to 10 s for
   `flush.lock` each time, honouring off, disabled, a changed credential and the back-off; it exits when no ended line is
   left or after its last attempt, removing `final.lock`. The API idle expiry stays the backstop.
+
+## ALY-258.1: desc and task on sub_start, the 140-code-point cleaner
+
+- One cleaner (`actphrase($cap)` in the reporter's jq program), cap 140 for `activity`, `desc` (and `summary`, ALY-258.2); it is
+  a documented subset of the API scrubber (ALY-257 D-20), which stays authoritative. Beyond the ALY-217.6 table it drops: the
+  distinctive secret prefixes anywhere in a token (`sk-`, `sk_`, `pk-`, `rk-` only at a token start or after a non-alphanumeric),
+  `arn:`, bare dotted hostnames (3+ labels, or 2 with a common TLD), separator-joined hex pairs, 11+ digits with separators
+  (account ids, CPF/CNPJ, phones, cards) and the whole-word names `pwd`, `pw`, `cookie`, `session`, `sid`, `passphrase` as `k=v`,
+  `k: v`, `k = v` or `<word> is <value>`. It is stricter than D-20 where noted in the vector table.
+- `vectors/agent-run-text-vectors.json`: plugin-owned vector table derived from D-20 (kept in a subdirectory so the fixture loop
+  does not take it for a hook payload). Swap it for the API shared file when that exists. `plugin: exact` = output equals
+  `output`; `safe` = the plugin is stricter (forbidden tokens absent, `plugin_output` is its result); `skip` = a D-20 rule the
+  plugin does not implement (`reason` says why). `input_gen`/`output_gen` build long strings. The suite replays every vector
+  through the cleaner cut out of `live-report.sh` and checks the forbidden tokens, the 140 limit, one line and idempotence.
+- Stash correlation (D-32): the Agent/Task stash entry gains `id` (the PreToolUse `tool_use_id`). `SubagentStart` and
+  `SubagentStop` carry no `tool_use_id`, so a start is matched by subagent type within the 60 s TTL: exactly one unexpired
+  entry of the type gives `sub.desc` (and `sub.task`, the first dotted task key of the cleaned description) to the `sub_start`
+  (real or synthetic) and is consumed; none gives nothing; several (parallel launches of one type) give nothing and the other
+  entries of the type become tombstones (empty text, expiring by TTL) so a later start of the type never pairs with them. There is no separate Agent `sub_tool` event any more. Covered by generated payloads in the test.
+- `batch_build` keeps only `id`, `type`, `outcome`, `task` and `desc` inside `sub` (the nested allowlist; ALY-258.2 extends it).
+- `LIVE_TEST_SECTIONS` (regex over the section names) runs a subset of `hooks/test-live-report.sh`; unset runs everything.

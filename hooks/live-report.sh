@@ -233,7 +233,9 @@ lock_touch() {
 }
 # jq_valid_def: the jq definitions shared by the batch builder and the spool rewrite (a line is a valid event or it is dropped).
 jq_valid_def() {
-  printf '%s' 'def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity")));
+  # keep: the event keys, then the keys of `sub` (the nested allowlist: ALY-258 adds desc; .2 extends it).
+  printf '%s' 'def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity")))
+      | (if (.sub | type) == "object" then .sub |= with_entries(select(.key | IN("id","type","outcome","task","desc"))) else . end);
     def ok: type == "object" and (.seq | type == "number" and . == floor and . >= 1) and (.at | type == "string")
             and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates"));
     def fresh($now): ((.at | try fromdateiso8601 catch 0) >= ($now - 82800));'
@@ -866,6 +868,7 @@ def actws: . == 9 or . == 10 or . == 11 or . == 12 or . == 13 or . == 133 or . =
   or . == 8232 or . == 8233 or . == 8239 or . == 8287 or . == 12288;
 # D-23 step 4, one token: dropped as a path, URL, email, IP address, long base64/hex string or secret.
 def actcore: gsub("\\A[\"\u0027(\\[{<,;.!?]+|[\"\u0027)\\]}>,;.!?]+\\z"; "");
+def actpath: test("[/\\\\]") or (actcore | test("\\A(~|[A-Za-z]:)"));
 def actdrop:
   actcore as $c
   | test("[/\\\\]") or ($c | test("\\A(~|[A-Za-z]:)")) or contains("://") or ($c | ascii_downcase | startswith("www."))
@@ -873,13 +876,23 @@ def actdrop:
     or ($c | test("\\A[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{0,4}){2,}\\z")) or test("[0-9A-Fa-f]{16,}")
     or ([match("[A-Za-z0-9+/=_-]{20,}"; "g").string | select(test("[0-9]"))] | length > 0)
     or test("[A-Za-z0-9_-]{24,}")
-    or ($c | test("\\A(sk-|pk-|rk-|ghp_|gho_|ghs_|github_pat_|xox[abprs]-|AKIA|ASIA|eyJ|glpat-)"));
+    # D-20 subset (ALY-258): the distinctive secret prefixes anywhere in the token; sk-/sk_/pk-/rk- only at its start or
+    # after a non-alphanumeric (so risk-based survives); arn:; hostnames; colon/dash separated hex pairs.
+    or test("(ghp_|gho_|ghs_|github_pat_|xox[abprs]-|AKIA|ASIA|eyJ|glpat-)")
+    or test("(\\A|[^A-Za-z0-9])(sk-|sk_|pk-|rk-)")
+    or ($c | ascii_downcase | startswith("arn:"))
+    or ($c | test("\\A([A-Za-z0-9-]+\\.){2,}[A-Za-z]{2,}\\z"))
+    or ($c | test("\\A([A-Za-z0-9-]+\\.)+(com|net|org|io|dev|app|co|br|ai|cloud|info|biz|edu|gov|local|internal|corp|test|lan)\\z"; "i"))
+    or test("([0-9A-Fa-f]{2}[:-]){7}[0-9A-Fa-f]{2}")
+    or test("[\uff00-\uffef]");   # fullwidth/halfwidth forms: look-alikes of ASCII that the API would NFKC-normalise (the plugin cannot) are dropped whole
 # Secrets (D-23 step 4 and Shield SHD-01/03 of ALY-217.6). actkv: `key=value` / `key:value` (also bare `key:`, actbare);
 # actkey: a key-like word alone; actsep: a standalone `=` / `:`; actscheme: an auth scheme; actauth: auth/authorization;
 # actword: a secret word whose next token (after an optional is/as/=) is its value.
-def actkv: test("\\A[^=:]*(key|token|secret|pass|auth|credential)[^=:]*[=:]"; "i");
-def actbare: test("\\A[^=:]*(key|token|secret|pass|auth|credential)[^=:]*[=:]+[\"\u0027]?\\z"; "i");
-def actkey: actcore | test("(key|token|secret|pass|auth|credential)"; "i");
+# actwk: the whole-word secret names of D-20 that are too common as substrings (session, sid...) to match inside a word.
+def actwk: (. | ascii_downcase) | IN("pwd","pw","cookie","session","sid","passphrase","key","auth","bearer","credential","apikey");
+def actkv: test("\\A[^=:]*(key|token|secret|pass|auth|credential)[^=:]*[=:]"; "i") or test("\\A(pwd|pw|cookie|session|sid)[=:]"; "i");
+def actbare: test("\\A[^=:]*(key|token|secret|pass|auth|credential)[^=:]*[=:]+[\"\u0027]?\\z"; "i") or test("\\A(pwd|pw|cookie|session|sid)[=:]+[\"\u0027]?\\z"; "i");
+def actkey: actcore | (test("(key|token|secret|pass|auth|credential)"; "i") or actwk);
 def actsep: actcore | test("\\A[=:]+\\z");
 def actscheme: (actcore | ascii_downcase) | IN("basic","bearer","token","digest");
 def actauth: (actcore | ascii_downcase | sub("[=:]+\\z"; "")) | IN("auth","authorization","proxy-authorization");
@@ -888,17 +901,26 @@ def actbearer: (actcore | ascii_downcase) == "bearer";
 # The cleaned phrase of a field, or null: (1) strings only; (2) whitespace to spaces, forbidden code points stripped;
 # (3) backticked spans removed; (4) token drops (a bare `key:` / `key=`, `key = value`, `key : value`, `password is x`,
 # `Authorization [:] Basic|Bearer|Token|Digest x` and `Bearer x` drop the value too, chained); (5) at
-# least 3 words and 8 characters; (6) at most 48 code points, cut at the last space (hard cut at 47 when there is none or
-# when that would leave fewer than 8) plus U+2026.
-def actphrase:
+# least 3 words and 8 characters; (6) at most $cap code points (ALY-258: 140 for every text), cut at the last space
+# (hard cut at $cap-1 when there is none or when that would leave fewer than 8) plus U+2026, so the ellipsis is inside the cap.
+# This is the one cleaner of the reporter: a documented subset of the API scrubber (ALY-257 D-20), which stays authoritative.
+def actcap: 140;
+def actphrase($cap):
   if type != "string" then null else
     .[0:4096] | explode | map(if actws then 32 elif actbad then empty else . end) | implode
     | (try gsub("[\\p{Cc}\\p{Cf}\\p{Cs}]"; "") catch .)
     | gsub("`[^`]*(`|\\z)"; " ")
-    | [splits(" +") | select(length > 0)] as $t
+    | gsub("\\+?\\(?(?<![0-9A-Za-z])[0-9]([ .\\-()]{0,2}[0-9]){9,18}(?![0-9A-Za-z])"; " ")   # 10+ digits with separators/parentheses: account ids, CPF/CNPJ, phones, cards
+    | [splits(" +") | select(length > 0)] as $t0
+    # a path token is dropped (actdrop) and so are the Capitalized words that follow it, up to the next punctuation (D-20)
+    | (reduce $t0[] as $w ({o: [], c: false};
+        if ($w | actpath) then .c = true
+        elif .c and ($w | test("\\A\\p{Lu}")) then (if ($w | test("[,;.!?:]\\z")) then .c = false else . end)
+        else .o += [$w] | .c = false end) | .o) as $t
     | (reduce range(0; $t | length) as $k ({o: [], s: 0};
         $t[$k] as $w | ($t[$k + 1] // "") as $n
         | if .s > 0 then .s -= 1 | (if ($w | actscheme) or ($w | actbare) or ($w | actsep) then .s += 1 else . end)
+          elif ($w | actcore | actwk) and ($n | ascii_downcase | IN("is","as")) then .s = 2   # `the key is x`, `session is x`: the whole-word names
           elif ($w | actbearer) then .s = 1
           elif ($w | actauth) and ($n | actscheme) then .s = 1   # the scheme, then (chained) its value
           elif ($w | actkv) then (if ($w | actbare) then .s = 1 else . end)
@@ -908,17 +930,18 @@ def actphrase:
           else .o += [$w] end)) as $r
     | ($r.o | join(" ")) as $p
     | if ($r.o | length) < 3 or ($p | length) < 8 then null
-      elif ($p | length) <= 48 then $p
+      elif ($p | length) <= $cap then $p
       else ($p | explode) as $e
-        | ([range(0; 48) | select($e[.] == 32)] | last) as $i
-        | (if $i != null and $i >= 8 then $e[0:$i] else $e[0:47] end | implode | sub(" +\\z"; "")) + "\u2026"
+        | ([range(0; $cap) | select($e[.] == 32)] | last) as $i
+        | (if $i != null and $i >= 8 then $e[0:$i] else $e[0:($cap - 1)] end | implode | sub(" +\\z"; "")) + "\u2026"
       end
   end;
 # BR-10 (D-24 a, b, c): the one field read per tool; nothing while the activity-off flag exists.
+# $txt is "1" unless texts are off (the activity-off flag; ALY-258.3 adds detailed:false): then no activity, no desc, no stash.
 def actof:
-  if $act != "1" then null
-  elif .tool_name | IN("Bash","Agent","Task") then ((.tool_input | objects | .description) // null) | actphrase
-  elif .tool_name == "TodoWrite" then [.tool_input | objects | .todos | arrays | .[] | objects | select(.status == "in_progress")] | .[0] | (objects | .activeForm) // null | actphrase
+  if $txt != "1" then null
+  elif .tool_name | IN("Bash","Agent","Task") then ((.tool_input | objects | .description) // null) | actphrase(actcap)
+  elif .tool_name == "TodoWrite" then [.tool_input | objects | .todos | arrays | .[] | objects | select(.status == "in_progress")] | .[0] | (objects | .activeForm) // null | actphrase(actcap)
   else null end;
 def withact($a): if $a != null then . + {activity: $a} else . end;
 def toolev:
@@ -980,29 +1003,45 @@ def gatec:
   | if .hook_event_name == "PostToolUse" and (.tool_name | IN("Write","Edit")) and (.agent_id // null) == null
        and ($fp | pathok) and (.cwd | pathok)
     then [$fp, .cwd] else null end;
-# ALY-217.6 (D-24 b): the Agent/Task stash, [{t: subagent type, ms: Unix ms, a: cleaned phrase or ""}] oldest first.
-# $stash is the content of $HASH.agents read by the hook (empty when absent); entries are checked again, pruned after
-# 60 s and capped at 16. stashc: {ev: extra events, st: the new stash or null when the file is left as it is}.
+# ALY-217.6 (D-24 b), ALY-258.1 (D-32): the Agent/Task stash, [{t: subagent type, ms: Unix ms, a: cleaned description or "",
+# id: the tool_use_id of the PreToolUse when it has one}] oldest first. $stash is the content of $HASH.agents read by the hook
+# (empty when absent); entries are checked again, pruned after 60 s and capped at 16. An entry holds no prompt and no raw text.
 def stashin:
   ($stash | try fromjson catch []) | (if type == "array" then . else [] end)
   | map(select(type == "object" and (.t | typeok) and (.ms | type == "number") and .ms > ($nowms - 60000) and .ms <= ($nowms + 60000)
-               and (.a | type == "string") and (.a == "" or (.a | actphrase) == .a)))
+               and (.a | type == "string") and (.a == "" or (.a | actphrase(actcap)) == .a)
+               and ((has("id") | not) or (.id | idok))
+               and ((has("p") | not) or (.p == true and .a == ""))))
   | .[-16:];
-# stashc($starts): $starts are the subs whose first sub_start (real or synthetic, ALY-217.7) this event spools; each one
-# takes the oldest entry of its type. {ev: {sub id: [the sub_tool Agent event]}, st: the new stash or null}.
+# AC-03: the task key of a start is the first dotted task key of the CLEANED description (a key inside a token the cleaner
+# dropped is therefore never sent).
+def taskof: [match("(?<![A-Za-z0-9])[A-Z][A-Z0-9]{1,9}-[0-9]+\\.[0-9]+"; "g").string] | .[0];
+# stashc($starts): $starts are the subs whose first sub_start (real or synthetic, ALY-217.7) this event spools. Correlation
+# (D-32): the unexpired entries of the subagent type of the start are counted. Exactly one, and it is not a tombstone: its
+# cleaned description is attached as `desc` (and its task key as `task`) to that sub_start and the entry is consumed. None:
+# nothing. Several (parallel launches of one type), or a tombstone: nothing; the oldest entry is consumed and every other
+# unexpired entry of the type becomes a tombstone ({t, ms, a: "", p: true}, still expiring by its own TTL), so a launch that
+# comes in after an ambiguous start cannot be matched to the wrong subagent either (Shield SHD-01). The tool_use_id is stored
+# for the day the SubagentStart payload carries it, but today it does not (nor does SubagentStop), so matching is by type
+# within the 60 s TTL; two launches of one type in flight can therefore never be told apart, which is why they send no desc.
+# {ds: {sub id: {desc, task?}}, st: the new stash or null}.
 def stashc($starts):
-  if $act != "1" then {ev: {}, st: null}
+  if $txt != "1" then {ds: {}, st: null}
   else
-    (reduce $starts[] as $s ({q: stashin, ev: {}};
-       .q as $q | ([range(0; $q | length) | select($q[.].t == $s.type)] | .[0]) as $i
-       | if $i == null then .
-         else (if $q[$i].a != "" then .ev[$s.id] = [{type: "sub_tool", tool: "Agent", activity: $q[$i].a, sub: $s}] else . end) | .q |= del(.[$i]) end)) as $c
+    (reduce $starts[] as $s ({q: stashin, ds: {}};
+       .q as $q | [range(0; $q | length) | select($q[.].t == $s.type)] as $ix
+       | if ($ix | length) == 0 then .
+         elif ($ix | length) == 1 and ($q[$ix[0]].p // false | not) then
+           $q[$ix[0]].a as $a
+           | (if $a != "" then .ds[$s.id] = ({desc: $a} + ($a | taskof | if . != null then {task: .} else {} end)) else . end)
+           | .q |= del(.[$ix[0]])
+         else .q |= ([range(0; length) as $k | .[$k] | if .t != $s.type then . elif $k == $ix[0] then empty else . + {a: "", p: true} end]) end)) as $c
     | if .hook_event_name == "PreToolUse" and (.tool_name | IN("Agent","Task")) then
         ((.tool_input | objects | .subagent_type) // "general-purpose") as $ty
-        | if ($ty | typeok) then {ev: $c.ev, st: (($c.q + [{t: $ty, ms: $nowms, a: (actof // "")}]) | .[-16:])}
-          elif ($starts | length) > 0 then {ev: $c.ev, st: $c.q} else {ev: {}, st: null} end
-      elif ($starts | length) > 0 then {ev: $c.ev, st: $c.q}
-      else {ev: {}, st: null} end
+        | if ($ty | typeok) then {ds: $c.ds, st: (($c.q + [{t: $ty, ms: $nowms, a: (actof // "")} + (if (.tool_use_id | idok) then {id: .tool_use_id} else {} end)]) | .[-16:])}
+          elif ($starts | length) > 0 then {ds: $c.ds, st: $c.q} else {ds: {}, st: null} end
+      elif ($starts | length) > 0 then {ds: $c.ds, st: $c.q}
+      else {ds: {}, st: null} end
   end;
 # ─── ALY-217.7: synthetic sub_start (BR-14 of ALY-217, D-26) ───
 # $subs is the content of $HASH.subs (one sub id per line), usable only when $subok is "1"; ids failing idok are dropped
@@ -1028,8 +1067,8 @@ def subsc($e):
 . as $in
 | evs as $e0
 | (try subsc($e0) catch {out: $e0, seen: null, new: []}) as $sb
-| (try stashc($sb.new) catch {ev: {}, st: null}) as $sc
-| [$sb.out[] | if .type == "sub_start" then ., ($sc.ev[.sub.id] // [])[] else . end] as $all
+| (try stashc($sb.new) catch {ds: {}, st: null}) as $sc
+| [$sb.out[] | if .type == "sub_start" then .sub += ($sc.ds[.sub.id] // {}) else . end] as $all
 | (reduce $all[] as $ev ({out: [], last: $last};
     (if ($ev.type | IN("tool","sub_tool","sub_start","trig")) and ($ev.syn | not) and .last == "waiting_input"
        then .out += [{type: "state", state: "working"}] | .last = "working" else . end)
@@ -1065,7 +1104,7 @@ elif [ ! -L "$SUBSF" ] && [ -n "$(find "$SUBSF" -prune -type f -user "$UID_NOW" 
 elif private_file_ok "$SUBSF"; then SUBOK=1; fi
 MS=$(now_ms)
 [[ "$MS" =~ ^[1-9][0-9]{0,15}$ ]] || exit 0
-RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg act "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
+RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
 # Output: new last state, bind candidate (or -), cwd for the branch source (or -), gates path and cwd (or -, -),
 # watcher trigger (start = a SessionStart of a known source, prompt = UserPromptSubmit, or -), the new Agent/Task
 # stash (or - to leave it), the new seen-set as space-separated ids (or - to leave it), events, "." terminator.
