@@ -160,3 +160,25 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   (a bad value drops the field, never the event; nested objects keep only their keys).
 - Cases are generated in `hooks/test-live-report.sh` (sections `report lines` and `batches with the longer texts`; they use the
   `stopped` helper of `subagent outcome`, select both). Existing fixtures are untouched and still pass (AC-12).
+
+## ALY-258.3: Detailed Live ack flag, texts stripped at flush, consent text
+
+- Ack flag (D-36, AC-14): on a 2xx answer of the ingest route `flush_run` reads the same bounded body it already reads for the error
+  code. A VALID ack is `.data.accepted` a number. In a valid ack only the strict boolean `.data.detailed == false` writes
+  `$CLAUDE_PLUGIN_DATA/live/detailed-off` (empty, temp 0600 + mv under the state lock, so a symlink at that name is replaced and
+  never followed) and deletes the Agent stashes; a valid ack with anything else (true, field absent, null, another type) removes the
+  flag (absent = true). A 2xx whose body is not a valid ack (204, empty, truncated, not JSON, a captive-portal page), a non-2xx and a
+  failed send (a 200 KB ack exceeds curl's `max-filesize`) leave the flag exactly as it is: fail closed, never set, never cleared
+  (Shield SHD-01). No extra network call.
+- Texts off (BR-03, AC-08): `activity-off` (the user's opt-out) or `detailed-off` exists (any entry, symlinks included: fail safe).
+  The hook then attaches no `desc`, `activity` or `summary`, writes no stash and deletes an existing `<hash>.agents`; `batch_build`
+  (the only place a spooled line becomes a request: hook send, delayed flush, SessionEnd and the final flusher) removes `activity`,
+  `sub.desc` and `sub.summary` from every event at each flush, so events spooled before the flag are cleaned. Structured fields
+  (`task`, `attempt`, `next`, `checks`, `findings`, `gate`, `outcome`) and tool events go on.
+- On a 400 the batch is discarded (existing behaviour, now commented in `flush_run`): a plugin newer than the API therefore loses
+  its batches, which is why the API ships first and rolls back only together with the plugin (D-37; the docs are task .5).
+- `hooks/test/fake-hooks-api.mjs`: the data-dir file `ingest-detailed` (`false`, `true`, `junk`, `null`, `nobody`, `notjson`; absent =
+  no `detailed` field in a valid ack) shapes the 2xx ack. The tests are the section `activity: Detailed Live ack flag...` of `test-live-report.sh`
+  (select it with the other `activity` sections, it uses their helpers) and the `texts` cases of `test-allye-hooks.sh`.
+- `commands/hooks.md` discloses the three texts (140 characters, best effort without guarantee, only the `summary:` line of a crew
+  report) and both ways to turn them off; `live activity off|on|status` and `live status` say "texts" and why they are off.

@@ -107,7 +107,7 @@ const server = createServer((req, res) => {
     // Ingest route of the Live reporter (hooks/test-live-report.sh). Its own control files, so the
     // `mode` file above keeps its meaning: ingest-mode = ok (default) | ok-null | 400 | 401 | 401-inactive |
     // 403 | 413 | 422 | 429 | 5xx | drop; ingest-counts = "accepted,ignored,dropped" (default: all events
-    // accepted); ingest-retry-after (default 30); ingest-delay (ms before answering, default 0); ingest-script (lines `mode[:delayMs]` for the 1st, 2nd... request); mode 401-other (401 with an unlisted code); the highest number of
+    // accepted); ingest-retry-after (default 30); ingest-delay (ms before answering, default 0); ingest-detailed (false | true | junk | null | nobody | notjson, default: no `detailed` field); ingest-script (lines `mode[:delayMs]` for the 1st, 2nd... request); mode 401-other (401 with an unlisted code); the highest number of
     // requests in flight at once is written to ingest-maxinflight. Raw bodies are also appended to ingest-bodies.log.
     if (req.method === "POST" && req.url === "/api/agent-runs/events") {
       appendFileSync(`${dir}/ingest-bodies.log`, raw.replace(/\n/g, " ") + "\n");
@@ -136,7 +136,17 @@ const server = createServer((req, res) => {
         }
         const n = Array.isArray(body?.events) ? body.events.length : 0;
         const [a, i, d] = read("ingest-counts", `${n},0,0`).split(",").map(Number);
-        return send(res, 202, envelope({ accepted: a, ignored: i, dropped: d, shortId: im === "ok-null" ? null : "ab12cd", bound: false }));
+        // ingest-detailed (ALY-258.3): absent/other = the ack has no `detailed` field (an old API); false | true = that boolean;
+        // junk = a string, null = null, nobody = a 202 with an empty body, notjson = a 202 that is not JSON.
+        const det = read("ingest-detailed", "");
+        if (det === "nobody") { res.writeHead(202); return void res.end(); }
+        if (det === "notjson") return send(res, 202, "<html>not json</html>");
+        const ack = { accepted: a, ignored: i, dropped: d, shortId: im === "ok-null" ? null : "ab12cd", bound: false };
+        if (det === "false") ack.detailed = false;
+        else if (det === "true") ack.detailed = true;
+        else if (det === "junk") ack.detailed = "false";
+        else if (det === "null") ack.detailed = null;
+        return send(res, 202, envelope(ack));
       };
       const delay = Number(sdelay ?? read("ingest-delay", "0"));
       return void (delay > 0 ? setTimeout(answer, delay) : answer());

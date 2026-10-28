@@ -1186,6 +1186,131 @@ check "ALY-217.6 SHD-02: no phrase or stash text in the argv of any jq, curl or 
   "$(grep -cE 'Run the agent runs unit tests|Writing the activity phrase tests|Inspect with now please|Second launch phrase|Login with and then' "$SB/log/calls.log" || true)"
 end_case
 
+echo "== activity: Detailed Live ack flag, texts stripped at flush, stash cleared (ALY-258.3 AC-08, AC-14, BR-03, D-36) =="
+# detailed-off: the local flag written when a 2xx ack carries `detailed: false` (strict boolean); any other 2xx ack clears it.
+DOFF() { echo "$DATA/live/detailed-off"; }
+sent_evs() { [ -f "$SB/api/ingest-bodies.log" ] && "$JQ_BIN" -c '.events[]' "$SB/api/ingest-bodies.log" || true; }
+ntext() { sent_evs | "$JQ_BIN" -c 'select(has("activity") or (.sub // {} | has("desc") or has("summary")))' | grep -c . || true; }
+# seed3: spool one event of every shape that can carry a text, plus the structured fields (low seqs, an empty spool first).
+seed3() {
+  local at f; at=$(date -u +%Y-%m-%dT%H:%M:%SZ); f=$(spool_of "$RAWSID")
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+  "$JQ_BIN" -nc --arg at "$at" '[
+    {seq: 1000000000001, at: $at, type: "tool", tool: "Bash", activity: "TEXTACT run the unit tests now"},
+    {seq: 1000000000002, at: $at, type: "sub_start", sub: {id: "s1", type: "allye:bridge-pilot", desc: "TEXTDESC implement the slice now", task: "ALY-1.2"}},
+    {seq: 1000000000003, at: $at, type: "sub_tool", tool: "Read", activity: "TEXTSUBACT reading the files now", sub: {id: "s1", type: "allye:bridge-pilot"}},
+    {seq: 1000000000004, at: $at, type: "sub_stop", sub: {id: "s1", type: "allye:bridge-pilot", outcome: "done", task: "ALY-1.2", summary: "TEXTSUM all green here now", attempt: 1, next: "watcher", checks: {ok: 3, run: 3}, findings: {critical: 0, high: 0, medium: 1, low: 0, info: 0}, gate: "SHIELD_CLEAR"}}
+  ] | .[]' >>"$f"; chmod 600 "$f"
+}
+# ack3 MODE: a fresh case against the real curl shim; the first state change is sent at once and its ack is MODE.
+ack3() { new_case; mkcred; SHIMD="$SHIMS"; [ -z "$1" ] || printf '%s' "$1" >"$SB/api/ingest-detailed"; }
+ack3 false; run_fixture user-prompt-submit; wait_idle
+check "AC-14: a 2xx ack with detailed:false writes the local flag: regular file, 0600, one request, no extra call" "yes 600 1" "$([ -f "$(DOFF)" ] && [ ! -L "$(DOFF)" ] && echo yes || echo no) $(find "$(DOFF)" -printf '%m' 2>/dev/null) $(reqs)"
+check "AC-14: the flag holds no text" "0" "$(wc -c <"$(DOFF)" | tr -d ' ')"
+seed3; run_fixture session-start-startup; wait_idle
+check "AC-14/BR-03: events spooled with texts before the flag are stripped at flush (no activity, desc or summary, no text)" "0 0" "$(sent_evs | grep -c 'TEXT' || true) $(ntext)"
+check "AC-14: the stripped events are all sent (tool, sub_start, sub_tool, sub_stop)" "tool sub_start sub_tool sub_stop" "$(sent_evs | "$JQ_BIN" -r 'select(.seq >= 1000000000001 and .seq <= 1000000000004) | .type' | tr '\n' ' ' | sed 's/ $//')"
+check "BR-03: structured fields continue (task, attempt, next, checks, findings, gate, outcome)" '{"attempt":1,"checks":{"ok":3,"run":3},"findings":{"critical":0,"high":0,"info":0,"low":0,"medium":1},"gate":"SHIELD_CLEAR","id":"s1","next":"watcher","outcome":"done","task":"ALY-1.2","type":"allye:bridge-pilot"}' "$(sent_evs | "$JQ_BIN" -cS 'select(.type == "sub_stop") | .sub' | tail -n 1)"
+check "BR-03: the sub_start keeps its id, type and task" '{"id":"s1","task":"ALY-1.2","type":"allye:bridge-pilot"}' "$(sent_evs | "$JQ_BIN" -cS 'select(.type == "sub_start") | .sub' | tail -n 1)"
+check "the bodies contain no TEXT marker at all" "0" "$(grep -c TEXT "$SB/api/ingest-bodies.log" || true)"
+# with the flag, the hook itself attaches no text and writes no stash (and clears the one that exists)
+last_sent_act() { sent_evs | tail -n 1 | "$JQ_BIN" -a '.activity // "<none>"'; }
+run_fixture activity-bash; wait_idle; check "BR-03: flag set: the tool event goes out without activity" '"<none>"' "$(last_sent_act)"
+agent 3 Agent allye:bridge-pilot "Pilot phrase while the API says detailed false"; sstart 4 agent-dl1 allye:bridge-pilot; wait_idle
+check "BR-03: flag set: no agents stash, and the sub_start carries neither desc nor task" 'no {"id":"agent-dl1","type":"allye:bridge-pilot"}' "$([ -e "$(AGF)" ] && echo yes || echo no) $(sent_evs | "$JQ_BIN" -cS 'select(.type == "sub_start" and .sub.id == "agent-dl1") | .sub')"
+end_case
+
+# the stash is cleared when texts go off (the flag appears after the stash was written)
+ack3 false; SHIMD="$SHIMS_STUB"; agent 0 Agent allye:bridge-pilot "Stashed before the flag appeared"
+check "setup: the stash exists before the ack" "yes" "$([ -f "$(AGF)" ] && echo yes || echo no)"
+SHIMD="$SHIMS"; run_fixture user-prompt-submit; wait_idle
+check "BR-03: with the flag, the Agent stash is deleted" "no yes" "$([ -e "$(AGF)" ] || [ -L "$(AGF)" ] && echo yes || echo no) $([ -f "$(DOFF)" ] && echo yes || echo no)"
+end_case
+
+# the stash is also cleared by the hook when the activity-off flag is set (BR-03, AC-08)
+new_case; mkcred; agent 0 Agent allye:bridge-pilot "Stashed before the opt-out"
+[ -f "$(AGF)" ] || echo "    setup: no stash"; : >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"; run_fixture activity-bash
+check "AC-08: with activity-off, an existing Agent stash is deleted at the next hook" "no" "$([ -e "$(AGF)" ] && echo yes || echo no)"
+mkdir -p "$SB/elsewhere"; printf 'x' >"$SB/elsewhere/target"; ln -s "$SB/elsewhere/target" "$(AGF)"; run_fixture activity-bash
+check "AC-08: a stash that is a symlink is removed as the link, never its target" "yes" "$([ "$(cat "$SB/elsewhere/target")" = x ] && echo yes || echo no)"
+end_case
+
+# activity-off strips at flush too, and sends the structure
+new_case; mkcred; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"
+seed3; run_fixture user-prompt-submit; wait_idle
+check "AC-08/BR-03: activity-off: spooled texts are stripped at flush, structure sent" "0 4" "$(ntext) $(sent_evs | grep -c '"seq":100000000000[1-4]' || true)"
+check "activity-off alone writes no detailed-off flag" "no" "$([ -e "$(DOFF)" ] && echo yes || echo no)"
+end_case
+
+# the final flusher / SessionEnd path strips too
+ack3 ""; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$(DOFF)"; chmod 600 "$(DOFF)"
+seed3; run_fixture session-end-clear; wait_idle
+check "AC-14: SessionEnd (hook send): spooled texts are stripped, the ended event goes out" "0 yes" "$(ntext) $(sent_evs | grep -q '"state":"ended"' && echo yes || echo no)"
+end_case
+ack3 ""; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$(DOFF)"; chmod 600 "$(DOFF)"
+printf '5xx' >"$SB/api/ingest-mode"; seed3; run_fixture user-prompt-submit; wait_idle
+printf 'ok' >"$SB/api/ingest-mode"; : >"$SB/api/ingest-bodies.log"; run_fixture session-end-clear; wait_idle
+for i in $(seq 1 200); do [ -z "$(ls -d "$DATA"/live/*.final.lock 2>/dev/null)" ] && break; sleep 0.05; done
+check "AC-14: SessionEnd after a failed flush: the sent bodies carry no text" "0" "$(ntext)"
+end_case
+
+# a valid ack that is not the strict boolean false clears the flag (absent = true); none of them can set it
+for m in true "" junk null; do
+  ack3 "$m"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$(DOFF)"; chmod 600 "$(DOFF)"
+  run_fixture user-prompt-submit; wait_idle
+  check "AC-14: valid ack '${m:-<no field>}' clears the flag (absent = true), one request" "no 1" "$([ -e "$(DOFF)" ] || [ -L "$(DOFF)" ] && echo yes || echo no) $(reqs)"
+  end_case
+done
+# a 2xx that is not a valid ack (empty, not JSON) neither sets nor clears the flag (Shield SHD-01: fail closed)
+for m in nobody notjson; do
+  ack3 "$m"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$(DOFF)"; chmod 600 "$(DOFF)"
+  run_fixture user-prompt-submit; wait_idle
+  check "SHD-01: 2xx without a valid ack ('$m') leaves an existing flag set, one request" "yes 1" "$([ -e "$(DOFF)" ] && echo yes || echo no) $(reqs)"
+  end_case
+  ack3 "$m"; run_fixture user-prompt-submit; wait_idle
+  check "SHD-01: 2xx without a valid ack ('$m') does not set a missing flag" "no" "$([ -e "$(DOFF)" ] || [ -L "$(DOFF)" ] && echo yes || echo no)"
+  end_case
+done
+for m in true "" junk null; do
+  ack3 "$m"; run_fixture user-prompt-submit; wait_idle
+  check "AC-14: ack '${m:-<no field>}' never sets the flag" "no" "$([ -e "$(DOFF)" ] || [ -L "$(DOFF)" ] && echo yes || echo no)"
+  end_case
+done
+# a failed or non-2xx send changes nothing
+for m in 5xx 400 413 429 403 422 401-other drop; do
+  ack3 false; printf '%s' "$m" >"$SB/api/ingest-mode"; run_fixture user-prompt-submit; wait_idle
+  A=$([ -e "$(DOFF)" ] && echo yes || echo no)
+  rm -rf "$SB/api/ingest-mode"; end_case
+  ack3 true; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$(DOFF)"; chmod 600 "$(DOFF)"; printf '%s' "$m" >"$SB/api/ingest-mode"; run_fixture user-prompt-submit; wait_idle
+  check "AC-14: answer '$m': the flag is neither set (detailed:false) nor cleared (detailed:true)" "no yes" "$A $([ -e "$(DOFF)" ] && echo yes || echo no)"
+  end_case
+done
+# a 200 KB ack is not read: the send fails closed, the flag is unchanged
+ack3 false; printf 'huge' >"$SB/api/ingest-mode"; run_fixture user-prompt-submit; wait_idle
+check "AC-14: a huge ack (200 KB of padding) never sets the flag" "no" "$([ -e "$(DOFF)" ] && echo yes || echo no)"
+end_case
+ack3 true; printf 'huge' >"$SB/api/ingest-mode"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$(DOFF)"; chmod 600 "$(DOFF)"; run_fixture user-prompt-submit; wait_idle
+check "AC-14: a huge ack leaves an existing flag as it is (the send failed, nothing was read)" "yes" "$([ -e "$(DOFF)" ] && echo yes || echo no)"
+end_case
+# the flag is re-evaluated at each flush: cleared by an ack true, the next flush carries texts again
+ack3 false; run_fixture user-prompt-submit; wait_idle
+printf 'true' >"$SB/api/ingest-detailed"; run_fixture session-start-startup; wait_idle
+check "AC-14: ack true after ack false removes the flag again" "no" "$([ -e "$(DOFF)" ] && echo yes || echo no)"
+run_fixture activity-bash; wait_idle; check "AC-14: with the flag gone the next tool event carries its activity again" '"Run the agent runs unit tests"' "$(last_sent_act)"
+end_case
+# fail-safe existence test and no symlink following
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; ln -s "$SB/nowhere" "$(DOFF)"; run_fixture activity-bash
+check "AC-14: a dangling symlink named detailed-off also turns texts off (fail safe)" '"<none>"' "$(last_act)"
+end_case
+ack3 false; mkdir -p "$DATA/live" "$SB/elsewhere"; chmod 700 "$DATA/live"; printf 'keep' >"$SB/elsewhere/target"; ln -s "$SB/elsewhere/target" "$(DOFF)"
+run_fixture user-prompt-submit; wait_idle
+check "AC-14: ack false over a symlinked flag: replaced by a regular 0600 file, the link target is untouched" "regular 600 keep" "$([ -f "$(DOFF)" ] && [ ! -L "$(DOFF)" ] && echo regular || echo other) $(find "$(DOFF)" -printf '%m' 2>/dev/null) $(cat "$SB/elsewhere/target")"
+end_case
+ack3 true; mkdir -p "$DATA/live" "$SB/elsewhere"; chmod 700 "$DATA/live"; printf 'keep' >"$SB/elsewhere/target"; ln -s "$SB/elsewhere/target" "$(DOFF)"
+run_fixture user-prompt-submit; wait_idle
+check "AC-14: ack true over a symlinked flag removes the link only" "no keep" "$([ -e "$(DOFF)" ] || [ -L "$(DOFF)" ] && echo yes || echo no) $(cat "$SB/elsewhere/target")"
+end_case
+
 echo "== text cleaner: shared vectors, cap 140, nested allowlist and marker scan (ALY-258.1 AC-06, AC-07, D-33, NFR-01) =="
 VEC="$FIX/vectors/agent-run-text-vectors.json"
 # The cleaner is replayed straight from the reporter's own jq program: the definitions up to the activity switch are cut
@@ -1781,7 +1906,7 @@ flush_direct() {
   local H; H=$(test_sha "$RAWSID")
   env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REALBIN" CLAUDE_PLUGIN_DATA="$DATA" "$BASH_BIN" -c "
     LC_ALL=C; umask 077; UID_NOW=\$(id -u); . '$LIB'; CFP=''; SEND_MAXTIME=8; SEND_CONNECT=3
-    $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
+    $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent detailed_cache flush_run; do fn_body "$HOOK" "$f"; done)
     HASH='$H'; LIVE_DIR='$DATA/live'; SPOOL=\"\$LIVE_DIR/\$HASH.spool\"; LOCKD=\"\$LIVE_DIR/\$HASH.lock\"; FLOCK=\"\$LIVE_DIR/\$HASH.flush.lock\"
     BATCHF=\"\$LIVE_DIR/\$HASH.batch\"; HDRF=\"\$LIVE_DIR/\$HASH.hdr\"; RESPF=\"\$LIVE_DIR/\$HASH.resp\"; DIR='$DATA'; BACKOFFF=\"\$LIVE_DIR/backoff\"; LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
     lock_take \"\$FLOCK\" 0 && { FTOK=\$LOCK_TOKEN; flush_run; lock_drop \"\$FLOCK\" \"\$FTOK\"; }"
@@ -1835,7 +1960,7 @@ end_case
 direct_case; line6 1001 0 >"$SPF"
 env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REALBIN" "$BASH_BIN" -c "
   LC_ALL=C; umask 077; UID_NOW=\$(id -u); . '$LIB'; CFP=''; SEND_MAXTIME=8; SEND_CONNECT=3
-  $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent flush_run; do fn_body "$HOOK" "$f"; done)
+  $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent detailed_cache flush_run; do fn_body "$HOOK" "$f"; done)
   HASH='$(test_sha "$RAWSID")'; LIVE_DIR='$DATA/live'; SPOOL='$SPF'; LOCKD=\"\$LIVE_DIR/x.lock\"; FLOCK=\"\$LIVE_DIR/x.flush.lock\"; BATCHF=\"\$LIVE_DIR/x.batch\"; HDRF=\"\$LIVE_DIR/x.hdr\"; RESPF=\"\$LIVE_DIR/x.resp\"; DIR='$DATA'; BACKOFFF=\"\$LIVE_DIR/backoff\"
   LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
   mkdir \"\$FLOCK\"; printf '%s %s' \"\$(date +%s)\" 'someone-else' >\"\$FLOCK/t\"; FTOK=not-mine; flush_run"

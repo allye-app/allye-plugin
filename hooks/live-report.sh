@@ -274,21 +274,26 @@ backoff_set() {  # SECONDS from now, for this credential
 # batch_build: sets BK (physical lines consumed), BMAX (highest seq in the batch) and BODY (the request body, empty
 # when the consumed lines held no valid event). At most 50 events and 16384 bytes of body; only contract keys are kept.
 batch_build() {
-  local n base out rest now
+  local n base out rest now strip
   BK=0; BMAX=0; BODY=""
   now=$(date +%s 2>/dev/null) || return 1; [[ "$now" =~ ^[0-9]{1,12}$ ]] || return 1
   [ -f "$SPOOL" ] && [ ! -L "$SPOOL" ] || return 1
   n=$(wc -l <"$SPOOL" 2>/dev/null); n=${n//[[:space:]]/}
   [[ "$n" =~ ^[1-9][0-9]*$ ]] || return 1
+  # ALY-258.3 (BR-03, AC-14): texts off = the activity-off flag or the detailed-off flag (existence of any entry: fail safe), judged
+  # at every flush. Then `activity`, `sub.desc` and `sub.summary` are removed from EVERY event, also from those spooled before the
+  # flag existed; the structured fields and the tool events go on. This is the one place a spooled event becomes a request.
+  strip=0
+  if [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ] || [ -e "$LIVE_DIR/detailed-off" ] || [ -L "$LIVE_DIR/detailed-off" ]; then strip=1; fi
   base=$(printf '{"client":{"kind":"claude-code"},"session":{"hash":"%s"},"events":[' "$HASH")
-  out=$(head -n "$n" "$SPOOL" 2>/dev/null | jq -Rn -r --arg base "$base" --argjson now "$now" "$(jq_valid_def)"'
+  out=$(head -n "$n" "$SPOOL" 2>/dev/null | jq -Rn -r --arg base "$base" --arg strip "$strip" --argjson now "$now" "$(jq_valid_def)"'
     [inputs] as $L
     | (reduce range(0; $L | length) as $i ({evs: [], size: (($base | utf8bytelength) + 2), k: 0, max: 0, done: false};
         if .done then .
         else (($L[$i] | try fromjson catch null)) as $e
           | if ($e | ok | not) then .k = $i + 1
             elif ($e | fresh($now) | not) then .k = $i + 1 | .max = ([.max, $e.seq] | max)
-            else ($e | keep) as $ev | ($ev | tojson | utf8bytelength) as $len
+            else ($e | keep | if $strip == "1" then del(.activity) | (if (.sub | type) == "object" then .sub |= del(.desc, .summary) else . end) else . end) as $ev | ($ev | tojson | utf8bytelength) as $len
               | (if (.evs | length) > 0 then 1 else 0 end) as $sep
               | if ((.evs | length) >= 50) or (((.evs | length) > 0) and ((.size + $sep + $len) > 16384)) then .done = true
                 elif (.size + $sep + $len) > 16384 then .k = $i + 1 | .max = ([.max, $ev.seq] | max)
@@ -332,6 +337,37 @@ mark_disabled() {
   spool_drop_sent 9007199254740991   # if this cannot take the state lock the marker still blocks every send
   return 0
 }
+# detailed_cache VALUE (ALY-258.3, D-36, AC-14): VALUE is "false" when the 2xx ack is a valid ack (`.data.accepted` a number) carrying
+# the strict boolean `detailed: false`; "clear" when it is a valid ack without that (true, absent, null, another type: absent = true);
+# "keep" for a 2xx whose body is not a valid ack (204, empty, truncated, not JSON, a captive-portal page): fail closed, the flag is
+# left exactly as it is (never set, never cleared; Shield SHD-01). false writes $LIVE_DIR/detailed-off (empty,
+# temp 0600 + mv under the state lock, so a symlink at that name is replaced, never followed) and deletes the Agent stashes of every
+# session (no text is stashed any more); other removes the flag. No network call: the answer was already there. Best effort: a lock
+# that cannot be taken leaves the flag as it was and the next ack decides again.
+detailed_cache() {
+  local flag="$LIVE_DIR/detailed-off" tmp tok f base
+  [ "$1" = false ] || [ "$1" = clear ] || return 0
+  if [ "$1" = false ]; then
+    [ -f "$flag" ] && [ ! -L "$flag" ] && private_file_ok "$flag" && return 0
+    lock_take "$LOCKD" "${DROP_TRIES:-250}" || return 0
+    tok="$LOCK_TOKEN"
+    if tmp=$(mktemp "$LIVE_DIR/.detailed.XXXXXX" 2>/dev/null); then
+      TMPF="$tmp"
+      : >"$tmp" 2>/dev/null && mv -f "$tmp" "$flag" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+    fi
+    for f in "$LIVE_DIR"/*; do
+      base="${f##*/}"
+      [[ "$base" =~ ^[0-9a-f]{64}\.agents$ ]] || continue
+      if [ -L "$f" ] || { [ -f "$f" ] && [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; then rm -f "$f" 2>/dev/null; fi
+    done
+    lock_drop "$LOCKD" "$tok"
+  else
+    { [ -e "$flag" ] || [ -L "$flag" ]; } || return 0
+    lock_take "$LOCKD" "${DROP_TRIES:-250}" || return 0
+    tok="$LOCK_TOKEN"; rm -f "$flag" 2>/dev/null; lock_drop "$LOCKD" "$tok"
+  fi
+  return 0
+}
 # flush_run: the detached part. Returns 0 when the spool was worked through, 1 when it stopped on a failure,
 # a back-off, a lost lock or a round that removed nothing. Answers (BR-07): 2xx the batch is sent; 400/413 the batch
 # is discarded and the next one tried; 401 with HOOK_CREDENTIAL_INVALID or an inactive-account code disables;
@@ -341,7 +377,7 @@ mark_disabled() {
 # ALY-217.7 (D-27): with FLUSH_DEADLINE (wall-clock Unix ms) set, a round starts only while at least 200 ms are left, and
 # its curl limits are cut to what is left (the SessionEnd budget).
 flush_run() {
-  local rounds=0 status ecode ra before left mt ct
+  local rounds=0 status ecode ra before left mt ct det
   case "$LIVE_DIR" in *[\"\\]*) return 1 ;; esac   # the path goes into a curl config string
   while [ "$rounds" -lt 20 ]; do
     rounds=$((rounds + 1))
@@ -371,10 +407,18 @@ flush_run() {
     } | curl -q --silent -K - -D "$HDRF" -o "$RESPF" -w '%{http_code}' 2>/dev/null) || { rm -f "$BATCHF" "$HDRF" "$RESPF" 2>/dev/null; return 1; }
     rm -f "$BATCHF" 2>/dev/null
     [[ "$status" =~ ^[0-9]{3}$ ]] || { rm -f "$HDRF" "$RESPF" 2>/dev/null; return 1; }
-    ecode=$(head -c 65536 "$RESPF" 2>/dev/null | jq -r '.error.message.code | strings' 2>/dev/null | head -n 1); rm -f "$RESPF" 2>/dev/null
+    ecode=$(head -c 65536 "$RESPF" 2>/dev/null | jq -r '.error.message.code | strings' 2>/dev/null | head -n 1)
+    # ALY-258.3 (D-36): the same bounded read gives the ack's `detailed` flag; only a 2xx with a valid ack body is looked at (strict boolean false)
+    det=keep
+    case "$status" in 2??) det=$(head -c 65536 "$RESPF" 2>/dev/null | jq -r 'if (.data | objects | .accepted | numbers) == null then "keep" elif .data.detailed == false then "false" else "clear" end' 2>/dev/null | head -n 1); [ "$det" = false ] || [ "$det" = clear ] || det=keep ;; esac
+    rm -f "$RESPF" 2>/dev/null
     [[ "$ecode" =~ ^[A-Z_]{1,60}$ ]] || ecode=""
     case "$status" in
       2??|400|413)
+        # 400 (and 413): the batch is discarded and the next one tried, so a plugin newer than the API (new fields, strict body)
+        # loses its batches with a 400; hence the release order API -> plugin (ALY-257 D-10), and the API rolls back only
+        # together with the plugin (ALY-258.3 D-37; docs/live-reporting.md, task .5).
+        case "$status" in 2??) detailed_cache "$det" ;; esac
         spool_drop_sent "$BMAX" || return 1
         [ "$(wc -c <"$SPOOL" 2>/dev/null)" != "$before" ] || return 1 ;;   # a batch that removed nothing: stop
       401)
@@ -1121,10 +1165,15 @@ def subsc($e):
 
 # ALY-217.6 (D-25, D-24 b): activity phrases unless $LIVE_DIR/activity-off exists (any kind of entry: fail safe); the
 # Agent/Task stash $HASH.agents is read once (bounded, private file only) and passed to the jq program.
-ACT=1; if [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ]; then ACT=0; fi
+# ALY-258.3 (BR-03): texts are also off while $LIVE_DIR/detailed-off exists (the cached `detailed: false` of the ingest ack; any entry).
+ACT=1
+if [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ] || [ -e "$LIVE_DIR/detailed-off" ] || [ -L "$LIVE_DIR/detailed-off" ]; then ACT=0; fi
 # The stash goes to jq through --rawfile (never argv, Shield SHD-02): the file itself when it is private and at most
 # 16384 bytes (one find), else /dev/null (an oversized private stash is then simply rewritten).
 AGENTSF="$LIVE_DIR/$HASH.agents"; STASHSRC=/dev/null; AGOK=0
+# ALY-258.3 (BR-03, AC-08): with texts off the Agent stash is deleted (a symlink as the link only, a regular file only when it is ours),
+# under the state lock the hook holds here; nothing is read from it and nothing is written back.
+if [ "$ACT" = 0 ] && { [ -L "$AGENTSF" ] || { [ -f "$AGENTSF" ] && [ -n "$(find "$AGENTSF" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; }; then rm -f "$AGENTSF" 2>/dev/null; fi
 if [ "$ACT" = 1 ]; then
   if [ ! -e "$AGENTSF" ] && [ ! -L "$AGENTSF" ]; then AGOK=1
   elif [ ! -L "$AGENTSF" ] && [ -n "$(find "$AGENTSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then AGOK=1; STASHSRC="$AGENTSF"

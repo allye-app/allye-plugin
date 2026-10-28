@@ -7,7 +7,7 @@
 #   allye-hooks.sh live    off|on|status <dataDir>          Live reporter switch (ALY-203): off ends the open runs, sets
 #                                                           the flag and deletes the spools; on clears the flag; status
 #                                                           prints state, spool size and last result (no network call)
-#   allye-hooks.sh live    activity off|on|status <dataDir> activity phrases switch (ALY-217.6): off sets the flag
+#   allye-hooks.sh live    activity off|on|status <dataDir> texts switch (ALY-217.6, ALY-258.3): off sets the flag
 #                                                           live/activity-off, on clears it, status prints it
 #
 # Runtime: bash 3.2+, curl, jq and sha256sum or shasum. No node, openssl, python or GNU stat.
@@ -516,11 +516,20 @@ cmd_live() {
   esac
 }
 
-# ─── live activity off | on | status (ALY-217.6: BR-12, D-25) ───────────────
-# The reporter attaches no activity phrase and keeps no Agent stash while $live/activity-off exists (any kind of entry).
-# Called after the pairing and live-directory checks of cmd_live (owner, mode 0700, no symlink); no network call.
+# ─── live activity off | on | status (ALY-217.6: BR-12, D-25; ALY-258.3: AC-08, D-31) ───────────────
+# The reporter attaches no text (dispatch description, activity line, `summary:` line of a crew report), keeps no Agent stash and
+# strips texts from already-spooled events at flush while $live/activity-off exists (the user's opt-out) or $live/detailed-off exists
+# (written by the reporter from an ingest ack with `detailed: false`, i.e. Detailed Live is off in Allye); any kind of entry counts.
+# `on` removes only the opt-out and never the API's flag (it is not ours to clear: the next ack does). Called after the pairing and
+# live-directory checks of cmd_live (owner, mode 0700, no symlink); no network call.
 activity_line() {
-  if [ -e "$1/activity-off" ] || [ -L "$1/activity-off" ]; then printf 'Live activity phrases: off\n'; else printf 'Live activity phrases: on\n'; fi
+  local u=0 d=0
+  if [ -e "$1/activity-off" ] || [ -L "$1/activity-off" ]; then u=1; fi
+  if [ -e "$1/detailed-off" ] || [ -L "$1/detailed-off" ]; then d=1; fi
+  if [ "$u" = 1 ] && [ "$d" = 1 ]; then printf 'Live texts: off (your opt-out; Detailed Live is also off in Allye)\n'
+  elif [ "$u" = 1 ]; then printf 'Live texts: off (your opt-out)\n'
+  elif [ "$d" = 1 ]; then printf 'Live texts: off (Detailed Live is off in Allye)\n'
+  else printf 'Live texts: on\n'; fi
 }
 cmd_live_activity() {
   local action="$1" live="$2"
@@ -528,13 +537,17 @@ cmd_live_activity() {
     status) activity_line "$live" ;;
     on)
       if [ -e "$live/activity-off" ] || [ -L "$live/activity-off" ]; then rm -f "${live:?}/activity-off" || fail "Could not remove the activity-off flag."; fi
-      printf 'Live activity phrases are on.\n'
+      if [ -e "$live/detailed-off" ] || [ -L "$live/detailed-off" ]; then
+        printf 'Your opt-out is removed, but Live texts stay off until Detailed Live is on in the Allye app (Settings -> Devices).\n'
+      else
+        printf 'Live texts are on.\n'
+      fi
       ;;
     off)
       [ -d "$live" ] || mkdir -m 700 "$live" 2>/dev/null || fail "Could not create the live directory."
       new_tmp "$live" activity-off; : >"$NEW_TMP" || fail "Could not write the activity-off flag."
       mv -f "$NEW_TMP" "$live/activity-off" || fail "Could not write the activity-off flag."
-      printf 'Live activity phrases are off; tool events are still reported.\n'
+      printf 'Live texts are off (dispatch description, activity line, summary line); tool events and chips are still reported.\n'
       ;;
   esac
 }

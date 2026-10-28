@@ -565,23 +565,34 @@ run_script live activity off; check "live activity off without a data directory 
 end_case
 new_case; mkcred
 run_script live activity status "$DATA"
-check "activity status, paired, no flag: on by default, no network" "0 Live activity phrases: on 0" "$RC $OUT $(curl_n)"
-run_script live status "$DATA"; check "live status shows the activity line (on)" "yes" "$(contains 'Live activity phrases: on' "$OUT")"
+check "activity status, paired, no flag: on by default, no network" "0 Live texts: on 0" "$RC $OUT $(curl_n)"
+run_script live status "$DATA"; check "live status shows the activity line (on)" "yes" "$(contains 'Live texts: on' "$OUT")"
 run_script live activity off "$DATA"
-check "activity off: exit 0, live directory 0700, flag 0600, says off, no request" "0 700 600 0|Live activity phrases are off; tool events are still reported." "$RC $(find "$DATA/live" -maxdepth 0 -printf '%m') $(find "$(LV activity-off)" -printf '%m') $(curl_n)|$OUT"
-run_script live activity status "$DATA"; check "activity status after off" "Live activity phrases: off" "$OUT"
-run_script live status "$DATA"; check "live status after activity off: reporting still on, phrases off" "yes yes" "$(contains 'Live reporting: on' "$OUT") $(contains 'Live activity phrases: off' "$OUT")"
+check "activity off: exit 0, live directory 0700, flag 0600, says off, no request" "0 700 600 0|Live texts are off (dispatch description, activity line, summary line); tool events and chips are still reported." "$RC $(find "$DATA/live" -maxdepth 0 -printf '%m') $(find "$(LV activity-off)" -printf '%m') $(curl_n)|$OUT"
+run_script live activity status "$DATA"; check "activity status after off" "Live texts: off (your opt-out)" "$OUT"
+run_script live status "$DATA"; check "live status after activity off: reporting still on, phrases off" "yes yes" "$(contains 'Live reporting: on' "$OUT") $(contains 'Live texts: off (your opt-out)' "$OUT")"
 check "activity off leaves the live-off flag alone" "no" "$([ -e "$(LV off)" ] && echo yes || echo no)"
 printf '5xx' >"$SB/api/ingest-mode"   # the API fails: the reporter's lines stay in the spool
 run_live activity-bash
 check "activity off: the reporter spools the tool event without the phrase" '{"tool":"Bash","type":"tool"}' "$("$JQ_BIN" -cS 'del(.at, .seq)' "$DATA"/live/*.spool | tail -n 1)"
 run_script live activity off "$DATA"; check "activity off twice is harmless" "0 600" "$RC $(find "$(LV activity-off)" -printf '%m')"
 run_script live activity on "$DATA"
-check "activity on removes the flag and says on" "0 no|Live activity phrases are on." "$RC $([ -e "$(LV activity-off)" ] && echo yes || echo no)|$OUT"
+check "activity on removes the flag and says on" "0 no|Live texts are on." "$RC $([ -e "$(LV activity-off)" ] && echo yes || echo no)|$OUT"
 run_live activity-bash
 check "activity on: the next hook sends the phrase again" '"Run the agent runs unit tests"' "$("$JQ_BIN" -c '.activity' "$DATA"/live/*.spool | tail -n 1)"
 run_script live activity on "$DATA"; check "activity on twice is harmless" "0" "$RC"
-run_script live activity status "$DATA"; check "activity status after on" "Live activity phrases: on" "$OUT"
+run_script live activity status "$DATA"; check "activity status after on" "Live texts: on" "$OUT"
+# ALY-258.3 (AC-08, D-31): the acknowledged Detailed Live off (the reporter's detailed-off flag) is reported with its reason
+: >"$(LV detailed-off)"; chmod 600 "$(LV detailed-off)"
+run_script live activity status "$DATA"; check "texts status with only the API flag: off, says Detailed Live is off in Allye" "0 Live texts: off (Detailed Live is off in Allye)" "$RC $OUT"
+run_script live status "$DATA"; check "live status with only the API flag: reporting on, texts off with the reason" "yes yes" "$(contains 'Live reporting: on' "$OUT") $(contains 'Live texts: off (Detailed Live is off in Allye)' "$OUT")"
+run_script live activity off "$DATA"; run_script live activity status "$DATA"
+check "texts status with the opt-out and the API flag: says both" "Live texts: off (your opt-out; Detailed Live is also off in Allye)" "$OUT"
+run_script live activity on "$DATA"
+check "activity on while the API says detailed false: removes the opt-out only, says texts stay off until Detailed Live is on, keeps the API flag" "0 no yes yes" "$RC $([ -e "$(LV activity-off)" ] && echo yes || echo no) $([ -e "$(LV detailed-off)" ] && echo yes || echo no) $(contains 'stay off until Detailed Live is on in the Allye app' "$OUT")"
+rm -f "$(LV detailed-off)"; ln -s "$SB/nowhere" "$(LV detailed-off)"; run_script live activity status "$DATA"
+check "a dangling symlink named detailed-off counts as off (fail safe)" "Live texts: off (Detailed Live is off in Allye)" "$OUT"
+rm -f "$(LV detailed-off)"; run_script live activity status "$DATA"; check "flag removed: texts on again" "Live texts: on" "$OUT"
 end_case
 new_case; mkcred; mkdir -p "$SB/elsewhere"; chmod 700 "$SB/elsewhere"; ln -s "$SB/elsewhere" "$DATA/live"
 run_script live activity off "$DATA"; check "activity off on a symlinked live directory: refused, nothing written through it" "yes 0" "$([ "$RC" -ne 0 ] && echo yes || echo no) $(find "$SB/elsewhere" -mindepth 1 | wc -l | tr -d ' ')"
@@ -705,7 +716,13 @@ done
 echo "== commands/hooks.md: live =="
 check "argument-hint names live off | on | status and live activity off | on | status" "argument-hint: pair | unpair | live off | on | status | live activity off | on | status" "$(printf '%s\n' "$CMD_TEXT" | grep '^argument-hint:')"
 check "documents live activity off, on and status in the live section (AC-34)" "yes yes yes" "$(contains 'allye-hooks.sh" live activity off "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live activity on "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live activity status "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT")"
-check "the pairing message discloses the activity phrase word for word (AC-34)" "yes" "$(printf '%s\n' "$CMD_TEXT" | sed -n '/^## pair$/,/^## unpair$/p' | grep -qF 'Live also sends a short activity phrase written by the agent (≤ 48 chars, paths/URLs/secrets stripped); /allye:hooks live activity off turns it off.' && echo yes || echo no)"
+PAIRSEC=$(printf '%s\n' "$CMD_TEXT" | sed -n '/^## pair$/,/^## unpair$/p')
+check "the pairing message discloses the three texts, 140 characters, best effort without guarantee, the summary line and the opt-outs (ALY-258.3 AC-09, D-31)" "yes yes yes yes yes yes yes yes" \
+  "$(contains 'three short texts' "$PAIRSEC") $(contains 'at most 140 characters' "$PAIRSEC") $(contains 'description of a subagent dispatch' "$PAIRSEC") $(contains 'activity line' "$PAIRSEC") $(contains '`summary:` line of a crew report' "$PAIRSEC") $(contains 'best-effort basis, with no guarantee' "$PAIRSEC") $(contains '/allye:hooks live activity off' "$PAIRSEC") $(contains 'Detailed Live switch in the Allye app' "$PAIRSEC")"
+check "the consent text no longer says 48 characters or activity phrase" "no no" "$(contains '48' "$CMD_TEXT") $(contains 'activity phrase' "$CMD_TEXT")"
+LIVESEC=$(printf '%s\n' "$CMD_TEXT" | sed -n '/^## live$/,$p')
+check "the live section discloses the same three texts, only the summary line of a crew report, and the status wording (AC-09)" "yes yes yes yes yes" \
+  "$(contains 'three texts the agent wrote' "$LIVESEC") $(contains 'at most 140 characters' "$LIVESEC") $(contains 'no guarantee' "$LIVESEC") $(contains 'any other message text' "$LIVESEC") $(contains 'texts are on or off and why' "$LIVESEC")"
 check "the live section no longer says metadata only" "no" "$(contains 'metadata only' "$CMD_TEXT")"
 check "documents a live section with the three actions" "yes yes yes yes" "$(contains '## live' "$CMD_TEXT") $(contains 'allye-hooks.sh" live off "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live on "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live status "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT")"
 check "tells the user what off does and that status makes no network call" "yes yes" "$(contains 'end_live_off' "$CMD_TEXT") $(contains 'no network call' "$CMD_TEXT")"
