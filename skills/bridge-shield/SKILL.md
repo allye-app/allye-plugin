@@ -57,6 +57,7 @@ role: shield
 mode: slice|final|challenge
 task: <key | global | draft>
 status: passed|blocked
+summary: <one line>
 reviewedAt: <HEAD sha + clean|+dirty | null for challenge>
 findings:
   - id: SHD-01
@@ -72,9 +73,12 @@ ciPending: [<anchors pending CI, never proven locally>]
 mcpWrites: []
 filesRead: [<paths>]
 filesChanged: []
+severity_counts: critical=<n> high=<n> medium=<n> low=<n> info=<n>
 gate: SHIELD_CLEAR|null
 next: watcher|pilot-correction|mothership
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 `SHIELD_CLEAR` only in `final`, with no open CRITICAL/HIGH, no scope violation, and an explicit disposition for every other finding. `accepted-by-human` is set only when the Mothership passes a recorded human decision. Any later change to the diff invalidates the gate.
 

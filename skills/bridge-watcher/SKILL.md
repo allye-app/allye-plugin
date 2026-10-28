@@ -48,6 +48,7 @@ role: watcher
 mode: final|scope
 task: global
 status: approved|blocked
+summary: <one line>
 reviewedAt: <HEAD sha + clean|+dirty>
 traceability:
   - anchor: AC-01
@@ -71,10 +72,14 @@ findings:
 filesRead: [<paths>]
 filesChanged: []
 ciPending: [<anchors whose verdict is ci-pending>]
+checks: ok=<n> run=<n>                  # ok: satisfied ACs; run: total ACs
+severity_counts: critical=<n> high=<n> medium=<n> low=<n> info=<n>
 gate: WATCHER_APPROVED|null
 docsGate: { mode: warn|block, since: <DOCS_GATE_SINCE>, specCreated: <date>, findings: [<target or rule — gap>], blocking: true|false }
 next: mothership-check|pilot-correction
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 In `scope` mode, `approved` means `unexpected` is empty; it issues no gate. `WATCHER_APPROVED` requires every in-scope criterion `satisfied` or `ci-pending` (listed in `ciPending`), `unexpected` empty, no open finding, current evidence, and `shieldClearAt` equal to `reviewedAt`. Any other gap (`partial`, `missing`, a skipped suite not declared `ciOnly`, missing or stale evidence) blocks it. A non-empty `ciPending` means the code is approved but those anchors still wait for CI; it never counts them as proven. Any later change to the diff invalidates it.
 

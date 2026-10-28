@@ -96,7 +96,7 @@ role: <agent>
 task: <key | global | draft>
 status: <see the status table below>
 commit: <HEAD sha the work/review is based on | null>
-summary: <one or two lines>
+summary: <one line, see Report lines>
 filesRead: [<paths>]
 filesChanged: [<paths>]
 evidence:
@@ -113,6 +113,17 @@ mcpWrites:                               # every Allye write made, or []
 openQuestions: [<real blockers only>]
 next: <recommended action>
 ```
+
+**Report lines.** The Live reporter reads these lines from the last message of a report, so write each exactly as below: at column 0 (not indented, not in a list, not bold), with the exact lowercase key, once per report. A line that is missing, repeated or malformed is simply not transmitted; nothing is read from prose.
+
+- `summary: <one line>` — one line of at most 140 characters. Rule: summary is transmitted to Allye: generic phase and outcome only; no names, data, secrets, file or prompt content.
+- `attempt: <0|1|2>` — Pilot, Navigator and Copilot.
+- `next: <reviewers|pilot_correction|mothership|watcher|done>` — the reporter lowercases the value and maps `-` to `_`; other values are not transmitted.
+- `gate: SHIELD_CLEAR|WATCHER_APPROVED|null` — Shield writes only `SHIELD_CLEAR`, Watcher only `WATCHER_APPROVED`.
+- `checks: ok=<n> run=<n>` — Copilot: ok = reruns whose `match` is true, run = reruns executed; Watcher: ok = satisfied ACs, run = total ACs.
+- `severity_counts: critical=<n> high=<n> medium=<n> low=<n> info=<n>` — Medic, Shield, Copilot and Watcher; all five keys once, in that order.
+
+Each `<n>` is an integer 0-99 without sign, decimal point or leading zero.
 
 Statuses. The base set is `passed | blocked | failed | advisory`; each role uses only the values listed for it:
 
