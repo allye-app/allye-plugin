@@ -623,6 +623,147 @@ new_case; mkcred
 $HUGE" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
 check "status line inside the first 64 KB of a huge message counts" "{\"sub\":{\"id\":\"agent-abc123\",\"outcome\":\"fail\",\"type\":\"allye:bridge-pilot\"},\"type\":\"sub_stop\"}|0||" "$(stopped)|$RC|$OUT|$ERR"; end_case
 
+# ─── ALY-258.2: summary and chips from the crew report (AC-03, AC-04, AC-05, AC-11, AC-12, AC-15, AC-17, BR-01, BR-04, D-05) ──────
+echo "== report lines: summary, attempt, next, gate, checks and severity counts (ALY-258.2 AC-04, AC-05, AC-15, AC-17, BR-01, BR-04) =="
+# rl_case LABEL MESSAGE EXTRAS-JSON [AGENT-TYPE] [off]: the sub_stop of a "status: passed" report is {id, type, outcome:pass} + EXTRAS.
+# (uses the `stopped` helper of the subagent outcome section: select both sections together)
+nowiso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+RLSUM='Reviewed the parser change and found it consistent'
+rl_case() {
+  local ty="${4:-allye:bridge-pilot}"
+  new_case; mkcred; [ "${5:-}" = off ] && { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"; }
+  "$JQ_BIN" --arg m "$2" --arg t "$ty" '.last_assistant_message = $m | .agent_type = $t' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+  check "$1" "$("$JQ_BIN" -cS -n --arg t "$ty" --argjson x "$3" '{type: "sub_stop", sub: ({id: "agent-abc123", type: $t, outcome: "pass"} + $x)}')" "$(stopped)"
+  check "$1: exit 0, silent" "0||" "$RC|$OUT|$ERR"
+  end_case
+}
+P=$'status: passed\n'
+rl_case "summary valid: cleaned text goes on sub.summary" "${P}summary: $RLSUM" "{\"summary\":\"$RLSUM\"}"
+rl_case "summary valid with CRLF line ends" "$(printf 'status: passed\r\nsummary: %s\r\nattempt: 1\r\n' "$RLSUM")" "{\"summary\":\"$RLSUM\",\"attempt\":1}"
+rl_case "summary alone at column 0 inside a code fence still matches" $'```\nsummary: '"$RLSUM"$'\n```\nstatus: passed' "{\"summary\":\"$RLSUM\"}"
+rl_case "summary of two words is dropped (3-word minimum)" "${P}summary: Looks good" "{}"
+rl_case "summary below 8 characters is dropped" "${P}summary: a b c" "{}"
+rl_case "summary with a path and a secret: the cleaner drops those tokens, the rest is kept" "${P}summary: Reviewed the change in /etc/MARKER_PATH with sk-live12345abcdef and found it fine" '{"summary":"Reviewed the change in with and found it fine"}'
+rl_case "summary that is only a path is dropped" "${P}summary: /etc/MARKER_PATH/x.txt" "{}"
+LONG=$(head -c 5000 /dev/zero | tr '\0' 'a'); LONGW=$(for i in $(seq 1 600); do printf 'word '; done)
+rl_case "summary of 5000 characters without spaces is dropped by the cleaner (one long token)" "${P}summary: $LONG" "{}"
+new_case; mkcred; "$JQ_BIN" --arg m "${P}summary: $LONGW" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "summary of 3000 characters of words: capped at 140 code points with an ellipsis, one line" "yes" "$(stopped | "$JQ_BIN" -r '.sub.summary | if (length <= 140 and endswith("…") and (contains("\n") | not)) then "yes" else "no" end')"; end_case
+rl_case "summary indented: omitted" "${P}  summary: $RLSUM" "{}"
+rl_case "summary behind a list marker: omitted" "${P}- summary: $RLSUM" "{}"
+rl_case "summary in bold: omitted" "${P}**summary:** $RLSUM" "{}"
+rl_case "summary with a different case of the key: omitted" "${P}Summary: $RLSUM
+SUMMARY: $RLSUM" "{}"
+rl_case "summary repeated: omitted (zero or several)" "${P}summary: $RLSUM
+summary: Another summary text that is long enough" "{}"
+rl_case "summary once at column 0 plus an indented copy: the column-0 line is the one match" "${P}summary: $RLSUM
+  summary: Another summary text that is long enough" "{\"summary\":\"$RLSUM\"}"
+rl_case "summary: off flag sends no summary (BR-03) but keeps the chips" "${P}summary: $RLSUM
+attempt: 2" '{"attempt":2}' allye:bridge-pilot off
+rl_case "summary line past 64 KB is not examined" "${P}$(head -c 70000 /dev/zero | tr '\0' 'a')
+summary: $RLSUM" "{}"
+# chips
+rl_case "attempt 0, 1, 2 are ints (0 is allowed)" "${P}attempt: 0" '{"attempt":0}'
+rl_case "attempt 2" "${P}attempt: 2" '{"attempt":2}'
+for bad in 3 -1 01 1.5 +1 one '1 extra' '1,' ''; do rl_case "attempt '$bad' is omitted" "${P}attempt: $bad" "{}"; done
+rl_case "attempt repeated: omitted" "${P}attempt: 1
+attempt: 1" "{}"
+rl_case "attempt indented / bold / capital: omitted" "${P}  attempt: 1
+**attempt:** 1
+Attempt: 1" "{}"
+rl_case "attempt inside prose: omitted" "${P}this is attempt: 1 of 2" "{}"
+rl_case "next pilot-correction maps to pilot_correction" "${P}next: pilot-correction" '{"next":"pilot_correction"}'
+for t in reviewers pilot_correction mothership watcher done; do rl_case "next $t is accepted" "${P}next: $t" "{\"next\":\"$t\"}"; done
+rl_case "next Mothership (capital) is lowercased and accepted" "${P}next: Mothership" '{"next":"mothership"}'
+rl_case "next outside the enum is omitted" "${P}next: nobody" "{}"
+rl_case "next with trailing junk is omitted" "${P}next: done MARKER_PROSE" "{}"
+rl_case "next repeated: omitted" "${P}next: done
+next: watcher" "{}"
+rl_case "gate SHIELD_CLEAR from a shield" "${P}gate: SHIELD_CLEAR" '{"gate":"SHIELD_CLEAR"}' allye:bridge-shield
+rl_case "gate WATCHER_APPROVED from a watcher" "${P}gate: WATCHER_APPROVED" '{"gate":"WATCHER_APPROVED"}' allye:bridge-watcher
+rl_case "gate WATCHER_APPROVED from a shield is omitted" "${P}gate: WATCHER_APPROVED" "{}" allye:bridge-shield
+rl_case "gate SHIELD_CLEAR from a watcher is omitted" "${P}gate: SHIELD_CLEAR" "{}" allye:bridge-watcher
+rl_case "gate SHIELD_CLEAR from a pilot is omitted (AC-17)" "${P}gate: SHIELD_CLEAR" "{}"
+rl_case "gate null is ignored" "${P}gate: null" "{}" allye:bridge-shield
+rl_case "gate in lowercase is omitted" "${P}gate: shield_clear" "{}" allye:bridge-shield
+rl_case "gate repeated: omitted" "${P}gate: SHIELD_CLEAR
+gate: SHIELD_CLEAR" "{}" allye:bridge-shield
+rl_case "checks ok/run valid" "${P}checks: ok=3 run=4" '{"checks":{"ok":3,"run":4}}' allye:bridge-copilot
+rl_case "checks 0 and 99" "${P}checks: ok=0 run=99" '{"checks":{"ok":0,"run":99}}'
+for bad in 'ok=100 run=3' 'ok=-1 run=3' 'ok=01 run=3' 'ok=1.5 run=3' 'ok=+3 run=3' 'run=3 ok=3' 'ok=3' 'ok=3 run=4 extra' 'ok=3,run=4' 'ok=x run=4'; do rl_case "checks '$bad' is omitted (all or nothing)" "${P}checks: $bad" "{}"; done
+rl_case "checks repeated: omitted" "${P}checks: ok=1 run=1
+checks: ok=1 run=1" "{}"
+rl_case "severity_counts valid" "${P}severity_counts: critical=0 high=1 medium=2 low=3 info=4" '{"findings":{"critical":0,"high":1,"medium":2,"low":3,"info":4}}' allye:bridge-medic
+for bad in 'critical=100 high=1 medium=2 low=3 info=4' 'critical=-1 high=1 medium=2 low=3 info=4' 'critical=00 high=1 medium=2 low=3 info=4' 'critical=1.5 high=1 medium=2 low=3 info=4' 'critical=+1 high=1 medium=2 low=3 info=4' 'high=1 critical=0 medium=2 low=3 info=4' 'critical=0 high=1 medium=2 low=3' 'critical=0 high=1 medium=2 low=3 info=4 extra=1' 'critical=0 high=1 medium=2 low=3 info=4 MARKER_PROSE'; do rl_case "severity_counts '$bad' is omitted (all or nothing)" "${P}severity_counts: $bad" "{}"; done
+rl_case "severity_counts repeated: omitted" "${P}severity_counts: critical=0 high=0 medium=0 low=0 info=0
+severity_counts: critical=0 high=0 medium=0 low=0 info=0" "{}"
+rl_case "all lines together" "${P}task: ALY-258.2
+summary: $RLSUM
+attempt: 1
+next: reviewers
+gate: WATCHER_APPROVED
+checks: ok=2 run=2
+severity_counts: critical=0 high=0 medium=0 low=0 info=1" "{\"task\":\"ALY-258.2\",\"summary\":\"$RLSUM\",\"attempt\":1,\"next\":\"reviewers\",\"gate\":\"WATCHER_APPROVED\",\"checks\":{\"ok\":2,\"run\":2},\"findings\":{\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"info\":1}}" allye:bridge-watcher
+# AC-12: a report with none of the new lines gives the previous event; the code of an unknown status stays
+rl_case "legacy report (none of the new lines, prose around): exactly the previous sub_stop" "MARKER_LASTMSG role: pilot
+summary text here is prose, attempt 1, next steps: none
+status: passed
+task: ALY-1.2" '{"task":"ALY-1.2"}'
+# BR-01 / NFR-01: nothing but the cleaned summary leaves; a marker in prose, other lines and unknown keys is in no file, log or body
+new_case; mkcred; SHIMD="$SHIMS"
+"$JQ_BIN" --arg m "MARKER_LASTMSG prose line
+status: passed
+summary: $RLSUM
+attempt: 1 MARKER_PROSE
+next: done
+extra: MARKER_ABCDEF
+notes: MARKER_MSG
+checks: ok=1 run=2 MARKER_ARGS
+severity_counts: critical=0 high=0 medium=0 low=0 info=0
+  summary: MARKER_CMD indented
+**gate:** MARKER_TITLE" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+for i in $(seq 1 100); do [ -s "$SB/api/ingest-bodies.log" ] && break; sleep 0.05; done; wait_idle
+SENTR="$SB/api/ingest-bodies.log"
+check "BR-01: the sub_stop that left the machine holds the cleaned summary and the valid chips only" "{\"attempt\":null,\"checks\":null,\"findings\":{\"critical\":0,\"high\":0,\"info\":0,\"low\":0,\"medium\":0},\"id\":\"agent-abc123\",\"next\":\"done\",\"outcome\":\"pass\",\"summary\":\"$RLSUM\",\"type\":\"allye:bridge-pilot\"}" \
+  "$("$JQ_BIN" -cS '.events[] | select(.type == "sub_stop") | .sub | {attempt: .attempt, checks: .checks} + .' "$SENTR" 2>/dev/null | head -n 1)"
+SCANR="$SB/scanr.txt"; { find "$DATA" -type f ! -name hook-credential.json -exec cat {} +; find "$DATA" -print; cat "$SB/log"/* "$SENTR" 2>/dev/null; } >"$SCANR"
+N8=0; for m in "$RAWSID" "${MARKERS[@]}"; do [ "$(grep -cF -- "$m" "$SCANR" || true)" = 0 ] || { N8=$((N8 + 1)); echo "    found: $m"; }; done
+check "BR-01/NFR-01: no marker of prose, other lines, other keys or indented lines is in any file, log or request body" "0" "$N8"
+check "BR-01: the summary text reached the API (the scan is not vacuous)" "yes" "$(grep -q "$RLSUM" "$SENTR" 2>/dev/null && echo yes || echo no)"
+end_case
+# jq cost of the parse on a 64 KB message (informational, not an assertion)
+new_case; mkcred
+BIGM=$(for i in $(seq 1 1000); do printf 'line %s of the report with some prose text here to fill 64 kilobytes\n' "$i"; done | head -c 65000)
+"$JQ_BIN" --arg m "status: passed
+summary: $RLSUM
+$BIGM" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"
+T0=$(date +%s%N 2>/dev/null || echo 0); run_hook; T1=$(date +%s%N 2>/dev/null || echo 0)
+echo "    info (NFR-02): hook run on a 64 KB crew message: $(( (T1 - T0) / 1000000 )) ms, no added network call"
+check "NFR-02: the 64 KB message still gives the summary" "$RLSUM" "$(stopped | "$JQ_BIN" -r '.sub.summary')"
+end_case
+
+echo "== longer texts in batches and the new nested keys (ALY-258.2 AC-11, NFR-03) =="
+nowiso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+# sumline SEQ TEXT: a spooled sub_stop with every new nested key
+sumline() { "$JQ_BIN" -nc --argjson s "$1" --arg t "$2" --arg at "$(nowiso)" '{seq: $s, at: $at, type: "sub_stop", sub: {id: "agent-s\($s)", type: "allye:bridge-watcher", outcome: "pass", task: "ALY-258.2", summary: $t, attempt: 1, next: "done", gate: "WATCHER_APPROVED", checks: {ok: 1, run: 2}, findings: {critical: 0, high: 1, medium: 2, low: 3, info: 4}}}'; }
+CJK=$(printf '字%.0s' $(seq 1 140))
+sentr_seqs() { [ -f "$SB/api/ingest-bodies.log" ] && "$JQ_BIN" -r '.events[] | select(.type == "sub_stop") | .seq' "$SB/api/ingest-bodies.log" || true; }
+sp2() { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"; }
+new_case; mkcred; SHIMD="$SHIMS"; sp2; for i in $(seq 1 60); do sumline "$((2000 + i))" "$CJK"; done >"$SPF"; run_fixture user-prompt-submit
+check "AC-11/NFR-03: 60 events with 140-code-point summaries split into several requests, each at most 16384 B and 50 events" "yes yes yes" \
+  "$([ "$(wc -l <"$SB/api/ingest-bodies.log" | tr -d ' ')" -ge 2 ] && echo yes || echo no) $([ "$(awk '{ if (length($0) > m) m = length($0) } END { print m }' "$SB/api/ingest-bodies.log")" -le 16384 ] && echo yes || echo no) $([ "$("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | sort -n | tail -n 1)" -le 50 ] && echo yes || echo no)"
+check "AC-11: nothing lost: all 60 events sent once, in order, none left in the spool" "60 60 yes 0" "$(sentr_seqs | wc -l | tr -d ' ') $(sentr_seqs | sort -n | uniq | wc -l | tr -d ' ') $(sentr_seqs | awk 'NR > 1 && $1 <= p { b = 1 } { p = $1 } END { print (b ? "no" : "yes") }') $(grep -c '"sub_stop"' "$SPF" || true)"
+check "AC-11: every new nested key leaves intact (no silent drop)" "60" "$("$JQ_BIN" -c --arg t "$CJK" '.events[] | select(.sub.summary == $t and .sub.attempt == 1 and .sub.next == "done" and .sub.gate == "WATCHER_APPROVED" and .sub.checks == {ok: 1, run: 2} and .sub.findings == {critical: 0, high: 1, medium: 2, low: 3, info: 4} and .sub.task == "ALY-258.2")' "$SB/api/ingest-bodies.log" | wc -l | tr -d ' ')"
+end_case
+# the defensive value checks of the allowlist: a wrong type or range drops that field, never the event
+new_case; mkcred; SHIMD="$SHIMS"; sp2
+{ "$JQ_BIN" -nc --arg at "$(nowiso)" '{seq: 3001, at: $at, type: "sub_stop", sub: {id: "agent-w1", type: "allye:bridge-pilot", outcome: "pass", summary: 5, attempt: 3, next: "nobody", gate: "x", checks: {ok: 100, run: 1}, findings: {critical: 1}, evil: "MARKER_ABCDEF"}}'
+  "$JQ_BIN" -nc --arg at "$(nowiso)" '{seq: 3002, at: $at, type: "sub_stop", sub: {id: "agent-w2", type: "allye:bridge-pilot", outcome: "pass", attempt: 1.5, checks: {ok: 1, run: 2, extra: "MARKER_ABCDEF"}, summary: "ok"}}'; } >"$SPF"; run_fixture user-prompt-submit
+check "allowlist: wrong types and ranges drop the field, the event and its valid keys stay; a nested object keeps only its keys" '{"id":"agent-w1","outcome":"pass","type":"allye:bridge-pilot"}|{"checks":{"ok":1,"run":2},"id":"agent-w2","outcome":"pass","summary":"ok","type":"allye:bridge-pilot"}' \
+  "$("$JQ_BIN" -cS '.events[] | select(.seq == 3001) | .sub' "$SB/api/ingest-bodies.log")|$("$JQ_BIN" -cS '.events[] | select(.seq == 3002) | .sub' "$SB/api/ingest-bodies.log")"
+check "allowlist: the extra key inside checks and the unknown key of sub are in no body" "0" "$(grep -cE 'MARKER_ABCDEF|extra' "$SB/api/ingest-bodies.log" || true)"
+end_case
+
 # ─── ALY-203.4: mission gates (BR-10, AC-08, AC-16) ─────────────────────────
 echo "== mission gates from the journal (AC-08, AC-16) =="
 SHA1=GATESHA1MARKER; SHA2=GATESHA2MARKER
@@ -792,7 +933,7 @@ final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWS
 check "files are keyed by sha256(session id): bind, cred, flushed, seq, spool, state and subs (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
 check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
-check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 end_case
@@ -1092,7 +1233,7 @@ check "AC-07: the sub_start left the machine with the cleaned desc and the task 
 SCANV="$SB/scanv.txt"; { find "$DATA" -type f ! -name hook-credential.json -exec cat {} +; find "$DATA" -print; cat "$SB/log"/* "$SENT" 2>/dev/null; } >"$SCANV"
 N7=0; for m in "$RAWSID" "${MARKERS[@]}" sk-live12345abcdef hunter2; do [ "$(grep -cF -- "$m" "$SCANV" || true)" = 0 ] || { N7=$((N7 + 1)); echo "    found: $m"; }; done
 check "AC-07/NFR-01: the prompt, the dropped parts of the description and the secrets are in no file, name, log or request body" "0" "$N7"
-check "NFR-01: every sent sub holds only permitted keys and every text is at most 140 code points" "0" "$("$JQ_BIN" -c '.events[] | select((.sub // {} | keys) - ["id","type","outcome","task","desc"] | length > 0 or ((.sub.desc // "") | length) > 140 or ((.activity // "") | length) > 140)' "$SENT" | wc -l | tr -d ' ')"
+check "NFR-01: every sent sub holds only permitted keys and every text is at most 140 code points" "0" "$("$JQ_BIN" -c '.events[] | select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings"] | length > 0 or ((.sub.desc // "") | length) > 140 or ((.activity // "") | length) > 140)' "$SENT" | wc -l | tr -d ' ')"
 end_case
 # the nested allowlist applies at send time: an unknown key inside sub never leaves, and the text is still capped by the cleaner
 new_case; mkcred; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"

@@ -143,3 +143,20 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   entries of the type become tombstones (empty text, expiring by TTL) so a later start of the type never pairs with them. There is no separate Agent `sub_tool` event any more. Covered by generated payloads in the test.
 - `batch_build` keeps only `id`, `type`, `outcome`, `task` and `desc` inside `sub` (the nested allowlist; ALY-258.2 extends it).
 - `LIVE_TEST_SECTIONS` (regex over the section names) runs a subset of `hooks/test-live-report.sh`; unset runs everything.
+
+## ALY-258.2: summary and chips on sub_stop
+
+- The strict parser (`newfields` in the reporter's jq program) reads the first 65536 characters of `last_assistant_message`. A line
+  counts for a key only when it starts at column 0 with the exact lowercase key (`summary:`, `attempt:`, `next:`, `gate:`,
+  `checks:`, `severity_counts:`; LF or CRLF), and the key must be on exactly one such line of the slice; zero or several omit the
+  field. Indented, list-marker, bold or different-case lines are not counted. `status:` and `task:` keep their lenient first-match rule
+  (previous events are unchanged when none of the new lines exist). A lone `summary:` at column 0 inside a code fence matches.
+- `summary` goes through `actphrase(140)` and is sent only when the cleaner keeps it and texts are on (`$txt == "1"`); it is the only
+  message text that leaves. `attempt` 0-2; `next` lowercased, `-` to `_`, one of reviewers|pilot_correction|mothership|watcher|done;
+  `gate` only for type shield (SHIELD_CLEAR) or watcher (WATCHER_APPROVED), `null` ignored; `checks {ok,run}` and
+  `findings {critical,high,medium,low,info}` (all five keys, once, in that order). Integers 0-99 with no sign, decimal point or
+  leading zero; any deviation or trailing junk omits the field (checks/findings all or nothing).
+- `batch_build` allows `summary`, `attempt`, `next`, `gate`, `checks`, `findings` inside `sub` and checks their type and range
+  (a bad value drops the field, never the event; nested objects keep only their keys).
+- Cases are generated in `hooks/test-live-report.sh` (sections `report lines` and `batches with the longer texts`; they use the
+  `stopped` helper of `subagent outcome`, select both). Existing fixtures are untouched and still pass (AC-12).

@@ -233,9 +233,21 @@ lock_touch() {
 }
 # jq_valid_def: the jq definitions shared by the batch builder and the spool rewrite (a line is a valid event or it is dropped).
 jq_valid_def() {
-  # keep: the event keys, then the keys of `sub` (the nested allowlist: ALY-258 adds desc; .2 extends it).
-  printf '%s' 'def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity")))
-      | (if (.sub | type) == "object" then .sub |= with_entries(select(.key | IN("id","type","outcome","task","desc"))) else . end);
+  # keep: the event keys, then the keys of `sub` (the nested allowlist: desc ALY-258.1; summary, attempt, next, gate, checks and
+  # findings ALY-258.2). A nested value of the wrong type or range is dropped, never repaired (checks/findings: all or nothing).
+  printf '%s' 'def i99: type == "number" and . == floor and . >= 0 and . <= 99;
+    def pick($ks): with_entries(select(.key | IN($ks[]))) | if (keys | length) == ($ks | length) and all(.[]; i99) then . else null end;
+    def subfld: if .key == "summary" then (.value | type == "string" and (explode | length) <= 140)
+      elif .key == "attempt" then (.value | type == "number" and IN(0, 1, 2))
+      elif .key == "next" then (.value | IN("reviewers","pilot_correction","mothership","watcher","done"))
+      elif .key == "gate" then (.value | IN("SHIELD_CLEAR","WATCHER_APPROVED"))
+      elif .key == "checks" then (.value | type == "object" and (pick(["ok","run"]) != null))
+      elif .key == "findings" then (.value | type == "object" and (pick(["critical","high","medium","low","info"]) != null))
+      else true end;
+    def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity")))
+      | (if (.sub | type) == "object" then .sub |= (with_entries(select(.key | IN("id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings")) | select(subfld))
+          | (if has("checks") then .checks |= pick(["ok","run"]) else . end)
+          | (if has("findings") then .findings |= pick(["critical","high","medium","low","info"]) else . end)) else . end);
     def ok: type == "object" and (.seq | type == "number" and . == floor and . >= 1) and (.at | type == "string")
             and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates"));
     def fresh($now): ((.at | try fromdateiso8601 catch 0) >= ($now - 82800));'
@@ -849,9 +861,7 @@ def outcome:
     elif $v == "failed" then {o: "fail"}
     elif $v | IN("blocked","needs-input","escalate") then {o: "blocked"}
     else {o: "unknown", c: "returned"} end;
-def substop: outcome as $r | (tkline // null) as $t
-  | {type: "sub_stop", sub: (subof + {outcome: $r.o} + (if ($t | keyok) then {task: $t} else {} end))}
-    + (if $r.c != null then {code: $r.c} else {} end);
+
 # agent_id is present only when the hook fires inside a subagent (confirmed in the installed CLI schema).
 # BR-14 trigger: {type:"trig"} is never output; it only makes a pending waiting_input become working.
 # A value failing its pattern drops the tool event but the hook still counts as activity.
@@ -943,6 +953,31 @@ def actof:
   elif .tool_name | IN("Bash","Agent","Task") then ((.tool_input | objects | .description) // null) | actphrase(actcap)
   elif .tool_name == "TodoWrite" then [.tool_input | objects | .todos | arrays | .[] | objects | select(.status == "in_progress")] | .[0] | (objects | .activeForm) // null | actphrase(actcap)
   else null end;
+# ALY-258.2 (D-05, D-35): the strict report lines. Over the first 65536 characters, a line counts for a key only when it starts at
+# column 0 with the exact lowercase key (LF or CRLF); the key must be on EXACTLY ONE such line, else the field is omitted. Nothing
+# but the cleaned summary text is ever kept from the message; every other line is read as an integer or an enum.
+def rawlines: (.last_assistant_message | if type == "string" then .[0:65536] else "" end) | split("\n") | map(sub("\r\\z"; ""));
+def one($k): [rawlines[] | select(startswith($k + ":"))] | if length == 1 then .[0][($k | length) + 1:] else null end;
+def n99: "(0|[1-9][0-9]?)";
+def int99: tonumber;
+def chipline($k; $re): (one($k) // null) | if . == null then null else ([capture("\\A[ \t]*" + $re + "[ \t]*\\z")?] | .[0]) end;
+def newfields($ty):
+  (one("summary")) as $sm
+  | (chipline("attempt"; "(?<v>[012])")) as $at
+  | (chipline("next"; "(?<v>[A-Za-z_-]{1,20})")) as $nx
+  | (chipline("gate"; "(?<v>SHIELD_CLEAR|WATCHER_APPROVED)")) as $gt
+  | (chipline("checks"; "ok=(?<ok>" + n99 + ") run=(?<run>" + n99 + ")")) as $ck
+  | (chipline("severity_counts"; "critical=(?<critical>" + n99 + ") high=(?<high>" + n99 + ") medium=(?<medium>" + n99 + ") low=(?<low>" + n99 + ") info=(?<info>" + n99 + ")")) as $sv
+  | {}
+  + (if $txt == "1" and $sm != null then ($sm | actphrase(actcap)) as $c | (if $c != null then {summary: $c} else {} end) else {} end)
+  + (if $at != null then {attempt: ($at.v | int99)} else {} end)
+  + (if $nx != null then ($nx.v | ascii_downcase | gsub("-"; "_")) as $t | (if $t | IN("reviewers","pilot_correction","mothership","watcher","done") then {next: $t} else {} end) else {} end)
+  + (if $gt != null and (($gt.v == "SHIELD_CLEAR" and ($ty | test("\\A(allye:)?(bridge-)?shield\\z"))) or ($gt.v == "WATCHER_APPROVED" and ($ty | test("\\A(allye:)?(bridge-)?watcher\\z")))) then {gate: $gt.v} else {} end)
+  + (if $ck != null then {checks: ($ck | map_values(int99))} else {} end)
+  + (if $sv != null then {findings: ($sv | map_values(int99))} else {} end);
+def substop: outcome as $r | (tkline // null) as $t
+  | {type: "sub_stop", sub: (subof + {outcome: $r.o} + (if ($t | keyok) then {task: $t} else {} end) + newfields(subof.type))}
+    + (if $r.c != null then {code: $r.c} else {} end);
 def withact($a): if $a != null then . + {activity: $a} else . end;
 def toolev:
   redtool as $t | actof as $a
