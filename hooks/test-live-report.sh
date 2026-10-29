@@ -2637,6 +2637,42 @@ check "SessionStart has the two existing entries plus the reporter's" "3" "$(rep
 check "the command resolves to an existing executable file in this plugin" "yes" "$(p="${REPORTER_CMD/\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"; [ -f "$p" ] && [ -x "$p" ] && echo yes || echo no)"
 check "the other commands also resolve to executable files" "yes" "$(for c in session-start.sh session-preferences.sh; do [ -x "$PLUGIN_ROOT/hooks/$c" ] || echo no; done | grep -c no | sed 's/^0$/yes/')"
 
+echo "== spike: SubagentStart/Stop on a resume, hook agent_id vs metadata id, metadata at the first tool (ALY-263.8 AC-12, D-14, D-19) =="
+# Recorded facts live in fixtures/live/spike-facts.txt (PROVEN/UNPROVEN with the evidence kind). What the real hook sends on a
+# SendMessage resume is UNPROVEN, so both shapes are replayed against the CURRENT script: a resume that fires SubagentStart
+# again, and one that sends only tool events and a second SubagentStop. Later slices (ALY-263.11) change these expectations knowingly.
+SPK='"id":"spk0a1b2c3d4e5f6","type":"allye:bridge-pilot"'
+SPK_START="{\"type\":\"sub_start\",\"sub\":{$SPK}}"
+SPK_TOOL="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK}}"
+SPK_STOP="{\"type\":\"sub_stop\",\"sub\":{$SPK,\"outcome\":\"pass\",\"task\":\"ALY-1.2\"}}"
+spike_case() {  # LABEL FIXTURES-CSV EXPECT-JSON-LINES...
+  local label="$1" seqs="$2"; shift 2
+  new_case; mkcred; run_fixture ${seqs//,/ }
+  check "$label" "$(printf "%s\n" "$@" | "$JQ_BIN" -cS .)" "$(spooled)"
+  check "$label: silent, exits 0" "0||" "$RC|$OUT|$ERR"
+  check "$label: no event carries a resumed flag yet" "0" "$(spooled | grep -c resumed || true)"
+  end_case
+}
+spike_case "baseline: start, tool, stop" spike-start,spike-tool,spike-stop "$SPK_START" "$SPK_TOOL" "$SPK_STOP"
+spike_case "resume shape 1 (Start fires again): the second sub_start is dropped by the seen-set, the second tool and stop are sent plain" \
+  spike-start,spike-tool,spike-stop,spike-start,spike-tool,spike-stop "$SPK_START" "$SPK_TOOL" "$SPK_STOP" "$SPK_TOOL" "$SPK_STOP"
+spike_case "resume shape 2 (no Start, no Stop on the resume): a tool after the stop is sent as a plain sub_tool, nothing marks it" \
+  spike-start,spike-stop,spike-tool "$SPK_START" "$SPK_STOP" "$SPK_TOOL"
+spike_case "resume shape 3 (tool events only, then a second Stop): both stops are sent plain" \
+  spike-start,spike-stop,spike-tool,spike-stop "$SPK_START" "$SPK_STOP" "$SPK_TOOL" "$SPK_STOP"
+# the recorded facts: every key present exactly once, with the status the spike reached
+SPKF="$FIX/spike-facts.txt"
+spkf() { grep -E "^$1=" "$SPKF" | sed -E "s/^$1=([A-Z]+) .*/\1/"; }
+check "fact a: SubagentStart on a resume is UNPROVEN" "UNPROVEN" "$(spkf a_start_fires_on_resume)"
+check "fact a: SubagentStop on a resume is UNPROVEN" "UNPROVEN" "$(spkf a_stop_fires_on_resume)"
+check "fact a: a resume reuses the agent id and its files is PROVEN from transcripts" "PROVEN" "$(spkf a_resume_reuses_id_and_files)"
+check "fact b: transcript agentId equals the filename id is PROVEN" "PROVEN" "$(spkf b_transcript_agentId_equals_filename_id)"
+check "fact b: the metadata file pairs with the transcript by filename is PROVEN" "PROVEN" "$(spkf b_meta_pairs_with_transcript_by_filename)"
+check "fact b: the hook agent_id equals the filename id is UNPROVEN" "UNPROVEN" "$(spkf b_hook_agent_id_equals_filename_id)"
+check "fact b: the metadata file holds no id key is PROVEN" "PROVEN" "$(spkf b_meta_has_no_id_key)"
+check "fact c: metadata readable at the first tool is UNPROVEN" "UNPROVEN" "$(spkf c_meta_exists_at_first_tool)"
+check "the facts file holds no path, home directory or real id" "0" "$(grep -cE '/home/|/Users/|[0-9a-f]{8}-[0-9a-f]{4}-' "$SPKF" || true)"
+
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
 check "AC-39: every case ended with no final flusher still running under the sandbox" "0" "$(finals_under "$ROOT_TMP")"
 
