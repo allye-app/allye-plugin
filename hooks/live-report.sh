@@ -445,7 +445,7 @@ detailed_cache() {
     fi
     for f in "$LIVE_DIR"/*; do
       base="${f##*/}"
-      [[ "$base" =~ ^[0-9a-f]{64}\.agents$ ]] || continue
+      [[ "$base" =~ ^[0-9a-f]{64}\.(agents|acts)$ ]] || continue
       if [ -L "$f" ] || { [ -f "$f" ] && [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; then rm -f "$f" 2>/dev/null; fi
     done
     lock_drop "$LOCKD" "$tok"
@@ -1151,8 +1151,11 @@ def substop: outcome as $r | (tkline // null) as $t
   | {type: "sub_stop", sub: (subof + {outcome: $r.o} + (if ($t | keyok) then {task: $t} else {} end) + newfields(subof.type))}
     + (if $r.c != null then {code: $r.c} else {} end);
 def withact($a): if $a != null then . + {activity: $a} else . end;
+# ALY-263.3 (AC-05, D-12): the one phrase builder of a tool call, for the main session and for subagents. Today only the
+# description path (actof, free text: the cleaner keeps its 3-word minimum); the constant templates of D-08 join here.
+def toolphrase: actof;
 def toolev:
-  redtool as $t | actof as $a
+  redtool as $t | toolphrase as $a
   | if (.agent_id // null) != null then
     (subof) as $s | if $s != null and $t != null then [{type: "sub_tool", tool: $t, sub: $s} | withact($a)] else trig end
   elif $t != null then [{type: "tool", tool: $t} | withact($a)]
@@ -1270,12 +1273,30 @@ def subsc($e):
                       else [{type: "sub_start", sub: $s}, $ev] end) end
       else .out += [$ev] end)
   end;
+# ALY-263.3 (AC-05, D-02, D-18): $acts is the content of $HASH.acts, [[sub id, last phrase]] oldest first, at most 16 agents,
+# usable only when $actok is "1". actdd: a sub_tool phrase equal to the previous phrase of the SAME agent is removed (the event goes
+# on); every other phrase is kept, so a batch of phrases is never collapsed. {out: the events, st: the new memory or null}.
+def actseen: ($acts | try fromjson catch []) | (if type == "array" then . else [] end)
+  | map(select(type == "array" and length == 2 and (.[0] | idok) and (.[1] | type == "string") and (.[1] | length) <= 140)) | .[-16:];
+def actdd($e):
+  if $actok != "1" then {out: $e, st: null}
+  else
+    reduce $e[] as $ev ({out: [], s: actseen, ch: false};
+      if $ev.type == "sub_tool" and ($ev.activity | type) == "string" then
+        ($ev.sub.id) as $i | ((.s | map(select(.[0] == $i)) | .[0][1]) // null) as $p
+        | if $p == $ev.activity then .out += [$ev | del(.activity)]
+          else .out += [$ev] | .s = (((.s | map(select(.[0] != $i))) + [[$i, $ev.activity]]) | .[-16:]) | .ch = true end
+      else .out += [$ev] end)
+    | {out: .out, st: (if .ch then .s else null end)}
+  end;
 # BR-14: the first tool/subagent-start event after waiting_input is preceded by a `state working`.
 . as $in
 | evs as $e0
 | (try subsc($e0) catch {out: $e0, seen: null, new: []}) as $sb
 | (try stashc($sb.new) catch {ds: {}, st: null}) as $sc
-| [$sb.out[] | if .type == "sub_start" then .sub += ($sc.ds[.sub.id] // {}) else . end] as $all
+| [$sb.out[] | if .type == "sub_start" then .sub += ($sc.ds[.sub.id] // {}) else . end] as $all0
+| (try actdd($all0) catch {out: $all0, st: null}) as $ad
+| $ad.out as $all
 | (reduce $all[] as $ev ({out: [], last: $last};
     (if ($ev.type | IN("tool","sub_tool","sub_start","trig")) and ($ev.syn | not) and .last == "waiting_input"
        then .out += [{type: "state", state: "working"}] | .last = "working" else . end)
@@ -1288,6 +1309,7 @@ def subsc($e):
   (if sstart then "start" elif .hook_event_name == "UserPromptSubmit" then "prompt" else "-" end),
   (if $sc.st == null or ($sc.st | tojson) == $stash or ($sc.st == [] and $stash == "") then "-" else ($sc.st | tojson) end),
   (if $sb.seen == null or ($sb.new | length) == 0 then "-" else ($sb.seen | join(" ")) end),
+  (if $ad.st == null then "-" else ($ad.st | tojson) end),
   ($r.out[] | . + {at: $at} | tojson),
   "."'
 
@@ -1310,16 +1332,25 @@ fi
 # ALY-217.7 (D-26): the seen sub ids $HASH.subs, read under the state lock like the stash: through --rawfile, the file
 # itself when it is private and at most 8192 bytes. Absent: an empty set. An oversized private file is rewritten. Any
 # other entry (symlink, foreign owner or mode): the set is neither used nor written (SUBOK=0, no synthetic sub_start).
+# ALY-263.3 (D-18, BR-03): the last phrase of each subagent, $HASH.acts, read like the stash (private file, at most 16384 bytes: 16 multibyte phrases).
+# It holds phrases, so it exists only while texts are on: with texts off it is deleted (a symlink as the link only) and never written.
+ACTSF="$LIVE_DIR/$HASH.acts"; ACTSRC=/dev/null; ACTOK=0
+if [ "$ACT" = 0 ]; then
+  if [ -L "$ACTSF" ] || { [ -f "$ACTSF" ] && [ -n "$(find "$ACTSF" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; then rm -f "$ACTSF" 2>/dev/null; fi
+elif [ ! -e "$ACTSF" ] && [ ! -L "$ACTSF" ]; then ACTOK=1
+elif [ ! -L "$ACTSF" ] && [ -n "$(find "$ACTSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then ACTOK=1; ACTSRC="$ACTSF"
+elif private_file_ok "$ACTSF"; then ACTOK=1; fi
 SUBSF="$LIVE_DIR/$HASH.subs"; SUBSRC=/dev/null; SUBOK=0
 if [ ! -e "$SUBSF" ] && [ ! -L "$SUBSF" ]; then SUBOK=1
 elif [ ! -L "$SUBSF" ] && [ -n "$(find "$SUBSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ]; then SUBOK=1; SUBSRC="$SUBSF"
 elif private_file_ok "$SUBSF"; then SUBOK=1; fi
 MS=$(now_ms)
 [[ "$MS" =~ ^[1-9][0-9]{0,15}$ ]] || exit 0
-RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
+RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --arg actok "$ACTOK" --rawfile acts "$ACTSRC" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
 # Output: new last state, bind candidate (or -), cwd for the branch source (or -), gates path and cwd (or -, -),
 # watcher trigger (start = a SessionStart of a known source, prompt = UserPromptSubmit, or -), the new Agent/Task
-# stash (or - to leave it), the new seen-set as space-separated ids (or - to leave it), events, "." terminator.
+# stash (or - to leave it), the new seen-set as space-separated ids (or - to leave it), the new last-phrase memory (or -),
+# events, "." terminator.
 NEWLAST="${RESULT%%$'\n'*}"; REST="${RESULT#*$'\n'}"
 CAND="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 CWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
@@ -1328,12 +1359,14 @@ GCWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 WEV="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 AGT="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 SUBS="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+ACTS="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 case "$REST" in .) EVENTS="" ;; *$'\n'.) EVENTS="${REST%$'\n'.}" ;; *) exit 0 ;; esac
 case "$NEWLAST" in ""|started|working|waiting_input|idle|error|ended) ;; *) exit 0 ;; esac
 [ -n "$CAND" ] && [ -n "$CWD" ] && [ -n "$GFP" ] && [ -n "$GCWD" ] || exit 0
 case "$WEV" in start|prompt|-) ;; *) exit 0 ;; esac
 case "$AGT" in -|'['*']') ;; *) exit 0 ;; esac
 [ "$SUBS" = - ] || [[ "$SUBS" =~ ^[A-Za-z0-9_-]{1,64}( [A-Za-z0-9_-]{1,64}){0,63}$ ]] || exit 0
+case "$ACTS" in -|'['*']') ;; *) exit 0 ;; esac
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
 BINDF="$LIVE_DIR/$HASH.bind"
@@ -1520,6 +1553,12 @@ fi
 if [ "$SUBS" != - ] && [ "$SUBOK" = 1 ]; then
   TMP=$(mktemp "$LIVE_DIR/.subs.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s\n' $SUBS >"$TMP" 2>/dev/null && mv -f "$TMP" "$SUBSF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
+
+# The last phrase per subagent (ALY-263.3): one atomic write (temp 0600 + mv) when a phrase was kept; never with texts off.
+if [ "$ACTS" != - ] && [ "$ACTOK" = 1 ] && [ "$ACT" = 1 ]; then
+  TMP=$(mktemp "$LIVE_DIR/.acts.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
+  printf '%s' "$ACTS" >"$TMP" 2>/dev/null && mv -f "$TMP" "$ACTSF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 
 # Session watcher (ALY-217.2, D-21), still under the state lock: at a SessionStart, or at a UserPromptSubmit when no

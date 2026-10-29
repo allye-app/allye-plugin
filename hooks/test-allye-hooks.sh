@@ -649,6 +649,7 @@ run_script live off "$DATA"; check "off when the API answers 5xx: the flag is se
 new_case; mkcred; SHIMD="$SHIMS"; sessions3; HX=$(sha_of SESS-X-0009)
 printf 'agent-1\n' >"$(LV $HA.subs)"; printf '[]' >"$(LV $HA.agents)"; printf 'agent-2\n' >"$(LV $HX.subs)"; chmod 600 "$(LV $HA.subs)" "$(LV $HA.agents)" "$(LV $HX.subs)"
 printf '[]' >"$(LV $HB.agents)"; chmod 644 "$(LV $HB.agents)"
+printf '[["a","x"]]' >"$(LV $HA.acts)"; chmod 600 "$(LV $HA.acts)"; printf 'KEEPACTS' >"$SB/outacts.txt"; chmod 600 "$SB/outacts.txt"; ln -s "$SB/outacts.txt" "$(LV $HB.acts)"
 printf 'KEEP\n' >"$SB/outside.txt"; chmod 600 "$SB/outside.txt"; ln -s "$SB/outside.txt" "$(LV $HB.subs)"
 mkdir -p "$SB/outdir"; ln -s "$SB/outdir" "$(LV $HC.final.lock)"
 sh -c ':' & DEADP=$!; wait "$DEADP"
@@ -659,6 +660,8 @@ run_script live off "$DATA"
 check "off deletes the subs and agents files of every session (also one with no other file), whatever their mode, exit 0" "0 no no no no" \
   "$RC $([ -e "$(LV $HA.subs)" ] && echo yes || echo no) $([ -e "$(LV $HA.agents)" ] && echo yes || echo no) $([ -e "$(LV $HX.subs)" ] && echo yes || echo no) $([ -e "$(LV $HB.agents)" ] && echo yes || echo no)"
 check "off never deletes through a symlink: the subs link stays and its target keeps its content" "yes KEEP" "$([ -L "$(LV $HB.subs)" ] && echo yes || echo no) $(cat "$SB/outside.txt")"
+check "off deletes the last-phrase memory (acts) and never goes through a symlink: the link stays, its target keeps its content" "no yes KEEPACTS" \
+  "$([ -e "$(LV $HA.acts)" ] && echo yes || echo no) $([ -L "$(LV $HB.acts)" ] && echo yes || echo no) $(cat "$SB/outacts.txt")"
 check "off removes a final.lock whose holder is gone, keeps one whose holder runs and a symlinked one" "no yes yes yes" \
   "$([ -e "$(LV $HA.final.lock)" ] && echo yes || echo no) $([ -d "$(LV $HB.final.lock)" ] && echo yes || echo no) $([ -L "$(LV $HC.final.lock)" ] && echo yes || echo no) $([ -d "$SB/outdir" ] && echo yes || echo no)"
 kill "$LIVEP" 2>/dev/null; wait "$LIVEP" 2>/dev/null

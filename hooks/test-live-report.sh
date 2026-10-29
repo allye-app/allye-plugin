@@ -1014,7 +1014,7 @@ for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, 
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
 final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWSID").final.lock" ] || break; sleep 0.05; done   # the SessionEnd fixtures' final flusher (stub curl)
-check "files are keyed by sha256(session id): bind, cred, flushed, seq, spool, state and subs (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): acts, bind, cred, flushed, seq, spool, state and subs (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
 check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
@@ -1393,6 +1393,73 @@ end_case
 ack3 true; mkdir -p "$DATA/live" "$SB/elsewhere"; chmod 700 "$DATA/live"; printf 'keep' >"$SB/elsewhere/target"; ln -s "$SB/elsewhere/target" "$(DOFF)"
 run_fixture user-prompt-submit; wait_idle
 check "AC-14: ack true over a symlinked flag removes the link only" "no keep" "$([ -e "$(DOFF)" ] || [ -L "$(DOFF)" ] && echo yes || echo no) $(cat "$SB/elsewhere/target")"
+end_case
+
+echo "== activity: one sub_tool per subagent tool, per-agent duplicates, order and the texts-off gate (ALY-263.3 AC-05, BR-03, D-02, D-18) =="
+# subact ID DESC [TOOL]: a subagent Bash PreToolUse of agent ID whose description is DESC (the phrase source until the classifier).
+subact() { "$JQ_BIN" --arg id "$1" --arg d "$2" '.agent_id = $id | .tool_input.description = $d' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+# sub_acts ID: the activities of the sub_tool events of ID in spool order, "-" for an event without one, one line.
+sub_acts() { lines_of ".type == \"sub_tool\" and .sub.id == \"$1\"" | "$JQ_BIN" -r '.activity // "-"' | tr '\n' '|'; }
+new_case; mkcred
+subact a1 "Run the first unit tests now"
+check "AC-05: a subagent tool with a description: one sub_tool with sub.id and activity" '{"activity":"Run the first unit tests now","sub":{"id":"a1","type":"allye:bridge-pilot"},"tool":"Bash","type":"sub_tool"}' "$(lines_of '.type == "sub_tool"' | "$JQ_BIN" -cS . | tail -n 1)"
+subact a1 "Run the first unit tests now"
+check "AC-05: the same phrase again by the same agent: the event goes on, the phrase is skipped" "Run the first unit tests now|-|" "$(sub_acts a1)"
+subact a2 "Run the first unit tests now"
+check "AC-05: another agent with the same phrase still sends it" "Run the first unit tests now|" "$(sub_acts a2)"
+subact a1 "Run the first unit tests now"
+check "AC-05: the other agent's phrase did not reset the per-agent memory" "Run the first unit tests now|-|-|" "$(sub_acts a1)"
+subact a1 "Lint the changed scripts first"; subact a1 "Run the first unit tests now"
+check "AC-05: a different phrase is sent and the old one is sent again once it is no longer the previous" "Run the first unit tests now|-|-|Lint the changed scripts first|Run the first unit tests now|" "$(sub_acts a1)"
+check "D-18: the per-agent memory is a private file (0600) in the live directory" "600" "$(find "$DATA/live" -maxdepth 1 -name '*.acts' -printf '%m')"
+for i in $(seq 1 20); do subact "bulk$i" "Run the first unit tests now"; done
+check "D-18: the per-agent memory is bounded (the newest 16 agents)" "yes" "$("$JQ_BIN" -e 'length == 16' "$DATA/live/$(test_sha "$RAWSID").acts" >/dev/null && echo yes || echo no)"
+end_case
+
+new_case; mkcred
+subact b1 "Login with token=MARKER_ARGS and password: MARKER_ARGS then API_KEY=x for the user"
+check "AC-05: a phrase with a secret is dropped by the cleaner: no secret leaves the cleaner, in the spool or the memory" "0" "$(cat "$(spool_of "$RAWSID")" "$DATA"/live/*.acts 2>/dev/null | grep -c 'MARKER_ARGS' || true)"
+"$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "AC-05: no agent_id: a tool event, never a sub_tool" "tool 1" "$(lines_of '.type == "tool" or .type == "sub_tool"' | "$JQ_BIN" -r '.type' | tail -n 1) $(lines_of '.type == "sub_tool"' | grep -c . || true)"
+end_case
+
+ack3 ""
+subact c1 "Read the first spec carefully"; subact c1 "Edit the second script carefully"; subact c1 "Run the third check carefully"; subact c2 "Run the third check carefully"
+wait_idle
+check "AC-05: a batch of several phrases is sent whole and in order, none collapsed to the latest" "Read the first spec carefully|Edit the second script carefully|Run the third check carefully|Run the third check carefully|" "$(sent_evs | "$JQ_BIN" -r 'select(.type == "sub_tool" and .activity != null) | .activity' | tr '\n' '|')"
+end_case
+
+# texts off: no phrase is spooled or remembered on disk, whatever the flag kind
+for fl in activity-off detailed-off; do
+  new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+  subact d1 "Run the MARKERONE unit tests now"
+  : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  subact d1 "Run the MARKERTWO unit tests now"
+  check "BR-03: $fl: no phrase reaches the spool or any file after the flag appears" "0" "$(grep -rl 'MARKERTWO' "$DATA" 2>/dev/null | grep -c . || true)"
+  check "BR-03: $fl: the memory of the phrases is removed" "0" "$(find "$DATA/live" -maxdepth 1 -name '*.acts' | grep -c . || true)"
+  check "BR-03: $fl: the sub_tool event itself still goes on" "2" "$(lines_of '.type == "sub_tool"' | grep -c . || true)"
+  end_case
+done
+# SHD-03: 16 phrases of 140 multibyte code points (about 9 KB of memory) are still remembered, so their repeats are skipped
+new_case; mkcred
+mbp() { "$JQ_BIN" -rn --arg i "$1" '"\ud83d\ude00" as $e | ($i + ($e * 44)) + " " + ($e * 46) + " " + ($e * 46)'; }
+check "SHD-03: the test phrase has 140 code points and about 560 bytes" "140 yes" "$(mbp 10 | "$JQ_BIN" -R 'length' | tr -d '\n') $([ "$(mbp 10 | wc -c)" -gt 540 ] && echo yes || echo no)"
+for i in $(seq 10 25); do subact "mb$i" "$(mbp $i)"; done
+subact mb10 "$(mbp 10)"; subact mb25 "$(mbp 25)"
+check "SHD-03: the memory holds 16 multibyte phrases above 8 KB and is still read: their repeats are skipped" "yes - -" "$([ "$(wc -c <"$DATA/live/$(test_sha "$RAWSID").acts")" -gt 8192 ] && echo yes || echo no) $(lines_of '.type == "sub_tool" and .sub.id == "mb10"' | "$JQ_BIN" -r '.activity // "-"' | tail -n 1) $(lines_of '.type == "sub_tool" and .sub.id == "mb25"' | "$JQ_BIN" -r '.activity // "-"' | tail -n 1)"
+end_case
+# SHD-05: the ack detailed:false removes the memory of every session
+ack3 false; SHIMD="$SHIMS_STUB"; subact f1 "Run the MARKERFOUR unit tests now"
+check "setup: the memory exists before the ack" "yes" "$([ -f "$DATA/live/$(test_sha "$RAWSID").acts" ] && echo yes || echo no)"
+SHIMD="$SHIMS"; run_fixture user-prompt-submit; wait_idle
+check "SHD-05: an ack with detailed:false removes the last-phrase memory" "no" "$([ -e "$DATA/live/$(test_sha "$RAWSID").acts" ] && echo yes || echo no)"
+end_case
+# a spool that already holds the phrase when the flag flips: stripped at flush, the outbox gets none
+ack3 ""; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+printf '5xx' >"$SB/api/ingest-mode"; subact e1 "Run the MARKERTHREE unit tests now"; wait_idle
+check "setup: the phrase is in the spool before the flag" "1" "$(grep -c MARKERTHREE "$(spool_of "$RAWSID")" || true)"
+: >"$(DOFF)"; chmod 600 "$(DOFF)"; printf 'ok' >"$SB/api/ingest-mode"; : >"$SB/api/ingest-bodies.log"; run_fixture user-prompt-submit; wait_idle
+check "BR-03: the flag flips with the phrase already in the spool: the request carries no phrase, the sub_tool does" "0 1" "$(grep -c MARKERTHREE "$SB/api/ingest-bodies.log" || true) $(sent_evs | "$JQ_BIN" -c 'select(.type == "sub_tool")' | grep -c . || true)"
 end_case
 
 echo "== text cleaner: shared vectors, cap 140, nested allowlist and marker scan (ALY-258.1 AC-06, AC-07, D-33, NFR-01) =="
