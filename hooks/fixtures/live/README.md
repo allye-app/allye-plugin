@@ -138,9 +138,23 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   through the cleaner cut out of `live-report.sh` and checks the forbidden tokens, the 140 limit, one line and idempotence.
 - Stash correlation (D-32): the Agent/Task stash entry gains `id` (the PreToolUse `tool_use_id`). `SubagentStart` and
   `SubagentStop` carry no `tool_use_id`, so a start is matched by subagent type within the 60 s TTL: exactly one unexpired
-  entry of the type gives `sub.desc` (and `sub.task`, the first dotted task key of the cleaned description) to the `sub_start`
+  entry of the type gives `sub.desc` (and `sub.task`, see the task key rule below) to the `sub_start`
   (real or synthetic) and is consumed; none gives nothing; several (parallel launches of one type) give nothing and the other
   entries of the type become tombstones (empty text, expiring by TTL) so a later start of the type never pairs with them. There is no separate Agent `sub_tool` event any more. Covered by generated payloads in the test.
+- Task key rule (ALY-263.10, AC-10, D-07, D-14; section `taskkey` of the test): `sub.task` is a display hint taken from the CLEANED dispatch
+  description (a key inside a token the cleaner dropped is never sent) at the `sub_start` (stash) and once more on the first `sub_tool` of an
+  agent id (the metadata file `agent-<id>.meta.json`, same safe open and 2 s budget as at the stop, built from `transcript_path` and the
+  ids). Candidates: every full `KEY-N.M` (project `[A-Z][A-Z0-9]{1,9}`, N of 1 to 4 digits, M of 1 to 3, not glued to a word, `-`, `_` or `.`
+  before it nor to a letter, digit or `.digit` after it); only when there is no full key, every bare `N.M` (`^\d{1,4}\.\d{1,3}$`, a `-` or `/`
+  before it is a border, so `aly-263.3` and a version like `2.12.0` give nothing). Exactly one distinct candidate is taken; two distinct
+  ones are ambiguous and give nothing (this replaces "the first key wins"). A bare key is completed with the project prefix of the strongest
+  binding and only when exactly one project is bound (the held binding in `$HASH.bind` plus the keys of `$HASH.touch`): no binding or several
+  projects give nothing. A full key of another project than the single bound one gives nothing (prefix mismatch). The dispatcher, recon,
+  strategist, architect and armorer roles give nothing, and a spec key alone (no dotted part) is no task key. The metadata file is read ONCE
+  per agent id: `$HASH.tkmem` (JSON `[[id, task or "", tried 0|1]]`, newest 64, 0600, private regular file of at most 8192 bytes, no text;
+  absent, corrupt or off-shape entries count as empty, so old installs work) records the attempt whether or not it worked, so a failure is
+  final for that id ("unreadable then readable" keeps no key). `sub.task` goes on the `sub_tool` only when it differs from the value already
+  sent for that agent (the start's). With texts off (`activity-off`, `detailed-off`) nothing is read, sent or written, as for `desc`.
 - `batch_build` keeps only `id`, `type`, `outcome`, `task` and `desc` inside `sub` (the nested allowlist; ALY-258.2 extends it).
 - `LIVE_TEST_SECTIONS` (regex over the section names) runs a subset of `hooks/test-live-report.sh`; unset runs everything.
 

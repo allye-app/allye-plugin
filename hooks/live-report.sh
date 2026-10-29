@@ -1075,6 +1075,52 @@ if ! texts_off; then
   fi
 fi
 
+# ─── ALY-263.10: task key inputs (AC-10, D-07, D-14, AC-02), read outside the lock like the other files. TKPFX: the one project prefix of
+# the strongest binding ($HASH.bind, the touched spec keys of $HASH.touch): exactly one distinct project, else "" (no binding or several
+# projects). TKID/TKDESC: at the FIRST tool of an agent id (no entry marked tried in $HASH.tkmem) the metadata file is read through the same
+# safe open and the same 2 s budget as at the stop; whatever the result the jq program records the attempt, so it is never repeated. Only
+# while texts are on.
+TKPFX=""; TKID=""; TKDESC=""
+tk_prefix() {  # sets TKPFX
+  local b="" t="" all p first="" mixed=0
+  if [ -f "$LIVE_DIR/$HASH.bind" ] && [ ! -L "$LIVE_DIR/$HASH.bind" ] && private_file_ok "$LIVE_DIR/$HASH.bind"; then b=$(head -c 1200 "$LIVE_DIR/$HASH.bind" 2>/dev/null) || b=""; fi
+  if [ -f "$LIVE_DIR/$HASH.touch" ] && [ ! -L "$LIVE_DIR/$HASH.touch" ] && private_file_ok "$LIVE_DIR/$HASH.touch"; then t=$(head -c 1200 "$LIVE_DIR/$HASH.touch" 2>/dev/null) || t=""; fi
+  all=$( { printf '%s\n' "$b" | LC_ALL=C grep -oE '"(spec|task)":"[A-Z][A-Z0-9]{1,9}-[0-9]' | LC_ALL=C sed -E 's/^"[a-z]+":"//; s/-[0-9]$//'
+           printf '%s\n' "$t" | LC_ALL=C grep -oE '^[A-Z][A-Z0-9]{1,9}-[0-9]' | LC_ALL=C sed -E 's/-[0-9]$//'; } 2>/dev/null)
+  while IFS= read -r p; do   # no sort in the hook PATH: distinct by hand
+    [ -n "$p" ] || continue
+    if [ -z "$first" ]; then first="$p"; elif [ "$p" != "$first" ]; then mixed=1; fi
+  done <<<"$all"
+  if [ "$mixed" = 0 ] && [[ "$first" =~ ^[A-Z][A-Z0-9]{1,9}$ ]]; then TKPFX="$first"; fi
+}
+tk_tried() {  # tk_tried ID: succeeds when $HASH.tkmem holds an entry of ID marked tried (a private regular file of at most 8192 bytes)
+  local f="$LIVE_DIR/$HASH.tkmem" c
+  [ -f "$f" ] && [ ! -L "$f" ] || return 1
+  [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ] || return 1
+  c=$(cat "$f" 2>/dev/null) || return 1
+  [[ "$c" =~ \[\"$1\",\"([A-Z][A-Z0-9]{1,9}-[0-9]+(\.[0-9]+)?)?\",1\] ]]
+}
+if ! texts_off; then
+  case "$INPUT" in *SubagentStart*|*'"agent_id"'*)
+    tk_prefix
+    case "$INPUT" in *PreToolUse*)
+      TRF=$(printf '%s' "$INPUT" | jq -c '
+        select(.hook_event_name == "PreToolUse") | select((.agent_id | strings | test("\\A[A-Za-z0-9_-]{1,64}\\z")) // false)
+        | {a: "", t: ((.transcript_path | strings) // ""), s: ((.session_id | strings) // ""), i: .agent_id}
+        | select([.t, .s | test("\n")] | any | not)' 2>/dev/null) || TRF=""
+      if [ -n "$TRF" ]; then
+        TKI=$(printf '%s' "$TRF" | jq -r '.i' 2>/dev/null) || TKI=""
+        if [[ "$TKI" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && ! tk_tried "$TKI"; then
+          TKID="$TKI"
+          [[ "$RD_END" =~ ^[0-9]{13}$ ]] || RD_END="$(( $(now_ms) + 2000 ))"
+          if MDP=$(agent_file_of meta.json) && TKDESC=$(meta_description "$MDP"; printf x); then TKDESC="${TKDESC%x}"; else TKDESC=""; fi
+        fi
+      fi
+      TRF="" ;;
+    esac ;;
+  esac
+fi
+
 lock_take "$LOCKD" 500 || exit 0
 STATE_TOKEN="$LOCK_TOKEN"; HAVE_LOCK=1
 # `/allye:hooks live off` may have run while this hook waited for the lock: it then drops its events (AC-11).
@@ -1400,9 +1446,25 @@ def stashin:
                and ((has("id") | not) or (.id | idok))
                and ((has("p") | not) or (.p == true and .a == ""))))
   | .[-16:];
-# AC-03: the task key of a start is the first dotted task key of the CLEANED description (a key inside a token the cleaner
-# dropped is therefore never sent).
-def taskof: [match("(?<![A-Za-z0-9])[A-Z][A-Z0-9]{1,9}-[0-9]+\\.[0-9]+"; "g").string] | .[0];
+# AC-03, ALY-263.10 (AC-10, D-07): the task key of a start or of a first tool is taken from the CLEANED description (a key inside a token
+# the cleaner dropped is therefore never sent). tkfull: every full KEY-N.M (project [A-Z][A-Z0-9]{1,9}, N 1-4 digits, M 1-3 digits, not glued
+# to a word, `-`, `_` or `.` before it nor to a letter, digit or `.digit` after it); tkbare: every bare N.M (same borders, and a `-` or `/`
+# before it is a border too, so `aly-263.3` and the number inside a full key give nothing). A full key wins over bare ones; exactly one
+# distinct candidate is taken, two distinct ones are ambiguous (nothing). $pfx is the one project prefix of the bindings ("" = none or
+# several projects): a full key of another project than a single bound one is dropped, a bare key needs the prefix. Roles that carry no task
+# key (dispatcher, recon, strategist, architect, armorer) give nothing.
+def tkroleok: (. // "") | test("(\\A|[:-])(dispatcher|recon|strategist|architect|armorer)\\z") | not;
+def tkfull: [match("(?<![A-Za-z0-9._-])[A-Z][A-Z0-9]{1,9}-[0-9]{1,4}\\.[0-9]{1,3}(?![A-Za-z0-9]|\\.[0-9])"; "g").string] | unique;
+def tkbare: [match("(?<![A-Za-z0-9._/-])[0-9]{1,4}\\.[0-9]{1,3}(?![A-Za-z0-9]|\\.[0-9])"; "g").string] | unique;
+def taskkey($pfx; $ty):
+  if ($ty | tkroleok | not) then null
+  else tkfull as $f
+    | if ($f | length) > 0 then
+        (if ($f | length) == 1 and ($pfx == "" or ($f[0] | startswith($pfx + "-"))) then $f[0] else null end)
+      else tkbare as $b
+        | (if ($b | length) == 1 and ($pfx | test("\\A[A-Z][A-Z0-9]{1,9}\\z")) then $pfx + "-" + $b[0] else null end)
+      end
+  end;
 # stashc($starts): $starts are the subs whose first sub_start (real or synthetic, ALY-217.7) this event spools. Correlation
 # (D-32): the unexpired entries of the subagent type of the start are counted. Exactly one, and it is not a tombstone: its
 # cleaned description is attached as `desc` (and its task key as `task`) to that sub_start and the entry is consumed. None:
@@ -1420,7 +1482,7 @@ def stashc($starts):
        | if ($ix | length) == 0 then .
          elif ($ix | length) == 1 and ($q[$ix[0]].p // false | not) then
            $q[$ix[0]].a as $a
-           | (if $a != "" then .ds[$s.id] = ({desc: $a} + ($a | taskof | if . != null then {task: .} else {} end)) else . end)
+           | (if $a != "" then .ds[$s.id] = ({desc: $a} + ($a | taskkey($tkpfx; $s.type) | if . != null then {task: .} else {} end)) else . end)
            | .q |= del(.[$ix[0]])
          else .q |= ([range(0; length) as $k | .[$k] | if .t != $s.type then . elif $k == $ix[0] then empty else . + {a: "", p: true} end]) end)) as $c
     | if .hook_event_name == "PreToolUse" and (.tool_name | IN("Agent","Task")) then
@@ -1466,6 +1528,30 @@ def actdd($e):
       else .out += [$ev] end)
     | {out: .out, st: (if .ch then .s else null end)}
   end;
+# ─── ALY-263.10 (AC-10, D-07, D-14): sub.task on the first sub_tool of an agent id ───
+# $tkmem is the content of $HASH.tkmem, [[sub id, task key sent or "", tried 0|1]] oldest first (at most 64), usable only when $tkok is "1";
+# an entry off the shape is dropped (a corrupt or old file counts as empty). $tkid is the agent id whose metadata description (the
+# --rawfile $tkdesc, "" when the read failed) the shell read for this event, or "". A sub_start that carries a task records it (tried 0). The
+# sub_tool of $tkid whose entry is not tried yet takes the key from the cleaned description and sends it only when it differs from the value
+# already sent for that agent; the attempt is recorded either way (tried 1), so a failed read is never repeated. {out: events, st: memory or null}.
+def tkmemin: ($tkmem | try fromjson catch []) | (if type == "array" then . else [] end)
+  | map(select(type == "array" and length == 3 and (.[0] | idok) and (.[1] | type == "string") and (.[1] == "" or (.[1] | keyok)) and (.[2] == 0 or .[2] == 1))) | .[-64:];
+def tkpass($e):
+  if $tkok != "1" or $txt != "1" then {out: $e, st: null}
+  else
+    reduce $e[] as $ev ({out: [], m: tkmemin, ch: false};
+      ($ev.sub.id // null) as $i
+      | (if $i == null then null else (.m | map(select(.[0] == $i)) | .[0]) end) as $o
+      | if $ev.type == "sub_start" and ($ev.sub.task // null) != null and $o == null then
+          .out += [$ev] | .m = ((.m + [[$i, $ev.sub.task, 0]]) | .[-64:]) | .ch = true
+        elif $ev.type == "sub_tool" and $i != null and $i == $tkid and ($o == null or $o[2] == 0) then
+          (if $o != null then $o[1] else "" end) as $sent
+          | (($tkdesc | actphrase(actcap)) as $d | if $d != null then ($d | taskkey($tkpfx; $ev.sub.type)) else null end) as $k
+          | .out += [if $k != null and $k != $sent then $ev | .sub.task = $k else $ev end]
+          | .m = (((.m | map(select(.[0] != $i))) + [[$i, (if $k != null then $k else $sent end), 1]]) | .[-64:]) | .ch = true
+        else .out += [$ev] end)
+    | {out: .out, st: (if .ch then .m else null end)}
+  end;
 # ─── ALY-263.6 (AC-09, D-04, D-17): the session label ───
 # $lblraw (a --rawfile, never argv: it holds the title) is read by the shell outside the lock: {t: last custom-title string or null, a: last ai-title string or null, c: the basename of
 # the working directory (a real directory) or null, st: true at a SessionStart}; it is the JSON null when no check is due or texts are off.
@@ -1491,7 +1577,8 @@ def lblc:
 | (try stashc($sb.new) catch {ds: {}, st: null}) as $sc
 | [$sb.out[] | if .type == "sub_start" then .sub += ($sc.ds[.sub.id] // {}) else . end] as $all0
 | (try actdd($all0) catch {out: $all0, st: null}) as $ad
-| $ad.out as $all
+| (try tkpass($ad.out) catch {out: $ad.out, st: null}) as $tk
+| $tk.out as $all
 | (reduce $all[] as $ev ({out: [], last: $last};
     (if ($ev.type | IN("tool","sub_tool","sub_start","trig")) and ($ev.syn | not) and .last == "waiting_input"
        then .out += [{type: "state", state: "working"}] | .last = "working" else . end)
@@ -1506,6 +1593,7 @@ def lblc:
   (if $sb.seen == null or ($sb.new | length) == 0 then "-" else ($sb.seen | join(" ")) end),
   (if $ad.st == null then "-" else ($ad.st | tojson) end),
   (try ($in | lblc) catch null | if . == null then "-" else tojson end),
+  (if $tk.st == null then "-" else ($tk.st | tojson) end),
   ($r.out[] | . + {at: $at} | tojson),
   "."'
 
@@ -1536,6 +1624,14 @@ if [ "$ACT" = 0 ]; then
 elif [ ! -e "$ACTSF" ] && [ ! -L "$ACTSF" ]; then ACTOK=1
 elif [ ! -L "$ACTSF" ] && [ -n "$(find "$ACTSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then ACTOK=1; ACTSRC="$ACTSF"
 elif private_file_ok "$ACTSF"; then ACTOK=1; fi
+# ALY-263.10: the task memory $HASH.tkmem (ids, task keys, 0/1; no text), read like the phrase memory: the private file itself when at most
+# 8192 bytes, absent = empty, any other entry (symlink, foreign owner or mode) = neither used nor written. With texts off it is not used.
+TKF="$LIVE_DIR/$HASH.tkmem"; TKSRC=/dev/null; TKOK=0
+if [ "$ACT" = 1 ]; then
+  if [ ! -e "$TKF" ] && [ ! -L "$TKF" ]; then TKOK=1
+  elif [ ! -L "$TKF" ] && [ -n "$(find "$TKF" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ]; then TKOK=1; TKSRC="$TKF"
+  elif private_file_ok "$TKF"; then TKOK=1; fi
+fi
 # ALY-263.6 (BR-03): the label state holds the label text, so like the phrases it exists only while texts are on.
 LBLF="$LIVE_DIR/$HASH.label"
 if [ "$ACT" = 0 ] && { [ -L "$LBLF" ] || { [ -f "$LBLF" ] && [ -n "$(find "$LBLF" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; }; then rm -f "$LBLF" 2>/dev/null; fi
@@ -1545,11 +1641,11 @@ elif [ ! -L "$SUBSF" ] && [ -n "$(find "$SUBSF" -prune -type f -user "$UID_NOW" 
 elif private_file_ok "$SUBSF"; then SUBOK=1; fi
 MS=$(now_ms)
 [[ "$MS" =~ ^[1-9][0-9]{0,15}$ ]] || exit 0
-RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --arg actok "$ACTOK" --rawfile acts "$ACTSRC" --rawfile lblraw <(printf '%s' "$LBLIN") --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
+RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --arg actok "$ACTOK" --rawfile acts "$ACTSRC" --rawfile lblraw <(printf '%s' "$LBLIN") --arg tkok "$TKOK" --rawfile tkmem "$TKSRC" --arg tkid "$TKID" --rawfile tkdesc <(printf '%s' "$TKDESC") --arg tkpfx "$TKPFX" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
 # Output: new last state, bind candidate (or -), cwd for the branch source (or -), gates path and cwd (or -, -),
 # watcher trigger (start = a SessionStart of a known source, prompt = UserPromptSubmit, or -), the new Agent/Task
 # stash (or - to leave it), the new seen-set as space-separated ids (or - to leave it), the new last-phrase memory (or -),
-# the label candidate (or -), events, "." terminator.
+# the label candidate (or -), the new task memory (or -), events, "." terminator.
 NEWLAST="${RESULT%%$'\n'*}"; REST="${RESULT#*$'\n'}"
 CAND="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 CWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
@@ -1560,6 +1656,7 @@ AGT="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 SUBS="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 ACTS="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 LBLC="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+TKMC="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 case "$REST" in .) EVENTS="" ;; *$'\n'.) EVENTS="${REST%$'\n'.}" ;; *) exit 0 ;; esac
 case "$NEWLAST" in ""|started|working|waiting_input|idle|error|ended) ;; *) exit 0 ;; esac
 [ -n "$CAND" ] && [ -n "$CWD" ] && [ -n "$GFP" ] && [ -n "$GCWD" ] || exit 0
@@ -1568,6 +1665,7 @@ case "$AGT" in -|'['*']') ;; *) exit 0 ;; esac
 [ "$SUBS" = - ] || [[ "$SUBS" =~ ^[A-Za-z0-9_-]{1,64}( [A-Za-z0-9_-]{1,64}){0,63}$ ]] || exit 0
 case "$ACTS" in -|'['*']') ;; *) exit 0 ;; esac
 case "$LBLC" in -|'{'*'}') ;; *) exit 0 ;; esac
+case "$TKMC" in -|'['*']') ;; *) exit 0 ;; esac
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
 # ALY-263.5 (AC-08, D-15): a candidate with the internal touch marker (spec_context/spec_get or a launch with a spec key) is
@@ -1811,6 +1909,12 @@ fi
 if [ "$ACTS" != - ] && [ "$ACTOK" = 1 ] && [ "$ACT" = 1 ]; then
   TMP=$(mktemp "$LIVE_DIR/.acts.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$ACTS" >"$TMP" 2>/dev/null && mv -f "$TMP" "$ACTSF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
+
+# The task memory (ALY-263.10): one atomic write (temp 0600 + mv) when an entry changed; never with texts off.
+if [ "$TKMC" != - ] && [ "$TKOK" = 1 ] && [ "$ACT" = 1 ]; then
+  TMP=$(mktemp "$LIVE_DIR/.tkmem.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
+  printf '%s' "$TKMC" >"$TMP" 2>/dev/null && mv -f "$TMP" "$TKF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 
 # Session watcher (ALY-217.2, D-21), still under the state lock: at a SessionStart, or at a UserPromptSubmit when no

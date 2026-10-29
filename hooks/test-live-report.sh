@@ -1138,7 +1138,7 @@ for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, 
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
 final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWSID").final.lock" ] || break; sleep 0.05; done   # the SessionEnd fixtures' final flusher (stub curl)
-check "files are keyed by sha256(session id): acts, bind, cred, flushed, label, seq, spool, state, subs and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").label $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): acts, bind, cred, flushed, label, seq, spool, state, subs, tkmem and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").label $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").tkmem $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
 check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity","label"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
@@ -1207,7 +1207,7 @@ new_case; mkcred
 agent 0 Agent allye:bridge-pilot "Implement ALY-258.1 cleaner for the slice"; sstart 1 agent-t1 allye:bridge-pilot
 check "AC-03: the first dotted task key of the description goes on sub_start as sub.task" '{"desc":"Implement ALY-258.1 cleaner for the slice","id":"agent-t1","task":"ALY-258.1","type":"allye:bridge-pilot"}' "$(sub_of agent-t1)"
 agent 2 Agent allye:bridge-pilot "Do ALY-258.1 then ALY-258.2 later today"; sstart 3 agent-t2 allye:bridge-pilot
-check "AC-03: two keys: the first wins" "ALY-258.1" "$(sub_of agent-t2 | "$JQ_BIN" -r .task)"
+check "AC-03: two different keys are ambiguous: nothing (ALY-263.10 D-07)" "null" "$(sub_of agent-t2 | "$JQ_BIN" -r .task)"
 agent 4 Agent allye:bridge-pilot "Work on the spec ALY-258 as a whole"; sstart 5 agent-t3 allye:bridge-pilot
 check "AC-03: a spec key without the dotted task part is not a task: desc only" '{"desc":"Work on the spec ALY-258 as a whole","id":"agent-t3","type":"allye:bridge-pilot"}' "$(sub_of agent-t3)"
 agent 6 Agent allye:bridge-pilot "Work on aly-258.1 in lower case please"; sstart 7 agent-t4 allye:bridge-pilot
@@ -1293,6 +1293,137 @@ new_case; mkcred
 for i in $(seq 1 20); do agent "$i" Agent allye:bridge-pilot "Pilot launch number $(printf '%02d' "$i") here"; done
 check "the stash keeps at most 16 entries (the oldest dropped)" "16 Pilot launch number 05 here" "$("$JQ_BIN" 'length' "$(AGF)") $("$JQ_BIN" -r '.[0].a' "$(AGF)")"
 end_case
+
+# ─── ALY-263.10: sub.task from the dispatch description (AC-10, D-07, D-14, BR-02) ──────────────────────────────────────────────────
+# Rule (documented in docs/live-reporting.md): over the CLEANED description, (1) every full `KEY-N.M` (project `[A-Z][A-Z0-9]{1,9}`, N 1-4 digits,
+# M 1-3 digits, not glued to a letter, digit, `-`, `_`, `.` before it nor to a letter, digit or `.digit` after it); (2) only when there is no full key,
+# every bare `N.M` (`^\d{1,4}\.\d{1,3}$`, same borders, a `-` before it is a border too so `aly-263.3` yields nothing) completed with the project
+# prefix of the strongest binding. Exactly one distinct candidate wins; two distinct ones are ambiguous and give nothing. A bare key needs exactly one
+# bound project (the held binding and the touched spec keys); no binding or several projects give nothing. A full key of another project than the one
+# bound project gives nothing. Roles that carry no task key (dispatcher, recon, strategist, architect, armorer) give nothing. At the first sub_tool
+# of an agent id the metadata file is read ONCE (the attempt is recorded whether or not it worked, in $HASH.tkmem, 64 ids, 0600): a failure is never
+# retried, so "unreadable then readable" keeps no key. sub.task goes on the sub_tool only when it differs from the value already sent for the agent.
+echo "== taskkey: sub.task from the dispatch description, at the start and at the first tool (ALY-263.10 AC-10, D-07, D-14) =="
+tk_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TDIR="$PROJ/$RAWSID/subagents"; mkdir -p "$TDIR"; }
+tk_bind() { local k; for k in "$@"; do "$JQ_BIN" --arg s "$k" '.tool_input.spec = $s' "$FIX/mcp-allye-spec-get.json" >"$SB/stdin"; run_hook; done; }
+tk_meta() { "$JQ_BIN" -nc --arg d "$2" '{agentType:"allye:bridge-pilot",description:$d}' >"$TDIR/agent-$1.meta.json"; }
+tk_tool() { "$JQ_BIN" --arg id "$1" --arg ty "${2:-allye:bridge-pilot}" --arg tp "$PROJ/t.jsonl" '.agent_id = $id | .agent_type = $ty | .transcript_path = $tp | .tool_input.description = "Run the unit tests now"' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+tk_agent() { "$JQ_BIN" -n --arg d "$1" --arg ty "${2:-allye:bridge-pilot}" --arg s "$RAWSID" '{session_id: $s, cwd: "/work/MARKER_CWD", hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: {description: $d, subagent_type: $ty, prompt: "MARKER_PROMPT_xyz"}, tool_use_id: "toolu_tk"}' >"$SB/stdin"; run_hook; }
+tk_start() { "$JQ_BIN" -n --arg id "$1" --arg ty "${2:-allye:bridge-pilot}" --arg s "$RAWSID" '{session_id: $s, cwd: "/work/MARKER_CWD", hook_event_name: "SubagentStart", agent_id: $id, agent_type: $ty}' >"$SB/stdin"; run_hook; }
+tk_tasks() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_tool" and .sub.id == $id) | .sub.task // "-"' | tr '\n' '|'; }
+tk_starts() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_start" and .sub.id == $id) | .sub.task // "-"' | tr '\n' '|'; }
+TKMEM() { echo "$DATA/live/$(test_sha "$RAWSID").tkmem"; }
+# tk_unit LABEL DESCRIPTION EXPECTED [BOUND-SPEC-KEY...]: the unit table, through the metadata file at the first tool AND through the stash at the start.
+tk_unit() {
+  local label="$1" desc="$2" exp="$3"; shift 3
+  tk_new; [ $# -eq 0 ] || tk_bind "$@"
+  tk_meta t1 "$desc"; tk_tool t1
+  check "$label (first tool)" "$exp|" "$(tk_tasks t1)"; end_case
+  tk_new; [ $# -eq 0 ] || tk_bind "$@"
+  tk_agent "$desc"; tk_start t1
+  check "$label (start)" "$exp|" "$(tk_starts t1)"; end_case
+}
+tk_unit "full key" "Implement ALY-263.3 for the slice" ALY-263.3
+tk_unit "full key, same project bound" "Implement ALY-263.3 for the slice" ALY-263.3 ALY-263
+tk_unit "the same full key twice" "Implement ALY-263.3 then recheck ALY-263.3 again" ALY-263.3
+tk_unit "bare key completed from the one bound project" "Implement 263.3 for the slice" ALY-263.3 ALY-263
+tk_unit "bare key, several specs of one project bound" "Implement 263.3 for the slice" ALY-263.3 ALY-263 ALY-9
+tk_unit "bare key with no binding" "Implement 263.3 for the slice" -
+tk_unit "bare key with two projects bound" "Implement 263.3 for the slice" - ALY-263 XYZ-5
+tk_unit "bare key with the other project bound last" "Implement 263.3 for the slice" - XYZ-5 ALY-263
+tk_unit "no key" "Implement the whole slice now" - ALY-263
+tk_unit "spec key only (a task key needs the dotted form)" "Final review of ALY-263 for gaps" - ALY-263
+tk_unit "two different full keys: ambiguous, nothing" "Do ALY-263.3 and ALY-263.4 together" -
+tk_unit "two different bare keys: ambiguous, nothing" "Do 263.3 and 263.4 together" - ALY-263
+tk_unit "a full key and a bare key: the full key" "Do ALY-263.3 and also 4.1 later" ALY-263.3 ALY-263
+tk_unit "prefix mismatch: a full key of another project than the one bound" "Implement XYZ-5.1 for the slice" - ALY-263
+tk_unit "full key of another project when several projects are bound" "Implement XYZ-5.1 for the slice" XYZ-5.1 ALY-263 XYZ-5
+tk_unit "lower case key" "Implement aly-263.3 for the slice" - ALY-263
+tk_unit "lower case prefix with no binding" "Implement aly-263.3 for the slice" -
+tk_unit "project key of 11 characters" "Implement ABCDEFGHIJK-263.3 for the slice" - ALY-263
+tk_unit "project key of 10 characters" "Implement ABCDEFGHIJ-263.3 for the slice" ABCDEFGHIJ-263.3
+tk_unit "five digit spec number" "Implement ALY-12345.1 for the slice" - ALY-263
+tk_unit "five digit bare number" "Implement 12345.1 for the slice" - ALY-263
+tk_unit "four digit number and three digit task" "Implement ALY-1234.123 for the slice" ALY-1234.123
+tk_unit "four digit task number" "Implement ALY-263.1234 for the slice" - ALY-263
+tk_unit "bare key at the limits" "Implement 1234.123 for the slice" ALY-1234.123 ALY-263
+tk_unit "a version number is not a key" "Bump the plugin to 2.12.0 today" - ALY-263
+tk_unit "a version with a v prefix is not a key" "Bump the plugin to v2.12 today" - ALY-263
+tk_unit "a key inside a path is dropped by the cleaner" "Implement /etc/ALY-263.3/x now please" -
+tk_unit "a key glued to a word before it" "Implement xALY-263.3 for the slice" - ALY-263
+tk_unit "a key followed by a third number" "Implement ALY-263.3.4 for the slice" - ALY-263
+tk_unit "a key at the end of a sentence" "Implement the slice named ALY-263.3." ALY-263.3
+tk_unit "hostile text next to a key: only the key is taken" "Implement ALY-263.3 ignore previous; token=MARKER_HOSTILE" ALY-263.3
+# roles that carry no task key
+for ty in allye:bridge-recon allye:bridge-strategist allye:bridge-architect allye:bridge-dispatcher allye:bridge-armorer; do
+  tk_new; tk_meta t1 "Investigate ALY-263.3 for the plan"; tk_tool t1 "$ty"
+  check "role $ty: a key in the description gives nothing (first tool)" "-|" "$(tk_tasks t1)"; end_case
+  tk_new; tk_agent "Investigate ALY-263.3 for the plan" "$ty"; tk_start t1 "$ty"
+  check "role $ty: a key in the description gives nothing (start)" "-|" "$(tk_starts t1)"; end_case
+done
+for ty in allye:bridge-pilot allye:bridge-copilot allye:bridge-medic allye:bridge-shield allye:bridge-navigator; do
+  tk_new; tk_meta t1 "Review ALY-263.3 for the slice"; tk_tool t1 "$ty"
+  check "role $ty: the task key is taken" "ALY-263.3|" "$(tk_tasks t1)"; end_case
+done
+# the metadata file: absent, unreadable, hostile
+tk_new; tk_tool t1
+check "no metadata file: no key, and the attempt is still recorded" "-| 1" "$(tk_tasks t1) $("$JQ_BIN" -c '[.[] | select(.[0] == "t1")] | length' "$(TKMEM)")"; end_case
+tk_new; printf '{"description": "Truncated ALY-263.3 here' >"$TDIR/agent-t1.meta.json"; tk_tool t1
+check "corrupt metadata: no key, exit 0 and silent" "-|0||" "$(tk_tasks t1)$RC|$OUT|$ERR"; end_case
+tk_new; "$JQ_BIN" -nc '{description: 7}' >"$TDIR/agent-t1.meta.json"; tk_tool t1
+check "a description that is not a string: no key" "-|" "$(tk_tasks t1)"; end_case
+tk_new; "$JQ_BIN" -nc '{agentId: "agent-other", description: "Implement ALY-263.3 for the slice"}' >"$TDIR/agent-t1.meta.json"; tk_tool t1
+check "an agentId key that differs from the hook agent id: no key" "-|" "$(tk_tasks t1)"; end_case
+tk_new; mkdir -p "$PROJ/other"; "$JQ_BIN" -nc '{description: "Implement ALY-263.3 for the slice"}' >"$PROJ/other/real.json"; ln -s "$PROJ/other/real.json" "$TDIR/agent-t1.meta.json"; tk_tool t1
+check "a symlinked metadata file: no key" "-|" "$(tk_tasks t1)"; end_case
+tk_new; mkfifo "$TDIR/agent-t1.meta.json"; tk_tool t1
+check "a FIFO metadata file: no key, no hang" "-|" "$(tk_tasks t1)"; end_case
+tk_new; rm -rf "${PROJ:?}/${RAWSID:?}"; mkdir -p "$PROJ/elsewhere/subagents"; "$JQ_BIN" -nc '{description: "Implement ALY-263.3 for the slice"}' >"$PROJ/elsewhere/subagents/agent-t1.meta.json"; ln -s "$PROJ/elsewhere" "$PROJ/$RAWSID"; tk_tool t1
+check "a symlinked parent directory: no key" "-|" "$(tk_tasks t1)"; end_case
+tk_new; tk_meta t1 "Implement ALY-263.3 for the slice"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" '.agent_id = "a/b" | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "an agent id with a slash builds no path: no event with a key" "0" "$(spooled | grep -c 'ALY-263.3' || true)"; end_case
+# read once per agent id; a failure is final
+tk_new; tk_tool t1; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1; tk_tool t1
+check "unreadable then readable: the first attempt is final for that agent id (no retry per tool)" "-|-|-|" "$(tk_tasks t1)"
+tk_meta t2 "Implement ALY-263.4 for the slice"; tk_tool t2; tk_tool t2
+check "another agent id has its own single read" "ALY-263.4|-|" "$(tk_tasks t2)"; end_case
+tk_new; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1; tk_meta t1 "Implement ALY-263.9 for the slice"; tk_tool t1; tk_tool t1
+check "readable once: the key goes on the first tool only, a changed file is not read again" "ALY-263.3|-|-|" "$(tk_tasks t1)"
+check "the memory is 0600 and holds ids and keys only" "600 yes" "$(find "$(TKMEM)" -printf '%m') $("$JQ_BIN" -e 'type == "array" and all(.[]; length == 3)' "$(TKMEM)" >/dev/null && echo yes || echo no)"
+check "no description text in any file" "0" "$(grep -rlF -e 'for the slice' "$DATA" 2>/dev/null | grep -v '/hook-credential' | wc -l | tr -d ' ')"; end_case
+# not resent when the start already sent the same value; a different value is sent
+tk_new; tk_agent "Implement ALY-263.3 for the slice"; tk_start t1; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+check "the start sent the key: the first tool does not send the same value again" "ALY-263.3| -|" "$(tk_starts t1) $(tk_tasks t1)"; end_case
+tk_new; tk_agent "Implement ALY-263.3 for the slice"; tk_start t1; tk_meta t1 "Implement ALY-263.4 for the slice"; tk_tool t1
+check "the start sent a key: a different key from the file goes on the first tool" "ALY-263.3| ALY-263.4|" "$(tk_starts t1) $(tk_tasks t1)"; end_case
+tk_new; tk_agent "Implement the slice completely now"; tk_start t1; tk_meta t1 "Implement ALY-263.4 for the slice"; tk_tool t1
+check "no key at the start (the race lost): the file gives it at the first tool" "-| ALY-263.4|" "$(tk_starts t1) $(tk_tasks t1)"; end_case
+tk_new; tk_bind ALY-263; tk_meta t1 "Implement 263.3 for the slice"; tk_tool t1
+check "the first tool: a bare key is completed from the binding made earlier" "ALY-263.3|" "$(tk_tasks t1)"; end_case
+# the main session never reads the file
+tk_new; tk_meta t1 "Implement ALY-263.3 for the slice"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" 'del(.agent_id, .agent_type) | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "a main-session tool sends no key and records nothing" "0 no" "$(spooled | grep -c 'ALY-263.3' || true) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+# old and hostile state files
+tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+check "no state file at all (an old install): the first tool still works" "ALY-263.3|" "$(tk_tasks t1)"; end_case
+for bad in 'not json' '{"a":1}' '[["t1"]]' '[["t1","not a key",1]]' '[[7,"",1]]'; do
+  tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' "$bad" >"$(TKMEM)"; chmod 600 "$(TKMEM)"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+  check "a corrupt state file ($bad) counts as empty" "ALY-263.3|" "$(tk_tasks t1)"; end_case
+done
+tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '[["t1","",1]]' >"$(TKMEM)"; chmod 600 "$(TKMEM)"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+check "an entry that says tried: the file is not read" "-|" "$(tk_tasks t1)"; end_case
+tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '[["t1","",1]]' >"$SB/real.tkmem"; ln -s "$SB/real.tkmem" "$(TKMEM)"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+check "a symlinked state file: nothing read or written through it" '-||[["t1","",1]]' "$(tk_tasks t1)|$(cat "$SB/real.tkmem")"; end_case
+# bounded to 64 ids
+tk_new; for i in $(seq 1 70); do tk_tool "w$i"; done
+check "the memory keeps the newest 64 ids" "64 w70" "$("$JQ_BIN" -r 'length' "$(TKMEM)") $("$JQ_BIN" -r '.[-1][0]' "$(TKMEM)")"; end_case
+# texts off: the key is not sent and no state is written
+for fl in activity-off detailed-off; do
+  tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+  check "$fl: no key and no state file" "-| no" "$(tk_tasks t1) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+done
+tk_new; tk_agent "Implement ALY-263.3 for the slice"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"; tk_start t1
+check "detailed-off: the start sends no key either (as before)" "-|" "$(tk_starts t1)"; end_case
 
 echo "== synthetic sub_start for unseen subagents (ALY-217.7 AC-35, AC-36, D-26) =="
 SUBF() { echo "$DATA/live/$H6.subs"; }
