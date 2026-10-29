@@ -369,7 +369,7 @@ live_off_purge() {
   local f base
   for f in "$1"/*; do
     base="${f##*/}"
-    if [[ "$base" =~ ^[0-9a-f]{64}\.(subs|agents|acts)$ ]]; then
+    if [[ "$base" =~ ^[0-9a-f]{64}\.(subs|agents|acts|label)$ ]]; then
       [ -f "$f" ] && [ ! -L "$f" ] && [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ] && rm -f "$f" 2>/dev/null
     elif [[ "$base" =~ ^[0-9a-f]{64}\.final\.lock$ ]]; then
       [ -d "$f" ] && [ ! -L "$f" ] && [ -n "$(find "$f" -prune -type d -user "$UID_NOW" -print 2>/dev/null)" ] && lock_is_stale "$f" && rm -rf "$f" 2>/dev/null

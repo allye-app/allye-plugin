@@ -110,6 +110,11 @@ live_dir_ok() {
   [ -n "$(find "$LIVE_DIR" -prune -type d -user "$UID_NOW" -perm 0700 -print 2>/dev/null)" ]
 }
 
+# texts_off: display texts are off (BR-03): the activity-off flag or the cached detailed-off flag; any entry counts (fail safe).
+texts_off() {
+  [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ] || [ -e "$LIVE_DIR/detailed-off" ] || [ -L "$LIVE_DIR/detailed-off" ]
+}
+
 # ─── ALY-263.1: safe read of a Claude transcript file (AC-02, AC-03, BR-02, D-16) ───
 # One budget of 2 seconds is shared by every read of this hook invocation: RD_END (Unix ms) is set ONCE, in the main shell, before the
 # first read (never inside a $(...), where the assignment would be lost); rd_left only reads it, so every later read sees less.
@@ -335,12 +340,15 @@ jq_valid_def() {
       elif .key == "checks" then (.value | type == "object" and (pick(["ok","run"]) != null))
       elif .key == "findings" then (.value | type == "object" and (pick(["critical","high","medium","low","info"]) != null))
       else true end;
-    def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity")))
+    def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity","label")))
       | (if (.sub | type) == "object" then .sub |= (with_entries(select(.key | IN("id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings")) | select(subfld))
           | (if has("checks") then .checks |= pick(["ok","run"]) else . end)
           | (if has("findings") then .findings |= pick(["critical","high","medium","low","info"]) else . end)) else . end);
     def ok: type == "object" and (.seq | type == "number" and . == floor and . >= 1) and (.at | type == "string")
-            and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates"));
+            and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates","label"))
+            and (if .type == "label" then (.label | type == "object" and (keys - ["text","source","cwd"] | length) == 0
+                   and (.text | type == "string" and (explode | length) >= 1 and (explode | length) <= 60) and (.source | IN("explicit","ai"))
+                   and (.cwd == null or (.cwd | type == "string" and test("\\A[A-Za-z0-9._-]{1,60}\\z")))) else true end);
     def fresh($now): ((.at | try fromdateiso8601 catch 0) >= ($now - 82800));'
 }
 # credfp: CFP = sha256 of the token (identifies the credential without storing it).
@@ -384,6 +392,7 @@ batch_build() {
         else (($L[$i] | try fromjson catch null)) as $e
           | if ($e | ok | not) then .k = $i + 1
             elif ($e | fresh($now) | not) then .k = $i + 1 | .max = ([.max, $e.seq] | max)
+            elif $strip == "1" and $e.type == "label" then .k = $i + 1 | .max = ([.max, $e.seq] | max)   # a label is display text (ALY-263.6, BR-03): not sent while texts are off
             else ($e | keep | if $strip == "1" then del(.activity) | (if (.sub | type) == "object" then .sub |= del(.desc, .summary) else . end) else . end) as $ev | ($ev | tojson | utf8bytelength) as $len
               | (if (.evs | length) > 0 then 1 else 0 end) as $sep
               | if ((.evs | length) >= 50) or (((.evs | length) > 0) and ((.size + $sep + $len) > 16384)) then .done = true
@@ -448,7 +457,7 @@ detailed_cache() {
     fi
     for f in "$LIVE_DIR"/*; do
       base="${f##*/}"
-      [[ "$base" =~ ^[0-9a-f]{64}\.(agents|acts)$ ]] || continue
+      [[ "$base" =~ ^[0-9a-f]{64}\.(agents|acts|label)$ ]] || continue
       if [ -L "$f" ] || { [ -f "$f" ] && [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; then rm -f "$f" 2>/dev/null; fi
     done
     lock_drop "$LOCKD" "$tok"
@@ -1002,6 +1011,70 @@ EFTOK=""
 cleanup() { [ -z "$TMPF" ] || rm -f "$TMPF" "$TMPF.2" 2>/dev/null; [ "$HAVE_LOCK" = 1 ] && lock_drop "$LOCKD" "$STATE_TOKEN"; [ -z "$EFTOK" ] || lock_drop "$FLOCK" "$EFTOK"; return 0; }
 trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
+
+# ─── ALY-263.6: session label inputs (AC-09, AC-02, D-17), read outside the lock like the subagent files. A check is due at a
+# SessionStart of a known source and, for any other event of the main session (not SessionEnd), when $HASH.label ("<ms> <json>": the time
+# of the last check and the last value sent, 0600, at most 1024 bytes) is missing, older than a minute or from the future. The session
+# transcript (<session id>.jsonl, id ^[A-Za-z0-9_-]{1,64}$) is read through the same safe open and the same 2 s budget as the subagent
+# files, last 262144 bytes, invalid JSON lines skipped; a failed read only means no title. LBLIN is the JSON the jq program cleans, or
+# null. The working directory basename (`cwd`) goes inside the label and only with a label text (the API requires the text); it is
+# taken only from a real directory, so a payload cwd that names nothing sends nothing.
+LBLIN=null; LBLDUE=0; LBLSTORED=""; LBLMS=""
+label_state_read() {  # sets LBLMS and LBLSTORED from $LBLF, or empties them (absent, not private, oversized or off the shape)
+  local l
+  LBLMS=""; LBLSTORED=""
+  [ -f "$LBLF" ] && [ ! -L "$LBLF" ] || return 0
+  [ -n "$(find "$LBLF" -prune -type f -user "$UID_NOW" -perm 0600 -size -1025c -print 2>/dev/null)" ] || return 0
+  { IFS= read -r l <"$LBLF"; } 2>/dev/null
+  if [[ "$l" =~ ^([0-9]{13})\ (\{.*\})$ ]]; then LBLMS="${BASH_REMATCH[1]}"; LBLSTORED="${BASH_REMATCH[2]}"; fi
+}
+LBLF="$LIVE_DIR/$HASH.label"
+if ! texts_off; then
+  LBLNOW=$(now_ms); label_state_read
+  LBLTHR=1
+  if [[ "$LBLNOW" =~ ^[0-9]{13}$ ]] && [[ "$LBLMS" =~ ^[0-9]{13}$ ]] && [ "$LBLNOW" -ge "$LBLMS" ] && [ $((LBLNOW - LBLMS)) -lt 60000 ]; then LBLTHR=0; fi
+  case "$INPUT" in *SessionStart*) LBLMAYBE=1 ;; *) LBLMAYBE=$LBLTHR ;; esac
+  if [ "$LBLMAYBE" = 1 ]; then
+    LBP=$(printf '%s' "$INPUT" | jq -c '
+      select(.hook_event_name | strings | . != "" and . != "SessionEnd") | select((.agent_id // null) == null)
+      | {st: ((.hook_event_name == "SessionStart") and (.source | IN("startup","resume","clear","compact","fork"))),
+         sid: ((.session_id | strings) // ""), tp: ((.transcript_path | strings) // ""), cwd: ((.cwd | strings) // "")}
+      | select([.sid, .tp | test("[\u0000-\u001f\u007f]")] | any | not)
+      | .cwd |= (if test("[\u0000-\u001f\u007f]") then "" else . end)' 2>/dev/null) || LBP=""
+    if [ -n "$LBP" ] && { [ "$LBLTHR" = 1 ] || [ "$(printf '%s' "$LBP" | jq -r '.st' 2>/dev/null)" = true ]; }; then
+      LBLDUE=1
+      LBLT=""; LBLA=""; LBLC0=""
+      LBLSID=$(printf '%s' "$LBP" | jq -r '.sid' 2>/dev/null) || LBLSID=""
+      LBLTP=$(printf '%s' "$LBP" | jq -r '.tp' 2>/dev/null) || LBLTP=""
+      LBLCWD=$(printf '%s' "$LBP" | jq -r '.cwd' 2>/dev/null) || LBLCWD=""
+      if [[ "$LBLSID" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && [ "${LBLTP##*/}" = "$LBLSID.jsonl" ]; then
+        [[ "$RD_END" =~ ^[0-9]{13}$ ]] || RD_END="$(( $(now_ms) + 2000 ))"
+        if LBLGOT=$(claude_safe_tail "$LBLTP" 262144 '^[A-Za-z0-9_-]{1,64}\.jsonl$' && printf x); then
+          LBLGOT="${LBLGOT%x}"
+          LBLTT=$(printf '%s' "$LBLGOT" | jq -sRc '
+            index("\n") as $i
+            | if $i == null then empty else
+                (.[0:$i]) as $hd
+                | (.[$i + 1:] | split("\n") | (if $hd == "partial" then .[1:] else . end) | .[:-1]) as $cl
+                | [$cl[] | fromjson? | objects] as $o
+                | {t: ([$o[] | select(.type == "custom-title") | .customTitle | strings] | last | if . == null then null else .[0:4096] end),
+                   a: ([$o[] | select(.type == "ai-title") | .aiTitle | strings] | last | if . == null then null else .[0:4096] end)}
+              end' 2>/dev/null) || LBLTT=""
+        else LBLTT=""; fi
+      else LBLTT=""; fi
+      [ -n "$LBLTT" ] || LBLTT='{"t":null,"a":null}'
+      LBLBASE=""
+      case "$LBLCWD" in
+        /*) if [ "${#LBLCWD}" -le 4096 ] && [ -d "$LBLCWD" ]; then LBLBASE="${LBLCWD%"${LBLCWD##*[!/]}"}"; LBLBASE="${LBLBASE##*/}"; fi ;;
+      esac
+      # the title and the basename go to jq on stdin, never through argv
+      LBLIN=$({ printf '%s\n' "$LBLTT"; printf '%s' "$LBLBASE" | jq -Rc . ; printf '%s' "$LBP" | jq -c '.st'; } | jq -sc '.[0] + {c: (.[1] | if . == "" then null else . end), st: .[2]}' 2>/dev/null) || LBLIN=null
+      [ -n "$LBLIN" ] || LBLIN=null
+      LBLTT=""; LBLGOT=""
+    fi
+  fi
+fi
+
 lock_take "$LOCKD" 500 || exit 0
 STATE_TOKEN="$LOCK_TOKEN"; HAVE_LOCK=1
 # `/allye:hooks live off` may have run while this hook waited for the lock: it then drops its events (AC-11).
@@ -1119,7 +1192,8 @@ def actbearer: (actcore | ascii_downcase) == "bearer";
 # (hard cut at $cap-1 when there is none or when that would leave fewer than 8) plus U+2026, so the ellipsis is inside the cap.
 # This is the one cleaner of the reporter: a documented subset of the API scrubber (ALY-257 D-20), which stays authoritative.
 def actcap: 140;
-def actphrase($cap):
+# ALY-263.6 (AC-09): the minimum of words and characters is a parameter; every text but the session label keeps 3 words and 8 characters.
+def actclean($cap; $minw; $minc):
   if type != "string" then null else
     .[0:4096] | explode | map(if actws then 32 elif actbad then empty else . end) | implode
     | (try gsub("[\\p{Cc}\\p{Cf}\\p{Cs}]"; "") catch .)
@@ -1143,13 +1217,14 @@ def actphrase($cap):
           elif ($w | actdrop) then .
           else .o += [$w] end)) as $r
     | ($r.o | join(" ")) as $p
-    | if ($r.o | length) < 3 or ($p | length) < 8 then null
+    | if ($r.o | length) < $minw or ($p | length) < $minc then null
       elif ($p | length) <= $cap then $p
       else ($p | explode) as $e
         | ([range(0; $cap) | select($e[.] == 32)] | last) as $i
         | (if $i != null and $i >= 8 then $e[0:$i] else $e[0:($cap - 1)] end | implode | sub(" +\\z"; "")) + "\u2026"
       end
   end;
+def actphrase($cap): actclean($cap; 3; 8);
 # BR-10 (D-24 a, b, c): the one field read per tool; nothing while the activity-off flag exists.
 # $txt is "1" unless texts are off (the activity-off flag; ALY-258.3 adds detailed:false): then no activity, no desc, no stash.
 def actof:
@@ -1326,6 +1401,25 @@ def actdd($e):
       else .out += [$ev] end)
     | {out: .out, st: (if .ch then .s else null end)}
   end;
+# ─── ALY-263.6 (AC-09, D-04, D-17): the session label ───
+# $lblraw (a --rawfile, never argv: it holds the title) is read by the shell outside the lock: {t: last custom-title string or null, a: last ai-title string or null, c: the basename of
+# the working directory (a real directory) or null, st: true at a SessionStart}; it is the JSON null when no check is due or texts are off.
+# Sources, first one that survives the cleaner: env ALLYE_SESSION_LABEL (explicit), customTitle (explicit), aiTitle (ai); only the
+# custom-title key can make an explicit label. The cleaner is actclean with 60 characters and no minimum (a title can be one word).
+# cwd (the basename): exactly one path component through the D-08 basename rules (shape, denylist, the long/hex/secret drops of actdrop;
+# all-dot names are not names). The API requires the label text, so a basename is never sent alone: no label text, nothing is sent.
+def lbldeny: ascii_downcase | test("\\A\\.env|credential|secret|token|passw|private|\\.pem\\z|\\.key\\z|id_(rsa|ed25519|ecdsa)|\\.p12\\z|\\.pfx\\z|kubeconfig|netrc|npmrc|pairing|hook-|service-account|keystore|\\.tfstate|\\.kdbx");
+def lblbase: if type == "string" and test("\\A[A-Za-z0-9._-]{1,60}\\z") and (test("\\A\\.+\\z") | not) and (lbldeny | not) and (actdrop | not) then . else null end;
+def lblnorm: actclean(60; 1; 2);
+def lblc:
+  if $txt != "1" or ($lblraw | try fromjson catch null | type) != "object" then null else
+    ($lblraw | fromjson) as $lbl
+    | ($lbl.c | lblbase) as $b
+    | ([(($ENV.ALLYE_SESSION_LABEL | lblnorm) | select(. != null) | {text: ., source: "explicit"}),
+        (($lbl.t | lblnorm) | select(. != null) | {text: ., source: "explicit"}),
+        (($lbl.a | lblnorm) | select(. != null) | {text: ., source: "ai"})] | .[0]) as $l
+    | if $l != null then $l + (if $b != null then {cwd: $b} else {} end) else null end
+  end;
 # BR-14: the first tool/subagent-start event after waiting_input is preceded by a `state working`.
 . as $in
 | evs as $e0
@@ -1347,6 +1441,7 @@ def actdd($e):
   (if $sc.st == null or ($sc.st | tojson) == $stash or ($sc.st == [] and $stash == "") then "-" else ($sc.st | tojson) end),
   (if $sb.seen == null or ($sb.new | length) == 0 then "-" else ($sb.seen | join(" ")) end),
   (if $ad.st == null then "-" else ($ad.st | tojson) end),
+  (try ($in | lblc) catch null | if . == null then "-" else tojson end),
   ($r.out[] | . + {at: $at} | tojson),
   "."'
 
@@ -1354,7 +1449,7 @@ def actdd($e):
 # Agent/Task stash $HASH.agents is read once (bounded, private file only) and passed to the jq program.
 # ALY-258.3 (BR-03): texts are also off while $LIVE_DIR/detailed-off exists (the cached `detailed: false` of the ingest ack; any entry).
 ACT=1
-if [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ] || [ -e "$LIVE_DIR/detailed-off" ] || [ -L "$LIVE_DIR/detailed-off" ]; then ACT=0; fi
+if texts_off; then ACT=0; fi
 # The stash goes to jq through --rawfile (never argv, Shield SHD-02): the file itself when it is private and at most
 # 16384 bytes (one find), else /dev/null (an oversized private stash is then simply rewritten).
 AGENTSF="$LIVE_DIR/$HASH.agents"; STASHSRC=/dev/null; AGOK=0
@@ -1377,17 +1472,20 @@ if [ "$ACT" = 0 ]; then
 elif [ ! -e "$ACTSF" ] && [ ! -L "$ACTSF" ]; then ACTOK=1
 elif [ ! -L "$ACTSF" ] && [ -n "$(find "$ACTSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then ACTOK=1; ACTSRC="$ACTSF"
 elif private_file_ok "$ACTSF"; then ACTOK=1; fi
+# ALY-263.6 (BR-03): the label state holds the label text, so like the phrases it exists only while texts are on.
+LBLF="$LIVE_DIR/$HASH.label"
+if [ "$ACT" = 0 ] && { [ -L "$LBLF" ] || { [ -f "$LBLF" ] && [ -n "$(find "$LBLF" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; }; then rm -f "$LBLF" 2>/dev/null; fi
 SUBSF="$LIVE_DIR/$HASH.subs"; SUBSRC=/dev/null; SUBOK=0
 if [ ! -e "$SUBSF" ] && [ ! -L "$SUBSF" ]; then SUBOK=1
 elif [ ! -L "$SUBSF" ] && [ -n "$(find "$SUBSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ]; then SUBOK=1; SUBSRC="$SUBSF"
 elif private_file_ok "$SUBSF"; then SUBOK=1; fi
 MS=$(now_ms)
 [[ "$MS" =~ ^[1-9][0-9]{0,15}$ ]] || exit 0
-RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --arg actok "$ACTOK" --rawfile acts "$ACTSRC" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
+RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --arg actok "$ACTOK" --rawfile acts "$ACTSRC" --rawfile lblraw <(printf '%s' "$LBLIN") --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
 # Output: new last state, bind candidate (or -), cwd for the branch source (or -), gates path and cwd (or -, -),
 # watcher trigger (start = a SessionStart of a known source, prompt = UserPromptSubmit, or -), the new Agent/Task
 # stash (or - to leave it), the new seen-set as space-separated ids (or - to leave it), the new last-phrase memory (or -),
-# events, "." terminator.
+# the label candidate (or -), events, "." terminator.
 NEWLAST="${RESULT%%$'\n'*}"; REST="${RESULT#*$'\n'}"
 CAND="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 CWD="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
@@ -1397,6 +1495,7 @@ WEV="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 AGT="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 SUBS="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 ACTS="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+LBLC="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 case "$REST" in .) EVENTS="" ;; *$'\n'.) EVENTS="${REST%$'\n'.}" ;; *) exit 0 ;; esac
 case "$NEWLAST" in ""|started|working|waiting_input|idle|error|ended) ;; *) exit 0 ;; esac
 [ -n "$CAND" ] && [ -n "$CWD" ] && [ -n "$GFP" ] && [ -n "$GCWD" ] || exit 0
@@ -1404,6 +1503,7 @@ case "$WEV" in start|prompt|-) ;; *) exit 0 ;; esac
 case "$AGT" in -|'['*']') ;; *) exit 0 ;; esac
 [ "$SUBS" = - ] || [[ "$SUBS" =~ ^[A-Za-z0-9_-]{1,64}( [A-Za-z0-9_-]{1,64}){0,63}$ ]] || exit 0
 case "$ACTS" in -|'['*']') ;; *) exit 0 ;; esac
+case "$LBLC" in -|'{'*'}') ;; *) exit 0 ;; esac
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
 # ALY-263.5 (AC-08, D-15): a candidate with the internal touch marker (spec_context/spec_get or a launch with a spec key) is
@@ -1540,7 +1640,35 @@ if [ -n "$GATELINE" ]; then
   if [ -n "$EVENTS" ]; then EVENTS="$EVENTS"$'\n'"$GATELINE"; else EVENTS="$GATELINE"; fi
 fi
 
-[ -n "$EVENTS" ] || exit 0
+# ─── ALY-263.6: the label event (AC-09). The candidate of the jq program is sent only when it differs from the last value sent
+# ($HASH.label, judged again here under the lock); a check that sends nothing still records its time (at most one check a minute).
+# The file holds display text, so it is written only while texts are on (BR-03) and only over a private name.
+label_state_write() {  # label_state_write VALUE-JSON: "<ms> <json>", temp 0600 + mv; best effort
+  local tmp
+  [[ "$MS" =~ ^[0-9]{13}$ ]] || return 0
+  tmp=$(mktemp "$LIVE_DIR/.label.XXXXXX" 2>/dev/null) || return 0; TMPF="$tmp"
+  printf '%s %s' "$MS" "$1" >"$tmp" 2>/dev/null && mv -f "$tmp" "$LBLF" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+LBLLINE=""; LBLWRITE=""
+if [ "$LBLDUE" = 1 ] && [ "$ACT" = 1 ] && private_file_ok "$LBLF"; then
+  label_state_read
+  [ -n "$LBLSTORED" ] || LBLSTORED='{}'
+  LBLWRITE=now
+  if [ "$LBLC" != "-" ] && [ "$LBLC" != "$LBLSTORED" ]; then
+    LBLLINE=$(printf '%s' "$LBLC" | jq -c --arg at "$AT" '{type: "label", label: ., at: $at}' 2>/dev/null) || LBLLINE=""
+    if [ -n "$LBLLINE" ]; then
+      if [ -n "$EVENTS" ]; then EVENTS="$EVENTS"$'\n'"$LBLLINE"; else EVENTS="$LBLLINE"; fi
+      LBLSTORED="$LBLC"; LBLWRITE=after
+    fi
+  fi
+fi
+
+# nothing to send: the time of the check is still recorded, but only where the spool and the state are usable (as for any claim)
+if [ -z "$EVENTS" ]; then
+  if [ "$LBLWRITE" = now ] && private_file_ok "$SPOOL" && private_file_ok "$STATEF"; then label_state_write "$LBLSTORED"; fi
+  exit 0
+fi
 private_file_ok "$SPOOL" || exit 0
 private_file_ok "$STATEF" || exit 0
 
@@ -1596,6 +1724,7 @@ if [ -n "$BINDLINE" ] && [ -n "$TOUCHNEW" ]; then
   TMP=$(mktemp "$LIVE_DIR/.touch.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s\n' "$TOUCHNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$TOUCHF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
+if [ "$LBLWRITE" = after ] || [ "$LBLWRITE" = now ]; then label_state_write "$LBLSTORED"; fi
 if [ -n "$GATELINE" ]; then
   TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$GNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null

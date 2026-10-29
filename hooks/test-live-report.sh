@@ -249,7 +249,9 @@ test_sha() { if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sh
 DEFAULT_SID="sess-0001"
 spool_of() { echo "$DATA/live/$(test_sha "$1").spool"; }
 # spooled SID: the spool lines without their `at` and `seq`, compact, one per line ("" when no spool).
-spooled() { local f; f=$(spool_of "${1:-$RAWSID}"); [ -f "$f" ] && "$JQ_BIN" -cS 'del(.at, .seq)' "$f" || true; }
+spooled_all() { local f; f=$(spool_of "${1:-$RAWSID}"); [ -f "$f" ] && "$JQ_BIN" -cS 'del(.at, .seq)' "$f" || true; }
+# `spooled` leaves out the label events (ALY-263.6): a SessionStart in a real directory adds one; the section "label" reads them with labels.
+spooled() { spooled_all "$@" | grep -v '"type":"label"' || true; }
 # run_fixture NAME...: feeds each fixture in order on stdin (same session), sets OUT/ERR/RC of the last.
 run_fixture() { local n; for n in "$@"; do cp "$FIX/$n.json" "$SB/stdin"; run_hook; done; }
 expected_of() { local n; for n in "$@"; do cat "$FIX/$n.expect"; done; }
@@ -1136,9 +1138,9 @@ for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, 
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
 final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWSID").final.lock" ] || break; sleep 0.05; done   # the SessionEnd fixtures' final flusher (stub curl)
-check "files are keyed by sha256(session id): acts, bind, cred, flushed, seq, spool, state, subs and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): acts, bind, cred, flushed, label, seq, spool, state, subs and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").label $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
-check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity","label"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
@@ -1665,6 +1667,178 @@ for i in $(seq 1 100); do [ -s "$SB/api/ingest-bodies.log" ] && break; sleep 0.0
 check "AC-11: the nested allowlist keeps id, type, desc, task and drops any other key of sub" '{"desc":"Review the spec for gaps","id":"agent-k1","task":"ALY-258.1","type":"allye:bridge-pilot"}' "$("$JQ_BIN" -cS '.events[] | select(.seq == 1) | .sub' "$SB/api/ingest-bodies.log" 2>/dev/null)"
 check "AC-11: the dropped nested keys are in no request body" "0" "$(grep -cE 'MARKER_ABCDEF|MARKER_PROMPT_xyz' "$SB/api/ingest-bodies.log" || true)"
 end_case
+
+# ─── ALY-263.6: the session label and the working directory basename (AC-09, AC-02, BR-03, D-04, D-17) ──────
+echo "== label: env, custom title, ai title and the working directory basename (ALY-263.6 AC-09, AC-02, BR-03, D-04, D-17) =="
+# lb_new: a case with the transcript layout of the session (<projects>/p/<session id>.jsonl, TP) and a real working directory WD.
+lb_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TP="$PROJ/$RAWSID.jsonl"; WD="$SB/work/myproj"; mkdir -p "$WD"; }
+lb_ct() { "$JQ_BIN" -nc --arg t "$1" '{type:"custom-title",customTitle:$t,sessionId:"s"}'; }
+lb_ai() { "$JQ_BIN" -nc --arg t "$1" '{type:"ai-title",aiTitle:$t,sessionId:"s"}'; }
+lb_msg() { "$JQ_BIN" -nc '{type:"user",message:{content:"hello"}}'; }
+# lb_pay NAME [JQ-FILTER]: the fixture NAME with the transcript path and cwd of the case.
+lb_pay() { "$JQ_BIN" --arg tp "$TP" --arg cwd "$WD" '.transcript_path = $tp | .cwd = $cwd' "$FIX/$1.json" | "$JQ_BIN" "${2:-.}" >"$SB/stdin"; }
+lb_start() { lb_pay session-start-startup "${1:-.}"; run_hook; }
+lb_event() { lb_pay user-prompt-submit "${1:-.}"; run_hook; }
+labels() { spooled_all | grep '"type":"label"' || true; }
+LF() { echo "$DATA/live/$(test_sha "$RAWSID").label"; }
+lbl() { "$JQ_BIN" -cS -n --arg t "$1" --arg s "$2" --arg c "$3" '{type:"label", label: ({text:$t, source:$s} + (if $c != "" then {cwd:$c} else {} end))}'; }
+# the sources and their order
+lb_new; RUN_ENV=("ALLYE_SESSION_LABEL=Fix the login flow"); lb_start
+check "env label: explicit, with the working directory basename" "$(lbl "Fix the login flow" explicit myproj)" "$(labels)"
+check "the label event is nested: only type and label (text, source, cwd); the state file is 0600" "label,type cwd,source,text 600" "$("$JQ_BIN" -r 'select(.type == "label") | (keys - ["seq","at"] | join(",")) + " " + (.label | keys | join(","))' "$(spool_of "$RAWSID")") $(find "$(LF)" -printf '%m')"
+end_case
+lb_new; { lb_msg; lb_ai "Refactor the billing module"; lb_ct "Billing refactor session"; } >"$TP"; RUN_ENV=("ALLYE_SESSION_LABEL=Env wins here"); lb_start
+check "env beats the custom title, which beats the ai title" "$(lbl "Env wins here" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_msg; lb_ai "Refactor the billing module"; lb_ct "Billing refactor session"; } >"$TP"; lb_start
+check "custom title beats the ai title: source explicit" "$(lbl "Billing refactor session" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_msg; lb_ai "Refactor the billing module"; } >"$TP"; lb_start
+check "only an ai title: source ai" "$(lbl "Refactor the billing module" ai myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "First custom name"; lb_msg; lb_ct "Second custom name"; lb_ai "First ai name here"; lb_ai "Second ai name here"; } >"$TP"; lb_start
+check "the last custom-title entry wins" "$(lbl "Second custom name" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_ai "First ai name here"; lb_msg; lb_ai "Second ai name here"; } >"$TP"; lb_start
+check "the last ai-title entry wins" "$(lbl "Second ai name here" ai myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Real custom name"; "$JQ_BIN" -nc '{type:"ai-title",customTitle:"Not a custom name",aiTitle:7}'; "$JQ_BIN" -nc '{type:"user",customTitle:"Also not custom"}'; } >"$TP"; lb_start
+check "only an entry of type custom-title and its customTitle make an explicit label" "$(lbl "Real custom name" explicit myproj)" "$(labels)"; end_case
+lb_new; { "$JQ_BIN" -nc '{type:"ai-title",customTitle:"Only the wrong key here"}'; lb_msg; } >"$TP"; lb_start
+check "customTitle on an ai-title entry never produces a label" "" "$(labels)"; end_case
+lb_new; { lb_ai "Good ai name here"; printf 'not json at all\n{"type":"custom-title","customTitle":"cut off\n'; } >"$TP"; lb_start
+check "invalid JSON lines are skipped" "$(lbl "Good ai name here" ai myproj)" "$(labels)"; end_case
+lb_new; { lb_ai "Older ai name here"; "$JQ_BIN" -nc --rawfile pad <(head -c 300000 /dev/zero | tr '\0' a) '{type:"user",pad:$pad}'; } >"$TP"; lb_start
+check "a title older than the last 256 KB is not found" "" "$(labels)"; end_case
+lb_new; { lb_ai "Cut first name"; printf '{"type":"ai-title","aiTitle":"Cut last name"}'; } >"$TP"; lb_start
+check "an unterminated last line is dropped" "$(lbl "Cut first name" ai myproj)" "$(labels)"; end_case
+# nothing to say
+lb_new; lb_start
+check "no title and no env, a SessionStart: nothing, not even the basename" "" "$(labels)"; end_case
+lb_new; lb_event
+check "no title and no env, another event: nothing" "" "$(labels)"; check "the check is recorded (state file)" "yes" "$([ -f "$(LF)" ] && echo yes || echo no)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_event
+check "a title found at another event than a SessionStart: sent, with the basename" "$(lbl "Named by hand" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_event '. + {agent_id: "agent-abc123", agent_type: "allye:bridge-pilot"}'
+check "an event of a subagent checks nothing" "" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_pay session-end-clear; run_hook
+check "SessionEnd checks nothing" "" "$(labels)"; end_case
+# cleaning
+lbt() {  # lbt LABEL TITLE EXPECTED-TEXT ("" = none)
+  lb_new; { lb_ct "$2"; } >"$TP"; lb_start
+  check "$1" "$([ -n "$3" ] && lbl "$3" explicit myproj || true)" "$(labels)"; end_case
+}
+lbt "a short title (one word) is kept" "Billing" "Billing"
+lbt "a secret in the title is dropped by the cleaner" "Rotate ghp_0123456789abcdefghij today" "Rotate today"
+lbt "a URL in the title is dropped" "Review https://evil.example/x?k=1 now please" "Review now please"
+lbt "a path in the title is dropped" "Fix /etc/MARKER_PATH/passwd handling" "Fix handling"
+lbt "invisible and bidi characters are removed" "Fix$(printf '​') the$(printf '‮') login" "Fix the login"
+lbt "a title that is only a URL leaves no label" "https://evil.example/MARKER_PATH" ""
+lbt "a key=value secret leaves no value" "Use api_key=abcd1234efgh5678 for the build" "Use for the build"
+lbt "backticked spans are removed" 'Run `rm -rf /` in the sandbox' "Run in the sandbox"
+lb_new; { lb_ct "$(for i in $(seq 1 40); do printf 'word '; done)"; } >"$TP"; lb_start
+check "a long title is capped at 60 characters with an ellipsis" "yes" "$(labels | "$JQ_BIN" -r '.label.text | if (length <= 60 and endswith("…") and length > 8) then "yes" else "no" end')"; end_case
+lb_new; { lb_ct "abcde abcde abcde abcde abcde abcde abcde abcde abcde abcdef"; } >"$TP"; lb_start
+check "a title of exactly 60 characters is kept whole" "60" "$(labels | "$JQ_BIN" -r '.label.text | length')"; end_case
+lb_new; { lb_ct "$(printf 'é%.0s' $(seq 1 30)) $(printf 'ü%.0s' $(seq 1 40))"; } >"$TP"; lb_start
+check "the cap counts characters, not bytes" "yes" "$(labels | "$JQ_BIN" -r '.label.text | if (length <= 60 and length > 10) then "yes" else "no" end')"; end_case
+lb_new; RUN_ENV=("ALLYE_SESSION_LABEL=https://evil.example/MARKER_PATH"); { lb_ai "Falls back to the ai name"; } >"$TP"; lb_start
+check "an env label the cleaner empties falls through to the next source" "$(lbl "Falls back to the ai name" ai myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Billing MARKER_TITLE_LBL session"; } >"$TP"; lb_start
+check "the label is the only text in the spool; no raw session id on disk" "0" "$(grep -rlF -e "$RAWSID" "$DATA" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+# the working directory basename
+lbd() {  # lbd NAME EXPECTED ("" = none): a real directory with this name
+  lb_new; mkdir -p "$SB/work/$1"; WD="$SB/work/$1"; { lb_ct "Named by hand"; } >"$TP"; lb_start
+  check "cwd basename '$(printf '%s' "$1" | tr '\n' '~')': $([ -n "$2" ] && echo sent || echo dropped)" "$(lbl "Named by hand" explicit "$2")" "$(labels)"; end_case
+}
+lbd "my-proj_1.x" "my-proj_1.x"
+lbd "Project" "Project"
+for d in .env .env.local .ENV id_rsa id_ed25519 id_ecdsa.pub .npmrc .netrc credentials my-secret-dir token-cache passwords private-keys server.pem server.key client.p12 client.pfx kubeconfig pairing-files hook-credential service-account-prod my.keystore terraform.tfstate vault.kdbx "with space" "naïve-ü" 0123456789abcdef0123 "$(printf 'a%.0s' $(seq 1 61))" "$(printf 'n%.0s' $(seq 1 24))" "tab	tab"; do lbd "$d" ""; done
+lbw() {  # lbw LABEL WD EXPECTED-CWD ("" = the label without cwd): a title is there, the working directory is odd
+  lb_new; { lb_ct "Named by hand"; } >"$TP"; WD="$2"; [ "$2" != BASE ] || WD="$SB/work/myproj"; lb_start
+  check "$1" "$(lbl "Named by hand" explicit "$3")" "$(labels)"; end_case
+}
+lbw "cwd basename '..': the label goes out without cwd" "$SB/work/myproj/.." ""
+lbw "cwd basename '.': the label goes out without cwd" "$SB/work/myproj/." ""
+lbw "a trailing slash is not a component" "$SB/work/myproj/" myproj
+lbw "a directory that does not exist sends no cwd" "$SB/work/missing-dir" ""
+lbw "the root directory has no basename" "/" ""
+lbw "a relative cwd sends no cwd" "relative/dir" ""
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start 'del(.cwd)'
+check "no cwd in the payload: the label goes out without cwd" "$(lbl "Named by hand" explicit "")" "$(labels)"; end_case
+lb_new; lb_start
+check "the cwd is never sent without a label text (no title: nothing at all)" "" "$(spooled_all | grep -c '"cwd"' | grep -v '^0$' || true)"; end_case
+# only on change, at most once a minute
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start; lb_start
+check "an unchanged value is not sent again at the next SessionStart" "1" "$(labels | wc -l | tr -d ' ')"
+{ lb_ct "Renamed by hand"; } >>"$TP"; lb_start
+check "a SessionStart sees the new title at once" "$(printf '%s\n' "$(lbl "Named by hand" explicit myproj)" "$(lbl "Renamed by hand" explicit myproj)")" "$(labels)"; end_case
+lb_new; { lb_ai "Auto named here"; } >"$TP"; lb_event; { lb_ct "Renamed by hand"; } >>"$TP"; lb_event
+check "within the minute the transcript is not read again" "$(lbl "Auto named here" ai myproj)" "$(labels)"
+check "the state file holds the time of the check and the value sent" "yes" "$(grep -qE '^[0-9]{13} \{"text":"Auto named here","source":"ai","cwd":"myproj"\}$' "$(LF)" && echo yes || echo no)"
+sed -i 's/^[0-9]*/1000000000000/' "$(LF)"; lb_event
+check "after the minute the new title is sent" "$(printf '%s\n' "$(lbl "Auto named here" ai myproj)" "$(lbl "Renamed by hand" explicit myproj)")" "$(labels)"
+lb_event
+check "and the check is throttled again" "2" "$(labels | wc -l | tr -d ' ')"
+BEFORE_L=$(cut -d' ' -f2- "$(LF)"); sed -i 's/^[0-9]*/1000000000000/' "$(LF)"; lb_event
+check "a check that finds the same value sends nothing but records its time" "2 yes yes" "$(labels | wc -l | tr -d ' ') $([ "$(cut -d' ' -f2- "$(LF)")" = "$BEFORE_L" ] && echo yes || echo no) $(grep -qE '^1[0-9]{12} ' "$(LF)" && ! grep -q '^1000000000000 ' "$(LF)" && echo yes || echo no)"
+printf '%s' "9999999999999 {}" >"$(LF)"; { lb_ct "A newer name here"; } >>"$TP"; lb_event
+check "a state time from the future counts as due" "3" "$(labels | wc -l | tr -d ' ')"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'garbage \x01' >"$(LF)"; chmod 600 "$(LF)"; lb_event
+check "a corrupt state file is ignored and replaced" "1 yes" "$(labels | wc -l | tr -d ' ') $(grep -qE '^[0-9]{13} \{' "$(LF)" && echo yes || echo no)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$SB/target"; ln -s "$SB/target" "$(LF)"; lb_start
+check "a symlinked state file: nothing sent, nothing written through it" "0 0" "$(labels | wc -l | tr -d ' ') $(wc -c <"$SB/target" | tr -d ' ')"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '1000000000000 {}' >"$(LF)"; chmod 644 "$(LF)"; lb_start
+check "a state file that is not private: nothing sent" "0" "$(labels | wc -l | tr -d ' ')"; end_case
+# the safe read: a hostile transcript path reads nothing (no title, so nothing goes out)
+lbh() {  # lbh LABEL SETUP-COMMAND [PAYLOAD-FILTER]
+  lb_new; { lb_ct "Named by hand"; } >"$TP.real"; eval "$2"; lb_start "${3:-.}"
+  check "$1" "" "$(labels)"; end_case
+}
+lbh "a symlinked transcript file reads nothing" 'ln -s "$TP.real" "$TP"'
+lbh "a transcript in a symlinked directory reads nothing" 'mkdir -p "$PROJ/elsewhere"; cp "$TP.real" "$PROJ/elsewhere/$RAWSID.jsonl"; rm -rf "$PROJ/q"; ln -s "$PROJ/elsewhere" "$PROJ/q"; TP="$PROJ/q/$RAWSID.jsonl"'
+lbh "a FIFO transcript reads nothing and does not hang" 'mkfifo "$TP"'
+lbh "a transcript with another name than <session id>.jsonl reads nothing" 'cp "$TP.real" "$PROJ/other.jsonl"; TP="$PROJ/other.jsonl"'
+lbh "a transcript outside the Claude projects directory reads nothing" 'mkdir -p "$SB/elsewhere"; cp "$TP.real" "$SB/elsewhere/$RAWSID.jsonl"; TP="$SB/elsewhere/$RAWSID.jsonl"'
+lbh "a .. component reads nothing" 'cp "$TP.real" "$TP"; mkdir -p "$PROJ/d"; TP="$PROJ/d/../$RAWSID.jsonl"'
+lbh "a newline in the path reads nothing" 'cp "$TP.real" "$TP"; TP="$TP"$'"'"'\n'"'"'"'
+lbh "a relative transcript path reads nothing" 'cp "$TP.real" "$TP"; TP="p/$RAWSID.jsonl"'
+lbh "an environment of another config dir: the payload cannot move the root" 'cp "$TP.real" "$TP"; mkdir -p "$SB/altcfg/projects"; RUN_ENV=("CLAUDE_CONFIG_DIR=$SB/altcfg")'
+lb_new; mkdir -p "$SB/altcfg/projects/p"; PROJ="$SB/altcfg/projects/p"; TP="$PROJ/$RAWSID.jsonl"; { lb_ct "Named by hand"; } >"$TP"; RUN_ENV=("CLAUDE_CONFIG_DIR=$SB/altcfg"); lb_start
+check "CLAUDE_CONFIG_DIR is honored" "$(lbl "Named by hand" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; "$JQ_BIN" -nc --arg tp "$TP" --arg cwd "$WD" '{session_id:"bad id/x", hook_event_name:"SessionStart", source:"startup", transcript_path:$tp, cwd:$cwd}' >"$SB/stdin"; run_hook
+check "a session id that fails its pattern spools nothing" "0" "$(find "$DATA" -name '*.spool' | wc -l | tr -d ' ')"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start 'del(.transcript_path)'
+check "no transcript_path: no title, nothing" "" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start '.transcript_path = 7'
+check "a non-string transcript_path: no title, nothing" "" "$(labels)"; end_case
+lb_new; RUN_ENV=("ALLYE_SESSION_LABEL=Env label stays"); ln -s "$SB/none" "$TP"; lb_start
+check "a failed safe read with an env label: the env label still goes out" "$(lbl "Env label stays" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start; check "silent, exit 0" "0||" "$RC|$OUT|$ERR"; end_case
+# display text: the flags
+for fl in activity-off detailed-off; do
+  lb_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  { lb_ct "Named MARKER_LBLTXT by hand"; } >"$TP"; RUN_ENV=("ALLYE_SESSION_LABEL=Env MARKER_LBLTXT label"); lb_start; lb_event
+  check "$fl: no label event, no basename" "" "$(labels)"
+  check "$fl: no label state file and no label text on any disk file" "no 0" "$([ -e "$(LF)" ] && echo yes || echo no) $(grep -rlF --exclude=environ.log MARKER_LBLTXT "$DATA" "$SB/log" 2>/dev/null | wc -l | tr -d ' ')"; end_case   # the shims log the whole environment of each call: that file holds the env label by design
+done
+lb_new; { lb_ct "Named MARKER_LBLTXT by hand"; } >"$TP"; lb_start
+check "texts on: the label is in the spool and the state file (control for the off cases)" "1 1" "$(labels | wc -l | tr -d ' ') $(grep -rlF MARKER_LBLTXT "$DATA" | grep -c label || true)"
+: >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"; lb_event
+check "the activity-off flag appearing later deletes the label state at the next hook" "no" "$([ -e "$(LF)" ] && echo yes || echo no)"
+rm -f "$DATA/live/activity-off"; end_case
+lb_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"; : >"$SB/lblt"; chmod 600 "$SB/lblt"; ln -s "$SB/lblt" "$(LF)"; printf 'KEEP' >"$SB/lblt"; { lb_ct "Named by hand"; } >"$TP"; lb_start
+check "texts off: a symlink at the state name is removed as the link only" "no KEEP" "$([ -e "$(LF)" ] || [ -L "$(LF)" ] && echo yes || echo no) $(cat "$SB/lblt")"; end_case
+# flush: a label spooled before the flag existed is not sent while texts are off, the other events go on
+lb_sent() { [ -f "$SB/api/ingest-bodies.log" ] && "$JQ_BIN" -c '.events[]' "$SB/api/ingest-bodies.log" || true; }
+lb_new; { lb_ct "Named MARKER_LBLTXT by hand"; } >"$TP"; lb_start
+check "setup: the label is spooled, not sent (stub curl)" "1 0" "$(labels | wc -l | tr -d ' ') $(reqs)"
+: >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"; SHIMD="$SHIMS"; lb_event; wait_idle
+check "detailed-off at flush: no label event leaves, the state events do" "0 yes" "$(lb_sent | grep -c '"type":"label"' || true) $(lb_sent | grep -q '"type":"state"' && echo yes || echo no)"
+check "detailed-off at flush: no label text in any request" "0" "$(grep -c MARKER_LBLTXT "$SB/api/ingest-bodies.log" "$SB/api/requests.log" 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')"; end_case
+lb_new; { lb_ct "Named MARKER_LBLTXT by hand"; } >"$TP"; SHIMD="$SHIMS"; lb_start; wait_idle
+check "texts on: the label event is sent in the batch with its fields" "$(lbl "Named MARKER_LBLTXT by hand" explicit myproj)" "$(lb_sent | "$JQ_BIN" -cS 'select(.type == "label") | del(.seq, .at)')"; end_case
+# a label event that is off the contract is dropped at flush
+lb_new; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+AT_NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ); SPF=$(spool_of "$RAWSID")
+{ for ev in '{"type":"label","label":{"text":"Good name here","source":"explicit","cwd":"proj"}}' '{"type":"label","label":{"text":"Bad source","source":"admin"}}' '{"type":"label","label":{"text":"x","source":"ai","cwd":"has space"}}' '{"type":"label"}' '{"type":"label","label":{"text":7,"source":"ai"}}' '{"type":"label","label":{"cwd":"proj"}}' '{"type":"label","label":{"text":"Extra key","source":"ai","extra":"MARKER_EXTRA"}}' '{"type":"label","label":"MARKER_STR"}' '{"type":"label","text":"Flat shape","source":"ai"}'; do printf '%s\n' "$ev" | "$JQ_BIN" -c --arg at "$AT_NOW" --argjson s "$((1000000000001 + RANDOM))" '. + {seq: $s, at: $at}'; done; } >"$SPF"; chmod 600 "$SPF"
+run_fixture user-prompt-submit; wait_idle
+check "only well-formed nested label events are sent" '{"label":{"cwd":"proj","source":"explicit","text":"Good name here"},"type":"label"}' "$(lb_sent | "$JQ_BIN" -cS 'select(.type == "label") | del(.seq, .at)' | sort | paste -sd'|')"; end_case
 
 echo "== a payload that is not JSON, or a session id that fails its pattern =="
 new_case; mkcred; : >"$SB/stdin"; run_hook

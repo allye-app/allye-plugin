@@ -186,3 +186,18 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
 - `vectors/api-agent-run-text-vectors.json`: byte-for-byte copy of `src/modules/agent-runs/agent-run-text-vectors.json` of allye-api
   `origin/develop` at commit e8c361ee9f8970253dcd7c99c8f569f64237e7b5 (ALY-257). The suite checks that no token the API drops
   survives in the plugin output (the plugin may be stricter, never looser). Refresh it by copying the file again and updating this commit.
+
+## Session label (ALY-263.6)
+
+- `label` event (nested, the ingest DTO of ALY-262): `{type: "label", label: {text, source: "explicit"|"ai", cwd?}}`; `text` is
+  required and at most 60 characters (the one cleaner of the reporter with 60 characters and no 3-word minimum, because a title can
+  be one word), `cwd` is the working directory basename through the basename rules of D-08. Sources in order: env
+  `ALLYE_SESSION_LABEL` (explicit), the last `custom-title` entry (`customTitle`, explicit) and the last `ai-title` entry (`aiTitle`,
+  ai) of the session transcript `<session id>.jsonl`, read with the safe open of the subagent files (last 256 KB, shared 2 s budget).
+  `cwd` is sent only inside a label and only from a real directory; with no label text nothing is sent. The SessionStart fixtures
+  keep `/work/MARKER_CWD`, so they send no label; the section `label` of `test-live-report.sh` builds its payloads.
+- `<hash>.label` holds `<ms of the last check> <last value sent as JSON>` (0600, at most 1024 bytes): a check runs at a SessionStart and
+  at most once a minute at other main-session events, and a value is sent only when it changed. It holds display text, so it is
+  never written while `activity-off` or `detailed-off` exists, is deleted by the next hook then, and by `live off` and the
+  `detailed: false` ack. `batch_build` does not send a label event while texts are off. `spooled` in the tests leaves label events out;
+  `labels` reads them.
