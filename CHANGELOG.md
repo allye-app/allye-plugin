@@ -1,3 +1,13 @@
+# [2.12.0](https://github.com/allye-app/allye-plugin/compare/v2.11.0...v2.12.0) (2026-10-29)
+
+
+### Features
+
+* **live:** cache the acknowledged Detailed Live flag, strip texts at flush and update consent text (ALY-258.3) ([4a7744a](https://github.com/allye-app/allye-plugin/commit/4a7744a59c0abfc051d99cdcb4712478c52164fd))
+* **live:** parse summary, attempt, next, gate, checks and severity counts into sub_stop (ALY-258.2) ([8a62ef6](https://github.com/allye-app/allye-plugin/commit/8a62ef69df083ec0e14e89bb05548da07c9421db))
+* **live:** send dispatch description and task on sub_start with a 140-code-point cleaner (ALY-258.1) ([d65e897](https://github.com/allye-app/allye-plugin/commit/d65e897d9459831bb5d005bc0e4de3d65b6d8532))
+* **skills:** crew reports carry summary, checks and severity_counts lines (ALY-258.4) ([7f028e5](https://github.com/allye-app/allye-plugin/commit/7f028e5db28ffe20a19f56969bd12788547a812a))
+
 # [2.11.0](https://github.com/allye-app/allye-plugin/compare/v2.10.0...v2.11.0) (2026-10-25)
 
 
