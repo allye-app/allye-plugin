@@ -107,6 +107,94 @@ live_dir_ok() {
   [ -n "$(find "$LIVE_DIR" -prune -type d -user "$UID_NOW" -perm 0700 -print 2>/dev/null)" ]
 }
 
+# ─── ALY-263.1: safe read of a Claude transcript file (AC-02, AC-03, BR-02, D-16) ───
+# One budget of 2 seconds is shared by every read of this hook invocation: RD_END (Unix ms) is set ONCE, in the main shell, before the
+# first read (never inside a $(...), where the assignment would be lost); rd_left only reads it, so every later read sees less.
+RD_END=""
+rd_left() {  # prints the budget left as S.mmm; fails once it is spent (or when no deadline was set)
+  local now left
+  [[ "$RD_END" =~ ^[0-9]{13}$ ]] || return 1
+  now=$(now_ms); [[ "$now" =~ ^[0-9]{13}$ ]] || return 1
+  left=$((RD_END - now)); [ "$left" -gt 0 ] || return 1
+  printf '%d.%03d' $((left / 1000)) $((left % 1000))
+}
+# claude_safe_tail FILE BYTES [BASENAME-REGEX]: prints "full" or "partial" (the file is larger than BYTES), a newline, then the
+# last BYTES bytes of FILE, and succeeds; it fails on any failed check, and the output of a failed call must be ignored (a read
+# killed by the budget may have printed part of it). FILE must lie under the physical projects directory of the user's Claude
+# config (CLAUDE_CONFIG_DIR, else $HOME/.claude; never from the payload), with every directory below it a real directory (no
+# symlink), no `..`, `.`, empty or newline component, and a basename matching the pattern (default: a subagent file); the file
+# itself is a regular non-symlink file of the user. Only string checks run here; every filesystem step (cd, -L and -d tests, find)
+# and the single open run in ONE child under `timeout` set to the budget left, so a hung mount cannot block the hook. The child
+# checks the opened descriptor again and reads only from it (a FIFO swapped in blocks the open and is killed by the budget).
+claude_safe_tail() {
+  local f="$1" n="$2" re="${3:-}" base left
+  [ -n "$re" ] || re='^agent-[A-Za-z0-9_-]{1,64}\.(jsonl|meta\.json)$'
+  [[ "$n" =~ ^[0-9]{1,8}$ ]] || return 1
+  case "$f" in /*) ;; *) return 1 ;; esac
+  case "$f" in *$'\n'*|*//*|*/./*|*/../*|*/.|*/..) return 1 ;; esac
+  [[ "${f##*/}" =~ $re ]] || return 1
+  base="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
+  case "$base" in /*) ;; *) return 1 ;; esac
+  case "$base" in *$'\n'*) return 1 ;; esac
+  command -v timeout >/dev/null 2>&1 || return 1
+  left=$(rd_left) || return 1
+  timeout "$left" "$BASH" -c '
+    unset CDPATH
+    f=$1; n=$2; uid=$3
+    root=$(cd -P "$4/projects" 2>/dev/null && pwd -P) || exit 1
+    case "$root" in /*) ;; *) exit 1 ;; esac
+    case "$f" in "$root"/*) ;; *) exit 1 ;; esac
+    rel="${f#"$root"/}"
+    IFS=/ read -r -a parts <<<"$rel" || exit 1
+    [ "${#parts[@]}" -ge 1 ] && [ "${#parts[@]}" -le 8 ] || exit 1
+    cur="$root"
+    for ((i = 0; i < ${#parts[@]} - 1; i++)); do
+      c="${parts[i]}"; [ -n "$c" ] || exit 1
+      cur="$cur/$c"
+      [ -L "$cur" ] && exit 1
+      [ -d "$cur" ] || exit 1
+    done
+    [ -L "$f" ] && exit 1
+    [ -n "$(find "$f" -prune -type f -user "$uid" -print 2>/dev/null)" ] || exit 1
+    { exec 3<"$f"; } 2>/dev/null || exit 1
+    [ -n "$(find -L /dev/fd/3 -prune -type f -user "$uid" -print 2>/dev/null)" ] || exit 1
+    if [ -n "$(find -L /dev/fd/3 -prune -size -"$((n + 1))"c -print 2>/dev/null)" ]; then echo full; else echo partial; fi
+    tail -c "$n" <&3 | tr -d "\0"' _ "$f" "$n" "$UID_NOW" "$base" 2>/dev/null
+}
+# transcript_report FILE: prints the crew report taken from the tail of a subagent transcript, or fails (AC-01, AC-03).
+# Candidates, in order: the last SubagentHandback input.message, then the last assistant text block; the first with exactly one
+# column-0 `status:` (with a value) and at most one `summary:` wins. Blocks are never joined. Only `assistant` lines count.
+transcript_report() {
+  local n got out
+  for n in 262144 1048576; do
+    got=$(claude_safe_tail "$1" "$n" && printf x) || return 1   # the x keeps the final newline of the tail
+    got="${got%x}"
+    out=$(printf '%s' "$got" | jq -Rsc '
+      def blocks: .message | objects | .content | if type == "array" then .[] | objects elif type == "string" then {type: "text", text: .} else empty end;
+      def good($m): ($m[0:65536] | split("\n") | map(sub("\r\\z"; ""))) as $l
+        | [$l[] | select(startswith("status:"))] as $s
+        | ($s | length) == 1 and ($s[0] | sub("\\Astatus:[ \t]*"; "") | length) > 0 and ([$l[] | select(startswith("summary:"))] | length) <= 1;
+      index("\n") as $i
+      | if $i == null then {n: 0, p: false}
+        else (.[0:$i]) as $hd
+          | (.[$i + 1:] | split("\n") | (if $hd == "partial" then .[1:] else . end) | .[:-1]) as $cl
+          | [$cl[] | fromjson? | objects | select(.type == "assistant")] as $a
+          | ([$a[] | blocks | select(.type == "tool_use" and .name == "SubagentHandback") | .input | objects | .message | strings] | last) as $hb
+          | ([$a[] | blocks | select(.type == "text") | .text | strings] | last) as $tx
+          | {n: ($cl | map(select(length > 0)) | length), p: ($hd == "partial"),
+             m: ([$hb, $tx] | map(select(. != null and good(.))) | .[0] | if . == null then null else .[0:65536] end)}
+        end' 2>/dev/null) || return 1
+    if [ "$(printf '%s' "$out" | jq -r '.n' 2>/dev/null)" = 0 ]; then
+      # no complete line fits: widen once, and only when the file is larger than what was read
+      [ "$n" = 262144 ] && [ "$(printf '%s' "$out" | jq -r '.p' 2>/dev/null)" = true ] && continue
+      return 1
+    fi
+    printf '%s' "$out" | jq -je '.m // empty' 2>/dev/null || return 1
+    return 0
+  done
+  return 1
+}
+
 # ─── ALY-203.5: lock, seq and spool cap (BR-04, BR-05, SHD-01..03) ───
 # lock_is_stale DIR: the holder time (first field of DIR/t) is more than 30 seconds old; without a readable time,
 # the directory itself is more than a minute old (find -mmin).
@@ -843,6 +931,30 @@ SID=$(printf '%s' "$INPUT" | jq -r 'if (.session_id | type) == "string" and (.se
 HASH=$(printf '%s' "$SID" | sha_hex) || exit 0
 SID=""
 [[ "$HASH" =~ ^[0-9a-f]{64}$ ]] || exit 0
+
+# ─── ALY-263.1: crew result from the subagent transcript (AC-01, AC-02, D-10). At a SubagentStop whose message has no column-0
+# `status:` line (with a value), the report is read from the subagent transcript and replaces last_assistant_message in the
+# in-memory payload, so the parser below is unchanged. File I/O is here, before the state lock; any failure keeps the payload.
+{
+  TRF=$(printf '%s' "$INPUT" | jq -c '
+    select(.hook_event_name == "SubagentStop")
+    | select([(.last_assistant_message | strings | split("\n") | .[] | sub("\r\\z"; "") | select(test("\\Astatus:[ \t]*[^ \t]")))] | length == 0)
+    | {a: ((.agent_transcript_path | strings) // ""), t: ((.transcript_path | strings) // ""), s: ((.session_id | strings) // ""), i: ((.agent_id | strings) // "")}
+    | select([.[] | test("\n")] | any | not)' 2>/dev/null) || TRF=""
+  if [ -n "$TRF" ]; then
+    RD_END="$(( $(now_ms) + 2000 ))"   # the one deadline of this invocation, set here in the main shell (never in a $(...))
+    TRP=$(printf '%s' "$TRF" | jq -r '.a // empty' 2>/dev/null) || TRP=""
+    if [ -z "$TRP" ]; then
+      TRT=$(printf '%s' "$TRF" | jq -r '.t // empty' 2>/dev/null) || TRT=""
+      TRS=$(printf '%s' "$TRF" | jq -r '.s // empty' 2>/dev/null) || TRS=""
+      TRI=$(printf '%s' "$TRF" | jq -r '.i // empty' 2>/dev/null) || TRI=""
+      if [[ "$TRS" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && [[ "$TRI" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && [ -n "$TRT" ]; then TRP="${TRT%/*}/$TRS/subagents/agent-$TRI.jsonl"; fi
+    fi
+    if [ -n "$TRP" ] && TRR=$(transcript_report "$TRP"); then
+      TRN=$(printf '%s' "$INPUT" | jq -c --rawfile m <(printf '%s' "$TRR") '.last_assistant_message = $m' 2>/dev/null) && [ -n "$TRN" ] && INPUT="$TRN"
+    fi
+  fi
+} 2>/dev/null
 
 SPOOL="$LIVE_DIR/$HASH.spool"
 STATEF="$LIVE_DIR/$HASH.state"

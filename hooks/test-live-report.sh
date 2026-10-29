@@ -623,6 +623,90 @@ new_case; mkcred
 $HUGE" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
 check "status line inside the first 64 KB of a huge message counts" "{\"sub\":{\"id\":\"agent-abc123\",\"outcome\":\"fail\",\"type\":\"allye:bridge-pilot\"},\"type\":\"sub_stop\"}|0||" "$(stopped)|$RC|$OUT|$ERR"; end_case
 
+# ─── ALY-263.1: crew result from the subagent transcript (AC-01, AC-02, AC-03, BR-01, BR-02, D-10, D-16) ──────
+# The transcript is synthetic: one JSON object per line, the real shape ends with a SubagentHandback tool_use whose input.message is the
+# report and no text block. Foreign owner is not tested: a file of another user needs root (the owner check is `find -user`, as in
+# private_file_ok, whose tests cover the same primitive).
+echo "== subagent outcome from the transcript (ALY-263.1 AC-01, AC-02, AC-03, BR-01, BR-02) =="
+tr_hb() { "$JQ_BIN" -nc --arg m "$1" '{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}'; }
+tr_tx() { "$JQ_BIN" -nc --arg m "$1" '{type:"assistant",message:{content:[{type:"text",text:$m}]}}'; }
+tr_res() { "$JQ_BIN" -nc --arg m "$1" '{type:"user",message:{content:[{type:"tool_result",tool_use_id:"t1",content:$m}]}}'; }
+tr_blob() { "$JQ_BIN" -nc --arg m "$1" '{type:"api-request-blob",request:{messages:[{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}]}}'; }
+tr_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TDIR="$PROJ/$RAWSID/subagents"; mkdir -p "$TDIR"; AF="$TDIR/agent-agent-abc123.jsonl"; }
+# tr_run LABEL EXPECTED(pass|fail|unknown) [JQ-FILTER] [MESSAGE]: the payload names $AF and carries MESSAGE as last_assistant_message.
+tr_run() {
+  local exp
+  case "$2" in pass) exp="{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}" ;; fail) exp="{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"fail\"}}" ;; *) exp="$UNK" ;; esac
+  "$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" --arg m "${4-closing words}" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = $m' "$FIX/subagent-stop.json" | "$JQ_BIN" "${3:-.}" >"$SB/stdin"
+  run_hook
+  check "$1" "$(printf '%s\n' "$exp" | "$JQ_BIN" -cS .)|0||" "$(stopped)|$RC|$OUT|$ERR"
+}
+tr_new; { tr_hb "role: pilot
+status: failed"; } >"$AF"; tr_run "handback only (the real shape): its status is used" fail; end_case
+tr_new; { tr_hb "status: failed"; tr_res "ok"; tr_hb "status: passed"; } >"$AF"; tr_run "several handbacks: the last one wins" pass; end_case
+tr_new; { tr_hb "status: passed"; tr_hb "no report here"; } >"$AF"; tr_run "last handback without a status is not replaced by an earlier one" unknown; end_case
+tr_new; { tr_hb "status: failed"; tr_tx "status: passed"; } >"$AF"; tr_run "handback followed by closing text: the handback wins" fail; end_case
+tr_new; { tr_hb "nothing to report"; tr_tx "status: passed"; } >"$AF"; tr_run "handback without a status: the last text block is the next candidate" pass; end_case
+tr_new; { tr_tx "status: passed"; tr_tx "all done, nothing else"; } >"$AF"; tr_run "markers in an earlier turn are not read" unknown; end_case
+tr_new; { tr_tx "status: passed"; tr_tx "status: failed"; } >"$AF"; tr_run "the last text block, never a join of blocks" fail; end_case
+tr_new; { tr_hb "status: passed
+status: failed"; } >"$AF"; tr_run "two status lines in the handback: rejected" unknown; end_case
+tr_new; { tr_hb "status: passed
+summary: one thing here
+summary: another thing here"; } >"$AF"; tr_run "two summary lines in the handback: rejected" unknown; end_case
+tr_new; { tr_hb "  status: passed
+ status: passed"; } >"$AF"; tr_run "indented status lines are not column-0: rejected" unknown; end_case
+tr_new; { tr_res "status: passed"; } >"$AF"; tr_run "status inside a tool_result is not read" unknown; end_case
+tr_new; { tr_blob "status: passed"; } >"$AF"; tr_run "an assistant line inside a blob is not read" unknown; end_case
+tr_new; printf 'not json at all\n%s\n{"type":"assistant",\n' "$(tr_hb "status: passed")" >"$AF"; tr_run "invalid JSON lines are skipped" pass; end_case
+tr_new; printf '%s' "$(tr_hb "status: passed")" >"$AF"; tr_run "an unterminated last line is dropped" unknown; end_case
+tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "a status already in the message: the transcript is not read" pass . "status: passed"; end_case
+tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "an indented status in the message is not column-0: the transcript is read" fail . "  status: passed"; end_case
+tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "a status line without a value: the transcript is read" fail . "status:"; end_case
+# a derived path when the payload has no agent_transcript_path
+tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "no agent_transcript_path: the path is derived from the ids" fail 'del(.agent_transcript_path)'; end_case
+# size: the tail rule
+tr_new; { tr_hb "status: passed"; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$(head -c 1200000 /dev/zero | tr '\0' a)"; } >"$AF"; tr_run "a handback earlier than the last 1 MB is not read" unknown; end_case
+tr_new; "$JQ_BIN" -nc --rawfile pad <(head -c 300000 /dev/zero | tr '\0' a) '{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:("status: passed\n" + $pad)}}]}}' >"$AF"; tr_run "a line larger than 256 KB widens the read once to 1 MB" pass; end_case
+tr_new; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%s\\nstatus: passed"}]}}\n' "$(head -c 104857600 /dev/zero | tr '\0' a)" >"$AF"; tr_run "a single 100 MB line fails closed" unknown; rm -f "$AF"; end_case
+# hostile paths
+tr_new; mkdir -p "$PROJ/other"; { tr_hb "status: passed"; } >"$PROJ/other/real.jsonl"; ln -s "$PROJ/other/real.jsonl" "$AF"; tr_run "a symlinked transcript file reads nothing" unknown; end_case
+tr_new; rm -rf "$PROJ/$RAWSID"; mkdir -p "$PROJ/elsewhere/subagents"; { tr_hb "status: passed"; } >"$PROJ/elsewhere/subagents/agent-agent-abc123.jsonl"; ln -s "$PROJ/elsewhere" "$PROJ/$RAWSID"; tr_run "a symlinked parent directory reads nothing" unknown; end_case
+tr_new; mkfifo "$AF"; tr_run "a FIFO reads nothing and does not hang" unknown; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "a .. component reads nothing" unknown ".agent_transcript_path = \"$TDIR/../subagents/agent-agent-abc123.jsonl\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "a newline in the path reads nothing" unknown ".agent_transcript_path = \"$AF\" + \"\\n\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "a newline inside a directory name reads nothing" unknown ".agent_transcript_path = \"$PROJ/\\n/$RAWSID/subagents/agent-agent-abc123.jsonl\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "a basename outside the pattern reads nothing" unknown ".agent_transcript_path = \"$TDIR/notes.jsonl\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; mkdir -p "$SB/elsewhere"; cp "$AF" "$SB/elsewhere/agent-x.jsonl"; tr_run "a file outside the Claude projects directory reads nothing" unknown ".agent_transcript_path = \"$SB/elsewhere/agent-x.jsonl\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "an environment of another home: the payload cannot move the root" unknown '.agent_transcript_path = "/etc/passwd"'; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; mkdir -p "$SB/altcfg/projects"; RUN_ENV=("CLAUDE_CONFIG_DIR=$SB/altcfg"); tr_run "CLAUDE_CONFIG_DIR moves the root: a file under HOME is outside" unknown; end_case
+tr_new; mkdir -p "$SB/altcfg/projects/p/$RAWSID/subagents"; { tr_hb "status: passed"; } >"$SB/altcfg/projects/p/$RAWSID/subagents/agent-agent-abc123.jsonl"; RUN_ENV=("CLAUDE_CONFIG_DIR=$SB/altcfg"); PROJ="$SB/altcfg/projects/p"; AF="$PROJ/$RAWSID/subagents/agent-agent-abc123.jsonl"; tr_run "CLAUDE_CONFIG_DIR is honored" pass; end_case
+tr_new; { tr_hb "status: passed MARKER_LASTMSG"; } >"$AF"; tr_run "only the parsed fields leave: the report text is not stored" unknown . ""; check "no report text in any file" "0" "$(grep -rlF MARKER_LASTMSG "$DATA" "$SB/log" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+
+# SHD-04: a `gate:` line taken from a transcript only sets the sub.gate display field (the same parser as today); it never makes a gates event
+tr_new; { tr_hb "status: passed
+gate: SHIELD_CLEAR"; } >"$AF"
+"$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = "closing words" | .agent_type = "allye:bridge-shield"' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "a gate line from the transcript sets sub.gate only" "{\"sub\":{\"gate\":\"SHIELD_CLEAR\",\"id\":\"agent-abc123\",\"outcome\":\"pass\",\"type\":\"allye:bridge-shield\"},\"type\":\"sub_stop\"}|0" "$(stopped)|$(spooled | grep -c '"type":"gates"' || true)"; end_case
+# The shared 2 s budget (SHD-01, SHD-02), proven on the deadline value with a fake clock: no elapsed-time bound is asserted.
+tr_new; { tr_hb "status: passed"; } >"$AF"
+RDSRC=$(sed -n '/^RD_END=""$/,/^# transcript_report FILE:/p' "$HOOK" | sed '$d')
+rd_unit() {  # rd_unit SCRIPT: runs SCRIPT with the budget functions, a fake clock (FAKE_NOW, ms) and the sandbox HOME
+  env -i HOME="$SB/home" PATH="$REAL" BASH="$BASH_BIN" "$BASH_BIN" -c 'UID_NOW=$(id -u); now_ms() { printf "%s" "$FAKE_NOW"; }; '"$RDSRC"'
+'"$1" 2>&1
+}
+T0=1800000000000
+check "no deadline set: the budget is spent" "rc=1" "$(rd_unit 'FAKE_NOW='$T0'; x=$(rd_left); echo "$x rc=$?" | sed "s/^ //"')"
+check "deadline passed: rd_left fails and a valid file reads nothing" "rc=1 rc=1 out=" "$(rd_unit 'FAKE_NOW='$T0'; RD_END='$T0'; rd_left >/dev/null; a=$?; o=$(claude_safe_tail "'"$AF"'" 262144); echo "rc=$a rc=$? out=$o"')"
+check "budget left is read from the deadline" "1.500 0.800" "$(rd_unit 'RD_END='$((T0 + 1500))'; FAKE_NOW='$T0'; a=$(rd_left); FAKE_NOW='$((T0 + 700))'; b=$(rd_left); echo "$a $b"')"
+check "the deadline survives a command substitution (the second read sees less)" "$((T0 + 2000)) rc=0 rc=1" "$(rd_unit 'RD_END='$((T0 + 2000))'; FAKE_NOW='$T0'; o=$(claude_safe_tail "'"$AF"'" 262144); a=$?; FAKE_NOW='$((T0 + 2500))'; o2=$(claude_safe_tail "'"$AF"'" 262144); echo "$RD_END rc=$a rc=$?"')"
+check "a read within the budget returns the tail" "full" "$(rd_unit 'RD_END='$((T0 + 2000))'; FAKE_NOW='$T0'; claude_safe_tail "'"$AF"'" 262144 | head -1')"
+# a stat step that hangs (a find stub) is killed by the timeout child: the read fails, whatever the time it takes
+mkdir -p "$SB/hangbin"; printf '#!%s\nexec %s 5\n' "$BASH_BIN" "$(type -P sleep)" >"$SB/hangbin/find"; chmod +x "$SB/hangbin/find"
+check "a hanging find is cut by the budget: nothing is read" "failed" "$(env -i HOME="$SB/home" PATH="$SB/hangbin:$REALBIN" BASH="$BASH_BIN" "$BASH_BIN" -c 'UID_NOW=$(id -u); now_ms() { date +%s%3N; }; '"$RDSRC"'
+RD_END=$(( $(now_ms) + 1000 )); o=$(claude_safe_tail "'"$AF"'" 262144); [ $? -ne 0 ] && [ -z "$o" ] && echo failed' 2>&1)"
+end_case
+
 # ─── ALY-258.2: summary and chips from the crew report (AC-03, AC-04, AC-05, AC-11, AC-12, AC-15, AC-17, BR-01, BR-04, D-05) ──────
 echo "== report lines: summary, attempt, next, gate, checks and severity counts (ALY-258.2 AC-04, AC-05, AC-15, AC-17, BR-01, BR-04) =="
 # rl_case LABEL MESSAGE EXTRAS-JSON [AGENT-TYPE] [off]: the sub_stop of a "status: passed" report is {id, type, outcome:pass} + EXTRAS.
