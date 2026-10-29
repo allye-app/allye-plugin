@@ -1347,6 +1347,30 @@ check "AC-07/D-33: the vector table has vectors, every skip names its reason (no
 check "AC-07/D-33: $NVEC vectors replayed through the cleaner ($NSKIP documented skips): forbidden tokens absent, expected output, one line of at most 140, idempotent" "0" "$BADV$BADV_NAMES"
 check "AC-07: the 139/140/141 boundary vectors are in the table" "3" "$("$JQ_BIN" '[.vectors[] | select(.name | test("^(139|140|141) code points"))] | length' "$VEC")"
 
+# ALY-258 (SHD-01): the API's own vector file (ALY-257, allye-api origin/develop e8c361ee9f8970253dcd7c99c8f569f64237e7b5) is replayed too.
+# The plugin may be stricter than the API scrubber, never looser: every whitespace token of an input that the API drops (it is not among the
+# tokens of the expected output) must be absent from the plugin output. Vectors the API cuts (input over 140 characters) or rejects (expected
+# null) have no per-token verdict and are skipped; tokens that are not plain printable ASCII are skipped (the API normalises/strips them).
+APIVEC="$FIX/vectors/api-agent-run-text-vectors.json"
+NAPI=$("$JQ_BIN" 'length' "$APIVEC"); APIBAD=0; APIBAD_NAMES=""; APICHK=0
+while IFS= read -r vj; do
+  [ -n "$vj" ] || continue
+  got=$(clean_of "$("$JQ_BIN" -c '.input' <<<"$vj")")
+  hit=$("$JQ_BIN" -rn --argjson g "$got" --argjson v "$vj" '
+    ($v.expected | split(" ")) as $keep
+    | [$v.input | split(" ")[] | select(length > 0 and test("\\A[\\x21-\\x7e]+\\z") and (. as $t | $keep | index($t) | not))] as $dropped
+    | ($g // "" | split(" ")) as $out
+    | [$dropped[] | select(. as $t | $out | index($t))] | join(" ")')
+  APICHK=$((APICHK + 1))
+  if [ -n "$hit" ]; then APIBAD=$((APIBAD + 1)); APIBAD_NAMES="$APIBAD_NAMES [$("$JQ_BIN" -r .name <<<"$vj"): survived $hit]"; fi
+done < <("$JQ_BIN" -c '.[] | select(.expected != null and (.input | type) == "string" and (.input | length) <= 140)' "$APIVEC")
+check "SHD-01: the API vector file is vendored with its 102 vectors and most of them carry a per-token verdict (not vacuous)" "yes" "$([ "$NAPI" -ge 100 ] && [ "$APICHK" -ge 80 ] && echo yes || echo no)"
+check "SHD-01: $APICHK API vectors replayed: no token the API drops survives in the plugin output (plugin stricter, never looser)" "0" "$APIBAD$APIBAD_NAMES"
+for needle in '*.internal' '10.0.0.5:' 'host=10.0.0.5' '10.0.0.1,10.0.0.2' 'db.internal:5432' 'example.com:8080' 'a.example.com|b.example.com'; do
+  nv=$("$JQ_BIN" -c --arg n "$needle" '[.[] | select((.input | strings | contains($n)))] | length' "$APIVEC")
+  check "SHD-01: the API vector file has a vector with the network token $needle" "yes" "$([ "$nv" -ge 1 ] && echo yes || echo no)"
+done
+
 # the hostile description through the reporter itself: only the cleaned desc leaves, in a request body
 new_case; mkcred; SHIMD="$SHIMS"
 HOSTILE='Review ALY-258.1 for sk-live12345abcdef at /etc/MARKER_PATH password=MARKER_ARGS done'

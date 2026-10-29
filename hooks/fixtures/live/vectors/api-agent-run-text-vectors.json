@@ -1,0 +1,514 @@
+[
+  {
+    "name": "allowlist: key ALY-12.3, v2, pass/fail",
+    "input": "Fixed ALY-12.3 and v2 pass/fail checks",
+    "expected": "Fixed ALY-12.3 and v2 pass/fail checks"
+  },
+  {
+    "name": "allowlist: passed: 42",
+    "input": "Tests passed: 42 across all suites",
+    "expected": "Tests passed: 42 across all suites"
+  },
+  {
+    "name": "allowlist: author: and keyboard=",
+    "input": "The author: wrote keyboard= docs today",
+    "expected": "The author: wrote keyboard= docs today"
+  },
+  {
+    "name": "allowlist: word/word letters only",
+    "input": "Compare client/server and/or review",
+    "expected": "Compare client/server and/or review"
+  },
+  {
+    "name": "allowlist: semantic version",
+    "input": "Bumped to v2.1.3 for release now",
+    "expected": "Bumped to v2.1.3 for release now"
+  },
+  {
+    "name": "allowlist: clock time",
+    "input": "Ran at 12:30:45 on staging today",
+    "expected": "Ran at 12:30:45 on staging today"
+  },
+  {
+    "name": "allowlist: ISO date",
+    "input": "Released on 2026-10-28 after testing",
+    "expected": "Released on 2026-10-28 after testing"
+  },
+  {
+    "name": "allowlist: 15 hex digits is below the run limit",
+    "input": "Value deadbeefdeadbee kept across runs now",
+    "expected": "Value deadbeefdeadbee kept across runs now"
+  },
+  {
+    "name": "allowlist: long word without a digit",
+    "input": "Used abcdefghijklmnopqrstuvwxyz as alphabet here",
+    "expected": "Used abcdefghijklmnopqrstuvwxyz as alphabet here"
+  },
+  {
+    "name": "allowlist: plural key words are not key names",
+    "input": "Counted 3 tokens and sessions plus keys today",
+    "expected": "Counted 3 tokens and sessions plus keys today"
+  },
+  {
+    "name": "allowlist: a key word alone",
+    "input": "Rotated the API key yesterday morning",
+    "expected": "Rotated the API key yesterday morning"
+  },
+  {
+    "name": "allowlist: small digit groups",
+    "input": "Took 10 20 30 minutes overall",
+    "expected": "Took 10 20 30 minutes overall"
+  },
+  {
+    "name": "allowlist: address without a dot",
+    "input": "Pinged the a@b handle in chat today",
+    "expected": "Pinged the a@b handle in chat today"
+  },
+  {
+    "name": "allowlist: C++ scope is not an IPv6",
+    "input": "Renamed Foo::bar across the module",
+    "expected": "Renamed Foo::bar across the module"
+  },
+  {
+    "name": "secret prefix: sk-live1234",
+    "input": "Calling the service with sk-live1234 failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: sk_test_abc",
+    "input": "Calling the service with sk_test_abc failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: pk-test-1",
+    "input": "Calling the service with pk-test-1 failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: rk-abc",
+    "input": "Calling the service with rk-abc failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: ghp_AbCd1234",
+    "input": "Calling the service with ghp_AbCd1234 failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: gho_AbCd1234",
+    "input": "Calling the service with gho_AbCd1234 failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: ghs_AbCd1234",
+    "input": "Calling the service with ghs_AbCd1234 failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: github_pat_11AAA",
+    "input": "Calling the service with github_pat_11AAA failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: xoxb-123-abc",
+    "input": "Calling the service with xoxb-123-abc failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: xoxp-9-9",
+    "input": "Calling the service with xoxp-9-9 failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: AKIAIOSFODNN7EXAMPLE",
+    "input": "Calling the service with AKIAIOSFODNN7EXAMPLE failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: ASIAXYZ12345",
+    "input": "Calling the service with ASIAXYZ12345 failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: eyJhbGciOi.payload.sig",
+    "input": "Calling the service with eyJhbGciOi.payload.sig failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: glpat-abcdef",
+    "input": "Calling the service with glpat-abcdef failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: wrapped in punctuation",
+    "input": "Calling the service with (sk-live1234), failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: contained inside a token",
+    "input": "Calling the service with prefix_sk-live1234 failed again",
+    "expected": "Calling the service with failed again"
+  },
+  {
+    "name": "secret prefix: fullwidth lookalike is normalised first",
+    "input": "Calling ｓｋ－live１２３ failed again here",
+    "expected": "Calling failed again here"
+  },
+  {
+    "name": "email",
+    "input": "Mailed bruno@example.com about the release",
+    "expected": "Mailed about the release"
+  },
+  {
+    "name": "IPv4 and IPv4:port",
+    "input": "Connected to 10.0.0.1 and 192.168.1.5:8080 successfully",
+    "expected": "Connected to and successfully"
+  },
+  {
+    "name": "IPv6",
+    "input": "Bound to ::1 and fe80::1ff:fe23:4567:890a for tests",
+    "expected": "Bound to and for tests"
+  },
+  {
+    "name": "hex run of 16+ digits",
+    "input": "Hash deadbeefdeadbeef01 recorded for build today",
+    "expected": "Hash recorded for build today"
+  },
+  {
+    "name": "hex run with separators (UUID)",
+    "input": "Saw 550e8400-e29b-41d4-a716-446655440000 in the logs",
+    "expected": "Saw in the logs"
+  },
+  {
+    "name": "base64-like run with a digit",
+    "input": "Blob Zm9vYmFyMTIzNDU2Nzg5MGFiY2Q stored in cache",
+    "expected": "Blob stored in cache"
+  },
+  {
+    "name": "URL and www host",
+    "input": "Fetched https://example.com/a?b=1 and www.example.org today",
+    "expected": "Fetched and today"
+  },
+  {
+    "name": "bare dotted hostname",
+    "input": "Deployed to api.example.com then verified",
+    "expected": "Deployed to then verified"
+  },
+  {
+    "name": "wildcard internal hosts",
+    "input": "Added *.internal and db.local entries here",
+    "expected": "Added and entries here"
+  },
+  {
+    "name": "arn",
+    "input": "Assumed arn:aws:iam::123456789012:role/x today again",
+    "expected": "Assumed today again"
+  },
+  {
+    "name": "12-digit account id",
+    "input": "Account 123456789012 was updated today",
+    "expected": "Account was updated today"
+  },
+  {
+    "name": "CPF shape",
+    "input": "Customer 123.456.789-09 updated their profile",
+    "expected": "Customer updated their profile"
+  },
+  {
+    "name": "CNPJ shape",
+    "input": "Company 12.345.678/0001-90 was registered today",
+    "expected": "Company was registered today"
+  },
+  {
+    "name": "phone with spaced groups",
+    "input": "Call +55 (11) 91234-5678 about the issue",
+    "expected": "Call about the issue"
+  },
+  {
+    "name": "card with space groups",
+    "input": "Paid with 4111 1111 1111 1111 yesterday evening",
+    "expected": "Paid with yesterday evening"
+  },
+  {
+    "name": "card with dash groups",
+    "input": "Card 4111-1111-1111-1111 declined again today",
+    "expected": "Card declined again today"
+  },
+  {
+    "name": "path: leading ./ ~ and /",
+    "input": "Edited ./src/app.ts and ~/notes plus /etc/hosts",
+    "expected": "Edited and plus"
+  },
+  {
+    "name": "path: windows drive",
+    "input": "Opened C:\\Users\\me\\file.txt and D:/x today",
+    "expected": "Opened and today"
+  },
+  {
+    "name": "path: one separator in a file path",
+    "input": "Opened src/app.ts in the editor",
+    "expected": "Opened in the editor"
+  },
+  {
+    "name": "path: a plain word stays",
+    "input": "Opened README in the editor now",
+    "expected": "Opened README in the editor now"
+  },
+  {
+    "name": "path: adjacent Capitalized words are dropped up to the next punctuation",
+    "input": "Saved to /tmp/Out Dir Files, then continued",
+    "expected": "Saved to then continued"
+  },
+  {
+    "name": "path: stops at once when the path ends with punctuation",
+    "input": "Saved /tmp/x, Then continued working",
+    "expected": "Saved Then continued working"
+  },
+  {
+    "name": "key: k: v",
+    "input": "Set password: hunter2 for the account",
+    "expected": "Set for the account"
+  },
+  {
+    "name": "key: k=v",
+    "input": "Set token=abc123 for the account",
+    "expected": "Set for the account"
+  },
+  {
+    "name": "key: k = v",
+    "input": "Set password = hunter2 for the account",
+    "expected": "Set for the account"
+  },
+  {
+    "name": "key: <word> is <value>",
+    "input": "Noted that the secret is hunter2 apparently here",
+    "expected": "Noted that the apparently here"
+  },
+  {
+    "name": "key: quoted value spans tokens",
+    "input": "Set password: \"my secret pass\" then retried it",
+    "expected": "Set then retried it"
+  },
+  {
+    "name": "key: parenthesised value spans tokens",
+    "input": "Set passphrase: (my secret pass) then retried it",
+    "expected": "Set then retried it"
+  },
+  {
+    "name": "key: Authorization: Bearer <value>",
+    "input": "Sent Authorization: Bearer abc123 header now",
+    "expected": "Sent header now"
+  },
+  {
+    "name": "key: attached with colon",
+    "input": "Set apikey:abc123 for the account",
+    "expected": "Set for the account"
+  },
+  {
+    "name": "backtick: span removed",
+    "input": "Ran `rm -rf build` then rebuilt it again",
+    "expected": "Ran then rebuilt it again"
+  },
+  {
+    "name": "backtick: unpaired removes only its token",
+    "input": "Ran the `broken command again later",
+    "expected": "Ran the command again later"
+  },
+  {
+    "name": "unicode: zero-width, bidi and soft hyphen stripped",
+    "input": "Fixed​ the‮ bug­ today",
+    "expected": "Fixed the bug today"
+  },
+  {
+    "name": "unicode: tag characters stripped",
+    "input": "Checked󠁁󠁂 the build output",
+    "expected": "Checked the build output"
+  },
+  {
+    "name": "unicode: variation selector stripped",
+    "input": "Fixed bug️ in the parser",
+    "expected": "Fixed bug in the parser"
+  },
+  {
+    "name": "unicode: newline and tabs collapse",
+    "input": "Line one\nline two\t\tthree",
+    "expected": "Line one line two three"
+  },
+  {
+    "name": "unicode: line separator collapses",
+    "input": "Line one line two",
+    "expected": "Line one line two"
+  },
+  {
+    "name": "unicode: ZWJ family is stripped to its members",
+    "input": "Family 👨‍👩‍👧‍👦 portrait saved",
+    "expected": "Family 👨👩👧👦 portrait saved"
+  },
+  {
+    "name": "unicode: NFKC composes a combining sequence",
+    "input": "Café au lait served",
+    "expected": "Café au lait served"
+  },
+  {
+    "name": "unicode: private use stripped",
+    "input": "Fixed the parser bug",
+    "expected": "Fixed the parser bug"
+  },
+  {
+    "name": "non-string: null",
+    "input": null,
+    "expected": null
+  },
+  {
+    "name": "non-string: number",
+    "input": 42,
+    "expected": null
+  },
+  {
+    "name": "non-string: object",
+    "input": {
+      "a": 1
+    },
+    "expected": null
+  },
+  {
+    "name": "minimum: 2 words",
+    "input": "Fixed it",
+    "expected": null
+  },
+  {
+    "name": "minimum: 3 words but 7 characters",
+    "input": "ab cd e",
+    "expected": null
+  },
+  {
+    "name": "minimum: 3 words and 8 characters",
+    "input": "ab cd ef",
+    "expected": "ab cd ef"
+  },
+  {
+    "name": "minimum: one long word",
+    "input": "abcdefghijklmnop",
+    "expected": null
+  },
+  {
+    "name": "minimum: empty",
+    "input": "",
+    "expected": null
+  },
+  {
+    "name": "minimum: everything dropped",
+    "input": "sk-live1234 10.0.0.1 a@b.com",
+    "expected": null
+  },
+  {
+    "name": "minimum: 3 short words",
+    "input": "Fix the bug",
+    "expected": "Fix the bug"
+  },
+  {
+    "name": "boundary: 139 code points unchanged",
+    "input": "abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef",
+    "expected": "abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef"
+  },
+  {
+    "name": "boundary: 140 code points unchanged",
+    "input": "abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdefg",
+    "expected": "abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdefg"
+  },
+  {
+    "name": "boundary: 141 code points cut at the last space with ... inside 140",
+    "input": "abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef x",
+    "expected": "abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef abcdef..."
+  },
+  {
+    "name": "boundary: 159 code points with astral characters never splits a pair",
+    "input": "go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀",
+    "expected": "go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀..."
+  },
+  {
+    "name": "boundary: one long token past 140 has no space to cut at",
+    "input": "a b xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "expected": null
+  },
+  {
+    "name": "boundary: 4 x 512 bytes of words is cut to 140",
+    "input": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+    "expected": "word word word word word word word word word word word word word word word word word word word word word word word word word word word..."
+  },
+  {
+    "name": "boundary: 139 code points of astral-bearing words unchanged",
+    "input": "go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀",
+    "expected": "go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀 go😀"
+  },
+  {
+    "name": "net: IPv4 followed by a colon",
+    "input": "reach 10.0.0.5: connection refused today",
+    "expected": "reach connection refused today"
+  },
+  {
+    "name": "net: attached key before an IPv4",
+    "input": "Set host=10.0.0.5 for the service now",
+    "expected": "Set for the service now"
+  },
+  {
+    "name": "net: comma-joined IPv4 list",
+    "input": "Peers 10.0.0.1,10.0.0.2 joined the cluster",
+    "expected": "Peers joined the cluster"
+  },
+  {
+    "name": "net: bracketed IPv6 with a port",
+    "input": "Listening on [::1]:8080 for the service",
+    "expected": "Listening on for the service"
+  },
+  {
+    "name": "net: internal host with a port",
+    "input": "Dialled db.internal:5432 for the service",
+    "expected": "Dialled for the service"
+  },
+  {
+    "name": "net: host with a port",
+    "input": "Dialled example.com:8080 for the service",
+    "expected": "Dialled for the service"
+  },
+  {
+    "name": "net: parenthesised host",
+    "input": "Dialled (example.com) for the service",
+    "expected": "Dialled for the service"
+  },
+  {
+    "name": "net: pipe-joined hosts",
+    "input": "Dialled a.example.com|b.example.com for the service",
+    "expected": "Dialled for the service"
+  },
+  {
+    "name": "allowlist: ALY-257 key and clock time",
+    "input": "Slice ALY-257 finished at 12:30 today",
+    "expected": "Slice ALY-257 finished at 12:30 today"
+  },
+  {
+    "name": "allowlist: label with a colon and a number",
+    "input": "Result: 42 tests passed: all green",
+    "expected": "Result: 42 tests passed: all green"
+  },
+  {
+    "name": "digits: phone with area code in brackets",
+    "input": "Call (11) 99999-9999 about the issue",
+    "expected": "Call about the issue"
+  },
+  {
+    "name": "digits: three spaced groups",
+    "input": "Call 415 555 2671 about the issue",
+    "expected": "Call about the issue"
+  },
+  {
+    "name": "digits: plus prefix with groups",
+    "input": "Call +1 415 555 2671 about the issue",
+    "expected": "Call about the issue"
+  },
+  {
+    "name": "allowlist: key and a spaced date",
+    "input": "Slice ALY-257 2026 10 28 was released",
+    "expected": "Slice ALY-257 2026 10 28 was released"
+  }
+]

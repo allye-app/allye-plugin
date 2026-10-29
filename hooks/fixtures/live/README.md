@@ -182,3 +182,7 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   (select it with the other `activity` sections, it uses their helpers) and the `texts` cases of `test-allye-hooks.sh`.
 - `commands/hooks.md` discloses the three texts (140 characters, best effort without guarantee, only the `summary:` line of a crew
   report) and both ways to turn them off; `live activity off|on|status` and `live status` say "texts" and why they are off.
+
+- `vectors/api-agent-run-text-vectors.json`: byte-for-byte copy of `src/modules/agent-runs/agent-run-text-vectors.json` of allye-api
+  `origin/develop` at commit e8c361ee9f8970253dcd7c99c8f569f64237e7b5 (ALY-257). The suite checks that no token the API drops
+  survives in the plugin output (the plugin may be stricter, never looser). Refresh it by copying the file again and updating this commit.

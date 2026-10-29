@@ -923,6 +923,21 @@ def actws: . == 9 or . == 10 or . == 11 or . == 12 or . == 13 or . == 133 or . =
 # D-23 step 4, one token: dropped as a path, URL, email, IP address, long base64/hex string or secret.
 def actcore: gsub("\\A[\"\u0027(\\[{<,;.!?]+|[\"\u0027)\\]}>,;.!?]+\\z"; "");
 def actpath: test("[/\\\\]") or (actcore | test("\\A(~|[A-Za-z]:)"));
+# ALY-258 (SHD-01 of ALY-257): the API network rules. A token is split on = , ; [ ] ( ) | and every piece is tested whole, without
+# leading/trailing `:` and without a `:port` suffix, as an e-mail, IPv4 (with port), IPv6, URL/www/arn:, hostname (also *.internal,
+# *.local, *.corp) or a digit shape of 10+ digits. Mirrors pieceIsIdentifier of agent-run-text-scrub.ts.
+def actbare: gsub("\\A[\"\u0027(\\[{<\u201c\u2018\u00ab]+"; "") | gsub("[\"\u0027)\\]}>\u201d\u2019\u00bb,;!?.]+\\z"; "");
+def actident:
+  length > 0 and (
+    (contains("@") and contains("."))
+    or test("\\A[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]{1,5})?\\z")
+    or (test("\\A[0-9A-Fa-f.:]{3,}\\z") and ([match(":"; "g")] | length) as $n | $n >= 2 and (contains("::") or $n == 7))
+    or (ascii_downcase | (contains("://") or contains("www.") or startswith("arn:")))
+    or (ascii_downcase | test("\\.(internal|local|corp)\\z") or test("\\A([a-z0-9-]+\\.)+[a-z]{2,24}\\z"))
+    or (test("\\A[0-9()+./-]*\\z") and ([match("[0-9]"; "g")] | length) >= 10));
+def actnet:
+  [splits("[=,;\\[\\]()|]")] | any(
+    actbare as $b | ($b | actident) or ($b | gsub("\\A:+|:+\\z"; "") | . as $t | actident or (sub(":[0-9]{1,5}\\z"; "") | . != $t and actident)));
 def actdrop:
   actcore as $c
   | test("[/\\\\]") or ($c | test("\\A(~|[A-Za-z]:)")) or contains("://") or ($c | ascii_downcase | startswith("www."))
@@ -938,6 +953,7 @@ def actdrop:
     or ($c | test("\\A([A-Za-z0-9-]+\\.){2,}[A-Za-z]{2,}\\z"))
     or ($c | test("\\A([A-Za-z0-9-]+\\.)+(com|net|org|io|dev|app|co|br|ai|cloud|info|biz|edu|gov|local|internal|corp|test|lan)\\z"; "i"))
     or test("([0-9A-Fa-f]{2}[:-]){7}[0-9A-Fa-f]{2}")
+    or actnet
     or test("[\uff00-\uffef]");   # fullwidth/halfwidth forms: look-alikes of ASCII that the API would NFKC-normalise (the plugin cannot) are dropped whole
 # Secrets (D-23 step 4 and Shield SHD-01/03 of ALY-217.6). actkv: `key=value` / `key:value` (also bare `key:`, actbare);
 # actkey: a key-like word alone; actsep: a standalone `=` / `:`; actscheme: an auth scheme; actauth: auth/authorization;
