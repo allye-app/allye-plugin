@@ -69,6 +69,9 @@ CFP=""
 #   inside a subagent never bind (parallel Pilots would flap the session binding).
 # - $HASH.bind holds `<rank>|<bind json>` of the last bind sent. A bind is sent when its rank is higher than
 #   the stored one, or equal with a different content; never when weaker or identical.
+# - ALY-263.5 (AC-08, D-15): spec_context/spec_get of the main session with a spec key, and a launch with a spec key, are also
+#   sent when weaker or identical, once per key per minute ($HASH.touch: up to 16 `KEY ms` lines, 0600, a corrupt file counts
+#   as empty); the held binding in $HASH.bind is not changed by such a send.
 # - git: `git -c core.fsmonitor= -c core.hooksPath=/dev/null -C <cwd> branch --show-current`, cwd given as its
 #   own argv element, never through a shell string; run only when the cwd is an absolute existing directory
 #   without control characters; 1-second limit with timeout(1) when present, else a background watchdog
@@ -1215,12 +1218,15 @@ def kv($k): if ($k | keyok) then (if ($k | contains(".")) then {task: $k} else {
 def skillb($name; $args):
   if ($name | type) == "string" and ($name | IN("bridge","allye:bridge")) and ($args | type) == "string" and ($args | length) <= 300 then
     [$args | match("[^ \t\r\n]+"; "g").string] as $t
-    | if ($t | length) > 0 and ($t[0] | IN(modes[])) then {source: "skill", role: "bridge", mode: $t[0]} + kv($t[1] // null) else null end
+    | if ($t | length) > 0 and ($t[0] | IN(modes[])) then {source: "skill", role: "bridge", mode: $t[0]} + kv($t[1] // null) | if has("spec") then . + {touch: true} else . end else null end
   else null end;
 # ALY-217.4 (BR-08, D-03, D-22): only the claim-like writes task_start and task_submit (exact, lowercase) bind.
+# ALY-263.5 (AC-08, D-15): spec_context/spec_get with a spec key is a touch candidate; the internal `touch` marker is cut off in bash and never leaves.
 def mcpb:
   ((.tool_input | objects) // {}) as $i
-  | if ($i.action | IN("task_start","task_submit") | not) then null else
+  | if ($i.action | IN("spec_context","spec_get")) then
+      (if ($i.spec | type) == "string" and ($i.spec | test("\\A[A-Z][A-Z0-9]{1,9}-[0-9]+\\z")) then {source: "mcp", spec: $i.spec, touch: true} else null end)
+    elif ($i.action | IN("task_start","task_submit") | not) then null else
     ({source: "mcp"} + (if ($i.spec | keyok) then {spec: $i.spec} else {} end) + (if ($i.task | keyok) then {task: $i.task} else {} end))
   | if has("spec") or has("task") then . else null end end;
 def envb:
@@ -1400,6 +1406,10 @@ case "$AGT" in -|'['*']') ;; *) exit 0 ;; esac
 case "$ACTS" in -|'['*']') ;; *) exit 0 ;; esac
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
+# ALY-263.5 (AC-08, D-15): a candidate with the internal touch marker (spec_context/spec_get or a launch with a spec key) is
+# also sent when weaker than the held binding, once per key per minute; the marker never leaves and the held binding stays.
+TOUCH=0; TOUCHSUF=',"touch":true}'
+case "$CAND" in *"$TOUCHSUF") TOUCH=1; CAND="${CAND%"$TOUCHSUF"}}" ;; esac
 BINDF="$LIVE_DIR/$HASH.bind"
 BRANK=""; BSTORED=""
 if [ "$CAND" != "-" ] || [ "$CWD" != "-" ]; then
@@ -1443,7 +1453,7 @@ if [ "$CAND" = "-" ] && [ "$CWD" != "-" ] && { [ -z "$BRANK" ] || [ "$BRANK" -le
   fi
 fi
 
-BINDLINE=""
+BINDLINE=""; TOUCHONLY=0; TOUCHNEW=""
 if [ "$CAND" != "-" ]; then
   case "$CAND" in
     '{"source":"skill"'*) NR=4 ;; '{"source":"mcp"'*) NR=3 ;; '{"source":"env"'*) NR=2 ;; '{"source":"branch"'*) NR=1 ;; *) NR=0 ;;
@@ -1452,6 +1462,20 @@ if [ "$CAND" != "-" ]; then
   if [ "$NR" -gt 0 ]; then
     if [ -z "$BRANK" ] || [ "$NR" -gt "$BRANK" ]; then SEND=1
     elif [ "$NR" -eq "$BRANK" ] && [ "$NR|$CAND" != "$BSTORED" ]; then SEND=1; fi
+  fi
+  if [ "$TOUCH" = 1 ] && [ "$NR" -gt 0 ] && [[ "$CAND" =~ \"spec\":\"([A-Z][A-Z0-9]{1,9}-[0-9]+)\" ]]; then
+    TKEY="${BASH_REMATCH[1]}"; TOUCHF="$LIVE_DIR/$HASH.touch"; TOLD=""
+    if private_file_ok "$TOUCHF"; then
+      if [ -f "$TOUCHF" ]; then
+        TOLD=$(head -c 1200 "$TOUCHF" 2>/dev/null) || TOLD=""
+        # a corrupt file (a line off the shape, more than 16 lines) counts as empty
+        if printf '%s\n' "$TOLD" | LC_ALL=C grep -qvE '^([A-Z][A-Z0-9]{1,9}-[0-9]+ [0-9]{13})?$' || [ "$(printf '%s\n' "$TOLD" | wc -l | tr -d ' ')" -gt 16 ]; then TOLD=""; fi
+      fi
+      TSEEN=$(printf '%s\n' "$TOLD" | while IFS=' ' read -r k m; do [ "$k" = "$TKEY" ] && printf '%s' "$m"; done)
+      TNEW=$(printf '%s\n' "$TOLD" | grep -v "^$TKEY " | grep -E '^[A-Z]' | tail -n 15)
+      TOUCHNEW="${TNEW:+$TNEW$'\n'}$TKEY $MS"
+      if [ "$SEND" = 0 ] && { [ -z "$TSEEN" ] || [ "$(( MS - TSEEN ))" -ge 60000 ] || [ "$(( MS - TSEEN ))" -lt 0 ]; }; then SEND=1; TOUCHONLY=1; fi
+    fi
   fi
   if [ "$SEND" = 1 ]; then
     BINDLINE=$(jq -nc --argjson b "$CAND" --arg at "$AT" '{type: "bind", bind: $b, at: $at}' 2>/dev/null) || BINDLINE=""
@@ -1564,9 +1588,13 @@ if [ -n "$NEWLAST" ] && [ "$NEWLAST" != "$LAST" ]; then
   TMP=$(mktemp "$LIVE_DIR/.state.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$NEWLAST" >"$TMP" 2>/dev/null && mv -f "$TMP" "$STATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
-if [ -n "$BINDLINE" ]; then
+if [ -n "$BINDLINE" ] && [ "$TOUCHONLY" != 1 ]; then
   TMP=$(mktemp "$LIVE_DIR/.bind.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s|%s' "$NR" "$CAND" >"$TMP" 2>/dev/null && mv -f "$TMP" "$BINDF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
+if [ -n "$BINDLINE" ] && [ -n "$TOUCHNEW" ]; then
+  TMP=$(mktemp "$LIVE_DIR/.touch.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
+  printf '%s\n' "$TOUCHNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$TOUCHF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 if [ -n "$GATELINE" ]; then
   TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"

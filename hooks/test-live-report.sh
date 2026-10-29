@@ -546,6 +546,69 @@ end_case
 new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'garbage' >"$DATA/live/$(test_sha "$RAWSID").bind"; chmod 600 "$DATA/live/$(test_sha "$RAWSID").bind"; run_fixture skill-bridge-spec
 check "garbage in the bind state is treated as no binding" "$(printf '%s\n' "$S1" "$BSK" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
 
+echo "== bind: spec_context, spec_get and launch keys report a touch (ALY-263.5) =="
+# touch_run ACTION SPEC [AGENT]: a main-session (or subagent) call of the Allye specs tool; the other tool_input fields hold a marker.
+touch_run() {
+  "$JQ_BIN" --arg a "$1" --arg s "$2" --arg ag "${3:-}" '.tool_input = {action: $a, spec: $s, content: "MARKER_CMD", query: "MARKER_ARGS"} | if $ag != "" then . + {agent_id: $ag, agent_type: "allye:bridge-pilot"} else . end' "$FIX/mcp-allye-spec-get.json" >"$SB/stdin"; run_hook
+}
+binds() { spooled | grep '"type":"bind"' || true; }
+TF() { echo "$DATA/live/$(test_sha "$RAWSID").touch"; }
+BTC='{"bind":{"source":"mcp","spec":"ALY-203"},"type":"bind"}'
+BSK='{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"mission","spec":"ALY-203"}}'
+BTC2='{"bind":{"source":"mcp","spec":"ALY-9"},"type":"bind"}'
+for act in spec_context spec_get; do
+  new_case; mkcred; touch_run "$act" ALY-203
+  check "$act of the main session binds its key" "$BTC" "$(binds)"
+  check "$act: only the key leaves (no marker in any file, log or request)" "0" "$( { grep -rhF -e MARKER_CMD -e MARKER_ARGS "$DATA/live" "$SB/out" "$SB/err" "$SB/log" 2>/dev/null || true; } | wc -l | tr -d ' ')"
+  check "$act: touch state is 0600" "600" "$(find "$(TF)" -printf '%m' 2>/dev/null)"
+  end_case
+done
+for k in aly-203 ABCDEFGHIJK-1 ALY- ALY-203x "ALY-203 extra" ALY-203.3 A-1 "ALY-203
+ALY-5" 1ALY-2; do
+  new_case; mkcred; touch_run spec_context "$k"
+  check "spec_context with the key '$(printf '%s' "$k" | tr '\n' '~')': no bind" "" "$(binds)"
+  end_case
+done
+for act in spec_list spec_validate spec_approve spec_update; do
+  new_case; mkcred; touch_run "$act" ALY-203
+  check "$act never binds" "" "$(binds)"
+  end_case
+done
+new_case; mkcred; touch_run spec_context ALY-203 agent-abc123
+check "a subagent's spec_context never binds" "" "$(binds)"
+touch_run spec_get ALY-203
+check "control: the same call in the main session binds" "$BTC" "$(binds)"
+end_case
+new_case; mkcred; run_fixture skill-bridge-spec; BF="$DATA/live/$(test_sha "$RAWSID").bind"; BEFOREB=$(cat "$BF")
+touch_run spec_context ALY-9
+check "a weaker mcp touch after a held skill binding is still sent" "$(printf '%s\n' "$BSK" "$BTC2" | "$JQ_BIN" -cS .)" "$(binds)"
+check "the held binding is unchanged" "$BEFOREB" "$(cat "$BF")"
+end_case
+new_case; mkcred; touch_run spec_context ALY-203; touch_run spec_get ALY-203
+check "the same key again within a minute is sent once" "$BTC" "$(binds)"
+touch_run spec_context ALY-9
+check "a different key within the minute is sent" "$(printf '%s\n' "$BTC" "$BTC2" | "$JQ_BIN" -cS .)" "$(binds)"
+sed -i 's/ [0-9]*$/ 1000000000000/' "$(TF)"
+touch_run spec_context ALY-203
+check "the same key after the minute is sent again" "3" "$(binds | wc -l | tr -d ' ')"
+end_case
+new_case; mkcred; run_fixture skill-bridge-spec; run_fixture skill-bridge-spec
+check "a launch with the same key and content within a minute is sent once" "1" "$(binds | wc -l | tr -d ' ')"
+sed -i 's/ [0-9]*$/ 1000000000000/' "$(TF)"; run_fixture skill-bridge-spec
+check "a launch with the key after the minute is sent again" "2" "$(binds | wc -l | tr -d ' ')"
+end_case
+new_case; mkcred; for i in $(seq 1 20); do touch_run spec_context "ALY-$i"; done
+check "every distinct key within the minute is sent" "20" "$(binds | wc -l | tr -d ' ')"
+check "the touch state is bounded" "yes" "$([ "$(wc -l <"$(TF)" | tr -d ' ')" -le 16 ] && echo yes || echo no)"
+end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'garbage\n\x01' >"$(TF)"; chmod 600 "$(TF)"; touch_run spec_context ALY-203
+check "a corrupt touch state is ignored: the bind is sent" "$BTC" "$(binds)"
+check "the corrupt touch state is replaced by a valid one" "yes" "$(grep -qE '^ALY-203 [0-9]{13}$' "$(TF)" && [ "$(wc -l <"$(TF)" | tr -d ' ')" = 1 ] && echo yes || echo no)"
+end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$SB/target"; ln -s "$SB/target" "$(TF)"; touch_run spec_context ALY-203
+check "a symlinked touch state: nothing written through it" "0" "$(wc -c <"$SB/target" | tr -d ' ')"
+end_case
+
 echo "== markers in bindings =="
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-203" "ALLYE_TASK=MARKER_ABCDEF"); mkrepo "bridge/aly-203-MARKER_BRANCH"
 for n in skill-bridge-task skill-bridge-bad-key2 expansion-bridge-bad-key mcp-allye-bad-action mcp-allye-task-start-bad-key mcp-allye-task-start-half-bad-key mcp-allye-task-submit mcp-bad-chars mcp-other-server; do run_fixture "$n"; done
@@ -1073,7 +1136,7 @@ for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, 
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
 final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWSID").final.lock" ] || break; sleep 0.05; done   # the SessionEnd fixtures' final flusher (stub curl)
-check "files are keyed by sha256(session id): acts, bind, cred, flushed, seq, spool, state and subs (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): acts, bind, cred, flushed, seq, spool, state, subs and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
 check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
