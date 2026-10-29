@@ -935,24 +935,53 @@ SID=""
 # ─── ALY-263.1: crew result from the subagent transcript (AC-01, AC-02, D-10). At a SubagentStop whose message has no column-0
 # `status:` line (with a value), the report is read from the subagent transcript and replaces last_assistant_message in the
 # in-memory payload, so the parser below is unchanged. File I/O is here, before the state lock; any failure keeps the payload.
+# ─── ALY-263.4: dispatch description from the subagent metadata file (AC-07, D-03, D-14). At every SubagentStop the metadata file
+# next to the subagent transcript is read (same safe open, same shared budget) and only its `description` string is put in the
+# in-memory payload as `meta_desc` (a key of that name in the payload itself is removed first); the jq program cleans it and sends
+# it as sub.desc unless texts are off. Nothing else of the file is kept; any failure sends nothing extra.
+# agent_file_of EXT: prints the path of the subagent file with extension EXT (jsonl or meta.json) from $TRF, or fails. A path given
+# by the payload is used for the transcript as it is; for the metadata file it must be agent-<hook agent id>.jsonl, with .meta.json.
+agent_file_of() {
+  local p t s i
+  p=$(printf '%s' "$TRF" | jq -r '.a // empty' 2>/dev/null) || p=""
+  t=$(printf '%s' "$TRF" | jq -r '.t // empty' 2>/dev/null) || t=""
+  s=$(printf '%s' "$TRF" | jq -r '.s // empty' 2>/dev/null) || s=""
+  i=$(printf '%s' "$TRF" | jq -r '.i // empty' 2>/dev/null) || i=""
+  if [ -n "$p" ]; then
+    if [ "$1" = jsonl ]; then printf '%s' "$p"; return 0; fi
+    [[ "$i" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && [ "${p##*/}" = "agent-$i.jsonl" ] || return 1
+    printf '%s' "${p%.jsonl}.meta.json"; return 0
+  fi
+  if [[ "$s" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && [[ "$i" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && [ -n "$t" ]; then printf '%s' "${t%/*}/$s/subagents/agent-$i.$1"; return 0; fi
+  return 1
+}
+# meta_description FILE: prints the description string of the metadata file (at most 64 KB, a JSON object), or fails. When the file
+# carries an agent id key (agentId or agent_id) it must equal the hook agent id, else the description is dropped.
+meta_description() {
+  local got hd
+  got=$(claude_safe_tail "$1" 65536 && printf x) || return 1
+  got="${got%x}"; hd="${got%%$'\n'*}"
+  [ "$hd" = full ] || return 1
+  printf '%s' "${got#*$'\n'}" | jq -je --arg id "$(printf '%s' "$TRF" | jq -r '.i // empty' 2>/dev/null)" '
+    objects | select(((.agentId // .agent_id // $id) | . == $id)) | .description | strings | select(length > 0) | .[0:4096]' 2>/dev/null
+}
 {
   TRF=$(printf '%s' "$INPUT" | jq -c '
     select(.hook_event_name == "SubagentStop")
-    | select([(.last_assistant_message | strings | split("\n") | .[] | sub("\r\\z"; "") | select(test("\\Astatus:[ \t]*[^ \t]")))] | length == 0)
-    | {a: ((.agent_transcript_path | strings) // ""), t: ((.transcript_path | strings) // ""), s: ((.session_id | strings) // ""), i: ((.agent_id | strings) // "")}
-    | select([.[] | test("\n")] | any | not)' 2>/dev/null) || TRF=""
+    | {a: ((.agent_transcript_path | strings) // ""), t: ((.transcript_path | strings) // ""), s: ((.session_id | strings) // ""), i: ((.agent_id | strings) // ""),
+       ns: ([(.last_assistant_message | strings | split("\n") | .[] | sub("\r\\z"; "") | select(test("\\Astatus:[ \t]*[^ \t]")))] | length == 0)}
+    | select([.a, .t, .s, .i | test("\n")] | any | not)' 2>/dev/null) || TRF=""
   if [ -n "$TRF" ]; then
     RD_END="$(( $(now_ms) + 2000 ))"   # the one deadline of this invocation, set here in the main shell (never in a $(...))
-    TRP=$(printf '%s' "$TRF" | jq -r '.a // empty' 2>/dev/null) || TRP=""
-    if [ -z "$TRP" ]; then
-      TRT=$(printf '%s' "$TRF" | jq -r '.t // empty' 2>/dev/null) || TRT=""
-      TRS=$(printf '%s' "$TRF" | jq -r '.s // empty' 2>/dev/null) || TRS=""
-      TRI=$(printf '%s' "$TRF" | jq -r '.i // empty' 2>/dev/null) || TRI=""
-      if [[ "$TRS" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && [[ "$TRI" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && [ -n "$TRT" ]; then TRP="${TRT%/*}/$TRS/subagents/agent-$TRI.jsonl"; fi
+    if [ "$(printf '%s' "$TRF" | jq -r '.ns' 2>/dev/null)" = true ]; then
+      TRP=$(agent_file_of jsonl) || TRP=""
+      if [ -n "$TRP" ] && TRR=$(transcript_report "$TRP"); then
+        TRN=$(printf '%s' "$INPUT" | jq -c --rawfile m <(printf '%s' "$TRR") '.last_assistant_message = $m' 2>/dev/null) && [ -n "$TRN" ] && INPUT="$TRN"
+      fi
     fi
-    if [ -n "$TRP" ] && TRR=$(transcript_report "$TRP"); then
-      TRN=$(printf '%s' "$INPUT" | jq -c --rawfile m <(printf '%s' "$TRR") '.last_assistant_message = $m' 2>/dev/null) && [ -n "$TRN" ] && INPUT="$TRN"
-    fi
+    MDS=""
+    if MDP=$(agent_file_of meta.json) && MDS=$(meta_description "$MDP"; printf x); then MDS="${MDS%x}"; else MDS=""; fi
+    TRN=$(printf '%s' "$INPUT" | jq -c --rawfile d <(printf '%s' "$MDS") 'del(.meta_desc) | if $d != "" then .meta_desc = $d else . end' 2>/dev/null) && [ -n "$TRN" ] && INPUT="$TRN"
   fi
 } 2>/dev/null
 
@@ -1147,8 +1176,10 @@ def newfields($ty):
   + (if $gt != null and (($gt.v == "SHIELD_CLEAR" and ($ty | test("\\A(allye:)?(bridge-)?shield\\z"))) or ($gt.v == "WATCHER_APPROVED" and ($ty | test("\\A(allye:)?(bridge-)?watcher\\z")))) then {gate: $gt.v} else {} end)
   + (if $ck != null then {checks: ($ck | map_values(int99))} else {} end)
   + (if $sv != null then {findings: ($sv | map_values(int99))} else {} end);
+# ALY-263.4 (AC-07): meta_desc is set only by the shell from the metadata file; cleaned like the other texts, nothing while texts are off.
+def metadesc: if $txt == "1" then ((.meta_desc | if type == "string" then actphrase(actcap) else null end) as $d | if $d != null then {desc: $d} else {} end) else {} end;
 def substop: outcome as $r | (tkline // null) as $t
-  | {type: "sub_stop", sub: (subof + {outcome: $r.o} + (if ($t | keyok) then {task: $t} else {} end) + newfields(subof.type))}
+  | {type: "sub_stop", sub: (subof + {outcome: $r.o} + (if ($t | keyok) then {task: $t} else {} end) + newfields(subof.type) + metadesc)}
     + (if $r.c != null then {code: $r.c} else {} end);
 def withact($a): if $a != null then . + {activity: $a} else . end;
 # ALY-263.3 (AC-05, D-12): the one phrase builder of a tool call, for the main session and for subagents. Today only the

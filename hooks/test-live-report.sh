@@ -707,6 +707,65 @@ check "a hanging find is cut by the budget: nothing is read" "failed" "$(env -i 
 RD_END=$(( $(now_ms) + 1000 )); o=$(claude_safe_tail "'"$AF"'" 262144); [ $? -ne 0 ] && [ -z "$o" ] && echo failed' 2>&1)"
 end_case
 
+# ─── ALY-263.4: dispatch description from the subagent metadata file at SubagentStop (AC-07, AC-02, BR-02, BR-03, D-03, D-14) ──────
+# The metadata file has no id key in real sessions (spike ALY-263.8): the link is the filename agent-<hook agent_id>.meta.json.
+echo "== subagent outcome: desc from the metadata file (ALY-263.4 AC-07, AC-02, BR-02, BR-03, D-03, D-14) =="
+# md_new: a case with the transcript layout of tr_new and MF, the metadata file of the agent.
+md_new() { tr_new; MF="$TDIR/agent-agent-abc123.meta.json"; }
+# md_run LABEL EXPECTED-DESC ("" = no desc key) [JQ-FILTER over the payload]: the stop of a "status: passed" report.
+md_run() {
+  local exp
+  if [ -n "$2" ]; then exp="{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\",\"desc\":$("$JQ_BIN" -n --arg d "$2" '$d')}}"; else exp="{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"; fi
+  "$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = "status: passed"' "$FIX/subagent-stop.json" | "$JQ_BIN" "${3:-.}" >"$SB/stdin"
+  run_hook
+  check "$1" "$(printf '%s\n' "$exp" | "$JQ_BIN" -cS .)|0||" "$(stopped)|$RC|$OUT|$ERR"
+}
+MDESC='Implement the metadata description for ALY-263.4'
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{agentType:"allye:bridge-pilot",description:$d,toolUseId:"toolu_MARKER_TUID",spawnDepth:1,extra:"MARKER_EXTRA"}' >"$MF"
+md_run "metadata present: its description is sent as desc on sub_stop" "$MDESC"
+check "toolUseId and the other keys of the file are not stored or sent" "0" "$(grep -rlF -e MARKER_TUID -e MARKER_EXTRA "$DATA" "$SB/log" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "no agent_transcript_path: the path is derived from the ids" "$MDESC" 'del(.agent_transcript_path)'; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "the payload cannot carry its own meta_desc" "$MDESC" '.meta_desc = "MARKER_PAYLOAD_DESC injected from the payload"'; end_case
+md_new; md_run "no metadata file: nothing extra, exit 0, silent" ""; end_case
+md_new; md_run "no metadata file and a payload meta_desc: nothing" "" '.meta_desc = "MARKER_PAYLOAD_DESC injected from the payload"'; end_case
+md_new; printf '{"description": "Truncated MARKER_DESC here' >"$MF"; md_run "corrupt JSON: nothing" ""; end_case
+md_new; printf '["description","Implement the metadata description"]' >"$MF"; md_run "JSON that is not an object: nothing" ""; end_case
+for dv in 7 null true '["Implement the metadata description"]' '{"a":"Implement the metadata description"}'; do
+  md_new; printf '{"description":%s}' "$dv" >"$MF"; md_run "description $dv is not a string: nothing" ""; end_case
+done
+md_new; printf '{"description":""}' >"$MF"; md_run "empty description: nothing" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" --rawfile pad <(head -c 70000 /dev/zero | tr '\0' a) '{description:$d,pad:$pad}' >"$MF"; md_run "oversize file (over 64 KB): nothing" ""; end_case
+md_new; "$JQ_BIN" -nc '{description:"Review the change with sk-live12345abcdef and ghp_0123456789abcdefghij"}' >"$MF"; md_run "secrets in the description are dropped by the cleaner" "Review the change with and"; end_case
+md_new; "$JQ_BIN" -nc '{description:"/etc/MARKER_PATH/x.txt"}' >"$MF"; md_run "a description that is only a path is dropped whole" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$(for i in $(seq 1 100); do printf 'word '; done)" '{description:$d}' >"$MF"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = "status: passed"' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "a long description: at most 140 code points with the ellipsis" "yes" "$(stopped | "$JQ_BIN" -r '.sub.desc | if (length <= 140 and endswith("…")) then "yes" else "no" end')"; end_case
+# id mismatch
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{agentId:"agent-other",description:$d}' >"$MF"; md_run "an agentId key that differs from the hook agent id: dropped" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{agent_id:"agent-other",description:$d}' >"$MF"; md_run "an agent_id key that differs from the hook agent id: dropped" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{agentId:"agent-abc123",description:$d}' >"$MF"; md_run "an agentId key equal to the hook agent id: kept" "$MDESC"; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; cp "$MF" "$TDIR/agent-other.meta.json"; rm -f "$MF"; md_run "the file of another agent id is not read" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "payload path that does not name the hook agent id: the metadata file is not read" "" ".agent_transcript_path = \"$TDIR/agent-zzz.jsonl\""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" '.transcript_path = $tp | .agent_id = "a/b" | del(.agent_transcript_path) | .last_assistant_message = "status: passed"' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "an agent id with a slash builds no path and sends no event" "|0||" "$(stopped)|$RC|$OUT|$ERR"; end_case
+# hostile paths (the helpers of the transcript section)
+md_new; mkdir -p "$PROJ/other"; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$PROJ/other/real.json"; ln -s "$PROJ/other/real.json" "$MF"; md_run "a symlinked metadata file reads nothing" ""; end_case
+md_new; rm -rf "$PROJ/$RAWSID"; mkdir -p "$PROJ/elsewhere/subagents"; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$PROJ/elsewhere/subagents/agent-agent-abc123.meta.json"; ln -s "$PROJ/elsewhere" "$PROJ/$RAWSID"; md_run "a symlinked parent directory reads nothing" ""; end_case
+md_new; mkfifo "$MF"; md_run "a FIFO metadata file reads nothing and does not hang" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "a .. component reads nothing" "" ".agent_transcript_path = \"$TDIR/../subagents/agent-agent-abc123.jsonl\""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "a newline in the path reads nothing" "" ".agent_transcript_path = \"$AF\" + \"\\n\""; end_case
+# display text: off flags
+for fl in activity-off detailed-off; do
+  md_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  "$JQ_BIN" -nc '{description:"Implement the MARKER_DESC description for the task"}' >"$MF"; md_run "$fl: no desc in the spool" ""
+  check "$fl: the description is on no disk file" "0" "$(grep -rlF MARKER_DESC "$DATA" "$SB/log" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+done
+md_new; "$JQ_BIN" -nc '{description:"Implement the MARKER_DESC description for the task"}' >"$MF"; md_run "texts on: the description is in the spool (control for the off cases)" "Implement the MARKER_DESC description for the task"; end_case
+# a status in the message and a metadata file: both work, the transcript is not needed
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "a report in the message: desc still comes from the file" "$MDESC" 'del(.agent_transcript_path) | .transcript_path = "'"$PROJ"'/t.jsonl"'; end_case
+# the shared budget: a spent deadline reads nothing
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"
+check "a spent deadline reads no metadata" "rc=1 out=" "$(rd_unit 'FAKE_NOW='$T0'; RD_END='$T0'; o=$(claude_safe_tail "'"$MF"'" 65536); echo "rc=$? out=$o"')"; end_case
+
 # ─── ALY-258.2: summary and chips from the crew report (AC-03, AC-04, AC-05, AC-11, AC-12, AC-15, AC-17, BR-01, BR-04, D-05) ──────
 echo "== report lines: summary, attempt, next, gate, checks and severity counts (ALY-258.2 AC-04, AC-05, AC-15, AC-17, BR-01, BR-04) =="
 # rl_case LABEL MESSAGE EXTRAS-JSON [AGENT-TYPE] [off]: the sub_stop of a "status: passed" report is {id, type, outcome:pass} + EXTRAS.
