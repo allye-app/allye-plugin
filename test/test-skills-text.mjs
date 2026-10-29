@@ -524,13 +524,35 @@ else {
     const blocks = [...t.matchAll(/```yaml\n([\s\S]*?)\n```/g)].map((m) => m[1]).filter((b) => /^role: /m.test(b));
     return { text: t, block: blocks[0] ?? "" };
   };
+  // ALY-263 [AC-04] [D-11]: every output block needs a column-0 `status:` and exactly one column-0 `summary:`.
+  const reportLineProblems = (block) => {
+    const n = (key) => block.split("\n").filter((l) => l.startsWith(`${key}:`)).length;
+    const out = [];
+    if (n("status") < 1) out.push("the output block must have a column-0 `status:` line");
+    if (n("summary") !== 1) out.push("the output block must have exactly one column-0 `summary:` line");
+    return out;
+  };
+  // Negative cases over in-memory mutations of a real template (nothing is written to disk).
+  {
+    const base = yamlOf("pilot").block;
+    const noStatus = base.split("\n").filter((l) => !l.startsWith("status:")).join("\n");
+    const indentedStatus = base.replace(/^status:/m, "  status:");
+    const noSummary = base.split("\n").filter((l) => !l.startsWith("summary:")).join("\n");
+    const twoSummary = `${base}\nsummary: <one line>`;
+    const mutations = { "missing status": noStatus, "indented status": indentedStatus, "missing summary": noSummary, "duplicate summary": twoSummary };
+    if (reportLineProblems(base).length) fail("negative case baseline: the unmutated pilot block must pass the report-line check");
+    for (const [name, mutated] of Object.entries(mutations)) {
+      if (mutated === base) fail(`negative case "${name}": the mutation changed nothing`);
+      else if (!reportLineProblems(mutated).length) fail(`negative case "${name}": the report-line check did not detect it`);
+    }
+  }
   const chips = { checks: ["copilot", "watcher"], severity_counts: ["medic", "shield", "copilot", "watcher"] };
   for (const r of roles) {
     const f = `skills/bridge-${r}/SKILL.md`;
     const { text, block } = yamlOf(r);
     if (!block) { fail(`${f}: structured output yaml block not found`); continue; }
     const count = (key) => block.split("\n").filter((l) => l.startsWith(`${key}:`)).length;
-    if (count("summary") !== 1) fail(`${f}: the output block must have exactly one column-0 \`summary:\` line`);
+    for (const p of reportLineProblems(block)) fail(`${f}: ${p}`);
     for (const [key, who] of Object.entries(chips)) {
       if (count(key) !== (who.includes(r) ? 1 : 0)) fail(`${f}: \`${key}:\` must ${who.includes(r) ? "" : "not "}be in the output block`);
     }
