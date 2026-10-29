@@ -1155,17 +1155,21 @@ def actident:
 def actnet:
   [splits("[=,;\\[\\]()|]")] | any(
     actbare as $b | ($b | actident) or ($b | gsub("\\A:+|:+\\z"; "") | . as $t | actident or (sub(":[0-9]{1,5}\\z"; "") | . != $t and actident)));
+# ALY-263.9: the secret-shaped drops shared by actdrop and the basename of the classifier (a file name is not a hostname: only these apply to it).
+def namedrop:
+  test("[0-9A-Fa-f]{16,}")
+  or ([match("[A-Za-z0-9+/=_-]{20,}"; "g").string | select(test("[0-9]"))] | length > 0)
+  or test("[A-Za-z0-9_-]{24,}")
+  # D-20 subset (ALY-258): the distinctive secret prefixes anywhere in the token; sk-/sk_/pk-/rk- only at its start or
+  # after a non-alphanumeric (so risk-based survives); arn:; hostnames; colon/dash separated hex pairs.
+  or test("(ghp_|gho_|ghs_|github_pat_|xox[abprs]-|AKIA|ASIA|eyJ|glpat-)")
+  or test("(\\A|[^A-Za-z0-9])(sk-|sk_|pk-|rk-)");
 def actdrop:
   actcore as $c
   | test("[/\\\\]") or ($c | test("\\A(~|[A-Za-z]:)")) or contains("://") or ($c | ascii_downcase | startswith("www."))
     or test("[^@]@[^@]+\\.[^@]") or ($c | test("\\A[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]{1,5})?\\z")) or contains("::")
-    or ($c | test("\\A[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{0,4}){2,}\\z")) or test("[0-9A-Fa-f]{16,}")
-    or ([match("[A-Za-z0-9+/=_-]{20,}"; "g").string | select(test("[0-9]"))] | length > 0)
-    or test("[A-Za-z0-9_-]{24,}")
-    # D-20 subset (ALY-258): the distinctive secret prefixes anywhere in the token; sk-/sk_/pk-/rk- only at its start or
-    # after a non-alphanumeric (so risk-based survives); arn:; hostnames; colon/dash separated hex pairs.
-    or test("(ghp_|gho_|ghs_|github_pat_|xox[abprs]-|AKIA|ASIA|eyJ|glpat-)")
-    or test("(\\A|[^A-Za-z0-9])(sk-|sk_|pk-|rk-)")
+    or ($c | test("\\A[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{0,4}){2,}\\z"))
+    or namedrop
     or ($c | ascii_downcase | startswith("arn:"))
     or ($c | test("\\A([A-Za-z0-9-]+\\.){2,}[A-Za-z]{2,}\\z"))
     or ($c | test("\\A([A-Za-z0-9-]+\\.)+(com|net|org|io|dev|app|co|br|ai|cloud|info|biz|edu|gov|local|internal|corp|test|lan)\\z"; "i"))
@@ -1260,14 +1264,75 @@ def substop: outcome as $r | (tkline // null) as $t
   | {type: "sub_stop", sub: (subof + {outcome: $r.o} + (if ($t | keyok) then {task: $t} else {} end) + newfields(subof.type) + metadesc)}
     + (if $r.c != null then {code: $r.c} else {} end);
 def withact($a): if $a != null then . + {activity: $a} else . end;
-# ALY-263.3 (AC-05, D-12): the one phrase builder of a tool call, for the main session and for subagents. Today only the
-# description path (actof, free text: the cleaner keeps its 3-word minimum); the constant templates of D-08 join here.
-def toolphrase: actof;
+# ALY-263.3, ALY-263.9 (AC-05, AC-06, AC-13, D-08, D-12): the one phrase builder of a subagent tool call (slice .13 moves the main session
+# to it): (a) the description path (actof, free text: the cleaner keeps its 3-word minimum), else (b) a CONSTANT template of the
+# D-08 table with at most one allowlisted slot (one basename or one Allye key). Nothing else of the tool input is ever emitted;
+# templates skip the 3-word minimum. The table, by tool:
+#   Read -> "Read <basename>" | "Read a file"; Edit, MultiEdit, NotebookEdit -> "Edit <basename>" | "Edit a file"; Write -> "Write <basename>" | "Edit a file"
+#     (basename = last component of file_path / notebook_path, accepted by deftbase: shape, a letter, the denylist and the actdrop drops)
+#   Grep -> "Search the code"; Glob -> "Find files"
+#   Skill -> "Load the <role> skill" only for the 12 crew roles (allye:bridge-<role> or bridge-<role>); else no phrase
+#   Allye MCP (server allye / *_allye) by suffix + tool_input.action: __tasks task_start|task_submit|task_complete -> "Start|Submit|Complete task KEY";
+#     __specs spec_get|spec_context -> "Read spec KEY"; __kb kb_read|kb_search|kb_tree -> "Read a KB page", kb_update|kb_section|kb_create -> "Update a KB page";
+#     KEY must match keyok, else the keyless form ("Start a task", "Read a spec"); every other MCP and unknown tool: no phrase
+#   Bash without a description: leading VAR=value words are dropped UNREAD, then by argv0 (basename of the first word) and only a fixed word:
+#     vitest -> "Run vitest"; jest -> "Run jest"; eslint | lint -> "Lint"; tsc | typecheck -> "Typecheck" (tsc -b|--build -> "Build"); build -> "Build";
+#     git diff -> "Read the diff"; git status -> "Check git status"; make build -> "Build"; node --test* -> "Run tests";
+#     npm|pnpm|yarn|bun [run] <script> and npx|bunx|pnpx <tool>: test -> "Run tests", lint, typecheck, build, vitest, jest, eslint, tsc as above;
+#     bun test -> "Run tests"; anything else (also any command holding a secret) -> "Run a command"
+def namedeny: ascii_downcase | test("\\A\\.env|credential|secret|token|passw|private|\\.pem\\z|\\.key\\z|id_(rsa|ed25519|ecdsa)|\\.p12\\z|\\.pfx\\z|kubeconfig|netrc|npmrc|pairing|hook-|service-account|keystore|\\.tfstate|\\.kdbx");
+def deftbase: if type == "string" and test("\\A[A-Za-z0-9._-]{1,60}\\z") and test("[A-Za-z]") and (test("\\A\\.+\\z") | not) and (namedeny | not) and (namedrop | not) then . else null end;
+def pathbase: if type == "string" then (split("/") | last) | deftbase else null end;
+def filetpl($verb; $fallback; $f): ((.tool_input | objects | .[$f]) | pathbase) as $b | if $b != null then $verb + " " + $b else $fallback end;
+def crewroles: ["armorer","architect","copilot","dispatcher","medic","navigator","optimizer","pilot","recon","shield","strategist","watcher"];
+def skilltpl: ((.tool_input | objects | (.skill // .name)) | if type == "string" then (capture("\\A(allye:)?bridge-(?<r>[a-z]+)\\z")? // null) | (objects | .r) else null end) as $r
+  | if $r != null and ($r | IN(crewroles[])) then "Load the " + $r + " skill" else null end;
+def keyslot($f): ((.tool_input | objects | .[$f]) | if type == "string" and keyok then . else null end);
+def mcptpl:
+  if allyesrv | not then null else
+    (.tool_name | split("__") | last) as $sfx
+    | ((.tool_input | objects | .action) // "") as $a
+    | if ($a | type) != "string" then null
+      elif $sfx == "tasks" and ($a | IN("task_start","task_submit","task_complete")) then
+        ({task_start: "Start", task_submit: "Submit", task_complete: "Complete"}[$a]) as $v | (keyslot("task")) as $k | if $k != null then $v + " task " + $k else $v + " a task" end
+      elif $sfx == "specs" and ($a | IN("spec_get","spec_context")) then (keyslot("spec")) as $k | if $k != null then "Read spec " + $k else "Read a spec" end
+      elif $sfx == "kb" and ($a | IN("kb_read","kb_search","kb_tree")) then "Read a KB page"
+      elif $sfx == "kb" and ($a | IN("kb_update","kb_section","kb_create")) then "Update a KB page"
+      else null end
+  end;
+def bscript($s): if $s == "test" then "Run tests" elif $s == "lint" then "Lint" elif $s == "typecheck" then "Typecheck" elif $s == "build" then "Build"
+  elif $s == "vitest" then "Run vitest" elif $s == "jest" then "Run jest" elif $s == "eslint" then "Lint" elif $s == "tsc" then "Typecheck" else null end;
+def dropvars: if length > 0 and (.[0] | test("\\A[A-Za-z_][A-Za-z0-9_]*=")) then (.[1:] | dropvars) else . end;
+def bwcls:
+  (.[0] // "" | sub("\\A.*/"; "")) as $a | (.[1] // "") as $b
+  | if $a == "vitest" then "Run vitest" elif $a == "jest" then "Run jest" elif $a == "eslint" or $a == "lint" then "Lint"
+    elif $a == "tsc" then (if (.[1:] | any(. == "-b" or . == "--build")) then "Build" else "Typecheck" end)
+    elif $a == "typecheck" then "Typecheck" elif $a == "build" then "Build"
+    elif $a == "git" then (if $b == "diff" then "Read the diff" elif $b == "status" then "Check git status" else null end)
+    elif $a == "make" then (if $b == "build" then "Build" else null end)
+    elif $a == "node" then (if $b | startswith("--test") then "Run tests" else null end)
+    elif $a | IN("npm","pnpm","yarn","bun") then bscript(if $b == "run" then (.[2] // "") else $b end)
+    elif $a | IN("npx","bunx","pnpx") then (.[1:] | bwcls)
+    else null end;
+def bashtpl: ((.tool_input | objects | .command) | if type == "string" then .[0:4096] | [splits("[ \t\r\n]+") | select(length > 0)] | dropvars | bwcls else null end) // "Run a command";
+def tooltpl:
+  if (.tool_name | type) != "string" then null
+  elif .tool_name == "Read" then filetpl("Read"; "Read a file"; "file_path")
+  elif .tool_name | IN("Edit","MultiEdit") then filetpl("Edit"; "Edit a file"; "file_path")
+  elif .tool_name == "Write" then filetpl("Write"; "Edit a file"; "file_path")
+  elif .tool_name == "NotebookEdit" then filetpl("Edit"; "Edit a file"; "notebook_path")
+  elif .tool_name == "Grep" then "Search the code"
+  elif .tool_name == "Glob" then "Find files"
+  elif .tool_name == "Skill" then skilltpl
+  elif .tool_name == "Bash" then bashtpl
+  elif .tool_name | startswith("mcp__") then mcptpl
+  else null end;
+def toolphrase: if $txt != "1" then null else ([actof // tooltpl] | .[0]) end;
 def toolev:
-  redtool as $t | toolphrase as $a
+  redtool as $t
   | if (.agent_id // null) != null then
-    (subof) as $s | if $s != null and $t != null then [{type: "sub_tool", tool: $t, sub: $s} | withact($a)] else trig end
-  elif $t != null then [{type: "tool", tool: $t} | withact($a)]
+    (subof) as $s | if $s != null and $t != null then toolphrase as $a | [{type: "sub_tool", tool: $t, sub: $s} | withact($a)] else trig end
+  elif $t != null then actof as $m | [{type: "tool", tool: $t} | withact($m)]
   else trig end;
 def failcode: .error as $x | if ($x | type) == "string" and (["rate_limit","authentication_failed","billing_error","invalid_request","server_error","max_output_tokens"] | index($x)) != null then "cli_error_" + $x else "cli_error_unknown" end;
 def endcode: .reason as $x | if ($x | type) == "string" and (["clear","resume","logout","prompt_input_exit"] | index($x)) != null then "end_" + $x else "end_other" end;
@@ -1408,8 +1473,7 @@ def actdd($e):
 # custom-title key can make an explicit label. The cleaner is actclean with 60 characters and no minimum (a title can be one word).
 # cwd (the basename): exactly one path component through the D-08 basename rules (shape, denylist, the long/hex/secret drops of actdrop;
 # all-dot names are not names). The API requires the label text, so a basename is never sent alone: no label text, nothing is sent.
-def lbldeny: ascii_downcase | test("\\A\\.env|credential|secret|token|passw|private|\\.pem\\z|\\.key\\z|id_(rsa|ed25519|ecdsa)|\\.p12\\z|\\.pfx\\z|kubeconfig|netrc|npmrc|pairing|hook-|service-account|keystore|\\.tfstate|\\.kdbx");
-def lblbase: if type == "string" and test("\\A[A-Za-z0-9._-]{1,60}\\z") and (test("\\A\\.+\\z") | not) and (lbldeny | not) and (actdrop | not) then . else null end;
+def lblbase: if type == "string" and test("\\A[A-Za-z0-9._-]{1,60}\\z") and (test("\\A\\.+\\z") | not) and (namedeny | not) and (actdrop | not) then . else null end;
 def lblnorm: actclean(60; 1; 2);
 def lblc:
   if $txt != "1" or ($lblraw | try fromjson catch null | type) != "object" then null else

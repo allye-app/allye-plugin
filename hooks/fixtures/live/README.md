@@ -201,3 +201,25 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   never written while `activity-off` or `detailed-off` exists, is deleted by the next hook then, and by `live off` and the
   `detailed: false` ack. `batch_build` does not send a label event while texts are off. `spooled` in the tests leaves label events out;
   `labels` reads them.
+
+## Tool classifier (ALY-263.9)
+
+The `sub_tool` phrase (`toolphrase` in the reporter's jq program) is (a) the Bash/Agent/Task `description` through the cleaner (free text
+keeps the 3-word minimum), else (b) a constant template of this table with at most one allowlisted slot. Nothing else of the tool input
+is ever emitted, and templates skip the 3-word minimum. The main-session `tool` event still uses only (a) until ALY-263.13.
+
+| Tool | Phrase |
+|---|---|
+| Read | `Read <basename>`, else `Read a file` |
+| Edit, MultiEdit, NotebookEdit | `Edit <basename>`, else `Edit a file` |
+| Write | `Write <basename>`, else `Edit a file` |
+| Grep / Glob | `Search the code` / `Find files` |
+| Skill | `Load the <role> skill` for `allye:bridge-<role>` or `bridge-<role>` with one of the 12 crew roles; else no phrase |
+| Allye MCP (server `allye` or `*_allye`), suffix + `action` | `__tasks`: task_start / task_submit / task_complete -> `Start|Submit|Complete task KEY`; `__specs`: spec_get / spec_context -> `Read spec KEY`; `__kb`: kb_read / kb_search / kb_tree -> `Read a KB page`, kb_update / kb_section / kb_create -> `Update a KB page`. KEY must match `^[A-Z][A-Z0-9]{1,9}-\d+(\.\d+)?$`, else `Start a task`, `Submit a task`, `Complete a task`, `Read a spec`. Every other MCP tool and every unknown tool: no phrase |
+| Bash without a description | leading `VAR=value` words dropped unread; then by argv0 (its basename) and a fixed word: `vitest` -> `Run vitest`; `jest` -> `Run jest`; `eslint`, `lint` -> `Lint`; `tsc`, `typecheck` -> `Typecheck`; `tsc -b`/`--build`, `build`, `make build` -> `Build`; `git diff` -> `Read the diff`; `git status` -> `Check git status`; `node --test*` -> `Run tests`; `npm|pnpm|yarn|bun [run] test|lint|typecheck|build|vitest|jest|eslint|tsc` (and `npx|bunx|pnpx <tool>`) by the same words; anything else, and any command holding a secret -> `Run a command` |
+
+The basename is the last path component of `file_path` (`notebook_path` for NotebookEdit): `^[A-Za-z0-9._-]{1,60}$`, at least one
+letter, not all dots, not matching the case-insensitive denylist (`namedeny`, the one copy, shared with the label's working directory
+basename) and not matching the secret-shaped drops (`namedrop`: 16 hex characters, 20+ characters with a digit, 24+ characters, token
+prefixes), else the constant. The section `classifier` of `test-live-report.sh` covers the table and 36 hostile paths. The
+subagent fixtures use `/x/MARKER_PATH/readme.txt`: the marker stays in a directory, which never leaves.

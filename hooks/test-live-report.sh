@@ -363,7 +363,7 @@ seq_case "waiting then a subagent PreToolUse with a bad id: working spooled, eve
 SEQ=(notification-permission-prompt subagent-start subagent-start)
 seq_case "permission_prompt then SubagentStart twice: working first, once; the second start of the id is not spooled (AC-36)" "$WP" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
 SEQ=(pre-tool-use-ask-user-question pre-tool-use-subagent)
-seq_case "waiting then a subagent tool: working first, then the synthetic sub_start" "$WQ" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Read","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+seq_case "waiting then a subagent tool: working first, then the synthetic sub_start" "$WQ" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Read","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"},"activity":"Read readme.txt"}'
 SEQ=(pre-tool-use-ask-user-question stop pre-tool-use)
 seq_case "waiting then Stop then a tool: Stop leaves waiting, no working" "$WQ" '{"type":"state","state":"idle","code":"turn_ended"}' '{"type":"tool","tool":"Bash"}'
 SEQ=(pre-tool-use-ask-user-question subagent-stop)
@@ -524,7 +524,7 @@ seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{
 SEQ=(skill-bridge-spec expansion-bridge-spec)
 seq_case "skill via Skill tool then via expansion with another key: sent again" "$S1" "$BSK" '{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"launch","spec":"ALY-7"}}'
 SEQ=(skill-bridge-subagent mcp-allye-subagent)
-seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"},"activity":"Start task ALY-203.3"}'
 new_case; mkcred; "$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/mcp-allye-subagent.json" >"$SB/stdin"; run_hook
 check "control: the same task_start payload outside a subagent binds (the subagent case is not vacuous)" '{"bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"},"type":"bind"}' "$(spooled | grep '"bind"')"; end_case
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture session-start-startup mcp-allye-task-start-half-bad-key skill-bridge-spec
@@ -1584,6 +1584,169 @@ printf '5xx' >"$SB/api/ingest-mode"; subact e1 "Run the MARKERTHREE unit tests n
 check "setup: the phrase is in the spool before the flag" "1" "$(grep -c MARKERTHREE "$(spool_of "$RAWSID")" || true)"
 : >"$(DOFF)"; chmod 600 "$(DOFF)"; printf 'ok' >"$SB/api/ingest-mode"; : >"$SB/api/ingest-bodies.log"; run_fixture user-prompt-submit; wait_idle
 check "BR-03: the flag flips with the phrase already in the spool: the request carries no phrase, the sub_tool does" "0 1" "$(grep -c MARKERTHREE "$SB/api/ingest-bodies.log" || true) $(sent_evs | "$JQ_BIN" -c 'select(.type == "sub_tool")' | grep -c . || true)"
+end_case
+
+echo "== classifier: constant D-08 templates with one allowlisted slot, nothing else of the tool input (ALY-263.9 AC-05, AC-06, AC-13, BR-01, BR-04, D-08) =="
+# clsub TOOL INPUT_JSON: a subagent PreToolUse of TOOL with INPUT_JSON as tool_input (a fresh agent id each time, so the per-agent
+# duplicate rule never hides a phrase). cls_act prints the activity of the last sub_tool event, "<none>" without one, "<no event>" without an event.
+CLN=0
+clsub() { CLN=$((CLN + 1)); "$JQ_BIN" --arg id "cls$CLN" --arg t "$1" --argjson i "$2" '.agent_id = $id | .tool_name = $t | .tool_input = $i' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+cls_act() { local l; l=$(lines_of '.type == "sub_tool"' | tail -n 1); if [ -z "$l" ]; then echo "<no event>"; else printf '%s' "$l" | "$JQ_BIN" -r '.activity // "<none>"'; fi; }
+cls() { clsub "$1" "$2"; check "$3" "$4" "$(cls_act)"; }
+new_case; mkcred
+cls Read '{"file_path":"/home/u/proj/src/index.ts"}' "AC-13: Read of a file: the verb and the basename" "Read index.ts"
+cls Edit '{"file_path":"/p/a/app.js","old_string":"MARKER_ARGS","new_string":"x"}' "AC-13: Edit: the verb and the basename, never the strings" "Edit app.js"
+cls MultiEdit '{"file_path":"/p/a/app.js","edits":[{"old_string":"MARKER_ARGS"}]}' "AC-13: MultiEdit says Edit" "Edit app.js"
+cls Write '{"file_path":"/p/a/notes.md","content":"MARKER_ARGS"}' "AC-13: Write: the verb Write" "Write notes.md"
+cls NotebookEdit '{"notebook_path":"/p/a/model.ipynb","new_source":"MARKER_ARGS"}' "AC-13: NotebookEdit reads notebook_path and says Edit" "Edit model.ipynb"
+cls Read '{}' "AC-13: Read without a path: the constant" "Read a file"
+cls Read '{"file_path":["/a/b.ts"]}' "AC-13: Read with a non-string path: the constant" "Read a file"
+cls Edit '{"notebook_path":"/a/b.ts"}' "AC-13: Edit ignores notebook_path: the constant" "Edit a file"
+cls Write '{"file_path":"/a/.env"}' "AC-13: Write of a denied name: the Edit constant (D-08)" "Edit a file"
+cls Grep '{"pattern":"MARKER_ARGS","path":"/p"}' "D-08: Grep" "Search the code"
+cls Glob '{"pattern":"**/MARKER_ARGS*"}' "D-08: Glob" "Find files"
+cls WebFetch '{"url":"https://example.com/MARKER_ARGS"}' "D-08: an unknown tool: the event goes on with no phrase" "<none>"
+# the 30 hostile basenames: each yields the allowed basename or the constant, in Read and Edit
+hostile() { # PATH EXPECTED_BASENAME_OR_EMPTY
+  local want="$2"
+  local r="Read a file" e="Edit a file"
+  if [ -n "$want" ]; then r="Read $want"; e="Edit $want"; fi
+  cls Read "$("$JQ_BIN" -cn --arg p "$1" '{file_path: $p}')" "AC-13: hostile basename [$(printf '%s' "$1" | tr '\n' '~' | cut -c1-40)] Read" "$r"
+  cls Edit "$("$JQ_BIN" -cn --arg p "$1" '{file_path: $p}')" "AC-13: hostile basename [$(printf '%s' "$1" | tr '\n' '~' | cut -c1-40)] Edit" "$e"
+}
+hostile "/p/.env" ""
+hostile "/p/.env.local" ""
+hostile "/p/.ENV" ""
+hostile "/p/id_rsa" ""
+hostile "/p/id_ed25519.pub" ""
+hostile "/p/id_ecdsa" ""
+hostile "/p/server.pem" ""
+hostile "/p/private.key" ""
+hostile "/p/cert.p12" ""
+hostile "/p/cert.pfx" ""
+hostile "/p/.npmrc" ""
+hostile "/p/.netrc" ""
+hostile "/p/kubeconfig" ""
+hostile "/p/my-secrets.json" ""
+hostile "/p/credentials.json" ""
+hostile "/p/hook-credential.json" ""
+hostile "/p/pairing-1.json" ""
+hostile "/p/terraform.tfstate" ""
+hostile "/p/x.kdbx" ""
+hostile "/p/service-account.json" ""
+hostile "/p/app.keystore" ""
+hostile "/p/PASSWORDS.txt" ""
+hostile "/p/api-token.txt" ""
+hostile "/p/name with space.ts" ""
+hostile "/p/ünïcode.ts" ""
+hostile "/p/.." ""
+hostile "/p/12345.67" ""
+hostile "/p/dir/" ""
+hostile "/p/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ts" ""
+hostile "/p/0123456789abcdef0123.ts" ""
+hostile "/p/a
+b.ts
+" ""
+hostile "/p/ok-file_1.test.ts" "ok-file_1.test.ts"
+hostile "/p/./README.md" "README.md"
+hostile "rel/Makefile" "Makefile"
+hostile "/p/q/Dockerfile.dev" "Dockerfile.dev"
+end_case
+
+new_case; mkcred
+cls Bash '{"command":"vitest run --reporter dot"}' "D-08: vitest" "Run vitest"
+cls Bash '{"command":"npx vitest run src/a.test.ts"}' "D-08: npx vitest" "Run vitest"
+cls Bash '{"command":"jest --ci"}' "D-08: jest" "Run jest"
+cls Bash '{"command":"npm test"}' "D-08: npm test" "Run tests"
+cls Bash '{"command":"npm run test -- --maxWorkers=4"}' "D-08: npm run test" "Run tests"
+cls Bash '{"command":"node --test --test-concurrency=4 test/"}' "D-08: node --test" "Run tests"
+cls Bash '{"command":"bun test"}' "D-08: bun test" "Run tests"
+cls Bash '{"command":"npx eslint ."}' "D-08: npx eslint" "Lint"
+cls Bash '{"command":"npm run lint"}' "D-08: npm run lint" "Lint"
+cls Bash '{"command":"eslint src --fix"}' "D-08: eslint" "Lint"
+cls Bash '{"command":"tsc --noEmit"}' "D-08: tsc" "Typecheck"
+cls Bash '{"command":"npm run typecheck"}' "D-08: npm run typecheck" "Typecheck"
+cls Bash '{"command":"tsc -b"}' "D-08: tsc -b is a build" "Build"
+cls Bash '{"command":"npm run build"}' "D-08: npm run build" "Build"
+cls Bash '{"command":"make build"}' "D-08: make build" "Build"
+cls Bash '{"command":"git diff HEAD~1 -- secret.txt"}' "D-08: git diff" "Read the diff"
+cls Bash '{"command":"git status --short"}' "D-08: git status" "Check git status"
+cls Bash '{"command":"git push origin main"}' "D-08: another git subcommand" "Run a command"
+cls Bash '{"command":"ls -la /home/u"}' "D-08: any other command" "Run a command"
+cls Bash '{"command":"cd /repo && npm test"}' "D-08: the class is decided on argv0 only" "Run a command"
+cls Bash '{"command":"./node_modules/.bin/vitest run"}' "D-08: argv0 is its basename" "Run vitest"
+cls Bash '{"command":"npm install left-pad"}' "D-08: npm install is not a test" "Run a command"
+cls Bash '{"command":""}' "D-08: an empty command" "Run a command"
+cls Bash '{}' "D-08: no command" "Run a command"
+cls Bash '{"command":["npm","test"]}' "D-08: a non-string command" "Run a command"
+cls Bash '{"command":"TOKEN=abc123MARKER_ARGS curl -H \"Authorization: Bearer sk-live0123456789abcdef0123456789\" https://api.example.com/MARKER_ARGS"}' "AC-13: a command holding a secret yields exactly the constant" "Run a command"
+cls Bash '{"command":"API_KEY=MARKER_ARGS FOO=bar vitest run"}' "AC-13: leading VAR=value words are discarded unread, the class is kept" "Run vitest"
+cls Bash '{"command":"A=1 B=2 C=3 git status"}' "AC-13: several leading VAR=value words" "Check git status"
+cls Bash '{"command":"MARKER_ARGS=1"}' "AC-13: only assignments: the constant" "Run a command"
+cls Bash '{"command":"npm test","description":"Run the unit tests of the hooks"}' "D-08: a description wins over the class" "Run the unit tests of the hooks"
+cls Bash '{"command":"npm test","description":"Run"}' "D-08: a description the cleaner drops (3-word minimum) falls back to the class" "Run tests"
+cls Bash '{"command":"vitest","description":"deploy with password=MARKER_ARGS and token=MARKER_ARGS now"}' "BR-04: a description with secrets leaves only what the cleaner keeps (the secrets are cut), the class is not used" "deploy with and now"
+check "BR-01: no marker of any tool input reached the spool or a file" "0" "$(grep -rl 'MARKER_ARGS\|abc123' "$DATA" 2>/dev/null | grep -c . || true)"
+end_case
+
+new_case; mkcred
+cls Skill '{"skill":"allye:bridge-pilot"}' "D-08: an Allye crew skill with the plugin prefix" "Load the pilot skill"
+cls Skill '{"skill":"bridge-watcher","args":"MARKER_ARGS"}' "D-08: a crew skill without the prefix" "Load the watcher skill"
+for r in armorer architect copilot dispatcher medic navigator optimizer pilot recon shield strategist watcher; do
+  cls Skill "{\"skill\":\"allye:bridge-$r\"}" "D-08: crew role $r" "Load the $r skill"
+done
+cls Skill '{"skill":"allye:bridge"}' "D-08: the Mothership skill is not a crew role: no phrase" "<none>"
+cls Skill '{"skill":"allye:bridge-hacker"}' "D-08: an unknown role: no phrase" "<none>"
+cls Skill '{"skill":"frontend-design"}' "D-08: a non-Allye skill: no phrase" "<none>"
+cls Skill '{"skill":"other:bridge-pilot"}' "D-08: a foreign prefix: no phrase" "<none>"
+cls Skill '{"skill":"bridge-pilot MARKER_ARGS"}' "D-08: trailing text: no phrase" "<none>"
+cls Skill '{}' "D-08: no skill name: no phrase" "<none>"
+M=mcp__plugin_allye_allye
+cls ${M}__tasks '{"action":"task_start","task":"ALY-263.9"}' "D-08: task_start with a task key" "Start task ALY-263.9"
+cls ${M}__tasks '{"action":"task_submit","task":"ALY-263.9","branch_name":"MARKER_ARGS"}' "D-08: task_submit" "Submit task ALY-263.9"
+cls ${M}__tasks '{"action":"task_complete","task":"ALY-1.2"}' "D-08: task_complete" "Complete task ALY-1.2"
+cls ${M}__tasks '{"action":"task_start","task":"aly-263.9"}' "D-08: a lowercase key: the keyless form" "Start a task"
+cls ${M}__tasks '{"action":"task_submit","task":"ALY-263.9 MARKER_ARGS"}' "D-08: a key with trailing text: the keyless form" "Submit a task"
+cls ${M}__tasks '{"action":"task_complete"}' "D-08: no key: the keyless form" "Complete a task"
+cls ${M}__tasks '{"action":"task_update","task":"ALY-1.2","notes":"MARKER_ARGS"}' "D-08: another tasks action: no phrase" "<none>"
+cls ${M}__specs '{"action":"spec_get","spec":"ALY-263"}' "D-08: spec_get" "Read spec ALY-263"
+cls ${M}__specs '{"action":"spec_context","spec":"ALY-263"}' "D-08: spec_context" "Read spec ALY-263"
+cls ${M}__specs '{"action":"spec_context","spec":"not a key"}' "D-08: spec_context with a bad key: keyless" "Read a spec"
+cls ${M}__specs '{"action":"spec_approve","spec":"ALY-263"}' "D-08: spec_approve: no phrase" "<none>"
+cls ${M}__kb '{"action":"kb_read","path":"MARKER_ARGS"}' "D-08: kb_read" "Read a KB page"
+cls ${M}__kb '{"action":"kb_search","query":"MARKER_ARGS"}' "D-08: kb_search" "Read a KB page"
+cls ${M}__kb '{"action":"kb_tree"}' "D-08: kb_tree" "Read a KB page"
+cls ${M}__kb '{"action":"kb_update","content":"MARKER_ARGS"}' "D-08: kb_update" "Update a KB page"
+cls ${M}__kb '{"action":"kb_section"}' "D-08: kb_section" "Update a KB page"
+cls ${M}__kb '{"action":"kb_create"}' "D-08: kb_create" "Update a KB page"
+cls ${M}__kb '{"action":"kb_delete"}' "D-08: another kb action: no phrase" "<none>"
+cls ${M}__intelligence '{"action":"memory_search","query":"MARKER_ARGS"}' "D-08: another Allye MCP tool: no phrase" "<none>"
+cls ${M}__tasks '{"action":["task_start"],"task":"ALY-1.2"}' "D-08: a non-string action: no phrase" "<none>"
+cls mcp__other__tasks '{"action":"task_start","task":"ALY-1.2"}' "D-08: a foreign MCP server with the same suffix: no phrase" "<none>"
+cls mcp__github__create_issue '{"title":"MARKER_ARGS"}' "D-08: another MCP server: no phrase, not even mcp" "<none>"
+check "BR-01: no marker of any tool input reached the spool or a file" "0" "$(grep -rl 'MARKER_ARGS' "$DATA" 2>/dev/null | grep -c . || true)"
+clsub Bash '{"command":"npm test"}'
+check "AC-05: the phrase is at most 140 characters and the event shape is unchanged" '{"activity":"Run tests","sub":{"id":"cls'"$CLN"'","type":"allye:bridge-pilot"},"tool":"Bash","type":"sub_tool"}' "$(lines_of '.type == "sub_tool"' | "$JQ_BIN" -cS . | tail -n 1)"
+end_case
+
+new_case; mkcred
+# the same agent id twice: the second identical template is skipped, a different one is sent
+cls1() { "$JQ_BIN" --arg t "$1" --argjson i "$2" '.agent_id = "same1" | .tool_name = $t | .tool_input = $i' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+cls1 Read '{"file_path":"/a/x.ts"}'; cls1 Read '{"file_path":"/b/x.ts"}'; cls1 Grep '{}'; cls1 Read '{"file_path":"/b/x.ts"}'
+check "AC-05: an equal template of the same agent is skipped, a changed one is sent again" "Read x.ts|-|Search the code|Read x.ts|" "$(sub_acts same1)"
+end_case
+# texts off: no template is spooled or remembered
+for fl in activity-off detailed-off; do
+  new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  clsub Read '{"file_path":"/p/MARKERFILE.ts"}'; clsub Bash '{"command":"npm test"}'
+  check "BR-03: $fl: no template phrase reaches the spool or any file" "0" "$(grep -rlE 'MARKERFILE|Run tests|Read a file' "$DATA" 2>/dev/null | grep -c . || true)"
+  check "BR-03: $fl: the sub_tool events still go on" "2" "$(lines_of '.type == "sub_tool"' | grep -c . || true)"
+  end_case
+done
+# the main session keeps its phrase path until slice .13: a Read there has no phrase
+new_case; mkcred
+"$JQ_BIN" 'del(.agent_id, .agent_type) | .tool_name = "Read" | .tool_input = {file_path: "/p/a.ts"}' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "D-08: the main-session tool event is not changed by this slice (no template yet)" '{"tool":"Read","type":"tool"}' "$(lines_of '.type == "tool"' | "$JQ_BIN" -cS . | tail -n 1)"
 end_case
 
 echo "== text cleaner: shared vectors, cap 140, nested allowlist and marker scan (ALY-258.1 AC-06, AC-07, D-33, NFR-01) =="
@@ -3090,7 +3253,8 @@ echo "== spike: SubagentStart/Stop on a resume, hook agent_id vs metadata id, me
 # again, and one that sends only tool events and a second SubagentStop. Later slices (ALY-263.11) change these expectations knowingly.
 SPK='"id":"spk0a1b2c3d4e5f6","type":"allye:bridge-pilot"'
 SPK_START="{\"type\":\"sub_start\",\"sub\":{$SPK}}"
-SPK_TOOL="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK}}"
+SPK_TOOL="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK},\"activity\":\"Read readme.txt\"}"
+SPK_TOOL2="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK}}"  # the same agent repeating the same phrase: slice .3 skips the duplicate
 SPK_STOP="{\"type\":\"sub_stop\",\"sub\":{$SPK,\"outcome\":\"pass\",\"task\":\"ALY-1.2\"}}"
 spike_case() {  # LABEL FIXTURES-CSV EXPECT-JSON-LINES...
   local label="$1" seqs="$2"; shift 2
@@ -3102,7 +3266,7 @@ spike_case() {  # LABEL FIXTURES-CSV EXPECT-JSON-LINES...
 }
 spike_case "baseline: start, tool, stop" spike-start,spike-tool,spike-stop "$SPK_START" "$SPK_TOOL" "$SPK_STOP"
 spike_case "resume shape 1 (Start fires again): the second sub_start is dropped by the seen-set, the second tool and stop are sent plain" \
-  spike-start,spike-tool,spike-stop,spike-start,spike-tool,spike-stop "$SPK_START" "$SPK_TOOL" "$SPK_STOP" "$SPK_TOOL" "$SPK_STOP"
+  spike-start,spike-tool,spike-stop,spike-start,spike-tool,spike-stop "$SPK_START" "$SPK_TOOL" "$SPK_STOP" "$SPK_TOOL2" "$SPK_STOP"
 spike_case "resume shape 2 (no Start, no Stop on the resume): a tool after the stop is sent as a plain sub_tool, nothing marks it" \
   spike-start,spike-stop,spike-tool "$SPK_START" "$SPK_STOP" "$SPK_TOOL"
 spike_case "resume shape 3 (tool events only, then a second Stop): both stops are sent plain" \
