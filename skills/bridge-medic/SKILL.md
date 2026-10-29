@@ -48,6 +48,7 @@ mode: slice|challenge|diagnose
 task: <key | global | draft>
 status: passed|blocked|advisory
 commit: <HEAD sha reviewed | null>
+summary: <one line>
 criteriaCoverage:
   - anchor: AC-01
     tests: [<path:test name>]
@@ -72,8 +73,11 @@ diagnosis: { cause: <statement|null>, evidence: [<proofs>], regressionTest: <tes
 openQuestions: [<real blockers only>]
 filesRead: [<paths>]
 filesChanged: []
+severity_counts: critical=<n> high=<n> medium=<n> low=<n> info=<n>
 next: shield|pilot-correction|mothership
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 `passed` (slice/global) requires zero `blocking` regressions and every in-scope criterion `covered` or `ci-pending` (listed in `ciPending`, pending CI and never counted as proven locally). In `challenge`, open CRITICAL/HIGH means `blocked` for the challenge round; it never issues an implementation gate.
 

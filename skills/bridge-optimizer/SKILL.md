@@ -47,6 +47,7 @@ mode: challenge|slice|optimize
 task: <key | global | draft>
 status: passed|advisory|blocked
 commit: <HEAD sha reviewed | null>
+summary: <one line>
 proposals:
   - id: OPT-01
     classification: REMOVE_NOW|SIMPLIFY_NOW|KEEP|LATER
@@ -60,6 +61,8 @@ filesRead: [<paths>]
 filesChanged: []
 next: mothership|human-decision
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 `blocked` only when complexity objectively violates the spec or its scope (e.g. a non-goal implemented); the Mothership reclassifies such a finding and decides the gate. In `challenge`, an open CRITICAL/HIGH scope finding blocks the challenge round until resolved or turned into an open `[Q-NN]`.
 

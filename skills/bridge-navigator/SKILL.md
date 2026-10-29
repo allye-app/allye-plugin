@@ -68,7 +68,7 @@ phase: stage|publish
 attempt: 0|1|2
 status: passed|blocked|failed
 commit: <base HEAD sha the work started from>
-summary: <docs staged or pages published>
+summary: <one line>
 filesRead: [<paths>]
 filesChanged: [<paths>]
 validation:
@@ -85,6 +85,8 @@ docsPublished: [{ page: <id>, revision: <n> }]
 personalReads: [{ page: <short_id>, space: <space>, role: navigator }]
 next: copilot|mothership
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 `passed` is never a gate: Copilot, Medic, Shield and Watcher still decide, and the Mothership logs every `kb` write as `external-action` and reconciles it against your packet's `mcp`.
 

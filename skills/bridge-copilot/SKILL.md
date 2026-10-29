@@ -50,6 +50,7 @@ task: <key>
 attempt: 0|1|2
 status: passed|blocked
 commit: <HEAD sha>
+summary: <one line>
 tree: clean|+dirty [<in-scope paths>]
 reruns:
   - command: <exact declared command>
@@ -65,6 +66,8 @@ scope:
   forbiddenTouched: [<paths>]
 undeclaredCommands: [<command from the Pilot's report>]
 mcpWrites: []
+checks: ok=<n> run=<n>                  # ok: reruns with match true; run: reruns executed
+severity_counts: critical=<n> high=<n> medium=<n> low=<n> info=<n>
 findings:
   - severity: HIGH|MEDIUM|LOW|INFO
     location: <path | command>
@@ -74,6 +77,8 @@ filesRead: [<paths>]
 filesChanged: []
 next: reviewers|pilot-correction|mothership
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 `passed` requires: every accepted command rerun with exit 0 (or the declared expected code) as `proof: local`, except plan-declared `ciOnly` commands recorded as `proof: ci-only` (pending CI, not passed), no out-of-scope or forbidden path, no undeclared command, and the verdict tied to the exact `HEAD` + tree state above. Any later change to the slice invalidates it.
 

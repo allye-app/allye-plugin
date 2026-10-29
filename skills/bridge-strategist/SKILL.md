@@ -57,6 +57,7 @@ For each section, ask: could two competent implementers read this and build diff
 role: strategist
 mode: plan|challenge
 status: passed|blocked
+summary: <one line>
 spec: <SPEC-KEY | draft>
 criteriaTrace:                     # plan
   - anchor: AC-01
@@ -91,6 +92,8 @@ openQuestions: [<real blockers only>]
 filesRead: [<paths>]
 filesChanged: []
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 `passed` in `plan` requires an acyclic DAG, every AC traced (by server tasks or `proposedTasks`), stable keys/titles, no overlapping writers in a frontier, and every command either `resolved` to an inspected script or CI target (with `ciOnly: true` and its reason when it cannot run locally) or listed as `unresolved` for the user's decision. `passed` in `challenge` requires no open CRITICAL/HIGH; it is input to the challenge round, never an implementation gate.
 

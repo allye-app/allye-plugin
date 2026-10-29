@@ -122,3 +122,67 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   tries again at once and after 2, 5, 15, 30 and 60 s (test knob `ALLYE_LIVE_FINAL_DELAYS`), waiting up to 10 s for
   `flush.lock` each time, honouring off, disabled, a changed credential and the back-off; it exits when no ended line is
   left or after its last attempt, removing `final.lock`. The API idle expiry stays the backstop.
+
+## ALY-258.1: desc and task on sub_start, the 140-code-point cleaner
+
+- One cleaner (`actphrase($cap)` in the reporter's jq program), cap 140 for `activity`, `desc` (and `summary`, ALY-258.2); it is
+  a documented subset of the API scrubber (ALY-257 D-20), which stays authoritative. Beyond the ALY-217.6 table it drops: the
+  distinctive secret prefixes anywhere in a token (`sk-`, `sk_`, `pk-`, `rk-` only at a token start or after a non-alphanumeric),
+  `arn:`, bare dotted hostnames (3+ labels, or 2 with a common TLD), separator-joined hex pairs, 11+ digits with separators
+  (account ids, CPF/CNPJ, phones, cards) and the whole-word names `pwd`, `pw`, `cookie`, `session`, `sid`, `passphrase` as `k=v`,
+  `k: v`, `k = v` or `<word> is <value>`. It is stricter than D-20 where noted in the vector table.
+- `vectors/agent-run-text-vectors.json`: plugin-owned vector table derived from D-20 (kept in a subdirectory so the fixture loop
+  does not take it for a hook payload). Swap it for the API shared file when that exists. `plugin: exact` = output equals
+  `output`; `safe` = the plugin is stricter (forbidden tokens absent, `plugin_output` is its result); `skip` = a D-20 rule the
+  plugin does not implement (`reason` says why). `input_gen`/`output_gen` build long strings. The suite replays every vector
+  through the cleaner cut out of `live-report.sh` and checks the forbidden tokens, the 140 limit, one line and idempotence.
+- Stash correlation (D-32): the Agent/Task stash entry gains `id` (the PreToolUse `tool_use_id`). `SubagentStart` and
+  `SubagentStop` carry no `tool_use_id`, so a start is matched by subagent type within the 60 s TTL: exactly one unexpired
+  entry of the type gives `sub.desc` (and `sub.task`, the first dotted task key of the cleaned description) to the `sub_start`
+  (real or synthetic) and is consumed; none gives nothing; several (parallel launches of one type) give nothing and the other
+  entries of the type become tombstones (empty text, expiring by TTL) so a later start of the type never pairs with them. There is no separate Agent `sub_tool` event any more. Covered by generated payloads in the test.
+- `batch_build` keeps only `id`, `type`, `outcome`, `task` and `desc` inside `sub` (the nested allowlist; ALY-258.2 extends it).
+- `LIVE_TEST_SECTIONS` (regex over the section names) runs a subset of `hooks/test-live-report.sh`; unset runs everything.
+
+## ALY-258.2: summary and chips on sub_stop
+
+- The strict parser (`newfields` in the reporter's jq program) reads the first 65536 characters of `last_assistant_message`. A line
+  counts for a key only when it starts at column 0 with the exact lowercase key (`summary:`, `attempt:`, `next:`, `gate:`,
+  `checks:`, `severity_counts:`; LF or CRLF), and the key must be on exactly one such line of the slice; zero or several omit the
+  field. Indented, list-marker, bold or different-case lines are not counted. `status:` and `task:` keep their lenient first-match rule
+  (previous events are unchanged when none of the new lines exist). A lone `summary:` at column 0 inside a code fence matches.
+- `summary` goes through `actphrase(140)` and is sent only when the cleaner keeps it and texts are on (`$txt == "1"`); it is the only
+  message text that leaves. `attempt` 0-2; `next` lowercased, `-` to `_`, one of reviewers|pilot_correction|mothership|watcher|done;
+  `gate` only for type shield (SHIELD_CLEAR) or watcher (WATCHER_APPROVED), `null` ignored; `checks {ok,run}` and
+  `findings {critical,high,medium,low,info}` (all five keys, once, in that order). Integers 0-99 with no sign, decimal point or
+  leading zero; any deviation or trailing junk omits the field (checks/findings all or nothing).
+- `batch_build` allows `summary`, `attempt`, `next`, `gate`, `checks`, `findings` inside `sub` and checks their type and range
+  (a bad value drops the field, never the event; nested objects keep only their keys).
+- Cases are generated in `hooks/test-live-report.sh` (sections `report lines` and `batches with the longer texts`; they use the
+  `stopped` helper of `subagent outcome`, select both). Existing fixtures are untouched and still pass (AC-12).
+
+## ALY-258.3: Detailed Live ack flag, texts stripped at flush, consent text
+
+- Ack flag (D-36, AC-14): on a 2xx answer of the ingest route `flush_run` reads the same bounded body it already reads for the error
+  code. A VALID ack is `.data.accepted` a number. In a valid ack only the strict boolean `.data.detailed == false` writes
+  `$CLAUDE_PLUGIN_DATA/live/detailed-off` (empty, temp 0600 + mv under the state lock, so a symlink at that name is replaced and
+  never followed) and deletes the Agent stashes; a valid ack with anything else (true, field absent, null, another type) removes the
+  flag (absent = true). A 2xx whose body is not a valid ack (204, empty, truncated, not JSON, a captive-portal page), a non-2xx and a
+  failed send (a 200 KB ack exceeds curl's `max-filesize`) leave the flag exactly as it is: fail closed, never set, never cleared
+  (Shield SHD-01). No extra network call.
+- Texts off (BR-03, AC-08): `activity-off` (the user's opt-out) or `detailed-off` exists (any entry, symlinks included: fail safe).
+  The hook then attaches no `desc`, `activity` or `summary`, writes no stash and deletes an existing `<hash>.agents`; `batch_build`
+  (the only place a spooled line becomes a request: hook send, delayed flush, SessionEnd and the final flusher) removes `activity`,
+  `sub.desc` and `sub.summary` from every event at each flush, so events spooled before the flag are cleaned. Structured fields
+  (`task`, `attempt`, `next`, `checks`, `findings`, `gate`, `outcome`) and tool events go on.
+- On a 400 the batch is discarded (existing behaviour, now commented in `flush_run`): a plugin newer than the API therefore loses
+  its batches, which is why the API ships first and rolls back only together with the plugin (D-37; the docs are task .5).
+- `hooks/test/fake-hooks-api.mjs`: the data-dir file `ingest-detailed` (`false`, `true`, `junk`, `null`, `nobody`, `notjson`; absent =
+  no `detailed` field in a valid ack) shapes the 2xx ack. The tests are the section `activity: Detailed Live ack flag...` of `test-live-report.sh`
+  (select it with the other `activity` sections, it uses their helpers) and the `texts` cases of `test-allye-hooks.sh`.
+- `commands/hooks.md` discloses the three texts (140 characters, best effort without guarantee, only the `summary:` line of a crew
+  report) and both ways to turn them off; `live activity off|on|status` and `live status` say "texts" and why they are off.
+
+- `vectors/api-agent-run-text-vectors.json`: byte-for-byte copy of `src/modules/agent-runs/agent-run-text-vectors.json` of allye-api
+  `origin/develop` at commit e8c361ee9f8970253dcd7c99c8f569f64237e7b5 (ALY-257). The suite checks that no token the API drops
+  survives in the plugin output (the plugin may be stricter, never looser). Refresh it by copying the file again and updating this commit.

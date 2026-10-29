@@ -504,8 +504,47 @@ else {
   for (const f of [PILOT, COPILOT, STRAT, RECON]) if (!POINTER.test(read(f))) fail(`${f}: must point to \`bridge-armorer/SKILL.md\` → Provisioning`);
 }
 
+// ALY-258 [AC-10] [D-05] [D-34]: the Live reporter's report lines are defined once in delegation.md;
+// every role block shows a column-0 `summary:` line, and the chip lines sit in their roles.
+{
+  const DEL = "skills/bridge/references/delegation.md";
+  const del = read(DEL);
+  const RULE = "summary is transmitted to Allye: generic phase and outcome only; no names, data, secrets, file or prompt content";
+  if (!del.includes(RULE)) fail(`${DEL}: must state the privacy rule: ${RULE}`);
+  if (del.split(RULE).length !== 2) fail(`${DEL}: the privacy rule must appear exactly once`);
+  const common = del.split("\n## Common output")[1]?.split("\n## ")[0] ?? "";
+  if (!common) fail(`${DEL}: Common output section not found`);
+  for (const needle of ["summary: <one line>", "attempt: <0|1|2>", "next: <reviewers|pilot_correction|mothership|watcher|done>", "gate: SHIELD_CLEAR|WATCHER_APPROVED|null", "checks: ok=<n> run=<n>", "severity_counts: critical=<n> high=<n> medium=<n> low=<n> info=<n>", "column 0", "140 characters"]) {
+    if (common.split(needle).length !== 2) fail(`${DEL}: Common output must define "${needle}" exactly once`);
+  }
+  if (/one or two lines/.test(del)) fail(`${DEL}: summary must be one line, not "one or two lines"`);
+  const roles = ["pilot", "navigator", "copilot", "watcher", "medic", "shield", "recon", "strategist", "optimizer", "armorer", "architect", "dispatcher"];
+  const yamlOf = (r) => {
+    const t = read(`skills/bridge-${r}/SKILL.md`);
+    const blocks = [...t.matchAll(/```yaml\n([\s\S]*?)\n```/g)].map((m) => m[1]).filter((b) => /^role: /m.test(b));
+    return { text: t, block: blocks[0] ?? "" };
+  };
+  const chips = { checks: ["copilot", "watcher"], severity_counts: ["medic", "shield", "copilot", "watcher"] };
+  for (const r of roles) {
+    const f = `skills/bridge-${r}/SKILL.md`;
+    const { text, block } = yamlOf(r);
+    if (!block) { fail(`${f}: structured output yaml block not found`); continue; }
+    const count = (key) => block.split("\n").filter((l) => l.startsWith(`${key}:`)).length;
+    if (count("summary") !== 1) fail(`${f}: the output block must have exactly one column-0 \`summary:\` line`);
+    for (const [key, who] of Object.entries(chips)) {
+      if (count(key) !== (who.includes(r) ? 1 : 0)) fail(`${f}: \`${key}:\` must ${who.includes(r) ? "" : "not "}be in the output block`);
+    }
+    if (!text.includes("delegation.md")) fail(`${f}: must reference delegation.md`);
+    if (!/delegation\.md` → Common output/.test(text)) fail(`${f}: must point to delegation.md → Common output for the report lines`);
+  }
+  for (const r of ["pilot", "navigator"]) {
+    const sum = yamlOf(r).block.split("\n").find((l) => l.startsWith("summary:")) ?? "";
+    if (!/one line/.test(sum)) fail(`skills/bridge-${r}/SKILL.md: the summary line must say "one line"`);
+  }
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);
 }
-console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; spec_validate gate in publish, spec lint, delegation, architect and dispatcher; fallback condition aligned; epic omission, submit_ready draft rule and spec-lint outcome covered; publish resolves via project_resolve and a verified link file; .allye/project.json committed; a missing team never blocks; only armorer.json and missions/ are local state; installs and toolchain switches approval-gated)");
+console.log("skills text: ok (anchors defined once; spec lint referenced by architect, dispatcher and publish; memory reference complete; memory wired into the Mothership flow; memory access Mothership-only and memory events journaled; Armorer memory check optional; bootstrap memory line synced; spec_validate gate in publish, spec lint, delegation, architect and dispatcher; fallback condition aligned; epic omission, submit_ready draft rule and spec-lint outcome covered; publish resolves via project_resolve and a verified link file; .allye/project.json committed; a missing team never blocks; only armorer.json and missions/ are local state; installs and toolchain switches approval-gated; Live report lines defined once in delegation.md and present in the 12 role blocks)");

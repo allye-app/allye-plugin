@@ -1,0 +1,1098 @@
+{
+ "version": 1,
+ "cap": 140,
+ "note": "Plugin-owned vector table derived from the ALY-257 D-20 scrubber rules. Replace with the API shared file (agent-run-text-vectors.json) when it exists. plugin: exact = the plugin output equals output; safe = the plugin is stricter, forbidden tokens must be absent and plugin_output (when present, null = no text, __drop__ = a text without the survivors) is the plugin result; skip = a documented D-20 rule the plugin does not implement (reason says why). input_gen/output_gen build long strings: prefix + unit repeated times, sliced by code point, plus suffix.",
+ "vectors": [
+  {
+   "name": "prefix sk-",
+   "input": "Deploy with sk-live12345abcdef now please",
+   "output": "Deploy with now please",
+   "forbidden": [
+    "sk-live12345abcdef"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix sk_",
+   "input": "Deploy with sk_live12345abcdef now please",
+   "output": "Deploy with now please",
+   "forbidden": [
+    "sk_live12345abcdef"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix pk-",
+   "input": "Deploy with pk-live12345abcdef now please",
+   "output": "Deploy with now please",
+   "forbidden": [
+    "pk-live12345abcdef"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix rk-",
+   "input": "Deploy with rk-live12345abcdef now please",
+   "output": "Deploy with now please",
+   "forbidden": [
+    "rk-live12345abcdef"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix ghp_",
+   "input": "Clone using ghp_abcDEF123456 for the repo",
+   "output": "Clone using for the repo",
+   "forbidden": [
+    "ghp_abcDEF123456"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix gho_",
+   "input": "Clone using gho_abcDEF123456 for the repo",
+   "output": "Clone using for the repo",
+   "forbidden": [
+    "gho_abcDEF123456"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix ghs_",
+   "input": "Clone using ghs_abcDEF123456 for the repo",
+   "output": "Clone using for the repo",
+   "forbidden": [
+    "ghs_abcDEF123456"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix github_",
+   "input": "Clone using github_pat_11ABCDEF0xyz for the repo",
+   "output": "Clone using for the repo",
+   "forbidden": [
+    "github_pat_11ABCDEF0xyz"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix glpat-",
+   "input": "Clone using glpat-abcDEF1234567 for the repo",
+   "output": "Clone using for the repo",
+   "forbidden": [
+    "glpat-abcDEF1234567"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix xoxb-",
+   "input": "Post with xoxb-123-456-abc to the channel",
+   "output": "Post with to the channel",
+   "forbidden": [
+    "xoxb-123-456-abc"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix xoxp-",
+   "input": "Post with xoxp-123-456-abc to the channel",
+   "output": "Post with to the channel",
+   "forbidden": [
+    "xoxp-123-456-abc"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix AKIA",
+   "input": "Rotate AKIAIOSFODNN7EXAMPLE before the audit ends",
+   "output": "Rotate before the audit ends",
+   "forbidden": [
+    "AKIAIOSFODNN7EXAMPLE"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix ASIA",
+   "input": "Rotate ASIAIOSFODNN7EXAMPLE before the audit ends",
+   "output": "Rotate before the audit ends",
+   "forbidden": [
+    "ASIAIOSFODNN7EXAMPLE"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix eyJ",
+   "input": "Decode eyJhbGciOiJIUzI1NiJ9 before the review",
+   "output": "Decode before the review",
+   "forbidden": [
+    "eyJhbGciOiJIUzI1NiJ9"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix inside punctuation",
+   "input": "Deploy with (sk-live12345abcdef), now please",
+   "output": "Deploy with now please",
+   "forbidden": [
+    "sk-live12345abcdef"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix after a separator",
+   "input": "Use header=sk-live12345abcdef today please now",
+   "output": "Use today please now",
+   "forbidden": [
+    "sk-live12345abcdef"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "prefix embedded in a word",
+   "input": "Configure xsk-abc123def now for the run please",
+   "output": "Configure now for the run please",
+   "forbidden": [
+    "xsk-abc123def"
+   ],
+   "plugin": "skip",
+   "reason": "sk-, sk_, pk- and rk- are matched at a token start or after a non-alphanumeric only, so words such as risk-based survive; the API drops any token containing them"
+  },
+  {
+   "name": "prefix survives as a word part",
+   "input": "Plan the risk-based review for the release",
+   "output": "Plan the risk-based review for the release",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "fullwidth look-alike prefix (token dropped whole)",
+   "input": "Deploy with \uff53\uff4b-live12345abcdef now please",
+   "output": "Deploy with now please",
+   "forbidden": [
+    "sk-live12345abcdef"
+   ],
+   "plugin": "exact",
+   "reason": "no NFKC in jq: the plugin drops any token holding U+FF00-FFEF instead of normalising it"
+  },
+  {
+   "name": "email",
+   "input": "Send the report to dev@example.com today please",
+   "output": "Send the report to today please",
+   "forbidden": [
+    "dev@example.com"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "email in brackets",
+   "input": "Notify (ops@corp.example.org), then continue now",
+   "output": "Notify then continue now",
+   "forbidden": [
+    "ops@corp.example.org"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "handle without dot survives",
+   "input": "Mention the @team handle in the release note",
+   "output": "Mention the @team handle in the release note",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "ipv4",
+   "input": "Connect to 10.0.0.12 for the check run",
+   "output": "Connect to for the check run",
+   "forbidden": [
+    "10.0.0.12"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "ipv4 with port",
+   "input": "Connect to 10.0.0.12:8080 for the check run",
+   "output": "Connect to for the check run",
+   "forbidden": [
+    "10.0.0.12"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "ipv6 full",
+   "input": "Ping 2001:db8:0:0:0:0:0:1 for the check run",
+   "output": "Ping for the check run",
+   "forbidden": [
+    "2001:db8"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "ipv6 compressed",
+   "input": "Ping ::1 and fe80::1 for the check run",
+   "output": "Ping and for the check run",
+   "forbidden": [
+    "::1",
+    "fe80::1"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "version number survives",
+   "input": "Bump to version 1.2.3 for the release train",
+   "output": "Bump to version 1.2.3 for the release train",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "clock time survives",
+   "input": "Meeting moved to 10:30 for the planning session",
+   "output": "Meeting moved to 10:30 for the planning session",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "hex 16+",
+   "input": "Compare deadbeefcafebabe0123 against the build",
+   "output": "Compare against the build",
+   "forbidden": [
+    "deadbeefcafebabe0123"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "hex 15 survives",
+   "input": "Compare deadbeefcafe012 against the build",
+   "output": "Compare deadbeefcafe012 against the build",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "hex pairs with separators",
+   "input": "Compare de:ad:be:ef:ca:fe:ba:be against the build",
+   "output": "Compare against the build",
+   "forbidden": [
+    "de:ad:be"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "base64-like with digit",
+   "input": "Cache abcdefghij1234567890XY keyed entries",
+   "output": "Cache keyed entries",
+   "forbidden": [
+    "abcdefghij1234567890XY"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "base64 with padding",
+   "input": "Cache QUJDREVGR0hJSktMTU5PUA== keyed entries",
+   "output": "Cache keyed entries",
+   "forbidden": [
+    "QUJDREVGR0hJSktMTU5PUA"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "20 letters without digit survive",
+   "input": "Review internationalization changes for release",
+   "output": "Review internationalization changes for release",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "url",
+   "input": "Fetch https://example.com/x now please",
+   "output": "Fetch now please",
+   "forbidden": [
+    "https://",
+    "example.com"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "www",
+   "input": "Open www.example.com in the browser",
+   "output": "Open in the browser",
+   "forbidden": [
+    "www.example.com"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "www upper case",
+   "input": "Open WWW.Example.com in the browser",
+   "output": "Open in the browser",
+   "forbidden": [
+    "Example.com"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "multi-label hostname",
+   "input": "Call api.internal.example for the data now",
+   "output": "Call for the data now",
+   "forbidden": [
+    "api.internal.example"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "corp hostname",
+   "input": "Call db1.prod.corp for the data now",
+   "output": "Call for the data now",
+   "forbidden": [
+    "db1.prod.corp"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "local hostname",
+   "input": "Call svc.local for the data now",
+   "output": "Call for the data now",
+   "forbidden": [
+    "svc.local"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "two-label common domain",
+   "input": "Call example.com for the data now",
+   "output": "Call for the data now",
+   "forbidden": [
+    "example.com"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "task key survives",
+   "input": "Update the ALY-258.1 task for the release now",
+   "output": "Update the ALY-258.1 task for the release now",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "dotted version with suffix survives",
+   "input": "Bump v1.2.3-rc.1 for the release train",
+   "output": "Bump v1.2.3-rc.1 for the release train",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "arn",
+   "input": "Assume arn:aws:iam::123456789012:role/Admin for the run",
+   "output": "Assume for the run",
+   "forbidden": [
+    "arn:aws",
+    "123456789012"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "12-digit account id",
+   "input": "Check account 123456789012 for the budget",
+   "output": "Check account for the budget",
+   "forbidden": [
+    "123456789012"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "cpf shape",
+   "input": "Validate 123.456.789-09 for the customer record",
+   "output": "Validate for the customer record",
+   "forbidden": [
+    "123.456.789-09"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "card shape with spaces",
+   "input": "Charge 4111 1111 1111 1111 for the order please",
+   "output": "Charge for the order please",
+   "forbidden": [
+    "4111"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "phone shape",
+   "input": "Call +55 11 91234-5678 for the customer follow",
+   "output": "Call for the customer follow",
+   "forbidden": [
+    "91234-5678"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "short numbers survive",
+   "input": "Retry 3 times within 15 minutes for the sync",
+   "output": "Retry 3 times within 15 minutes for the sync",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "date survives",
+   "input": "Release planned for 2026-10-28 at noon sharp",
+   "output": "Release planned for 2026-10-28 at noon sharp",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "path ./",
+   "input": "Edit ./src/index.ts to fix the bug",
+   "output": "Edit to fix the bug",
+   "forbidden": [
+    "./src"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "path ~",
+   "input": "Edit ~/projects/app to fix the bug",
+   "output": "Edit to fix the bug",
+   "forbidden": [
+    "~/projects"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "path /",
+   "input": "Edit /etc/hosts to fix the bug",
+   "output": "Edit to fix the bug",
+   "forbidden": [
+    "/etc/hosts"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "path drive",
+   "input": "Edit C:\\Users\\me\\app.ts to fix the bug",
+   "output": "Edit to fix the bug",
+   "forbidden": [
+    "Users"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "path two separators",
+   "input": "Edit src/lib/util to fix the bug",
+   "output": "Edit to fix the bug",
+   "forbidden": [
+    "src/lib"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "word/word with digit",
+   "input": "Compare read2/write paths for the cache layer",
+   "output": "Compare paths for the cache layer",
+   "forbidden": [
+    "read2/write"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "word/word letters only survives",
+   "input": "Compare read/write paths for the cache layer",
+   "output": "Compare read/write paths for the cache layer",
+   "forbidden": [],
+   "plugin": "skip",
+   "reason": "the plugin drops every token holding a path separator (stricter than the API allowance for letters-only word/word of at most 24 characters)"
+  },
+  {
+   "name": "capitalized words next to a dropped path",
+   "input": "Open /Users/Jane Doe/Projects Secret Plans for review",
+   "output": "Open for review",
+   "forbidden": [
+    "/Users"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "password=",
+   "input": "Set password=hunter2 for the staging box",
+   "output": "Set for the staging box",
+   "forbidden": [
+    "hunter2"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "password:",
+   "input": "Set password: hunter2 for the staging box",
+   "output": "Set for the staging box",
+   "forbidden": [
+    "hunter2"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "password =",
+   "input": "Set password = hunter2 for the staging box",
+   "output": "Set for the staging box",
+   "forbidden": [
+    "hunter2"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "password is",
+   "input": "The password is hunter2 for the staging box",
+   "output": "The for the staging box",
+   "forbidden": [
+    "hunter2"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "token=",
+   "input": "Use token=abc123 for the staging box",
+   "output": "Use for the staging box",
+   "forbidden": [
+    "abc123"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "api_key=",
+   "input": "Use api_key=abc123 for the staging box",
+   "output": "Use for the staging box",
+   "forbidden": [
+    "abc123"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "authorization bearer",
+   "input": "Send Authorization: Bearer abc123def456 with the request now",
+   "output": "Send with the request now",
+   "forbidden": [
+    "abc123def456"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "bearer alone",
+   "input": "Send Bearer abc123def456 with the request now",
+   "output": "Send with the request now",
+   "forbidden": [
+    "abc123def456"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "cookie=",
+   "input": "Send cookie=abc123 with the request now please",
+   "output": "Send with the request now please",
+   "forbidden": [
+    "abc123"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "session=",
+   "input": "Send session=abc123 with the request now please",
+   "output": "Send with the request now please",
+   "forbidden": [
+    "abc123"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "pwd=",
+   "input": "Send pwd=abc123 with the request now please",
+   "output": "Send with the request now please",
+   "forbidden": [
+    "abc123"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "pw=",
+   "input": "Send pw=abc123 with the request now please",
+   "output": "Send with the request now please",
+   "forbidden": [
+    "abc123"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "sid=",
+   "input": "Send sid=abc123 with the request now please",
+   "output": "Send with the request now please",
+   "forbidden": [
+    "abc123"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "passphrase:",
+   "input": "Send passphrase: abc123 with the request now",
+   "output": "Send with the request now",
+   "forbidden": [
+    "abc123"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "passed: 42 survives",
+   "input": "Report that 3 checks passed: 42 total now",
+   "output": "Report that 3 checks passed: 42 total now",
+   "forbidden": [],
+   "plugin": "safe",
+   "plugin_output": "Report that 3 checks total now",
+   "reason": "the plugin matches key names as substrings (pass, auth, key...), which is stricter than the API whole-word rule; the value after it is dropped"
+  },
+  {
+   "name": "author: survives",
+   "input": "Report that the author: Jane wrote this",
+   "output": "Report that the author: Jane wrote this",
+   "forbidden": [],
+   "plugin": "safe",
+   "plugin_output": "Report that the wrote this",
+   "reason": "the plugin matches key names as substrings (pass, auth, key...), which is stricter than the API whole-word rule; the value after it is dropped"
+  },
+  {
+   "name": "keyboard= survives",
+   "input": "Report that keyboard=azerty was used",
+   "output": "Report that keyboard=azerty was used",
+   "forbidden": [],
+   "plugin": "safe",
+   "plugin_output": "Report that was used",
+   "reason": "the plugin matches key names as substrings (pass, auth, key...), which is stricter than the API whole-word rule; the value after it is dropped"
+  },
+  {
+   "name": "backticked span",
+   "input": "Run `rm -rf build` before the release now",
+   "output": "Run before the release now",
+   "forbidden": [
+    "rm -rf"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "unpaired backtick",
+   "input": "Run `rm -rf build before the release now",
+   "output": "Run -rf build before the release now",
+   "forbidden": [
+    "`rm"
+   ],
+   "plugin": "safe",
+   "plugin_output": null,
+   "reason": "an unpaired backtick removes the rest of the text in the plugin (the API removes only its token); stricter"
+  },
+  {
+   "name": "bidi controls",
+   "input": "Review\u202egnirtsdrow\u202c the changes before release",
+   "output": "Reviewgnirtsdrow the changes before release",
+   "forbidden": [
+    "\u202e",
+    "\u202c"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "zero-width",
+   "input": "Re\u200bview the ch\u200danges before release",
+   "output": "Review the changes before release",
+   "forbidden": [
+    "\u200b",
+    "\u200d"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "tag characters",
+   "input": "Review the changes\udb40\udc41\udb40\udc42 before release",
+   "output": "Review the changes before release",
+   "forbidden": [
+    "\udb40\udc41"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "variation selector",
+   "input": "Review the changes\ufe0f before release",
+   "output": "Review the changes before release",
+   "forbidden": [
+    "\ufe0f"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "soft hyphen",
+   "input": "Re\u00adview the changes before release",
+   "output": "Review the changes before release",
+   "forbidden": [
+    "\u00ad"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "C0 controls",
+   "input": "Review\u0000 the changes\u0007 before release",
+   "output": "Review the changes before release",
+   "forbidden": [
+    "\u0000",
+    "\u0007"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "unicode spaces become spaces",
+   "input": "Review\u00a0the\u2003changes before\u3000release",
+   "output": "Review the changes before release",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "line breaks collapse",
+   "input": "First line\nSecond line goes here",
+   "output": "First line Second line goes here",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "runs of spaces collapse",
+   "input": "  lots   of    spaces   here   please  ",
+   "output": "lots of spaces here please",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "unassigned code points",
+   "input": "Review \udbff\udfff the changes before release",
+   "output": "Review the changes before release",
+   "forbidden": [
+    "\udbff\udfff"
+   ],
+   "plugin": "skip",
+   "reason": "category Cn (unassigned code points and noncharacters such as U+10FFFF) is not stripped by the plugin (jq has no Unicode category tables); the control, format, bidi, tag and variation characters are"
+  },
+  {
+   "name": "two words",
+   "input": "Fix tests",
+   "output": null,
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "three words under 8 characters",
+   "input": "a b c",
+   "output": null,
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "three words of exactly 8 characters",
+   "input": "ab cd ef",
+   "output": "ab cd ef",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "three words of 7 characters",
+   "input": "ab cd e",
+   "output": null,
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "empty string",
+   "input": "",
+   "output": null,
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "everything dropped",
+   "input": "sk-live12345abcdef ghp_abcDEF123456 AKIAIOSFODNN7EXAMPLE",
+   "output": null,
+   "forbidden": [
+    "sk-live"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "plain sentence survives",
+   "input": "Review the spec for gaps",
+   "output": "Review the spec for gaps",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "accents survive",
+   "input": "Atualizando as configura\u00e7\u00f5es do m\u00f3dulo de lan\u00e7amento",
+   "output": "Atualizando as configura\u00e7\u00f5es do m\u00f3dulo de lan\u00e7amento",
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "139 code points unchanged",
+   "input_gen": {
+    "unit": "a\u00e7\u00f5es ",
+    "times": 40,
+    "slice": [
+     0,
+     139
+    ],
+    "suffix": ""
+   },
+   "output_gen": {
+    "unit": "a\u00e7\u00f5es ",
+    "times": 40,
+    "slice": [
+     0,
+     139
+    ],
+    "suffix": ""
+   },
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "140 code points unchanged",
+   "input_gen": {
+    "unit": "a\u00e7\u00f5es ",
+    "times": 40,
+    "slice": [
+     0,
+     140
+    ],
+    "suffix": ""
+   },
+   "output_gen": {
+    "unit": "a\u00e7\u00f5es ",
+    "times": 40,
+    "slice": [
+     0,
+     140
+    ],
+    "suffix": ""
+   },
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "141 code points cut at the last space with the ellipsis inside the cap",
+   "input_gen": {
+    "unit": "a\u00e7\u00f5es ",
+    "times": 40,
+    "slice": [
+     0,
+     141
+    ],
+    "suffix": ""
+   },
+   "output_gen": {
+    "unit": "a\u00e7\u00f5es ",
+    "times": 40,
+    "slice": [
+     0,
+     137
+    ],
+    "suffix": "\u2026"
+   },
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "no space in the first 140: hard cut at 139 plus the ellipsis",
+   "input_gen": {
+    "unit": "\u00e9",
+    "times": 150,
+    "suffix": " ok go"
+   },
+   "output_gen": {
+    "unit": "\u00e9",
+    "times": 139,
+    "suffix": "\u2026"
+   },
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "space too early: hard cut",
+   "input_gen": {
+    "prefix": "ab cd ",
+    "unit": "\u00e9",
+    "times": 200
+   },
+   "output_gen": {
+    "prefix": "ab cd ",
+    "unit": "\u00e9",
+    "times": 133,
+    "suffix": "\u2026"
+   },
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "5000-character line of words",
+   "input_gen": {
+    "unit": "alpha beta gamma ",
+    "times": 295,
+    "slice": [
+     0,
+     5000
+    ]
+   },
+   "output_gen": {
+    "unit": "alpha beta gamma ",
+    "times": 295,
+    "slice": [
+     0,
+     135
+    ],
+    "suffix": "\u2026"
+   },
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "5000-character line of one base64-like run",
+   "input_gen": {
+    "unit": "ab1",
+    "times": 1700
+   },
+   "output": null,
+   "forbidden": [],
+   "plugin": "exact"
+  },
+  {
+   "name": "5000-character line of secrets",
+   "input_gen": {
+    "unit": "Deploy sk-live12345abcdef ",
+    "times": 200
+   },
+   "forbidden": [
+    "sk-live"
+   ],
+   "plugin": "exact",
+   "output_gen": {
+    "unit": "Deploy ",
+    "times": 20,
+    "slice": [
+     0,
+     139
+    ],
+    "suffix": "\u2026"
+   }
+  },
+  {
+   "name": "5000-character token after words",
+   "input_gen": {
+    "prefix": "Summarize the report ",
+    "unit": "x",
+    "times": 4990
+   },
+   "output": "Summarize the report",
+   "forbidden": [],
+   "plugin": "safe",
+   "plugin_output": "Summarize the report",
+   "reason": "a letters-only run of 24+ is dropped by the plugin; the API keeps it only up to the cap"
+  },
+  {
+   "name": "NFKC compatibility characters outside U+FF00-FFEF",
+   "input": "Deploy with \u24e2\u24da-live12345abcdef now please",
+   "output": "Deploy with now please",
+   "forbidden": [
+    "live12345abcdef"
+   ],
+   "plugin": "skip",
+   "reason": "no NFKC in jq; circled/superscript compatibility letters are not normalised (the API normalises, then drops the token)"
+  },
+  {
+   "name": "key is value",
+   "input": "the key is hunter2 and the rest follows now",
+   "output": "the and the rest follows now",
+   "forbidden": [
+    "hunter2"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "auth as value",
+   "input": "the auth as hunter2 and the rest follows now",
+   "output": "the and the rest follows now",
+   "forbidden": [
+    "hunter2"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "credential is value",
+   "input": "the credential is hunter2 and the rest follows now",
+   "output": "the and the rest follows now",
+   "forbidden": [
+    "hunter2"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "apikey is value",
+   "input": "the apikey is hunter2 and the rest follows now",
+   "output": "the and the rest follows now",
+   "forbidden": [
+    "hunter2"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "bearer is value",
+   "input": "the bearer is hunter2 and the rest follows now",
+   "output": "the and the rest follows now",
+   "forbidden": [
+    "hunter2"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "Capitalized words after a dropped path",
+   "input": "cd /home/Bruno Fernandes Projects now ok",
+   "output": "cd now ok",
+   "forbidden": [
+    "Bruno",
+    "Fernandes",
+    "Projects"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "Capitalized words after a dropped path stop at punctuation",
+   "input": "Open /home/Bruno Fernandes, then Review it now ok",
+   "output": "Open then Review it now ok",
+   "forbidden": [
+    "Bruno",
+    "Fernandes"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "10-digit run",
+   "input": "Check order 1234567890 for the customer",
+   "output": "Check order for the customer",
+   "forbidden": [
+    "1234567890"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "parenthesised phone",
+   "input": "Call (11) 91234-5678 for the customer follow",
+   "output": "Call for the customer follow",
+   "forbidden": [
+    "91234"
+   ],
+   "plugin": "exact"
+  },
+  {
+   "name": "short numbers survive (step)",
+   "input": "Run step 12 of 15 for the release train",
+   "output": "Run step 12 of 15 for the release train",
+   "forbidden": [],
+   "plugin": "exact"
+  }
+ ]
+}

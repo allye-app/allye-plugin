@@ -99,6 +99,7 @@ Your rights are the Dispatcher row of `../bridge/references/delegation.md` → A
 role: dispatcher
 mode: spec|publish|guide
 status: ready|needs-input|escalate|blocked
+summary: <one line>
 questions: [{ id: 1, question: <text>, recommendation: <answer and why> }]   # ≤3
 spec:
   app: <app name>
@@ -118,6 +119,8 @@ mcpWrites: [{ tool: epics|specs|tasks, action: <action>, id: <returned key> }]  
 filesRead: [<paths>]
 filesChanged: [<docs/code-guide.md and approved git docs in guide mode, else empty>]
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 ## Limits
 

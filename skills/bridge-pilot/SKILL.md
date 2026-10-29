@@ -45,7 +45,7 @@ task: <key>
 attempt: 0|1|2
 status: passed|blocked|failed
 commit: <base HEAD sha the work started from>
-summary: <behavior delivered>
+summary: <one line>
 filesRead: [<paths>]
 filesChanged: [<paths>]
 tddCycles:
@@ -65,7 +65,7 @@ openQuestions: [<real blockers only>]
 next: copilot
 ```
 
-Without TDD (mechanical change), `tddCycles` is empty and `validation` shows the proof that fits. `passed` is never a gate: Copilot, Medic and Shield still decide.
+Without TDD (mechanical change), `tddCycles` is empty and `validation` shows the proof that fits. `passed` is never a gate: Copilot, Medic and Shield still decide. Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 ## Limits
 

@@ -49,6 +49,7 @@ When the packet gives you another app's repo path (same project, cloned locally)
 ```yaml
 role: recon
 status: passed|blocked
+summary: <one line>
 mode: launch|survey|repair|optimize|interview
 question: <the target you investigated>
 observations:
@@ -76,6 +77,8 @@ risks: [<risk>]
 openQuestions: [<real blockers only>]
 filesChanged: []
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 `likelyCause` stays `null` unless the evidence supports it; `confidence: high` requires a reproduction or a direct code proof.
 

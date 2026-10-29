@@ -66,6 +66,7 @@ Your rights are the Architect row of `../bridge/references/delegation.md` → Al
 role: architect
 mode: options|author|auto|publish
 status: ready|needs-input|blocked
+summary: <one line>
 options:                           # options mode
   - decision: <frontier decision>
     A: { summary: <minimal>, tradeoffs: <text> }
@@ -92,6 +93,8 @@ personalReads: [<page short_id — space>]
 filesRead: [<paths>]
 filesChanged: []
 ```
+
+Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
 `ready` means both self-checks, the anchor lint and `specs.spec_validate` passed (or was skipped by the recorded unknown- or unsupported-action fallback, or deferred because the MCP or project is unavailable; any other `spec_validate` error does not count as passed) and the challenge round ended with no open CRITICAL/HIGH outside an open `[Q-NN]`. Anything else is `needs-input` (questions, Recon or challenge pending) or `blocked` (with the smallest question that would unblock it).
 
