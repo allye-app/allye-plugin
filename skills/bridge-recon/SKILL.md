@@ -80,6 +80,8 @@ filesChanged: []
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 `likelyCause` stays `null` unless the evidence supports it; `confidence: high` requires a reproduction or a direct code proof.
 
 ## Limits

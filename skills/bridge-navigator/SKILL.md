@@ -88,6 +88,8 @@ next: copilot|mothership
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 `passed` is never a gate: Copilot, Medic, Shield and Watcher still decide, and the Mothership logs every `kb` write as `external-action` and reconciles it against your packet's `mcp`.
 
 ## Limits

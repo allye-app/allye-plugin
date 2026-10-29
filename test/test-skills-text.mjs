@@ -565,6 +565,47 @@ else {
   }
 }
 
+// ALY-263.14 [AC-11] [AC-15] [AC-19] [BR-04] [D-07] [D-20]: dispatch description keys, Bash descriptions, mission-log PR line.
+{
+  const DEL = "skills/bridge/references/delegation.md";
+  const del = read(DEL);
+  const crew = ["armorer", "architect", "copilot", "dispatcher", "medic", "navigator", "optimizer", "pilot", "recon", "shield", "strategist", "watcher"];
+  const dispatchRule = (text) => {
+    const m = text.match(/\*\*Dispatch description\.\*\*[^\n]*/);
+    const line = m ? m[0] : "";
+    const out = [];
+    if (!line) return ["Dispatch description rule is missing"];
+    if (!/full task key[^;]*Pilot, Copilot, slice Medic, slice Shield and docs Navigator/.test(line)) out.push("must require the full task key for Pilot, Copilot, slice Medic, slice Shield and docs Navigator");
+    if (!/spec key only[^;]*final Medic, Shield and Watcher/.test(line)) out.push("must require the spec key only for the final Medic, Shield and Watcher");
+    if (!/no key for planning roles \(Armorer, Recon, Strategist, Architect, Dispatcher\)/.test(line)) out.push("must require no key for planning roles");
+    return out;
+  };
+  for (const p of dispatchRule(del)) fail(`${DEL}: ${p}`);
+  const bashRule = (text) => /\*\*Bash descriptions\.\*\*[^\n]*verb-first[^\n]*at most 60 characters[^\n]*no paths[^\n]*advisory[^\n]*140[^\n]*BR-04/.test(text);
+  if (!bashRule(del)) fail(`${DEL}: must state the Bash descriptions rule (verb-first, at most 60 characters, no paths, advisory, hard cap 140, scrub of BR-04)`);
+  const roleLine = (text) => /Bash call descriptions \(verb-first, at most 60 characters, no paths\) follow `\.\.\/bridge\/references\/delegation\.md` → Common output/.test(text);
+  for (const r of crew) if (!roleLine(read(`skills/bridge-${r}/SKILL.md`))) fail(`skills/bridge-${r}/SKILL.md: must reference the Bash descriptions rule of delegation.md → Common output`);
+  const prRule = (text) => /exactly one `- PR: #N` line in the log header[^\n]*right after[^\n]*PR is opened[^\n]*never before/.test(text);
+  const SC = "skills/bridge/references/state-contract.md";
+  const sc = read(SC);
+  const tplLine = (text) => /^- PR: #N\s*$/m.test(text.split("## Journal")[0]);
+  if (!tplLine(sc)) fail(`${SC}: the projection template must show a bare \`- PR: #N\` line`);
+  if (!prRule(sc)) fail(`${SC}: must tell the Mothership to write exactly one \`- PR: #N\` line in the log header right after the PR is opened, never before`);
+  const gi = sc.indexOf("- Gates:"), pi = sc.indexOf("- PR: #N", gi);
+  if (gi < 0 || pi < 0 || sc.slice(gi, pi).split("\n").length !== 2) fail(`${SC}: the PR line must come right after the Gates line`);
+  const PUB = "skills/bridge/references/publish.md";
+  if (!prRule(read(PUB))) fail(`${PUB}: the PR step must tell the Mothership to write the PR line right after the PR is opened, never before`);
+  // Negative cases over in-memory mutations.
+  if (dispatchRule(del.replace("full task key", "task key")).length === 0) fail("negative case: a dispatch rule without 'full task key' must fail");
+  if (dispatchRule(del.replace("no key for planning roles", "a key for planning roles")).length === 0) fail("negative case: a dispatch rule without the planning-roles clause must fail");
+  if (bashRule(del.replace("at most 60 characters", "at most 90 characters"))) fail("negative case: a Bash rule with another limit must fail");
+  if (roleLine(read("skills/bridge-pilot/SKILL.md").replace("at most 60 characters", "at most 70 characters"))) fail("negative case: a role line with another limit must fail");
+  if (tplLine(sc.replace("- PR: #N\n", "- PR: #N (added later)\n"))) fail("negative case: a template PR line with trailing text must fail");
+  if (tplLine(sc.replace("- PR: #N\n", ""))) fail("negative case: a template without the PR line must fail");
+  if (prRule(sc.replace("never before", ""))) fail("negative case: a state-contract rule without 'never before' must fail");
+  if (prRule(read(PUB).replace("never before", "")) ) fail("negative case: a PR rule without 'never before' must fail");
+}
+
 if (errors.length) {
   for (const e of errors) console.error(`FAIL: ${e}`);
   process.exit(1);

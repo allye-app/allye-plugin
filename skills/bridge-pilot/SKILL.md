@@ -67,6 +67,8 @@ next: copilot
 
 Without TDD (mechanical change), `tddCycles` is empty and `validation` shows the proof that fits. `passed` is never a gate: Copilot, Medic and Shield still decide. Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 ## Limits
 
 Do not edit outside your paths, `.allye/armorer.json`, `.allye/missions/**`, `.allye/project.json` (the Mothership writes it, `../bridge/references/publish.md` §1), another role's output, dependency manifests unless the slice requires it, or pre-existing changes. Do not commit, push, open PRs, call any API outside the Allye MCP, read credentials, dispatch agents or declare gates. Allye: your rights are the Pilot row of `../bridge/references/delegation.md` → Allye MCP access (relative to this skill's directory): the common reads; writes `tasks.task_start`, `tasks.task_update` (`notes` only), `tasks.task_submit` (`branch_name`) — on your own task only. Never another task, a spec, `task_complete`, `task_request_changes`, a cancel or a reopen. Do not weaken an assertion to get green. You have no crew file; the Mothership logs your report as `(report)`.
