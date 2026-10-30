@@ -1695,6 +1695,7 @@ def stashin:
   | map(select(type == "object" and (.t | typeok) and (.ms | type == "number") and .ms > ($nowms - 60000) and .ms <= ($nowms + 60000)
                and (.a | type == "string") and (.a == "" or (.a | actphrase(actcap)) == .a)
                and ((has("id") | not) or (.id | idok))
+               and ((has("k") | not) or (.k | type == "string" and test("\\A(([A-Z][A-Z0-9]{1,9}-)?[0-9]{1,4}\\.[0-9]{1,3})\\z")))
                and ((has("p") | not) or (.p == true and .a == ""))))
   | .[-16:];
 # AC-03, ALY-263.10 (AC-10, D-07): the task key of a start or of a first tool is taken from the CLEANED description (a key inside a token
@@ -1707,15 +1708,14 @@ def stashin:
 def tkroleok: (. // "") | test("(\\A|[:-])(dispatcher|recon|strategist|architect|armorer)\\z") | not;
 def tkfull: [match("(?<![A-Za-z0-9._-])[A-Z][A-Z0-9]{1,9}-[0-9]{1,4}\\.[0-9]{1,3}(?![A-Za-z0-9]|\\.[0-9])"; "g").string] | unique;
 def tkbare: [match("(?<![A-Za-z0-9._/-])[0-9]{1,4}\\.[0-9]{1,3}(?![A-Za-z0-9]|\\.[0-9])"; "g").string] | unique;
-def taskkey($pfx; $ty):
-  if ($ty | tkroleok | not) then null
-  else tkfull as $f
-    | if ($f | length) > 0 then
-        (if ($f | length) == 1 and ($pfx == "" or ($f[0] | startswith($pfx + "-"))) then $f[0] else null end)
-      else tkbare as $b
-        | (if ($b | length) == 1 and ($pfx | test("\\A[A-Z][A-Z0-9]{1,9}\\z")) then $pfx + "-" + $b[0] else null end)
-      end
-  end;
+def tkcand: tkfull as $f
+  | if ($f | length) > 0 then (if ($f | length) == 1 then $f[0] else null end)
+    else tkbare as $b | (if ($b | length) == 1 then $b[0] else null end) end;
+def tkres($pfx):
+  if . == null then null
+  elif test("\\A[0-9]") then (if ($pfx | test("\\A[A-Z][A-Z0-9]{1,9}\\z")) then $pfx + "-" + . else null end)
+  elif $pfx == "" or startswith($pfx + "-") then . else null end;
+def taskkey($pfx; $ty): if ($ty | tkroleok | not) then null else tkcand | tkres($pfx) end;
 # stashc($starts): $starts are the subs whose first sub_start (real or synthetic, ALY-217.7) this event spools. Correlation
 # (D-32): the unexpired entries of the subagent type of the start are counted. Exactly one, and it is not a tombstone: its
 # cleaned description is attached as `desc` (and its task key as `task`) to that sub_start and the entry is consumed. None:
@@ -1725,6 +1725,13 @@ def taskkey($pfx; $ty):
 # for the day the SubagentStart payload carries it, but today it does not (nor does SubagentStop), so matching is by type
 # within the 60 s TTL; two launches of one type in flight can therefore never be told apart, which is why they send no desc.
 # {ds: {sub id: {desc, task?}}, st: the new stash or null}.
+# ALY-281 (BR-01, D-02, D-03): the task key of an Agent/Task launch is read from a lighter clean of the description (no minimum of words;
+# the one cleaner with other parameters), so a step such as `Pilot ALY-280.1` keys even though its desc is dropped. Only the key candidate
+# (a full key or a bare N.M, ambiguity already decided) is kept; the project prefix is resolved when the entry is consumed (tkres), because
+# the prefix is not computed at a PreToolUse (AC-16 of ALY-263).
+def tkstash($ty):
+  if $txt != "1" or (.tool_name | IN("Agent","Task") | not) then null
+  else ((.tool_input | objects | .description) // null) | actclean(actcap; 1; 1) | if . == null or ($ty | tkroleok | not) then null else tkcand end end;
 def stashc($starts):
   if $txt != "1" then {ds: {}, st: null}
   else
@@ -1733,12 +1740,14 @@ def stashc($starts):
        | if ($ix | length) == 0 then .
          elif ($ix | length) == 1 and ($q[$ix[0]].p // false | not) then
            $q[$ix[0]].a as $a
-           | (if $a != "" then .ds[$s.id] = ({desc: $a} + ($a | taskkey($tkpfx; $s.type) | if . != null then {task: .} else {} end)) else . end)
+           | ($q[$ix[0]] | if has("k") then (if ($s.type | tkroleok) then .k | tkres($tkpfx) else null end) else ($a | taskkey($tkpfx; $s.type)) end) as $k
+           | (({} + (if $a != "" then {desc: $a} else {} end) + (if $k != null then {task: $k} else {} end)) as $d
+              | if ($d | length) > 0 then .ds[$s.id] = $d else . end)
            | .q |= del(.[$ix[0]])
-         else .q |= ([range(0; length) as $k | .[$k] | if .t != $s.type then . elif $k == $ix[0] then empty else . + {a: "", p: true} end]) end)) as $c
+         else .q |= ([range(0; length) as $k | .[$k] | if .t != $s.type then . elif $k == $ix[0] then empty else . + {a: "", p: true} | del(.k) end]) end)) as $c
     | if .hook_event_name == "PreToolUse" and (.tool_name | IN("Agent","Task")) then
         ((.tool_input | objects | .subagent_type) // "general-purpose") as $ty
-        | if ($ty | typeok) then {ds: $c.ds, st: (($c.q + [{t: $ty, ms: $nowms, a: (actof // "")} + (if (.tool_use_id | idok) then {id: .tool_use_id} else {} end)]) | .[-16:])}
+        | if ($ty | typeok) then {ds: $c.ds, st: (($c.q + [{t: $ty, ms: $nowms, a: (actof // "")} + (tkstash($ty) | if . != null then {k: .} else {} end) + (if (.tool_use_id | idok) then {id: .tool_use_id} else {} end)]) | .[-16:])}
           elif ($starts | length) > 0 then {ds: $c.ds, st: $c.q} else {ds: {}, st: null} end
       elif ($starts | length) > 0 then {ds: $c.ds, st: $c.q}
       else {ds: {}, st: null} end
@@ -1797,7 +1806,7 @@ def tkpass($e):
           .out += [$ev] | .m = ((.m + [[$i, $ev.sub.task, 0]]) | .[-64:]) | .ch = true
         elif $ev.type == "sub_tool" and $i != null and $i == $tkid and ($o == null or $o[2] == 0) then
           (if $o != null then $o[1] else "" end) as $sent
-          | (($tkdesc | actphrase(actcap)) as $d | if $d != null then ($d | taskkey($tkpfx; $ev.sub.type)) else null end) as $k
+          | (($tkdesc | actclean(actcap; 1; 1)) as $d | if $d != null then ($d | taskkey($tkpfx; $ev.sub.type)) else null end) as $k
           | .out += [if $k != null and $k != $sent then $ev | .sub.task = $k else $ev end]
           | .m = (((.m | map(select(.[0] != $i))) + [[$i, (if $k != null then $k else $sent end), 1]]) | .[-64:]) | .ch = true
         else .out += [$ev] end)

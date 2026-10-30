@@ -1852,17 +1852,52 @@ for fl in activity-off detailed-off; do
 done
 tk_new; tk_agent "Implement ALY-263.3 for the slice"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"; tk_start t1
 check "detailed-off: the start sends no key either (as before)" "-|" "$(tk_starts t1)"; end_case
-# ALY-281 AC-01 unfixed: characterization of the 2-word Pilot description "Pilot ALY-280.1" on the UNFIXED hook. Today the step stays unkeyed
-# while running: no sub.task and no sub.desc on the start, none on the first tool, and the tried entry "" in the memory. ALY-281.2 flips these.
-tk_sdesc() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_start" and .sub.id == $id) | (.sub | has("desc")) as $d | (.sub | has("task")) as $t | "desc=\($d) task=\($t)"' | tr '\n' '|'; }
-tk_ttask() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_tool" and .sub.id == $id) | (.sub | has("task")) | tostring' | tr '\n' '|'; }
+# ALY-281 (AC-02, AC-03, AC-05, AC-06, BR-01, BR-03): the task key is read from a lighter clean of the description (no minimum of words), so a
+# 1 or 2 word step such as "Pilot ALY-280.1" sends sub.task (never sub.desc: that keeps the 3 word rule).
+tk_sdesc() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_start" and .sub.id == $id) | (.sub | has("desc")) as $d | (.sub.task // "-") as $t | "desc=\($d) task=\($t)"' | tr '\n' '|'; }
+tk_ttask() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_tool" and .sub.id == $id) | (.sub.task // "-")' | tr '\n' '|'; }
+tk_tdesc() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_tool" and .sub.id == $id) | (.sub | has("desc")) | tostring' | tr '\n' '|'; }
+tk_mem() { "$JQ_BIN" -c --arg id "$1" '[.[] | select(.[0] == $id)][0]' "$(TKMEM)"; }
 tk_new; tk_agent "Pilot ALY-280.1"; tk_start t1; tk_meta t1 "Pilot ALY-280.1"; tk_tool t1
-check "ALY-281 AC-01 unfixed: start path, the spooled sub_start has no desc and no task" "desc=false task=false|" "$(tk_sdesc t1)"
-check "ALY-281 AC-01 unfixed: first tool path, the sub_tool sends no task" "false|" "$(tk_ttask t1)"
-check "ALY-281 AC-01 unfixed: the memory entry for the agent id is tried and empty" '["t1",""]' "$("$JQ_BIN" -c '[.[] | select(.[0] == "t1")][0][0:2]' "$(TKMEM)")"; end_case
+check "ALY-281 AC-02: start path (stash), the spooled sub_start has the task and no desc" "desc=false task=ALY-280.1|" "$(tk_sdesc t1)"
+check "ALY-281 AC-06: first tool does not resend the key the start sent, and sends no desc" "-| false|" "$(tk_ttask t1) $(tk_tdesc t1)"
+check "ALY-281 AC-06: the memory entry for the agent id holds the key and is tried" '["t1","ALY-280.1",1]' "$(tk_mem t1)"; end_case
 tk_new; tk_meta t1 "Pilot ALY-280.1"; tk_tool t1
-check "ALY-281 AC-01 unfixed: metadata path alone, no task on the first tool" "false|" "$(tk_ttask t1)"
-check "ALY-281 AC-01 unfixed: metadata path alone, the memory entry is tried and empty" '["t1",""]' "$("$JQ_BIN" -c '[.[] | select(.[0] == "t1")][0][0:2]' "$(TKMEM)")"; end_case
+check "ALY-281 AC-02: metadata path alone, the first tool sends the task and no desc" "ALY-280.1| false|" "$(tk_ttask t1) $(tk_tdesc t1)"
+check "ALY-281 AC-02: metadata path alone, the memory entry holds the key and is tried" '["t1","ALY-280.1",1]' "$(tk_mem t1)"; end_case
+tk_new; tk_agent "ALY-263.3"; tk_start t1; tk_meta t1 "ALY-263.3"; tk_tool t1
+check "ALY-281 AC-03: a one word description that is a key, start path" "desc=false task=ALY-263.3|" "$(tk_sdesc t1)"
+check "ALY-281 AC-03: a one word description that is a key, not resent at the first tool" "-|" "$(tk_ttask t1)"; end_case
+tk_new; tk_meta t1 "ALY-263.3"; tk_tool t1
+check "ALY-281 AC-03: a one word description that is a key, metadata path" "ALY-263.3|" "$(tk_ttask t1)"; end_case
+tk_new; tk_bind ALY-263; tk_agent "Pilot 263.3"; tk_start t1
+check "ALY-281 BR-01: a bare key in a 2 word step is completed from the one bound project" "desc=false task=ALY-263.3|" "$(tk_sdesc t1)"; end_case
+tk_new; tk_agent "Run tests"; tk_start t1; tk_meta t1 "Run tests"; tk_tool t1
+check "ALY-281 AC-05: no key in a short description, no task on the start, none on the tool, no desc" "desc=false task=-| -|" "$(tk_sdesc t1) $(tk_ttask t1)"; end_case
+tk_new; tk_agent "Run tests for the slice"; tk_start t1
+check "ALY-281 BR-03: the desc (3 words) and a missing key are independent" "desc=true task=-|" "$(tk_sdesc t1)"; end_case
+tk_new; tk_agent "Pilot ALY-280.1"; tk_start t1; tk_meta t1 "Pilot ALY-280.2"; tk_tool t1
+check "ALY-281 AC-06: a different key from the file goes on the first tool" "desc=false task=ALY-280.1| ALY-280.2|" "$(tk_sdesc t1) $(tk_ttask t1)"; end_case
+tk_new; tk_tool t1; tk_meta t1 "Pilot ALY-280.1"; tk_tool t1
+check "ALY-281 AC-06: unreadable first, readable later: the first attempt stays final" "-|-|" "$(tk_ttask t1)"; end_case
+# the stash entry may hold a key and no phrase: it follows the same single match, tombstone and TTL rules
+tk_new; tk_agent "Pilot ALY-280.1"; tk_agent "Pilot ALY-280.2"; tk_start t1; tk_start t2
+check "ALY-281 D-03: two launches of one type in flight: no key for either" "desc=false task=-|desc=false task=-|" "$(tk_sdesc t1)$(tk_sdesc t2)"; end_case
+tk_new; tk_agent "Pilot ALY-280.1" allye:bridge-pilot; tk_agent "Check ALY-280.2" allye:bridge-medic; tk_start t1 allye:bridge-medic
+check "ALY-281 D-03: the entry of the type is matched, the other type is left alone" "desc=false task=ALY-280.2|" "$(tk_sdesc t1)"; end_case
+tk_new; tk_agent "Pilot ALY-280.1"; tk_start t1; tk_start t2
+check "ALY-281 D-03: the entry is consumed by the first start" "desc=false task=ALY-280.1|desc=false task=-|" "$(tk_sdesc t1)$(tk_sdesc t2)"; end_case
+tk_new; tk_agent "Pilot ALY-280.1"; tk_agent "Pilot ALY-280.2"; tk_start t1; tk_agent "Pilot ALY-280.3"; tk_start t2
+check "ALY-281 D-03: a launch after an ambiguous start is a tombstone: no key" "desc=false task=-|desc=false task=-|" "$(tk_sdesc t1)$(tk_sdesc t2)"; end_case
+tk_new; tk_agent "Pilot ALY-280.1"; "$JQ_BIN" 'map(.ms -= 120000)' "$DATA/live/$(test_sha "$RAWSID").agents" >"$SB/ag.tmp" && cat "$SB/ag.tmp" >"$DATA/live/$(test_sha "$RAWSID").agents"; tk_start t1
+check "ALY-281 D-03: an expired entry (60 s TTL) gives no key" "desc=false task=-|" "$(tk_sdesc t1)"; end_case
+# roles without a task key and texts off
+tk_new; tk_agent "Recon ALY-263.3" allye:bridge-recon; tk_start t1 allye:bridge-recon; tk_meta t1 "Recon ALY-263.3"; tk_tool t1 allye:bridge-recon
+check "ALY-281 AC-05: a planning role never gets a key (short description)" "desc=false task=-| -|" "$(tk_sdesc t1) $(tk_ttask t1)"; end_case
+tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"; tk_agent "Pilot ALY-280.1"; tk_start t1
+check "ALY-281 BR-02: texts off, the short description sends no key and writes no stash" "desc=false task=-| no" "$(tk_sdesc t1) $(ls "$DATA/live/"*.agents >/dev/null 2>&1 && echo yes || echo no)"; end_case
+tk_new; tk_agent "Pilot ALY-280.1 token=MARKER_HOSTILE"; tk_start t1
+check "ALY-281 smoke: only the key leaves, the hostile token does not" "0" "$(spooled | grep -c 'MARKER_HOSTILE' || true)"; end_case
 
 #@group synth 50
 echo "== synthetic sub_start for unseen subagents (ALY-217.7 AC-35, AC-36, D-26) =="
