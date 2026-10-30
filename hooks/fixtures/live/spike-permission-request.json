@@ -1,0 +1,31 @@
+{
+  "session_id": "session-SCRUBBED",
+  "transcript_path": "/path/SCRUBBED/transcript.jsonl",
+  "cwd": "/path/SCRUBBED",
+  "scratchpad_dir": "/path/SCRUBBED/scratch",
+  "prompt_id": "prompt-SCRUBBED",
+  "permission_mode": "<string>",
+  "effort": {
+    "level": "<string>"
+  },
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo SCRUBBED",
+    "description": "<string>"
+  },
+  "permission_suggestions": [
+    {
+      "type": "<string>",
+      "directories": [
+        "<string>"
+      ],
+      "destination": "<string>"
+    },
+    {
+      "type": "<string>",
+      "mode": "<string>",
+      "destination": "<string>"
+    }
+  ]
+}

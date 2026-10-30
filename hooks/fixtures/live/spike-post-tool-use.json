@@ -1,0 +1,26 @@
+{
+  "session_id": "session-SCRUBBED",
+  "transcript_path": "/path/SCRUBBED/transcript.jsonl",
+  "cwd": "/path/SCRUBBED",
+  "scratchpad_dir": "/path/SCRUBBED/scratch",
+  "prompt_id": "prompt-SCRUBBED",
+  "permission_mode": "<string>",
+  "effort": {
+    "level": "<string>"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo SCRUBBED",
+    "description": "<string>"
+  },
+  "tool_response": {
+    "stdout": "<string>",
+    "stderr": "<string>",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": true
+  },
+  "tool_use_id": "toolu_SCRUBBED",
+  "duration_ms": 0
+}
