@@ -332,7 +332,7 @@ lock_take() {
   while :; do
     # mkdir alone does not decide: uutils coreutils (Ubuntu 25.10+) can report success to several concurrent callers, so
     # the lock is the exclusive (noclobber, O_EXCL) creation of DIR/t; a mkdir "winner" that loses that claim has not got it.
-    if mkdir "$d" 2>/dev/null && ( set -C; if [ -n "${3:-}" ]; then pidlock_rec "$3" >"$d/p"; else printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t"; fi ) 2>/dev/null; then return 0; fi
+    if mkdir "$d" 2>/dev/null && ( set -C; if [ -n "${3:-}" ]; then pidlock_rec "$3" >"$d/p"; elif [ "${DATE_REAL:-0}" = 1 ]; then printf '%s %s' "${EPOCHREALTIME%%[.,]*}" "$LOCK_TOKEN" >"$d/t"; else printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t"; fi ) 2>/dev/null; then return 0; fi
     if lock_is_stale "$d"; then
       # Only one breaker at a time (a second mkdir lock, itself broken after a minute), so nobody can replace the
       # lock between the verdict and the rename; the renamed lock is judged once more as a safety net.
