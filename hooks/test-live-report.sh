@@ -4419,7 +4419,8 @@ check "curl gets --max-redirs 0 and -K -" "1 1" "$(printf '%s\n' "$ACODE" | grep
 check "curl never follows redirects (no -L, no --location)" "0" "$(printf '%s\n' "$ACODE" | grep -cE -- '--location|curl .* -L ' || true)"
 check "the body is a config line from a private file, not argv (no --data on a command line)" "1 0" "$(printf '%s\n' "$ACODE" | grep -c 'data-binary = "@%s"' || true) $(printf '%s\n' "$ACODE" | grep -cE '(curl|--data)[^|]*(--data|-d )' || true)"
 check "curl runs with the TLS environment unset (env -u ...)" "1" "$(printf '%s\n' "$ACODE" | grep -c 'env -u CURL_CA_BUNDLE -u SSL_CERT_FILE -u SSL_CERT_DIR -u SSLKEYLOGFILE -u CURL_HOME -u CURL_SSL_BACKEND curl ' || true)"
-check "the origin is not read from the environment or settings" "0" "$(printf '%s\n' "$ACODE" | grep -cE 'ALLYE_API|ANTHROPIC|CLAUDE_PROJECT_DIR|settings\.json' || true)"
+check "the origin is not read from the environment or settings" "0" "$(printf '%s\n' "$ACODE" | grep -cE 'ALLYE_API|ANTHROPIC|settings\.json' || true)"
+check "CLAUDE_PROJECT_DIR appears once, in project_root (classification only, never the origin or credential)" "1" "$(printf '%s\n' "$ACODE" | grep -c 'CLAUDE_PROJECT_DIR' || true)"
 check "no tu is ever sent" "0" "$(printf '%s\n' "$ACODE" | grep -cE '\btu\b' || true)"
 
 echo "== answer client open: body, hash vectors, session hash, answerable (AC-05, AC-06, D-08, ALY-269.3) =="
@@ -4430,10 +4431,10 @@ ans_case; smode wait terminal; ans_run
 quiet "a Bash permission request"
 check "one open call, one wait call" "1 1" "$(sopen) $(swaits)"
 OB=$(slog | "$JQ_BIN" -c 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson')
-check "the open body is exactly {session_hash, kind, hash, risk, tool}: no run_id, no tu" '["hash","kind","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
+check "the open body is exactly {session_hash, kind, hash, risk, tool, phrase}: no run_id, no tu" '["hash","kind","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
 check "hash is the known answer of the canonical array (V1)" "$VEC1" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.hash')"
 check "session_hash is sha256 of the session id (known answer), like the reporter's HASH" "$SH1 $(test_sha sess-0001)" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.session_hash') $SH1"
-check "kind permission, risk normal, tool Bash" "permission normal Bash" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.kind) \(.risk) \(.tool)"')"
+check "kind permission, risk high (Bash, ALY-269.5), tool Bash" "permission high Bash" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.kind) \(.risk) \(.tool)"')"
 check "the credential reached the API on every call" "true" "$(slog | "$JQ_BIN" -s 'all(.[]; .auth)')"
 check "the open call is JSON" "application/json" "$(slog | "$JQ_BIN" -r 'select(.method == "POST" and .path == "/api/live/requests") | .ctype')"
 check "nothing is left in the live directory after a normal run" "" "$(live_left)"
@@ -4482,7 +4483,8 @@ end_case_ans
 echo "== answer client wait: statuses, no_audience by hit count, deadline, expiresAt (AC-06, D-04, ALY-269.3) =="
 for st in allow deny question terminal expired no_audience; do
   ans_case; smode wait "$st"; ans_run
-  quiet "wait status $st"
+  # ALY-269.5: the default payload is a Bash request (risk high): an allow is dropped, a deny is printed (see `answer permission`)
+  if [ "$st" = deny ]; then check "wait status deny: the permission deny line is printed, exit 0" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"no"}}}|0|' "$OUT|$RC|$ERR"; else quiet "wait status $st"; fi
   check "wait status $st: one wait call, no cancel, nothing printed" "1 0 1" "$(swaits) $(scancels) $(sopen)"
   check "wait status $st: nothing left behind" "0 " "$(marked) $(live_left)"
   end_case_ans
@@ -4663,6 +4665,367 @@ check "the debug log holds no credential, nonce, text, hash, session id or decis
 check "stderr stays empty with the debug flag" "" "$ERR"
 end_case_ans
 ans_cleanup_bg
+
+# ─── ALY-269.5 / ALY-269.11: the permission path (AC-04, AC-07, AC-09, AC-18, BR-01, BR-02, D-08, D-09, D-13) ─────
+# realpath/readlink are not in the sandbox PATH of the other answer sections; the permission sections get their own bin directories.
+#@always
+PERM_FIX="$SCRIPT_DIR/fixtures/live/answer-permission.json"
+REALBIN_RP="$ROOT_TMP/realbin-rp";   make_realbin "$REALBIN_RP";   for _t in realpath readlink; do ln -sf "$(type -P "$_t")" "$REALBIN_RP/$_t"; done
+REALBIN_RPO="$ROOT_TMP/realbin-rpo"; make_realbin "$REALBIN_RPO";  ln -sf "$(type -P realpath)" "$REALBIN_RPO/realpath"
+REALBIN_RLO="$ROOT_TMP/realbin-rlo"; make_realbin "$REALBIN_RLO";  ln -sf "$(type -P readlink)" "$REALBIN_RLO/readlink"
+REALBIN_NFC="$ROOT_TMP/realbin-nfc"; make_realbin "$REALBIN_NFC"; [ -z "$(type -P uconv)" ] || ln -sf "$(type -P uconv)" "$REALBIN_NFC/uconv"; for _t in realpath readlink; do ln -sf "$(type -P "$_t")" "$REALBIN_NFC/$_t"; done
+REALBIN_BADNFC="$ROOT_TMP/realbin-badnfc"; make_realbin "$REALBIN_BADNFC"; printf '#!%s\ncat >/dev/null\nexit 1\n' "$BASH_BIN" >"$REALBIN_BADNFC/uconv"; chmod +x "$REALBIN_BADNFC/uconv"; for _t in realpath readlink; do ln -sf "$(type -P "$_t")" "$REALBIN_BADNFC/$_t"; done
+REALBIN_NLNFC="$ROOT_TMP/realbin-nlnfc"; make_realbin "$REALBIN_NLNFC"; printf '#!%s\ncat\nprintf "\\nextra\\n"\n' "$BASH_BIN" >"$REALBIN_NLNFC/uconv"; chmod +x "$REALBIN_NLNFC/uconv"; for _t in realpath readlink; do ln -sf "$(type -P "$_t")" "$REALBIN_NLNFC/$_t"; done
+cwd_row() {  # NAME CWD TOOL INPUT EXPECTED-RISK: a payload with this cwd ([P]/[O] in INPUT); RUN_ENV is the caller's
+  local inp="${4//\[P\]/$SB/proj}"
+  inp="${inp//\[O\]/$SB/outside}"
+  "$JQ_BIN" -nc --arg c "$2" --arg t "$3" --argjson i "$inp" '{hook_event_name: "PermissionRequest", session_id: "sess-0001", cwd: $c, tool_name: $t, tool_input: $i}' >"$SB/stdin"
+  : >"$SB/api/requests.log"; ans_run
+  check "root $1: $5" "$5 1" "$(perm_body | "$JQ_BIN" -r '.risk // "none"') $(sopen)"
+}
+perm_body() { slog | "$JQ_BIN" -c 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson'; }
+perm_fs() {  # the project tree of a case: files, a dot-dir, a symlink out, a symlink in, a symlink onto .git
+  mkdir -p "$SB/proj/src" "$SB/proj/.git" "$SB/outside"; : >"$SB/proj/src/a.txt"; : >"$SB/proj/.git/config"; : >"$SB/outside/x"
+  ln -sfn "$SB/outside" "$SB/proj/esc"; ln -sfn "$SB/proj/src" "$SB/proj/inlink"; ln -sfn "$SB/proj/.git" "$SB/proj/gitlink"
+}
+risk_row() {  # NAME TOOL INPUT EXPECTED-RISK ([P] = project, [O] = outside); the Allye action is never in the body
+  local inp="${3//\[P\]/$SB/proj}" b
+  inp="${inp//\[O\]/$SB/outside}"
+  ans_payload sess-0001 "$2" "$inp"; : >"$SB/api/requests.log"; ans_run
+  b=$(perm_body)
+  check "risk $1: $4" "$4 1" "$(printf '%s' "$b" | "$JQ_BIN" -r '.risk // "none"') $(sopen)"
+}
+perm_wait() {  # RAWDATA-JSON: the wait answer is exactly this `data`; runs the script; leaves OUT, RC
+  printf '%s' "$1" >"$SB/api/wait-data"; smode wait rawdata; : >"$SB/api/requests.log"; ans_run
+}
+AP=mcp__plugin_allye_allye__
+DEC_ALLOW='{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
+#@end
+
+echo "== answer permission open: body keys, phrase, no raw command, path, input or token (AC-04, AC-18, BR-01, D-08 ALY-269.5) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
+"$JQ_BIN" --arg c "$SB/proj" '.cwd = $c' "$PERM_FIX" >"$SB/stdin"; ans_run
+quiet "the fixture: a Bash permission request"
+OB=$(perm_body)
+check "the open body has exactly {session_hash, kind, hash, risk, tool, phrase}: no tu, no input, no command, no path" '["hash","kind","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
+check "kind permission, risk high (Bash), tool Bash, the hash is the canonical one" "permission high Bash yes" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.kind) \(.risk) \(.tool)"') $([ "$(printf '%s' "$OB" | "$JQ_BIN" -r .hash)" = "$("$JQ_BIN" -S -c '[.tool_name, .tool_input]' "$SB/stdin" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)" ] && echo yes || echo no)"
+check "the phrase is the D-08 phrase of the description" "Print a greeting for the user" "$(printf '%s' "$OB" | "$JQ_BIN" -r .phrase)"
+BODYRAW=$(slog | "$JQ_BIN" -r 'select(.method == "POST" and .path == "/api/live/requests") | .body')
+check "the body holds neither the token, the command, the host, a path nor the sandbox" "none" "$(case "$BODYRAW" in *SECRET-TOKEN*|*curl*|*Authorization*|*internal.example*|*"/path/"*|*"$SB"*|*tool_input*|*command*) echo found ;; *) echo none ;; esac)"
+check "no tu key anywhere in the open or the other calls" "0" "$(slog | "$JQ_BIN" -s '[.[] | .body | select(length > 0) | fromjson? | objects | select(has("tu"))] | length')"
+"$JQ_BIN" -nc --arg c "$SB/proj" '{hook_event_name: "PermissionRequest", session_id: "sess-0001", cwd: $c, tool_name: "Bash", tool_input: {command: "echo SECRETWORD /etc/passwd", description: "d"}}' >"$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+OB=$(perm_body)
+check "a description that is too short gives the constant template; the command is not echoed" "Run a command" "$(printf '%s' "$OB" | "$JQ_BIN" -r .phrase)"
+check "no SECRETWORD or path in that body" "none" "$(case "$(slog)" in *SECRETWORD*|*passwd*) echo found ;; *) echo none ;; esac)"
+ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"SECRETOLD","new_string":"SECRETNEW"}'; : >"$SB/api/requests.log"; ans_run
+OB=$(perm_body)
+check "Edit: phrase is Edit + the basename only; risk normal; no directory, no strings" "Edit a.txt normal none" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.phrase) \(.risk)"') $(case "$(slog)" in *SECRETOLD*|*SECRETNEW*|*"$SB"*) echo found ;; *) echo none ;; esac)"
+head -c 1048576 /dev/zero | tr '\0' a >"$SB/big.txt"
+"$JQ_BIN" -nc --rawfile c "$SB/big.txt" --arg p "$SB/proj" '{hook_event_name: "PermissionRequest", session_id: "sess-0001", cwd: $p, tool_name: "Bash", tool_input: {command: $c, description: "d"}}' >"$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+EXPECT=$("$JQ_BIN" -S -c '[.tool_name, .tool_input]' <"$SB/stdin" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)
+check "1 MB tool_input: one open, canonical hash, small body, no aaaa" "1 $EXPECT yes none" "$(sopen) $(perm_body | "$JQ_BIN" -r .hash) $([ "$(slog | "$JQ_BIN" -r 'select(.path == "/api/live/requests") | .body | length')" -lt 1000 ] && echo yes || echo no) $(case "$(slog)" in *aaaaaaaaaa*) echo found ;; *) echo none ;; esac)"
+check "the 1 MB run is quiet and exits 0" "0||" "$RC|$OUT|$ERR"
+end_case_ans
+
+echo "== answer permission risk: built-in tools, paths, symlinks, protected files (D-09, AC-04 ALY-269.5) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
+risk_row "Bash" Bash '{"command":"ls","description":"List files here"}' high
+risk_row "Edit inside" Edit '{"file_path":"[P]/src/a.txt","old_string":"a","new_string":"b"}' normal
+risk_row "Edit relative path inside" Edit '{"file_path":"src/a.txt","old_string":"a","new_string":"b"}' normal
+risk_row "Write a new file inside" Write '{"file_path":"[P]/src/new/file.txt","content":"x"}' normal
+risk_row "MultiEdit inside" MultiEdit '{"file_path":"[P]/src/a.txt","edits":[]}' normal
+risk_row "NotebookEdit inside" NotebookEdit '{"notebook_path":"[P]/n.ipynb","new_source":"x"}' normal
+risk_row "Edit under a src/scripts dir (a scripts directory is protected at any depth)" Edit '{"file_path":"[P]/src/scripts/x.sh"}' high
+risk_row "Edit through a symlink that points inside" Edit '{"file_path":"[P]/inlink/a.txt"}' normal
+for f in azure-pipelines.yml azure-pipelines.yaml bitbucket-pipelines.yml cloudbuild.yaml cloudbuild.yml Taskfile.yml Taskfile justfile GNUmakefile docker-compose.yml docker-compose.override.yml setup.py setup.cfg tox.ini pom.xml build.gradle build.gradle.kts settings.gradle cmakelists.txt CMakeLists.txt Rakefile Pipfile Pipfile.lock deno.json deno.jsonc bunfig.toml Procfile src/deep/scripts/x.js src/Setup.PY package.json package-lock.json yarn.lock pnpm-lock.yaml bun.lock Cargo.toml go.mod pyproject.toml requirements.txt requirements-dev.txt Gemfile composer.json Makefile Dockerfile Dockerfile.dev Jenkinsfile PACKAGE.JSON src/package.json .env .envrc .mcp.json .gitlab-ci.yml .claude/settings.json .git/config .github/workflows/ci.yml .circleci/config.yml scripts/build.sh src/.hidden/x.txt; do
+  risk_row "Edit protected $f" Edit '{"file_path":"[P]/'"$f"'"}' high
+done
+risk_row "Edit through a symlink onto .git" Edit '{"file_path":"[P]/gitlink/config"}' high
+risk_row "Edit outside the project" Edit '{"file_path":"[O]/x"}' high
+risk_row "Edit with .. out of the project" Edit '{"file_path":"[P]/../outside/x"}' high
+risk_row "Edit relative .. out of the project" Edit '{"file_path":"../outside/x"}' high
+risk_row "Edit through a symlink pointing outside" Edit '{"file_path":"[P]/esc/x"}' high
+risk_row "Edit through a symlink pointing outside, new file" Edit '{"file_path":"[P]/esc/new.txt"}' high
+risk_row "Edit under ~" Edit '{"file_path":"~/x"}' high
+risk_row "Edit without file_path" Edit '{}' high
+risk_row "Edit with a numeric file_path" Edit '{"file_path":5}' high
+risk_row "Edit with a null file_path" Edit '{"file_path":null}' high
+risk_row "Edit with an empty file_path" Edit '{"file_path":""}' high
+risk_row "Edit with a newline in the path" Edit '{"file_path":"[P]/src/a\nb"}' high
+risk_row "Edit the project directory itself" Edit '{"file_path":"[P]"}' high
+risk_row "Write without a path" Write '{"content":"x"}' high
+risk_row "NotebookEdit without notebook_path" NotebookEdit '{"file_path":"[P]/n.ipynb"}' high
+risk_row "Read inside" Read '{"file_path":"[P]/src/a.txt"}' normal
+risk_row "Read outside" Read '{"file_path":"[O]/x"}' high
+risk_row "Read through a symlink pointing outside" Read '{"file_path":"[P]/esc/x"}' high
+risk_row "Read .env" Read '{"file_path":"[P]/.env"}' high
+risk_row "Read .git/config" Read '{"file_path":"[P]/.git/config"}' high
+risk_row "Read without file_path" Read '{}' high
+risk_row "Grep without a path (the project)" Grep '{"pattern":"foo"}' normal
+risk_row "Grep inside" Grep '{"pattern":"foo","path":"[P]/src"}' normal
+risk_row "Grep outside" Grep '{"pattern":"foo","path":"[O]"}' high
+risk_row "Grep on .git" Grep '{"pattern":"foo","path":"[P]/.git"}' high
+risk_row "Grep with a non-string path" Grep '{"pattern":"foo","path":7}' high
+risk_row "Glob in the project" Glob '{"pattern":"**/*.ts"}' normal
+risk_row "Glob with a path inside" Glob '{"pattern":"*.ts","path":"[P]/src"}' normal
+risk_row "Glob with an absolute pattern inside" Glob '{"pattern":"[P]/src/*.ts"}' normal
+risk_row "Glob with an absolute pattern outside" Glob '{"pattern":"/etc/**"}' high
+risk_row "Glob with a .. pattern" Glob '{"pattern":"../**"}' high
+risk_row "Glob with .. under a path" Glob '{"pattern":"../../outside/*","path":"[P]/src"}' high
+risk_row "Glob with a pattern onto .git" Glob '{"pattern":".git/*"}' high
+risk_row "Glob with a path outside" Glob '{"pattern":"*","path":"[O]"}' high
+risk_row "Glob with a ~ pattern" Glob '{"pattern":"~/*"}' high
+risk_row "Glob with a non-string pattern" Glob '{"pattern":["a"]}' high
+risk_row "an unknown tool" NoSuchTool '{}' high
+risk_row "WebFetch" WebFetch '{"url":"https://example.test"}' high
+risk_row "Agent" Agent '{"prompt":"x"}' high
+risk_row "Skill" Skill '{"skill":"x"}' high
+end_case_ans
+
+echo "== answer permission risk: no path tool on PATH fails closed (D-09 ALY-269.5) =="
+ans_case; perm_fs; smode wait terminal   # REAL is the default sandbox bin: neither realpath nor readlink
+risk_row "no resolver: Edit inside" Edit '{"file_path":"[P]/src/a.txt"}' high
+risk_row "no resolver: Read inside" Read '{"file_path":"[P]/src/a.txt"}' high
+risk_row "no resolver: Grep without a path" Grep '{"pattern":"foo"}' high
+risk_row "no resolver: an Allye read action needs no path" mcp__plugin_allye_allye__specs '{"action":"spec_context","spec":"ALY-1"}' normal
+REAL="$REALBIN_RPO"; risk_row "realpath only: Edit inside" Edit '{"file_path":"[P]/src/a.txt"}' normal
+risk_row "realpath only: Edit through a symlink pointing outside" Edit '{"file_path":"[P]/esc/x"}' high
+REAL="$REALBIN_RLO"; risk_row "readlink only: Edit inside" Edit '{"file_path":"[P]/src/a.txt"}' normal
+risk_row "readlink only: Edit through a symlink pointing outside" Edit '{"file_path":"[P]/esc/x"}' high
+risk_row "readlink only: Edit a new file under a symlink pointing outside" Edit '{"file_path":"[P]/esc/new.txt"}' high
+REAL="$REALBIN_RP"
+for cw in '' 'relative/dir' "$SB/nonexistent" "$SB/proj/src/a.txt"; do
+  "$JQ_BIN" -nc --arg c "$cw" --arg f "$SB/proj/src/a.txt" '{hook_event_name: "PermissionRequest", session_id: "sess-0001", cwd: $c, tool_name: "Edit", tool_input: {file_path: $f}}' >"$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+  check "payload cwd '$cw' is no usable project directory: risk high" "high" "$(perm_body | "$JQ_BIN" -r .risk)"
+done
+"$JQ_BIN" -nc --arg f "$SB/proj/src/a.txt" '{hook_event_name: "PermissionRequest", session_id: "sess-0001", tool_name: "Edit", tool_input: {file_path: $f}}' >"$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+check "a payload without cwd: risk high" "high" "$(perm_body | "$JQ_BIN" -r .risk)"
+"$JQ_BIN" -nc --arg c "/" '{hook_event_name: "PermissionRequest", session_id: "sess-0001", cwd: $c, tool_name: "Edit", tool_input: {file_path: "/etc/hosts"}}' >"$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+check "a project directory of / is no project: risk high" "high" "$(perm_body | "$JQ_BIN" -r .risk)"
+ln -sfn "$SB/proj" "$SB/projlink"
+"$JQ_BIN" -nc --arg c "$SB/projlink" --arg f "$SB/proj/src/a.txt" '{hook_event_name: "PermissionRequest", session_id: "sess-0001", cwd: $c, tool_name: "Edit", tool_input: {file_path: $f}}' >"$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+check "a cwd that is itself a symlink is resolved first: Edit inside is normal" "normal" "$(perm_body | "$JQ_BIN" -r .risk)"
+end_case_ans
+
+echo "== answer permission risk: Allye MCP tools by read-only action, everything else high (D-09, ALY-269.11) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
+risk_row "Allye specs spec_context (a read)" ${AP}specs '{"action":"spec_context","spec":"ALY-269"}' normal
+risk_row "Allye specs spec_approve (a write)" ${AP}specs '{"action":"spec_approve","spec":"ALY-269","user_requested":true}' high
+risk_row "Allye tasks task_complete (a write)" ${AP}tasks '{"action":"task_complete","task":"ALY-269.5"}' high
+risk_row "Allye intelligence memory_save (a write)" ${AP}intelligence '{"action":"memory_save","title":"t","content":"c","tags":["a"]}' high
+risk_row "Allye kb kb_update (a write)" ${AP}kb '{"action":"kb_update","page":"p"}' high
+risk_row "Allye specs, an unknown action" ${AP}specs '{"action":"spec_frobnicate"}' high
+risk_row "Allye specs, no action" ${AP}specs '{"spec":"ALY-269"}' high
+risk_row "Allye specs, empty input" ${AP}specs '{}' high
+risk_row "Allye specs, a numeric action" ${AP}specs '{"action":5}' high
+risk_row "Allye specs, an array action" ${AP}specs '{"action":["spec_context"]}' high
+risk_row "Allye specs, an object action" ${AP}specs '{"action":{"a":"spec_context"}}' high
+risk_row "Allye specs, a null action" ${AP}specs '{"action":null}' high
+risk_row "Allye specs, an empty action" ${AP}specs '{"action":""}' high
+risk_row "Allye specs, a suffix on a read name" ${AP}specs '{"action":"spec_context_x"}' high
+risk_row "Allye specs, a prefix on a read name" ${AP}specs '{"action":"x_spec_context"}' high
+risk_row "Allye specs, a trailing space" ${AP}specs '{"action":"spec_context "}' high
+risk_row "Allye specs, a leading space" ${AP}specs '{"action":" spec_context"}' high
+risk_row "Allye specs, a trailing newline" ${AP}specs '{"action":"spec_context\n"}' high
+risk_row "Allye specs, uppercase" ${AP}specs '{"action":"SPEC_CONTEXT"}' high
+risk_row "Allye tasks with a spec read action (wrong tool)" ${AP}tasks '{"action":"spec_context"}' high
+risk_row "Allye team team_switch (a write)" ${AP}team '{"action":"team_switch","team_query":"x"}' high
+risk_row "Allye team without an action (its default is a help, still unknown here)" ${AP}team '{}' high
+risk_row "Allye health check" ${AP}allye_health_check '{}' normal
+risk_row "Allye health check with any input" ${AP}allye_health_check '{"action":"whatever"}' normal
+risk_row "an unknown Allye tool with a read-looking action" ${AP}nosuchtool '{"action":"spec_context"}' high
+risk_row "an Allye tool name with a bad character" "${AP}specs.x" '{"action":"spec_context"}' high
+risk_row "the old server name mcp__allye__" mcp__allye__specs '{"action":"spec_context"}' high
+risk_row "another plugin's allye server" mcp__plugin_other_allye__specs '{"action":"spec_context"}' high
+risk_row "an unknown MCP tool" mcp__other__tool '{"action":"spec_context"}' high
+risk_row "an MCP tool with only the prefix" "mcp__plugin_allye_allye__" '{"action":"spec_context"}' high
+for pair in projects:project_list projects:project_get projects:project_overview projects:app_list projects:project_resolve epics:epic_list epics:epic_get \
+  specs:spec_list specs:spec_get specs:spec_context specs:spec_validate specs:spec_diff specs:spec_versions tasks:task_list tasks:task_get tasks:task_mine tasks:task_next \
+  team:team_list team:team_current team:team_members team:team_help intelligence:memory_search intelligence:memory_get intelligence:memory_list intelligence:memory_graph \
+  intelligence:memory_relations intelligence:memory_preferences kb:kb_spaces kb:kb_tree kb:kb_search kb:kb_read kb:kb_history skills:skill_list skills:skill_get skills:skill_list_revisions \
+  api_catalog:api_catalog_search api_catalog:api_catalog_list api_catalog:api_catalog_get productivity:todo_list productivity:todo_get productivity:todo_stats productivity:todo_search \
+  productivity:todo_overdue productivity:todo_upcoming productivity:todo_categories productivity:todo_tags productivity:todo_help; do
+  risk_row "read-only ${pair#*:} on ${pair%%:*}" "${AP}${pair%%:*}" '{"action":"'"${pair#*:}"'"}' normal
+done
+for pair in projects:project_create projects:project_update projects:app_create projects:app_update projects:app_archive projects:app_unarchive epics:epic_create epics:epic_update epics:epic_cancel epics:epic_reopen \
+  specs:spec_create specs:spec_update specs:spec_submit specs:spec_approve specs:spec_cancel specs:spec_reopen specs:spec_back_to_draft specs:spec_remove_approval specs:spec_dependency_add \
+  tasks:task_create tasks:task_update tasks:task_bulk_create tasks:task_start tasks:task_submit tasks:task_complete tasks:task_cancel tasks:task_reopen tasks:task_request_changes \
+  team:team_set_default intelligence:memory_relocation_apply intelligence:memory_relocation_dismiss kb:kb_create kb:kb_section kb:kb_move kb:kb_restore skills:skill_create skills:skill_update skills:skill_delete \
+  skills:skill_grant skills:skill_restore_revision productivity:todo_create productivity:todo_update productivity:todo_delete productivity:todo_buckets user_config:list user_config:create initialize:init; do
+  risk_row "write or unlisted ${pair#*:} on ${pair%%:*}" "${AP}${pair%%:*}" '{"action":"'"${pair#*:}"'"}' high
+done
+LEAK=0; ans_payload sess-0001 "${AP}specs" '{"action":"spec_context","spec":"ALY-269"}'; : >"$SB/api/requests.log"; ans_run
+OB=$(perm_body)
+check "an Allye read: tool is the MCP tool name, the phrase has the key but never the action" "${AP}specs|Read spec ALY-269|none" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.tool)|\(.phrase)"')|$(case "$(slog)" in *spec_context*) echo found ;; *) echo none ;; esac)"
+ans_payload sess-0001 "${AP}tasks" '{"action":"task_complete","task":"ALY-269.5"}'; : >"$SB/api/requests.log"; ans_run
+check "an Allye write: the body never holds the action name" "none high" "$(case "$(slog)" in *task_complete*) echo found ;; *) echo none ;; esac) $(perm_body | "$JQ_BIN" -r .risk)"
+end_case_ans
+
+echo "== answer permission output: allow, deny, message, ack, no cancel (AC-07, AC-09 ALY-269.5) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs
+ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
+perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+check "allow on a normal request: exactly one line, the allow-listed keys, exit 0, stderr empty" "$DEC_ALLOW|0|" "$OUT|$RC|$ERR"
+check "allow: one ack, no cancel, one wait, no leftovers" "1 0 1 0 " "$(sacks) $(scancels) $(swaits) $(marked) $(live_left)"
+check "the ack path is the request id's" "1" "$(scount POST '^/api/live/requests/stub-req-1/ack$')"
+perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"Not now, please use the terminal."}}'
+check "deny with a message" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Not now, please use the terminal."}}}' "$OUT"
+check "deny: one ack, no cancel" "1 0" "$(sacks) $(scancels)"
+perm_wait '{"status":"answered","decision":{"behavior":"allow","message":"ok"}}'
+check "allow with a message keeps it" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","message":"ok"}}}' "$OUT"
+check "the output has no updatedPermissions, updatedInput or always rule" "none" "$(case "$OUT" in *updated*|*always*|*Permissions*) echo found ;; *) echo none ;; esac)"
+smode ack 500; perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+check "an ack that fails changes nothing: the line is printed, exit 0" "$DEC_ALLOW|0|" "$OUT|$RC|$ERR"
+smode ack hold; RUN_ENV=(); perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+check "an ack that is held (2 s limit) changes nothing: the line is printed once, exit 0, no cancel" "$DEC_ALLOW|0|0" "$OUT|$RC|$(scancels)"
+smode ack ok
+# the message is cleaned and capped
+msg() {  # JSON-ENCODED-STRING EXPECTED-LINE-MESSAGE-JSON
+  perm_wait '{"status":"answered","decision":{"behavior":"deny","message":'"$1"'}}'
+  check "message $1 -> $2" "$2|0" "$OUT|$RC"
+}
+dline() { printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"%s}}}' "$1"; }
+msg '"line one\nline two"' "$(dline ',"message":"line one line two"')"
+msg '"\u001b[31mred\u001b[0m text"' "$(dline ',"message":"red text"')"
+msg '"\u001b]0;title\u0007after"' "$(dline ',"message":"after"')"
+msg '"ab‮cd⁦ef"' "$(dline ',"message":"abcdef"')"
+msg '"a​b‍c﻿d"' "$(dline ',"message":"abcd"')"
+msg '"a󠁁b"' "$(dline ',"message":"ab"')"
+msg '"tab\there\r\n"' "$(dline ',"message":"tab here"')"
+msg '"\u0000\u0001\u007f"' "$(dline '')"
+msg '"   "' "$(dline '')"
+msg '""' "$(dline '')"
+LONG=$(head -c 300 /dev/zero | tr '\0' x)
+msg "\"$LONG\"" "$(dline ',"message":"'"$(head -c 200 /dev/zero | tr '\0' x)"'"')"
+msg "\"$(head -c 190 /dev/zero | tr '\0' y) 123456789 abc\"" "$(dline ',"message":"'"$(head -c 190 /dev/zero | tr '\0' y)"' 123456789"')"
+msg '"café ✓"' "$(dline ',"message":"café ✓"')"
+end_case_ans
+
+echo "== answer permission output: malformed tables print nothing (AC-09, BR-02 ALY-269.5) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs
+ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
+for d in '{"status":"answered","decision":{"behavior":"ALLOW"}}' '{"status":"answered","decision":{"behavior":"Allow"}}' '{"status":"answered","decision":{"behavior":"ask"}}' \
+  '{"status":"answered","decision":{"behavior":"allow_always"}}' '{"status":"answered","decision":{"behavior":"allow "}}' '{"status":"answered","decision":{"behavior":" deny"}}' '{"status":"answered","decision":{"behavior":"deny\n"}}' \
+  '{"status":"answered","decision":{"behavior":["allow"]}}' '{"status":"answered","decision":{"behavior":true}}' '{"status":"answered","decision":{"behavior":null}}' '{"status":"answered","decision":{"message":"x"}}' \
+  '{"status":"answered","decision":{"behavior":"allow","updatedInput":{"command":"x"}}}' '{"status":"answered","decision":{"behavior":"allow","updatedPermissions":[]}}' \
+  '{"status":"answered","decision":{"behavior":"allow","extra":1}}' '{"status":"answered","decision":{"behavior":"deny","always":true}}' \
+  '{"status":"answered","decision":[]}' '{"status":"answered","decision":[{"behavior":"allow"}]}' '{"status":"answered","decision":null}' '{"status":"answered","decision":"allow"}' '{"status":"answered","decision":7}' '{"status":"answered","decision":{}}' '{"status":"answered"}' \
+  '{"status":"answered","decision":{"behavior":"allow","message":5}}' '{"status":"answered","decision":{"behavior":"deny","message":null}}' '{"status":"answered","decision":{"behavior":"deny","message":["x"]}}' '{"status":"answered","decision":{"behavior":"deny","message":{"a":1}}}' \
+  '{"status":"terminal","decision":{"behavior":"allow"}}' '{"status":"expired","decision":{"behavior":"allow"}}' '{"status":"ANSWERED","decision":{"behavior":"allow"}}' '{"status":"answered ","decision":{"behavior":"allow"}}' '{"status":["answered"],"decision":{"behavior":"allow"}}' '{"decision":{"behavior":"allow"}}' \
+  '{"status":"answered","decision":{"answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"behavior":"allow","answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"updatedInput":{"answers":{}}}}' '[]' '"answered"' 'null'; do
+  perm_wait "$d"
+  check "malformed $d: nothing printed, exit 0, no ack, no cancel" "0||0 0" "$RC|$OUT$ERR|$(sacks) $(scancels)"
+done
+# the question answers stub mode on a permission request, and a permission decision on a question request
+smode wait question; : >"$SB/api/requests.log"; ans_run
+check "a question-style decision on a permission request: nothing printed" "0||0" "$RC|$OUT$ERR|$(sacks)"
+ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"Which?","header":"H","options":[{"label":"A","description":"a"},{"label":"B","description":"b"}],"multiSelect":false}]}'
+perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+check "a permission decision on an AskUserQuestion request: nothing printed from this path" "0||0" "$RC|$OUT$ERR|$(sacks)"
+end_case_ans
+
+echo "== answer permission high risk: an allow is dropped, a deny is printed (BR-02, AC-04 ALY-269.5) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs
+for hi in 'Bash|{"command":"echo hi","description":"Print a greeting now"}' 'Edit|{"file_path":"[P]/package.json"}' 'Edit|{"file_path":"[O]/x"}' 'Read|{"file_path":"[P]/.env"}' "${AP}specs|{\"action\":\"spec_approve\",\"spec\":\"ALY-1\"}" 'mcp__other__tool|{}' 'WebFetch|{"url":"https://example.test"}'; do
+  inp="${hi#*|}"; inp="${inp//\[P\]/$SB/proj}"; inp="${inp//\[O\]/$SB/outside}"; ans_payload sess-0001 "${hi%%|*}" "$inp"
+  perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+  check "high ${hi%%|*}: an allow prints nothing, exit 0, stderr empty, no ack, no cancel" "high|0||0 0" "$(perm_body | "$JQ_BIN" -r .risk)|$RC|$OUT$ERR|$(sacks) $(scancels)"
+  perm_wait '{"status":"answered","decision":{"behavior":"allow","message":"fine"}}'
+  check "high ${hi%%|*}: an allow with a message prints nothing" "0||0" "$RC|$OUT$ERR|$(sacks)"
+  perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"no"}}'
+  check "high ${hi%%|*}: a deny is printed and acked" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"no"}}}|1 0' "$OUT|$(sacks) $(scancels)"
+done
+end_case_ans
+
+echo "== answer permission root: CLAUDE_PROJECT_DIR or the nearest .git/.claude ancestor, never the cwd (SHD-01 ALY-269.5) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
+mkdir -p "$SB/proj/.git/hooks" "$SB/proj/.github/workflows" "$SB/proj/scripts" "$SB/proj/src/deeper"; ln -sfn "$SB/proj/.git" "$SB/proj/gitlnk"
+RUN_ENV=()   # no CLAUDE_PROJECT_DIR: the nearest ancestor of the cwd holding .git or .claude
+cwd_row "no env, cwd in .git/hooks, relative hook" "$SB/proj/.git/hooks" Edit '{"file_path":"pre-commit"}' high
+cwd_row "no env, cwd in .git/hooks, absolute hook" "$SB/proj/.git/hooks" Edit '{"file_path":"[P]/.git/hooks/pre-commit"}' high
+cwd_row "no env, cwd in .git/hooks, Write" "$SB/proj/.git/hooks" Write '{"file_path":"pre-push","content":"x"}' high
+cwd_row "no env, cwd in .github/workflows" "$SB/proj/.github/workflows" Edit '{"file_path":"ci.yml"}' high
+cwd_row "no env, cwd in scripts" "$SB/proj/scripts" Edit '{"file_path":"build.sh"}' high
+cwd_row "no env, cwd is a symlink into .git" "$SB/proj/gitlnk" Edit '{"file_path":"hooks/pre-commit"}' high
+cwd_row "no env, cwd in src, a source file" "$SB/proj/src" Edit '{"file_path":"a.txt"}' normal
+cwd_row "no env, cwd in src/deeper, a source file" "$SB/proj/src/deeper" Edit '{"file_path":"new.txt"}' normal
+cwd_row "no env, cwd in src, absolute path elsewhere inside the project" "$SB/proj/src" Edit '{"file_path":"[P]/other.txt"}' normal
+cwd_row "no env, cwd in src, .. up to a dotfile" "$SB/proj/src" Edit '{"file_path":"../.envrc"}' high
+cwd_row "no env, cwd in src, Read of ../.git/config" "$SB/proj/src" Read '{"file_path":"../.git/config"}' high
+cwd_row "no env, cwd is HOME (no project above)" "$SB/home" Edit '{"file_path":"x.txt"}' high
+cwd_row "no env, cwd is HOME, Read" "$SB/home" Read '{"file_path":"x.txt"}' high
+cwd_row "no env, cwd is /" "/" Edit '{"file_path":"x.txt"}' high
+cwd_row "no env, cwd outside any project" "$SB/outside" Edit '{"file_path":"x"}' high
+RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj")
+cwd_row "env, cwd in .git/hooks" "$SB/proj/.git/hooks" Edit '{"file_path":"pre-commit"}' high
+cwd_row "env, cwd in .github/workflows" "$SB/proj/.github/workflows" Edit '{"file_path":"ci.yml"}' high
+cwd_row "env, cwd in scripts" "$SB/proj/scripts" Edit '{"file_path":"build.sh"}' high
+cwd_row "env, cwd in src, a source file" "$SB/proj/src" Edit '{"file_path":"a.txt"}' normal
+cwd_row "env, cwd in src, absolute path elsewhere inside the project" "$SB/proj/src" Edit '{"file_path":"[P]/other.txt"}' normal
+cwd_row "env, cwd outside the project, absolute path inside" "$SB/outside" Edit '{"file_path":"[P]/src/a.txt"}' high
+cwd_row "env, cwd outside the project, Read inside" "$SB/outside" Read '{"file_path":"[P]/src/a.txt"}' high
+cwd_row "env, cwd outside the project, relative path" "$SB/outside" Edit '{"file_path":"x"}' high
+cwd_row "env, cwd is HOME" "$SB/home" Grep '{"pattern":"x"}' high
+RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj/src")
+cwd_row "env is src, cwd is the parent (outside the root)" "$SB/proj" Edit '{"file_path":"src/a.txt"}' high
+cwd_row "env is src, cwd inside it" "$SB/proj/src" Edit '{"file_path":"a.txt"}' normal
+RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj/src/a.txt")
+cwd_row "env is a file (unusable): the ancestor rule applies" "$SB/proj/src" Edit '{"file_path":"a.txt"}' normal
+RUN_ENV=("CLAUDE_PROJECT_DIR=relative/dir")
+cwd_row "env is relative (ignored): the ancestor rule applies" "$SB/proj/src" Edit '{"file_path":"a.txt"}' normal
+cwd_row "env is relative, cwd in .git/hooks" "$SB/proj/.git/hooks" Edit '{"file_path":"pre-commit"}' high
+RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/nonexistent")
+cwd_row "env does not exist: the ancestor rule applies" "$SB/proj/src" Edit '{"file_path":"a.txt"}' normal
+RUN_ENV=("CLAUDE_PROJECT_DIR=/")
+cwd_row "env is /: no project" "$SB/proj/src" Edit '{"file_path":"a.txt"}' high
+RUN_ENV=()
+end_case_ans
+
+echo "== answer permission texts: the reporter's text gates, and the tool name of other servers (SHD-02, SHD-06 ALY-269.5) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
+"$JQ_BIN" --arg c "$SB/proj" '.cwd = $c' "$PERM_FIX" >"$SB/stdin"; ans_run
+check "texts on: the phrase is sent" '["hash","kind","phrase","risk","session_hash","tool"]' "$(perm_body | "$JQ_BIN" -c 'keys')"
+for flag in activity-off detailed-off; do
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$flag"; : >"$SB/api/requests.log"; ans_run
+  check "$flag exists: no phrase, tool, hash and risk kept" '["hash","kind","risk","session_hash","tool"] Bash high' "$(perm_body | "$JQ_BIN" -c 'keys') $(perm_body | "$JQ_BIN" -r '"\(.tool) \(.risk)"')"
+  check "$flag: the run is quiet and left the flag alone" "0|| yes" "$RC|$OUT$ERR| $([ -e "$DATA/live/$flag" ] && echo yes || echo no)"
+  rm -f "$DATA/live/$flag"
+done
+ln -s /nonexistent "$DATA/live/detailed-off"; : >"$SB/api/requests.log"; ans_run
+check "a dangling detailed-off symlink counts: no phrase" '["hash","kind","risk","session_hash","tool"]' "$(perm_body | "$JQ_BIN" -c 'keys')"
+rm -f "$DATA/live/detailed-off"
+for t in mcp__other__tool mcp__allye__specs mcp__plugin_other_allye__specs mcp__github__create_issue; do
+  ans_payload sess-0001 "$t" '{"action":"spec_context","secret":"SECRETIN"}'; : >"$SB/api/requests.log"; ans_run
+  check "$t is sent as the literal mcp, risk high, canonical hash of the full name, no input" "mcp high yes none" "$(perm_body | "$JQ_BIN" -r '"\(.tool) \(.risk)"') $([ "$(perm_body | "$JQ_BIN" -r .hash)" = "$("$JQ_BIN" -S -c '[.tool_name, .tool_input]' <"$SB/stdin" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)" ] && echo yes || echo no) $(case "$(slog)" in *SECRETIN*|*github*|*mcp__*) echo found ;; *) echo none ;; esac)"
+done
+ans_payload sess-0001 "${AP}specs" '{"action":"spec_context","spec":"ALY-1"}'; : >"$SB/api/requests.log"; ans_run
+check "an Allye plugin tool keeps its full name" "${AP}specs" "$(perm_body | "$JQ_BIN" -r .tool)"
+end_case_ans
+
+echo "== answer permission NFC: only through uconv, otherwise strip and cap (SHD-05 ALY-269.5) =="
+ans_case; perm_fs
+ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
+NFCD=$("$JQ_BIN" -nr '"e\u0301"'); NFCC=$("$JQ_BIN" -nr '"\u00e9"')
+REAL="$REALBIN_RP"; msg '"e\u0301"' "$(dline ',"message":"'"$NFCD"'"')"
+if [ -n "$(type -P uconv)" ]; then
+  REAL="$REALBIN_NFC"; msg '"e\u0301"' "$(dline ',"message":"'"$NFCC"'"')"
+  msg '"plain ascii"' "$(dline ',"message":"plain ascii"')"
+  perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+  check "uconv on PATH, no message: the allow line is unchanged" "$DEC_ALLOW|0" "$OUT|$RC"
+fi
+REAL="$REALBIN_BADNFC"; perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"e\u0301"}}'
+check "a failing uconv prints nothing, exit 0, no ack" "0||0" "$RC|$OUT$ERR|$(sacks)"
+REAL="$REALBIN_NLNFC"; perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"hello"}}'
+check "a uconv that changes the line count prints nothing, exit 0, no ack" "0||0" "$RC|$OUT$ERR|$(sacks)"
+end_case_ans
+
+echo "== answer permission static: no updatedPermissions, one validated output path (AC-07, AC-09, AC-18 ALY-269.5) =="
+ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
+check "the script never mentions updatedPermissions or an always rule" "0 0" "$(printf '%s\n' "$ACODE" | grep -c 'updatedPermissions' || true) $(printf '%s\n' "$ACODE" | grep -ciE 'allow_always|"always"' || true)"
+PF='printf '"'"'%s\n'"'"' "$O"'
+check "the decision is printed by one printf of the jq-built, validated line (permission_answered)" "1" "$(printf '%s\n' "$ACODE" | grep -cF -- "$PF" || true)"
+check "the body carries the phrase on stdin, not argv (no --arg p)" "0" "$(printf '%s\n' "$ACODE" | grep -c -- '--arg p ' || true)"
+check "the script is executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
 
 #@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
