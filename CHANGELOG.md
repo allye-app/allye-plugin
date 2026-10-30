@@ -1,3 +1,25 @@
+# [2.13.0](https://github.com/allye-app/allye-plugin/compare/v2.12.0...v2.13.0) (2026-10-30)
+
+
+### Features
+
+* **live:** classify tool calls into the D-08 phrase table with a shared name denylist (ALY-263.9) ([099ac65](https://github.com/allye-app/allye-plugin/commit/099ac655f1b78499f63b46c8a375dbcda43f4ea6))
+* **live:** main-session phrases by the D-08 grammar, phrase-first spool eviction and a latency replay (ALY-263.13) ([d1d94c1](https://github.com/allye-app/allye-plugin/commit/d1d94c144c2b8bc864f0040a780874a23568b584))
+* **live:** mark resumed agents and close a resumed segment from the transcript tail (ALY-263.11) ([46b5231](https://github.com/allye-app/allye-plugin/commit/46b5231bf417e0f26b6559e1f6530851fca32eaf))
+* **live:** one sub_tool phrase per subagent tool with per-agent dedupe and texts-off purge (ALY-263.3) ([973b4ce](https://github.com/allye-app/allye-plugin/commit/973b4ce7e6895feab786002e36fe4292b5e6ae33))
+* **live:** read the crew result from the subagent transcript with a safe open (ALY-263.1) ([35060f3](https://github.com/allye-app/allye-plugin/commit/35060f3bf2a0c23288b1fc3328e4f92d257d63b0))
+* **live:** report spec_context, spec_get and launch keys as bind touches (ALY-263.5) ([da0878a](https://github.com/allye-app/allye-plugin/commit/da0878a9d27a06fce775fdc173e55b7291e41eb3))
+* **live:** send phase and the ready/approved codes on sub_stop (ALY-263.12) ([c2dfe1f](https://github.com/allye-app/allye-plugin/commit/c2dfe1f2d3c34af491e54014299e20aa230574fc))
+* **live:** send sub.task from the dispatch description at start and first tool (ALY-263.10) ([8e8b446](https://github.com/allye-app/allye-plugin/commit/8e8b446e4c92bab796812e682b8b8d857a8bcb32))
+* **live:** send the dispatch description from the subagent metadata file on stop (ALY-263.4) ([d598d78](https://github.com/allye-app/allye-plugin/commit/d598d7891a274e6425e0b3849099d62485ce299a))
+* **live:** send the mission-log PR number on the gates event (ALY-263.15) ([74c0051](https://github.com/allye-app/allye-plugin/commit/74c0051f3c1d9353ce1ed6c39e653d18fe19adf3))
+* **live:** send the session label and working directory basename (ALY-263.6) ([c1de1f8](https://github.com/allye-app/allye-plugin/commit/c1de1f883edd7c5deac6b4d7ee8767880ff5d94f))
+
+
+### Performance Improvements
+
+* **live:** batch the per-session private-file checks and skip clock forks on the hot path (ALY-263.13) ([69a69dd](https://github.com/allye-app/allye-plugin/commit/69a69dd115c5f5079facaa9ee0656634b6846619))
+
 # [2.12.0](https://github.com/allye-app/allye-plugin/compare/v2.11.0...v2.12.0) (2026-10-29)
 
 
