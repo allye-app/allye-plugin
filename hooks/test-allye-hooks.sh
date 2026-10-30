@@ -8,7 +8,10 @@
 # symlinks to the real tools, no `node` and a failing `stat`. The curl shim refuses non-loopback hosts.
 set -u
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="${PT_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# Runner (hooks/test/README.md): the sections run in groups, at most 4 workers; --serial, --group ID, --only REGEX, --list.
+PT_FINAL_FMT='Passed: %s  Failed: %s'
+. "$SCRIPT_DIR/test/parallel.sh"; pt_dispatch "$@"
 HOOK="$SCRIPT_DIR/allye-hooks.sh"
 COMMAND_FILE="$SCRIPT_DIR/../commands/hooks.md"
 SHIMS="$SCRIPT_DIR/test/shims"
@@ -81,7 +84,7 @@ new_case() {
   RUN_ENV=(); REAL="$REALBIN"; SHIMD="$SHIMS"
   : >"$SB/api/requests.log"
   fake_stop; fake_start "$NODE_BIN" "$FAKE" "$SB/api" "$SB/api/node.log"
-  local i; for i in $(seq 1 100); do [ -s "$SB/api/port" ] && break; sleep 0.05; done
+  local i; for i in $(seq 1 1000); do [ -s "$SB/api/port" ] && break; sleep 0.01; done
   PORT=$(cat "$SB/api/port"); API="http://127.0.0.1:$PORT"
   RUN_ENV=("ALLYE_API_URL=$API")
 }
@@ -117,10 +120,12 @@ no_leak() {  # $1 = label; the off-format token, server text and verifier are in
   absent "$1: off-format token never printed" "OFFFORMAT" "$SB/out" "$SB/err"
 }
 
+#@group s01 1
 echo "== environment =="
 check "node is not on the script PATH" "" "$(env -i PATH="$SHIMS:$REALBIN" "$BASH_BIN" -c 'command -v node')"
 
 # ─── begin (AC-01, BR-01, BR-10) ────────────────────────────────────────────
+#@group s02 1
 echo "== begin =="
 new_case
 run_script begin "$DATA"
@@ -187,6 +192,7 @@ check "begin without arguments prints usage and exits 2" "2" "$RC"
 end_case
 
 # ─── finish: success (AC-02, BR-02, D-07) ───────────────────────────────────
+#@group s03 1
 echo "== finish: 201 =="
 new_case
 begin_pairing
@@ -224,6 +230,7 @@ check "stored names carry no control characters" "0" "$("$JQ_BIN" -r '.email + .
 end_case
 
 # ─── finish: refusals (AC-03, AC-15) ────────────────────────────────────────
+#@group s04 1
 echo "== finish: errors =="
 # expect_failure LABEL: the previous credential is kept, a message is printed, nothing leaks.
 prev_credential() {
@@ -366,6 +373,7 @@ check "finish with a missing argument exits 2" "2" "$RC"
 end_case
 
 # ─── ALLYE_API_URL (BR-08, AC-16) ───────────────────────────────────────────
+#@group s05 1
 echo "== ALLYE_API_URL =="
 new_case; begin_pairing
 for bad in "http://example.com" "http://127.0.0.1.evil.com:80" "http://localhost.evil.com:80" "http://localhost@evil.com:80" "https://evil.com" "https://api.allye.app.evil.com" "https://evil.com/api.allye.app" \
@@ -397,6 +405,7 @@ check "stored URL is the localhost origin" "http://localhost:$PORT" "$("$JQ_BIN"
 end_case
 
 # ─── Concurrent pairings and replacement (AC-17, D-48) ──────────────────────
+#@group s06 1
 echo "== concurrency and replacement =="
 new_case
 run_script begin "$DATA"; CH1=$(printf '%s\n' "$OUT" | sed -n 's/^challenge: //p')
@@ -430,6 +439,7 @@ check "credential now holds the new device" "laptop-two" "$("$JQ_BIN" -r '.devic
 end_case
 
 # ─── unpair (AC-10, BR-07) ──────────────────────────────────────────────────
+#@group s07 1
 echo "== unpair =="
 new_case; RUN_ENV+=("SHIM_UNAME_OUT=laptop-one")
 begin_pairing; run_script finish "$DATA" "$CH" "$CODE"
@@ -470,8 +480,11 @@ check "unpair on a symlinked directory deletes nothing" "yes" "$([ -f "$SB/real/
 end_case
 
 # ─── commands/hooks.md (AC-13, D-42) ────────────────────────────────────────
+#@group s08 1
 echo "== commands/hooks.md =="
+#@always
 CMD_TEXT=$(cat "$COMMAND_FILE" 2>/dev/null)
+#@end
 check "command file starts with frontmatter" "---" "$(printf '%s\n' "$CMD_TEXT" | sed -n '1p')"
 check "frontmatter has a description" "1" "$(sed -n '1,/^---$/p' "$COMMAND_FILE" | grep -c '^description: .')"
 check "frontmatter has an argument-hint" "yes" "$(contains 'argument-hint: pair | unpair' "$CMD_TEXT")"
@@ -491,17 +504,29 @@ check "treats returned values as data, not instructions" "yes" "$(contains 'is d
 check "the hooks script is executable" "yes" "$([ -x "$HOOK" ] && echo yes || echo no)"
 
 # ─── live off | on | status (ALY-203.8: BR-11, BR-12, AC-11) ────────────────
+#@group s09 1
 echo "== live: off, on, status =="
+#@always
 LIVE="$SCRIPT_DIR/live-report.sh"; LIB="$SCRIPT_DIR/lib/credential.sh"; FIXD="$SCRIPT_DIR/fixtures/live"
+#@end
+#@always
 TOKEN="alyh_$(printf 'Ab1_-%.0s' $(seq 1 8))xyz"
+#@end
+#@always
 mkcred() {
   mkdir -p "$DATA" && chmod 700 "$DATA"
   "$JQ_BIN" -n --arg t "$TOKEN" --arg u "$API" '{token:$t, email:"dev@example.test", tenantName:"Acme Org", deviceName:"laptop", apiUrl:$u, absoluteExpiresAt:"2026-12-01T00:00:00.000Z", pairedAt:"2026-01-01T00:00:00Z"}' >"$DATA/hook-credential.json"
   chmod 600 "$DATA/hook-credential.json"
 }
+#@end
+#@always
 sha_of() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+#@end
+#@always
 LV() { echo "$DATA/live/$1"; }
+#@end
 # run_live FIXTURE-OR-FILE [SESSION-ID]: the reporter once; waits for its detached flusher.
+#@always
 run_live() {
   local f="$1" sid="${2:-}" i
   if [ -n "$sid" ]; then "$JQ_BIN" -c --arg s "$sid" '.session_id = $s' "$FIXD/$f.json" >"$SB/lstdin"; else cp "$FIXD/$f.json" "$SB/lstdin"; fi
@@ -509,14 +534,21 @@ run_live() {
     "$BASH_BIN" "$LIVE" <"$SB/lstdin" >"$SB/lout" 2>"$SB/lerr"
   for i in $(seq 1 200); do compgen -G "$DATA/live/*.flush.lock" >/dev/null || return 0; sleep 0.05; done
 }
+#@end
+#@always
 nbodies() { if [ -f "$SB/api/ingest-bodies.log" ]; then wc -l <"$SB/api/ingest-bodies.log" | tr -d ' '; else echo 0; fi; }
+#@end
+#@always
 curl_n() { if [ -f "$SB/log/calls.log" ]; then grep -c '^curl' "$SB/log/calls.log" || true; else echo 0; fi; }
+#@end
+#@always
 sessions3() {  # three sessions with spooled events (the API answers 5xx so the spools stay)
   printf '5xx' >"$SB/api/ingest-mode"
   run_live user-prompt-submit SESS-A-0001; run_live user-prompt-submit SESS-B-0002; run_live user-prompt-submit SESS-C-0003
   : >"$SB/api/ingest-bodies.log"; : >"$SB/api/requests.log"; : >"$SB/log/calls.log"; : >"$SB/log/environ.log"
   printf 'ok' >"$SB/api/ingest-mode"
 }
+#@end
 HA=$(sha_of SESS-A-0001); HB=$(sha_of SESS-B-0002); HC=$(sha_of SESS-C-0003)
 
 new_case
@@ -730,6 +762,7 @@ for f in lock_is_stale lock_take lock_drop proc_start pidlock_rec pidlock_stale;
   check "$f: defined in allye-hooks.sh" "yes" "$([ -n "$(fnb "$HOOK" "$f")" ] && echo yes || echo no)"
 done
 
+#@group s11 1
 echo "== commands/hooks.md: live =="
 check "argument-hint names live off | on | status and live activity off | on | status" "argument-hint: pair | unpair | live off | on | status | live activity off | on | status" "$(printf '%s\n' "$CMD_TEXT" | grep '^argument-hint:')"
 check "documents live activity off, on and status in the live section (AC-34)" "yes yes yes" "$(contains 'allye-hooks.sh" live activity off "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live activity on "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT") $(contains 'allye-hooks.sh" live activity status "${CLAUDE_PLUGIN_DATA}"' "$CMD_TEXT")"
@@ -748,6 +781,7 @@ check "allowed-tools line is unchanged" "allowed-tools: Bash(\${CLAUDE_PLUGIN_RO
 
 fake_stop
 check "no fake API process survives the run" "0" "$(fake_survivors)"
+#@tally
 echo
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

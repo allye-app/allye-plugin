@@ -1,2 +1,1 @@
-#!/bin/bash
-exec "$(dirname "$0")/_wrap.sh" mv "$@"
+_wrap.sh

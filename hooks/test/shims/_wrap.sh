@@ -3,10 +3,13 @@
 # in $SHIM_LOG, then runs the real tool from $SHIM_REAL. For curl it also refuses any host that
 # is not loopback (NFR-02) and logs only the non-secret config lines.
 set -u
-tool="$1"; shift
+# Called as a symlink named after the tool (jq -> _wrap.sh): one bash per call, no fork before the tool runs. The explicit
+# form `_wrap.sh <tool> <args...>` still works (date, curl and stat use it).
+case "${0##*/}" in _wrap.sh) tool="$1"; shift ;; *) tool="${0##*/}" ;; esac
 log="${SHIM_LOG:?}"
 { printf '%s' "$tool"; for a in "$@"; do printf ' [%s]' "$a"; done; printf '\n'; } >>"$log/calls.log"
-env >>"$log/environ.log"
+# the environment, as `env` prints it, without forking env
+{ for a in $(compgen -e); do printf '%s=%s\n' "$a" "${!a}"; done; } >>"$log/environ.log"
 loopback() {
   case "$1" in
     http://127.0.0.1|http://127.0.0.1:*|http://localhost|http://localhost:*|"http://[::1]"|"http://[::1]:"*) return 0 ;;

@@ -19,7 +19,7 @@
 # (own sandbox root, own fake API). The orchestrator records the pid of every worker it starts, kills only those on
 # EXIT/INT/TERM, and holds no lock file descriptor, so nothing it starts inherits one.
 
-PT_SELF=""; PT_TMP=""; PT_PIDS=(); PT_FINAL_FMT='%s passed, %s failed'
+PT_SELF=""; PT_TMP=""; PT_PIDS=(); : "${PT_FINAL_FMT:=%s passed, %s failed}"
 
 pt_mine() {  # INDEX: 0 when INDEX belongs to this shard (PT_SHARD=k/n); always 0 outside a sharded run. pt_mine 0 = shard 0.
   [ -n "${PT_SHARD:-}" ] || return 0
@@ -56,7 +56,7 @@ pt_cleanup() { pt_kill_workers; [ -z "$PT_TMP" ] || rm -rf "$PT_TMP"; }
 
 pt_run_copy() {  # COPY: run one filtered copy as the only child, forwarding TERM/INT, return its status
   local c=0
-  PT_SEL_RE="${PT_SEL_RE:-}" PT_WORKER=1 PT_ORIG="$PT_SELF" PT_SCRIPT_DIR="$PT_DIR" bash "$1" & PT_PIDS+=($!)
+  PT_SEL_RE="${PT_SEL_RE:-}" PT_GROUP="${PT_SEL_GROUPS:-}" PT_WORKER=1 PT_ORIG="$PT_SELF" PT_SCRIPT_DIR="$PT_DIR" bash "$1" & PT_PIDS+=($!)
   trap 'pt_kill_workers; rm -rf "$PT_TMP"; exit 143' INT TERM
   wait "${PT_PIDS[0]}"; c=$?
   trap - INT TERM
@@ -108,7 +108,7 @@ pt_dispatch() {
     while [ "${#running[@]}" -lt "$jobs" ] && [ "$next" -lt "$total" ]; do
       set -- ${order[next]}; local gid="$2" sh="$3" f="$PT_TMP/job.$next"
       PT_SEL_GROUPS="$gid" pt_make_copy "$f.sh"
-      ( PT_SHARD="$sh" PT_WORKER=1 PT_ORIG="$PT_SELF" PT_SCRIPT_DIR="$PT_DIR" exec bash "$f.sh" ) >"$f.out" 2>&1 &
+      ( PT_SHARD="$sh" PT_GROUP="$gid" PT_WORKER=1 PT_ORIG="$PT_SELF" PT_SCRIPT_DIR="$PT_DIR" exec bash "$f.sh" ) >"$f.out" 2>&1 &
       p=$!; PT_PIDS+=("$p"); running+=("$next:$p"); jstart[$next]=$SECONDS
       next=$((next + 1))
     done
@@ -118,7 +118,7 @@ pt_dispatch() {
       if kill -0 "$p" 2>/dev/null; then still+=("$i"); else
         wait "$p"; rcs[n]=$?; done_n=$((done_n + 1))
         set -- ${order[n]}
-        printf '[%3ss] done  %s (shard %s) exit %s\n' "$((SECONDS - t0))" "$2" "$3" "${rcs[n]}" >&2
+        printf '[%3ss] done  %s (shard %s) exit %s, took %ss\n' "$((SECONDS - t0))" "$2" "$3" "${rcs[n]}" "$((SECONDS - jstart[$n]))" >&2
       fi
     done
     running=("${still[@]+"${still[@]}"}")

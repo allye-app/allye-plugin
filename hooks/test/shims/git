@@ -1,3 +1,1 @@
-#!/bin/bash
-# Records argv and the environment (in _wrap.sh), then runs the real git.
-exec "$(dirname "$0")/_wrap.sh" git "$@"
+_wrap.sh
