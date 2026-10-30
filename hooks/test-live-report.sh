@@ -52,7 +52,19 @@ check() {
 contains() { case "$2" in *"$1"*) echo yes ;; *) echo no ;; esac; }
 
 ROOT_TMP="$(mktemp -d)"
-APID=""
+# Fake API lifecycle: every started pid is recorded in APIDS and only those pids are ever killed (never by name). The fake API
+# is started with every inherited descriptor above 2 closed (a caller's flock fd must not outlive the run through it); it is
+# killed per case, by the EXIT/INT/TERM trap, and checked once more at the end of the script.
+APID=""; APIDS=()
+fake_start() {  # fake_start NODE FAKE DIR LOG: starts the fake API in the background; sets APID and records it
+  ( for _f in $(ls "/proc/$BASHPID/fd" 2>/dev/null); do [ "$_f" -gt 2 ] && eval "exec $_f>&-"; done; exec "$1" "$2" "$3" >"$4" 2>&1 ) &
+  APID=$!; APIDS+=("$APID")
+}
+fake_stop() { local p="$APID"; APID=""; [ -z "$p" ] || { kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; }; return 0; }
+fake_survivors() {  # prints how many recorded pids are still alive (each is killed); call fake_stop first
+  local n=0 p; for p in ${APIDS[@]+"${APIDS[@]}"}; do kill -0 "$p" 2>/dev/null && { kill -9 "$p" 2>/dev/null; n=$((n + 1)); }; done; echo "$n"
+}
+trap 'exit 130' INT; trap 'exit 143' TERM
 FAKE_WAIT_PID=""
 # TRACK (ALY-217): "<pid> <start>" of every fake owner and watcher a case started; at exit each is killed only while that
 # pid still has that start time (never by name), so a failing run leaves no process behind.
@@ -64,7 +76,7 @@ cleanup() {
     [[ "$p" =~ ^[0-9]+$ ]] && [[ "$s" =~ ^[0-9]+$ ]] && [ "$(pstart "$p")" = "$s" ] && kill "$p" 2>/dev/null
   done
   for e in "$ROOT_TMP"/case*/plugindata; do final_reap "$e"; done
-  [ -z "$APID" ] || kill "$APID" 2>/dev/null; [ -z "$FAKE_WAIT_PID" ] || kill "$FAKE_WAIT_PID" 2>/dev/null; rm -rf "$ROOT_TMP"
+  fake_stop; [ -z "$FAKE_WAIT_PID" ] || kill "$FAKE_WAIT_PID" 2>/dev/null; rm -rf "$ROOT_TMP"
 }
 trap cleanup EXIT
 
@@ -102,13 +114,12 @@ new_case() {
   DATA="$SB/plugindata"; CRED="$DATA/hook-credential.json"
   REAL="$REALBIN"; SHIMD="$SHIMS_STUB"; RUN_ENV=(); DATA_ENV="$DATA"
   : >"$SB/api/requests.log"
-  "$NODE_BIN" "$FAKE" "$SB/api" >"$SB/api/node.log" 2>&1 &
-  APID=$!
+  fake_stop; fake_start "$NODE_BIN" "$FAKE" "$SB/api" "$SB/api/node.log"
   local i; for i in $(seq 1 100); do [ -s "$SB/api/port" ] && break; sleep 0.05; done
   PORT=$(cat "$SB/api/port"); API="http://127.0.0.1:$PORT"
   printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"sess-0001","cwd":"/tmp/x"}' >"$SB/stdin"
 }
-end_case() { fake_wait_off; final_reap "$DATA"; [ -z "$APID" ] || { kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null; APID=""; }; }
+end_case() { fake_wait_off; final_reap "$DATA"; fake_stop; }
 # final_reap DATADIR (ALY-217.7): a final flusher still running under DATADIR is killed by the pid its final.lock records,
 # only while that pid has the recorded start time (never by name); it removes its own lock on the way out.
 final_reap() {
@@ -3964,6 +3975,8 @@ check "a SubagentStop whose transcript path names nothing: exit 0, no stderr, no
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
 check "AC-39: every case ended with no final flusher still running under the sandbox" "0" "$(finals_under "$ROOT_TMP")"
 
+fake_stop
+check "no fake API process survives the run" "0" "$(fake_survivors)"
 echo
 echo "$PASS passed, $FAIL failed"
 # a filtered run that executed no check (a regex that matches nothing) must not look green

@@ -20,9 +20,13 @@ MODE="${MEASURE_MODE:-both}"
 JQ="$(type -P jq)"; NODE="$(type -P node)"
 [ -n "$JQ" ] && [ -f "$SEQ" ] || { echo "skip: jq or the sequence fixture is missing"; exit 0; }
 TMP="$(mktemp -d)" || exit 0
-APID=""
-cleanup() { [ -z "$APID" ] || { kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null; }; rm -rf "$TMP"; }
+# The fake API pid is recorded and only that pid is killed (never by name); it starts with every descriptor above 2 closed so a
+# caller's flock fd cannot outlive the run through it; the EXIT/INT/TERM trap kills it and the end of the script checks it is gone.
+APID=""; APIDS=()
+fake_stop() { local p="$APID"; APID=""; [ -z "$p" ] || { kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; }; return 0; }
+cleanup() { fake_stop; rm -rf "$TMP"; }
 trap cleanup EXIT
+trap 'exit 130' INT; trap 'exit 143' TERM
 
 if ! git -C "$REPO" rev-parse -q --verify "v2.12.0^{commit}" >/dev/null 2>&1; then echo "skip: no baseline"; exit 0; fi
 BASE="$TMP/baseline-live-report.sh"
@@ -31,8 +35,9 @@ chmod 755 "$BASE"
 # the script reads its sibling lib/credential.sh: give the frozen copy the current library next to it
 mkdir -p "$TMP/lib"; cp "$HOOKS/lib/credential.sh" "$TMP/lib/credential.sh" 2>/dev/null
 [ -n "$NODE" ] || { echo "skip: no node for the fake API"; exit 0; }
-mkdir -p "$TMP/api"; "$NODE" "$HOOKS/test/fake-hooks-api.mjs" "$TMP/api" >"$TMP/api/node.log" 2>&1 &
-APID=$!
+mkdir -p "$TMP/api"
+( for _f in $(ls "/proc/$BASHPID/fd" 2>/dev/null); do [ "$_f" -gt 2 ] && eval "exec $_f>&-"; done; exec "$NODE" "$HOOKS/test/fake-hooks-api.mjs" "$TMP/api" >"$TMP/api/node.log" 2>&1 ) &
+APID=$!; APIDS+=("$APID")
 for _ in $(seq 1 100); do [ -s "$TMP/api/port" ] && break; sleep 0.05; done
 PORT="$(cat "$TMP/api/port" 2>/dev/null)"; [[ "$PORT" =~ ^[0-9]+$ ]] || { echo "skip: fake API did not start"; exit 0; }
 
@@ -104,4 +109,6 @@ for mode in sub main; do
   d=$((ct - bt)); sgn=""; [ "$d" -ge 0 ] || { sgn="-"; d=$((-d)); }
   printf '  delta p95 (current - baseline): %s%d.%d ms (informational; AC-16 budget 30 ms is recorded by the Mothership, not asserted here)\n' "$sgn" $((d / 10)) $((d % 10))
 done
+fake_stop
+for p in ${APIDS[@]+"${APIDS[@]}"}; do kill -0 "$p" 2>/dev/null && { kill -9 "$p" 2>/dev/null; echo "FAIL: the fake API (pid $p) survived the run"; exit 1; }; done
 exit 0
