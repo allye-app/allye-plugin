@@ -155,6 +155,26 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   absent, corrupt or off-shape entries count as empty, so old installs work) records the attempt whether or not it worked, so a failure is
   final for that id ("unreadable then readable" keeps no key). `sub.task` goes on the `sub_tool` only when it differs from the value already
   sent for that agent (the start's). With texts off (`activity-off`, `detailed-off`) nothing is read, sent or written, as for `desc`.
+- ALY-263.11 (AC-12, D-05, D-19): `sub.resumed: true`. `$HASH.rsm`: line 1 is the earliest time (ms) a tail check may run (`-` when no segment can be closed),
+  line 2 the JSON `[[id, type, SubagentHandback count at the last stop (-1 unknown), "s"|"r"|"c", ms of the last tail check, identity of the newest handback at
+  that stop ("" unknown)]]`; newest 64 ids, 0600, private regular file of at most 16384 bytes, ids, integers and an identity only (a tool_use id of at most 40
+  characters as `i<id>`, else `h` + 16 hex of the sha256 of the report, never the text), so it is kept with texts off. Absent, corrupt or off-shape entries
+  count as empty; the former five-field entries read clean with an unknown identity and never close. Only the FIRST `sub_tool` or `sub_stop` of an id whose
+  entry is `s` (or `c`) carries the flag; a flagged tool makes the entry `r` (resumed, open: later events carry nothing), any `sub_stop` re-arms it as `s` with
+  the count and identity read at that stop, so the next resume cycle is flagged again. A repeated `sub_start` stays dropped by the seen-set. The batch builder
+  keeps `sub.resumed` only as the boolean `true`. Count and identity come from the SubagentHandback tool_use blocks of the transcript tail (safe read of slice .1,
+  shared 2 s budget), read at every `SubagentStop` and by the tail close; an unreadable transcript, or a read widened to 1 MB (its window is not comparable),
+  records an unknown count and identity, and such an entry can never be closed from the tail (fail closed).
+  Tail close (built because SubagentStop on a resume is UNPROVEN, `spike-facts.txt`): while an entry is `r` with a known count and identity, at a later hook
+  event of the session that is not a `SubagentStop` or `SessionEnd`, at most once per id per minute (the time is stored even when nothing closed) and for at
+  most 2 ids per event, the transcript tail is read. Cost: a non-due event runs zero forks (one builtin `read` of line 1 and arithmetic on `$EPOCHREALTIME`, `date`
+  only on a bash without it); a due event first checks the file is private (one `find`), then reads at most 2 ids, once a minute each. An unusable state file
+  (not private, symlink, oversized) is never read, so it costs one `find` per event and nothing else. ONE `sub_stop` is spooled when the newest handback
+  identity DIFFERS from the recorded one and the count is not lower: same whole-line fields from the newest handback only (the report goes to jq through a
+  file, never argv), summary gated by the texts flags, no `desc`, no resumed flag; the entry becomes `c`. A real `SubagentStop` that fires first records its
+  identity, so the close never runs; one that fires after a close for the same identity is dropped (no second stop, no spurious segment). Accepted limits:
+  two handbacks with byte-identical reports and no tool_use id look like one (no close); a stop whose transcript line was not yet flushed records the previous
+  handback, so the next check can report the last handback as a close (a bounded, at most once per handback, late stop; see the Shield finding SHD-04).
 - `batch_build` keeps only `id`, `type`, `outcome`, `task` and `desc` inside `sub` (the nested allowlist; ALY-258.2 extends it).
 - `LIVE_TEST_SECTIONS` (regex over the section names) runs a subset of `hooks/test-live-report.sh`; unset runs everything.
 

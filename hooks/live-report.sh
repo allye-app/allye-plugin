@@ -172,12 +172,18 @@ claude_safe_tail() {
 # transcript_report FILE: prints the crew report taken from the tail of a subagent transcript, or fails (AC-01, AC-03).
 # Candidates, in order: the last SubagentHandback input.message, then the last assistant text block; the first with exactly one
 # column-0 `status:` (with a value) and at most one `summary:` wins. Blocks are never joined. Only `assistant` lines count.
+# MODE (second argument, ALY-263.11): "report" (default) prints only that report. "both" and "hb" print a first line "COUNT IDENT", a
+# newline, then the report ("both": the order above; "hb": the newest handback only, never the text block); they succeed with an empty
+# report when none qualifies. COUNT is the number of SubagentHandback tool_use blocks the tail holds (a window count), IDENT the identity of
+# the newest one: "i<tool_use id>" when it has an id of at most 40 characters, else "h<first 16 hex of the sha256 of its message>"
+# (never the text); "-" when unknown. A read widened to 1 MB gives "- -" (its window differs from the narrow one, so nothing is comparable)
+# and no handback in the tail gives "0 -".
 transcript_report() {
-  local n got out
+  local n got out mode="${2:-report}"
   for n in 262144 1048576; do
     got=$(claude_safe_tail "$1" "$n" && printf x) || return 1   # the x keeps the final newline of the tail
     got="${got%x}"
-    out=$(printf '%s' "$got" | jq -Rsc '
+    out=$(printf '%s' "$got" | jq -Rsc --arg mode "$mode" '
       def blocks: .message | objects | .content | if type == "array" then .[] | objects elif type == "string" then {type: "text", text: .} else empty end;
       def good($m): ($m[0:65536] | split("\n") | map(sub("\r\\z"; ""))) as $l
         | [$l[] | select(startswith("status:"))] as $s
@@ -190,14 +196,34 @@ transcript_report() {
           | ([$a[] | blocks | select(.type == "tool_use" and .name == "SubagentHandback") | .input | objects | .message | strings] | last) as $hb
           | ([$a[] | blocks | select(.type == "text") | .text | strings] | last) as $tx
           | {n: ($cl | map(select(length > 0)) | length), p: ($hd == "partial"),
-             m: ([$hb, $tx] | map(select(. != null and good(.))) | .[0] | if . == null then null else .[0:65536] end)}
+             c: ([$a[] | blocks | select(.type == "tool_use" and .name == "SubagentHandback")] | length),
+             i: (([$a[] | blocks | select(.type == "tool_use" and .name == "SubagentHandback")] | last | (.id // null) | strings | select(test("\\A[A-Za-z0-9_-]{1,40}\\z"))) // null),
+             h: $hb,
+             m: ((if $mode == "hb" then [$hb] else [$hb, $tx] end) | map(select(. != null and good(.))) | .[0] | if . == null then null else .[0:65536] end)}
         end' 2>/dev/null) || return 1
     if [ "$(printf '%s' "$out" | jq -r '.n' 2>/dev/null)" = 0 ]; then
       # no complete line fits: widen once, and only when the file is larger than what was read
       [ "$n" = 262144 ] && [ "$(printf '%s' "$out" | jq -r '.p' 2>/dev/null)" = true ] && continue
       return 1
     fi
-    printf '%s' "$out" | jq -je '.m // empty' 2>/dev/null || return 1
+    if [ "$mode" = report ]; then printf '%s' "$out" | jq -je '.m // empty' 2>/dev/null || return 1
+    else
+      local cnt idn hmsg
+      cnt=$(printf '%s' "$out" | jq -r '.c' 2>/dev/null) && [[ "$cnt" =~ ^[0-9]{1,9}$ ]] || return 1
+      idn=-
+      if [ "$n" = 1048576 ]; then cnt=-
+      elif [ "$cnt" != 0 ]; then
+        idn=$(printf '%s' "$out" | jq -r '.i // empty' 2>/dev/null) || idn=""
+        if [ -n "$idn" ]; then idn="i$idn"
+        else
+          hmsg=$(printf '%s' "$out" | jq -j '.h // empty' 2>/dev/null; printf x) || hmsg=x
+          hmsg="${hmsg%x}"
+          if [ -n "$hmsg" ]; then idn=$(printf '%s' "$hmsg" | sha_hex 2>/dev/null) && idn="h${idn:0:16}" || idn=-; else idn=-; fi
+        fi
+      fi
+      printf '%s %s\n' "$cnt" "$idn"
+      printf '%s' "$out" | jq -j '.m // empty' 2>/dev/null
+    fi
     return 0
   done
   return 1
@@ -339,9 +365,10 @@ jq_valid_def() {
       elif .key == "gate" then (.value | IN("SHIELD_CLEAR","WATCHER_APPROVED"))
       elif .key == "checks" then (.value | type == "object" and (pick(["ok","run"]) != null))
       elif .key == "findings" then (.value | type == "object" and (pick(["critical","high","medium","low","info"]) != null))
+      elif .key == "resumed" then (.value == true)
       else true end;
     def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity","label")))
-      | (if (.sub | type) == "object" then .sub |= (with_entries(select(.key | IN("id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings")) | select(subfld))
+      | (if (.sub | type) == "object" then .sub |= (with_entries(select(.key | IN("id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed")) | select(subfld))
           | (if has("checks") then .checks |= pick(["ok","run"]) else . end)
           | (if has("findings") then .findings |= pick(["critical","high","medium","low","info"]) else . end)) else . end);
     def ok: type == "object" and (.seq | type == "number" and . == floor and . >= 1) and (.at | type == "string")
@@ -977,6 +1004,7 @@ meta_description() {
   printf '%s' "${got#*$'\n'}" | jq -je --arg id "$(printf '%s' "$TRF" | jq -r '.i // empty' 2>/dev/null)" '
     objects | select(((.agentId // .agent_id // $id) | . == $id)) | .description | strings | select(length > 0) | .[0:4096]' 2>/dev/null
 }
+HBC=-1; HBK=""
 {
   TRF=$(printf '%s' "$INPUT" | jq -c '
     select(.hook_event_name == "SubagentStop")
@@ -985,9 +1013,13 @@ meta_description() {
     | select([.a, .t, .s, .i | test("\n")] | any | not)' 2>/dev/null) || TRF=""
   if [ -n "$TRF" ]; then
     RD_END="$(( $(now_ms) + 2000 ))"   # the one deadline of this invocation, set here in the main shell (never in a $(...))
-    if [ "$(printf '%s' "$TRF" | jq -r '.ns' 2>/dev/null)" = true ]; then
-      TRP=$(agent_file_of jsonl) || TRP=""
-      if [ -n "$TRP" ] && TRR=$(transcript_report "$TRP"); then
+    # One read of the subagent transcript tail at every stop (ALY-263.11): the report when the message has no status line, and the
+    # handback count recorded for the resume close (HBC, -1 when unknown). Nothing of the transcript is kept but that integer.
+    TRP=$(agent_file_of jsonl) || TRP=""
+    if [ -n "$TRP" ] && TRB=$(transcript_report "$TRP" both) && [[ "${TRB%%$'\n'*}" =~ ^([0-9]{1,9}|-)\ ([ih][A-Za-z0-9_-]{1,40}|-)$ ]]; then
+      HBC="${BASH_REMATCH[1]}"; HBK="${BASH_REMATCH[2]}"; [ "$HBC" != - ] || HBC=-1; [ "$HBK" != - ] || HBK=""
+      TRR="${TRB#*$'\n'}"; [[ "$TRB" == *$'\n'* ]] || TRR=""
+      if [ -n "$TRR" ] && [ "$(printf '%s' "$TRF" | jq -r '.ns' 2>/dev/null)" = true ]; then
         TRN=$(printf '%s' "$INPUT" | jq -c --rawfile m <(printf '%s' "$TRR") '.last_assistant_message = $m' 2>/dev/null) && [ -n "$TRN" ] && INPUT="$TRN"
       fi
     fi
@@ -1120,6 +1152,61 @@ if ! texts_off; then
     esac ;;
   esac
 fi
+
+# ─── ALY-263.11 (AC-12, D-05, D-19): the transcript-tail close of a resumed segment, inputs read outside the lock. $HASH.rsm: line 1 is
+# the earliest time (ms) any tail check may run, or "-" while no segment could be closed; line 2 is the JSON [[id, type, SubagentHandback
+# count at the last stop (-1 unknown), "s" stopped | "r" resumed and open | "c" closed from the tail, ms of the last tail check, identity of
+# the newest handback at that stop ("" unknown)]] (at most 64, 0600, no text: the identity is a tool_use id or 16 hex of a sha256). Only an
+# "r" entry with a known count and identity can be closed, so only those set line 1. A non-due event costs ZERO forks: one builtin `read`
+# of line 1 and arithmetic on $EPOCHREALTIME (or `date` on a bash without it). A due event at a hook that is neither a SubagentStop nor a
+# SessionEnd first checks the file is private (the RSOK test), then reads at most 2 due ids (an id at most once a minute, the time of every
+# check is stored, a failed read too), each transcript through the same safe open and the same shared 2 s budget as the stop. TCL is the
+# JSON the jq program turns into a sub_stop under the lock: [{id, c: count or null, k: identity or "", m: the newest handback report}];
+# the jq program re-reads the state under the lock and closes only an entry still "r" whose newest identity DIFFERS from the recorded one
+# and whose count is not lower; a count or identity of a widened read, or unknown, never closes (a window count alone proves nothing).
+# A file of the former shape (no line 1) is read by the jq program but never sets a check: its entries cannot close either.
+TCL='[]'
+case "$INPUT" in
+  *'"SubagentStop"'*|*'"SessionEnd"'*) ;;
+  *)
+    RSD=""
+    if [ -f "$LIVE_DIR/$HASH.rsm" ] && [ ! -L "$LIVE_DIR/$HASH.rsm" ]; then { IFS= read -r RSD <"$LIVE_DIR/$HASH.rsm"; } 2>/dev/null; fi
+    if [[ "$RSD" =~ ^[0-9]{1,16}$ ]]; then
+      if [ -n "${EPOCHREALTIME:-}" ]; then RSNOW="${EPOCHREALTIME/[.,]/}"; RSNOW="${RSNOW:0:13}"; else RSNOW=$(now_ms); fi
+      if [[ "$RSNOW" =~ ^[0-9]{13}$ ]] && { [ "$RSNOW" -ge "$RSD" ] || [ $((RSD - RSNOW)) -gt 120000 ]; } \
+         && [ -n "$(find "$LIVE_DIR/$HASH.rsm" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then
+        RSH=""; { IFS= read -r -d '' -N 16384 RSH <"$LIVE_DIR/$HASH.rsm"; } 2>/dev/null
+        RSH="${RSH#*$'\n'}"
+        RSDUE=$(printf '%s' "$RSH" | jq -r --argjson now "$RSNOW" '
+          [ .[]? | select(type == "array" and length == 6 and (.[0] | type == "string" and test("\\A[A-Za-z0-9_-]{1,64}\\z"))
+              and (.[1] | type == "string" and test("\\A[A-Za-z0-9:_-]{1,64}\\z")) and .[3] == "r" and (.[2] | type == "number") and .[2] >= 0
+              and (.[5] | type == "string" and length > 0)
+              and (.[4] | type == "number") and (.[4] == 0 or .[4] > $now or $now - .[4] >= 60000)) | .[0] ][:2] | .[]' 2>/dev/null) || RSDUE=""
+        if [ -n "$RSDUE" ]; then
+          RSP=$(printf '%s' "$INPUT" | jq -c '{a: "", t: ((.transcript_path | strings) // ""), s: ((.session_id | strings) // "")} | select([.t, .s | test("\n")] | any | not)' 2>/dev/null) || RSP=""
+          if [ -n "$RSP" ]; then
+            [[ "$RD_END" =~ ^[0-9]{13}$ ]] || RD_END="$(( $(now_ms) + 2000 ))"
+            RSL=""
+            while IFS= read -r RSI; do
+              [[ "$RSI" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || continue
+              TRF=$(printf '%s' "$RSP" | jq -c --arg i "$RSI" '. + {i: $i}' 2>/dev/null) || TRF=""
+              RSC=null; RSK=""; RSM=""
+              if [ -n "$TRF" ] && TRP=$(agent_file_of jsonl) && TRB=$(transcript_report "$TRP" hb) \
+                 && [[ "${TRB%%$'\n'*}" =~ ^([0-9]{1,9}|-)\ ([ih][A-Za-z0-9_-]{1,40}|-)$ ]]; then
+                [ "${BASH_REMATCH[1]}" = - ] || RSC="${BASH_REMATCH[1]}"
+                [ "${BASH_REMATCH[2]}" = - ] || RSK="${BASH_REMATCH[2]}"
+                [[ "$TRB" == *$'\n'* ]] && RSM="${TRB#*$'\n'}"
+              fi
+              RSL="$RSL$(jq -nc --arg i "$RSI" --argjson c "$RSC" --arg k "$RSK" --rawfile m <(printf '%s' "$RSM") '{id: $i, c: $c, k: $k, m: $m}' 2>/dev/null)"$'\n'
+            done <<<"$RSDUE"
+            TRF=""
+            TCL=$(printf '%s' "$RSL" | jq -sc '.' 2>/dev/null) || TCL='[]'
+            [ -n "$TCL" ] || TCL='[]'
+          fi
+        fi
+      fi
+    fi ;;
+esac
 
 lock_take "$LOCKD" 500 || exit 0
 STATE_TOKEN="$LOCK_TOKEN"; HAVE_LOCK=1
@@ -1552,6 +1639,50 @@ def tkpass($e):
         else .out += [$ev] end)
     | {out: .out, st: (if .ch then .m else null end)}
   end;
+# ─── ALY-263.11 (AC-12, D-05, D-19): sub.resumed and the tail close ───
+# $rsm is the content of $HASH.rsm (line 1 the next-check time, ignored here; the rest the JSON), usable only when $rsok is "1"; an entry off
+# the shape (an old or corrupt file) is dropped, an entry of the former five fields gets the unknown identity "", at most 64 kept, the newest
+# last. The first sub_tool or sub_stop of an id whose entry is "s" or "c" (the plugin already sent its stop) carries sub.resumed: true; a
+# flagged tool makes the entry "r" (open), a stop makes it "s" again with the count $hbc and the identity $hbk of the newest handback read at
+# this stop, so only the first event after each stop is flagged. A real stop for an entry "c" with the same known identity is the stop the
+# tail close already sent: dropped. $tcl (a --rawfile) holds the transcript reads of the shell: an entry still "r" with a known count and
+# identity, whose newest identity differs from the recorded one and whose count is not lower, gets one sub_stop built by substop from the newest
+# handback report (the same fields, gates and text rules as a real stop, no resumed flag), state "c" with the new count and identity; every
+# other entry read only gets the time of the check ($nowms). rsdue: the earliest next check of the entries that can still be closed ("-" none).
+def rsraw: ($rsm | split("\n")) | (if ((.[0] // "") | test("\\A([0-9]+|-)\\z")) then .[1:] else . end) | join("\n");
+def rsmin: (rsraw | try fromjson catch []) | (if type == "array" then . else [] end)
+  | map(select(type == "array" and (length == 5 or length == 6)) | (if length == 5 then . + [""] else . end)
+      | select((.[0] | idok) and (.[1] | typeok) and (.[2] | type == "number" and . == floor and . >= -1 and . <= 1000000000)
+        and (.[3] | IN("s","r","c")) and (.[4] | type == "number" and . == floor and . >= 0)
+        and (.[5] | type == "string" and test("\\A([ih][A-Za-z0-9_-]{1,40})?\\z")))) | .[-64:];
+def rsput($m; $e): (($m | map(select(.[0] != $e[0]))) + [$e]) | .[-64:];
+def tclin: ($tcl | try fromjson catch []) | (if type == "array" then . else [] end)
+  | map(select(type == "object" and (.id | idok) and ((.c == null) or (.c | type == "number" and . >= 0 and . <= 1000000000))
+      and ((.k | type) == "string") and (.k | test("\\A([ih][A-Za-z0-9_-]{1,40})?\\z")) and ((.m | type) == "string"))) | .[:2];
+def rsdue($m): [$m[] | select(.[3] == "r" and .[2] >= 0 and .[5] != "") | (if .[4] == 0 then 0 else ([.[4], $nowms] | min) + 60000 end)]
+  | if length == 0 then "-" else (min | tostring) end;
+def rspass($e):
+  if $rsok != "1" then {out: $e, st: null}
+  else
+    reduce $e[] as $ev ({out: [], m: rsmin, ch: false};
+      ($ev.sub.id // null) as $i
+      | (if $i == null then null else (.m | map(select(.[0] == $i)) | .[0]) end) as $o
+      | if $ev.type == "sub_tool" and $o != null and ($o[3] == "s" or $o[3] == "c") then
+          .out += [$ev | .sub.resumed = true] | .m = rsput(.m; [$i, $o[1], $o[2], "r", $o[4], $o[5]]) | .ch = true
+        elif $ev.type == "sub_stop" and $i != null then
+          if $o != null and $o[3] == "c" and $hbk != "" and $hbk == $o[5] then .m = rsput(.m; [$i, $o[1], $o[2], "s", $o[4], $o[5]]) | .ch = true
+          else .out += [if $o != null and $o[3] == "s" then $ev | .sub.resumed = true else $ev end]
+            | .m = rsput(.m; [$i, $ev.sub.type, $hbc, "s", 0, $hbk]) | .ch = true end
+        else .out += [$ev] end)
+    | reduce tclin[] as $t (.;
+        (.m | map(select(.[0] == $t.id)) | .[0]) as $o
+        | if $o == null or $o[3] != "r" then .
+          elif $t.c != null and $t.k != "" and $o[2] >= 0 and $o[5] != "" and $t.k != $o[5] and $t.c >= $o[2] then
+            .out += [({agent_id: $t.id, agent_type: $o[1], last_assistant_message: $t.m} | substop)]
+            | .m = rsput(.m; [$t.id, $o[1], $t.c, "c", $nowms, $t.k]) | .ch = true
+          else .m = rsput(.m; [$t.id, $o[1], $o[2], "r", $nowms, $o[5]]) | .ch = true end)
+    | {out: .out, st: (if .ch then .m else null end)}
+  end;
 # ─── ALY-263.6 (AC-09, D-04, D-17): the session label ───
 # $lblraw (a --rawfile, never argv: it holds the title) is read by the shell outside the lock: {t: last custom-title string or null, a: last ai-title string or null, c: the basename of
 # the working directory (a real directory) or null, st: true at a SessionStart}; it is the JSON null when no check is due or texts are off.
@@ -1578,7 +1709,8 @@ def lblc:
 | [$sb.out[] | if .type == "sub_start" then .sub += ($sc.ds[.sub.id] // {}) else . end] as $all0
 | (try actdd($all0) catch {out: $all0, st: null}) as $ad
 | (try tkpass($ad.out) catch {out: $ad.out, st: null}) as $tk
-| $tk.out as $all
+| (try rspass($tk.out) catch {out: $tk.out, st: null}) as $rs
+| $rs.out as $all
 | (reduce $all[] as $ev ({out: [], last: $last};
     (if ($ev.type | IN("tool","sub_tool","sub_start","trig")) and ($ev.syn | not) and .last == "waiting_input"
        then .out += [{type: "state", state: "working"}] | .last = "working" else . end)
@@ -1594,6 +1726,8 @@ def lblc:
   (if $ad.st == null then "-" else ($ad.st | tojson) end),
   (try ($in | lblc) catch null | if . == null then "-" else tojson end),
   (if $tk.st == null then "-" else ($tk.st | tojson) end),
+  (if $rs.st == null then "-" else ($rs.st | tojson) end),
+  (if $rs.st == null then "-" else rsdue($rs.st) end),
   ($r.out[] | . + {at: $at} | tojson),
   "."'
 
@@ -1632,6 +1766,12 @@ if [ "$ACT" = 1 ]; then
   elif [ ! -L "$TKF" ] && [ -n "$(find "$TKF" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ]; then TKOK=1; TKSRC="$TKF"
   elif private_file_ok "$TKF"; then TKOK=1; fi
 fi
+# ALY-263.11: the resume state $HASH.rsm (ids, types, counts, markers, times; no text, so it is kept with texts off too), read like the task
+# memory: the private file itself when at most 16384 bytes, absent = empty, any other entry (symlink, foreign owner or mode) = neither used nor written.
+RSMF="$LIVE_DIR/$HASH.rsm"; RSMSRC=/dev/null; RSOK=0
+if [ ! -e "$RSMF" ] && [ ! -L "$RSMF" ]; then RSOK=1
+elif [ ! -L "$RSMF" ] && [ -n "$(find "$RSMF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then RSOK=1; RSMSRC="$RSMF"
+elif private_file_ok "$RSMF"; then RSOK=1; fi
 # ALY-263.6 (BR-03): the label state holds the label text, so like the phrases it exists only while texts are on.
 LBLF="$LIVE_DIR/$HASH.label"
 if [ "$ACT" = 0 ] && { [ -L "$LBLF" ] || { [ -f "$LBLF" ] && [ -n "$(find "$LBLF" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; }; then rm -f "$LBLF" 2>/dev/null; fi
@@ -1641,7 +1781,7 @@ elif [ ! -L "$SUBSF" ] && [ -n "$(find "$SUBSF" -prune -type f -user "$UID_NOW" 
 elif private_file_ok "$SUBSF"; then SUBOK=1; fi
 MS=$(now_ms)
 [[ "$MS" =~ ^[1-9][0-9]{0,15}$ ]] || exit 0
-RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --arg actok "$ACTOK" --rawfile acts "$ACTSRC" --rawfile lblraw <(printf '%s' "$LBLIN") --arg tkok "$TKOK" --rawfile tkmem "$TKSRC" --arg tkid "$TKID" --rawfile tkdesc <(printf '%s' "$TKDESC") --arg tkpfx "$TKPFX" --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
+RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --arg actok "$ACTOK" --rawfile acts "$ACTSRC" --rawfile lblraw <(printf '%s' "$LBLIN") --arg tkok "$TKOK" --rawfile tkmem "$TKSRC" --arg tkid "$TKID" --rawfile tkdesc <(printf '%s' "$TKDESC") --arg tkpfx "$TKPFX" --arg rsok "$RSOK" --rawfile rsm "$RSMSRC" --argjson hbc "$HBC" --arg hbk "$HBK" --rawfile tcl <(printf '%s' "$TCL") --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
 # Output: new last state, bind candidate (or -), cwd for the branch source (or -), gates path and cwd (or -, -),
 # watcher trigger (start = a SessionStart of a known source, prompt = UserPromptSubmit, or -), the new Agent/Task
 # stash (or - to leave it), the new seen-set as space-separated ids (or - to leave it), the new last-phrase memory (or -),
@@ -1657,6 +1797,8 @@ SUBS="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 ACTS="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 LBLC="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 TKMC="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+RSMC="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
+RSDC="${REST%%$'\n'*}"; REST="${REST#*$'\n'}"
 case "$REST" in .) EVENTS="" ;; *$'\n'.) EVENTS="${REST%$'\n'.}" ;; *) exit 0 ;; esac
 case "$NEWLAST" in ""|started|working|waiting_input|idle|error|ended) ;; *) exit 0 ;; esac
 [ -n "$CAND" ] && [ -n "$CWD" ] && [ -n "$GFP" ] && [ -n "$GCWD" ] || exit 0
@@ -1666,6 +1808,8 @@ case "$AGT" in -|'['*']') ;; *) exit 0 ;; esac
 case "$ACTS" in -|'['*']') ;; *) exit 0 ;; esac
 case "$LBLC" in -|'{'*'}') ;; *) exit 0 ;; esac
 case "$TKMC" in -|'['*']') ;; *) exit 0 ;; esac
+case "$RSMC" in -|'['*']') ;; *) exit 0 ;; esac
+[[ "$RSDC" =~ ^(-|[0-9]{1,16})$ ]] || exit 0
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
 # ALY-263.5 (AC-08, D-15): a candidate with the internal touch marker (spec_context/spec_get or a launch with a spec key) is
@@ -1826,9 +1970,18 @@ if [ "$LBLDUE" = 1 ] && [ "$ACT" = 1 ] && private_file_ok "$LBLF"; then
   fi
 fi
 
+# The resume state (ALY-263.11): one atomic write (temp 0600 + mv) when an entry changed. Also written when the event sends nothing, so
+# the time of a tail check is kept (the once-a-minute bound); the same condition as the label time: a usable spool and state.
+rsm_write() {
+  [ "$RSMC" != - ] && [ "$RSOK" = 1 ] || return 0
+  local t
+  t=$(mktemp "$LIVE_DIR/.rsm.XXXXXX" 2>/dev/null) || return 0; TMPF="$t"
+  printf '%s\n%s' "$RSDC" "$RSMC" >"$t" 2>/dev/null && mv -f "$t" "$RSMF" 2>/dev/null || rm -f "$t" 2>/dev/null
+}
 # nothing to send: the time of the check is still recorded, but only where the spool and the state are usable (as for any claim)
 if [ -z "$EVENTS" ]; then
   if [ "$LBLWRITE" = now ] && private_file_ok "$SPOOL" && private_file_ok "$STATEF"; then label_state_write "$LBLSTORED"; fi
+  if [ "$RSMC" != - ] && private_file_ok "$SPOOL" && private_file_ok "$STATEF"; then rsm_write; fi
   exit 0
 fi
 private_file_ok "$SPOOL" || exit 0
@@ -1916,6 +2069,8 @@ if [ "$TKMC" != - ] && [ "$TKOK" = 1 ] && [ "$ACT" = 1 ]; then
   TMP=$(mktemp "$LIVE_DIR/.tkmem.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   printf '%s' "$TKMC" >"$TMP" 2>/dev/null && mv -f "$TMP" "$TKF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
+
+rsm_write
 
 # Session watcher (ALY-217.2, D-21), still under the state lock: at a SessionStart, or at a UserPromptSubmit when no
 # watcher holds the watch lock, and unless ALLYE_LIVE_WATCH is 0 or the session is ended, the trusted owner is recorded

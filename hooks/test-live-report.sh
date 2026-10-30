@@ -1138,10 +1138,10 @@ for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, 
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
 final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWSID").final.lock" ] || break; sleep 0.05; done   # the SessionEnd fixtures' final flusher (stub curl)
-check "files are keyed by sha256(session id): acts, bind, cred, flushed, label, seq, spool, state, subs, tkmem and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").label $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").tkmem $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): acts, bind, cred, flushed, label, rsm, seq, spool, state, subs, tkmem and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").label $(test_sha "$RAWSID").rsm $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").tkmem $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
 check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity","label"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
-check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 end_case
@@ -3380,28 +3380,31 @@ check "the other commands also resolve to executable files" "yes" "$(for c in se
 
 echo "== spike: SubagentStart/Stop on a resume, hook agent_id vs metadata id, metadata at the first tool (ALY-263.8 AC-12, D-14, D-19) =="
 # Recorded facts live in fixtures/live/spike-facts.txt (PROVEN/UNPROVEN with the evidence kind). What the real hook sends on a
-# SendMessage resume is UNPROVEN, so both shapes are replayed against the CURRENT script: a resume that fires SubagentStart
-# again, and one that sends only tool events and a second SubagentStop. Later slices (ALY-263.11) change these expectations knowingly.
+# SendMessage resume is UNPROVEN, so the three plausible shapes are replayed against the script. ALY-263.11 flips the expectations of
+# this section KNOWINGLY (same replays, same intent: what the script does with each shape): the seen-set still drops a repeated
+# sub_start, and the first sub_tool or sub_stop of an id after the plugin sent its sub_stop now carries sub.resumed: true, once per
+# resume cycle. The section "resume" below covers the state, the bounds and the transcript-tail close.
 SPK='"id":"spk0a1b2c3d4e5f6","type":"allye:bridge-pilot"'
 SPK_START="{\"type\":\"sub_start\",\"sub\":{$SPK}}"
 SPK_TOOL="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK},\"activity\":\"Read readme.txt\"}"
-SPK_TOOL2="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK}}"  # the same agent repeating the same phrase: slice .3 skips the duplicate
+SPK_TOOL_R="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK,\"resumed\":true}}"  # the same phrase again: slice .3 skips the duplicate; the resume flag stays
+SPK_TOOL_RA="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK,\"resumed\":true},\"activity\":\"Read readme.txt\"}"  # no earlier phrase of the agent in memory
 SPK_STOP="{\"type\":\"sub_stop\",\"sub\":{$SPK,\"outcome\":\"pass\",\"task\":\"ALY-1.2\"}}"
-spike_case() {  # LABEL FIXTURES-CSV EXPECT-JSON-LINES...
-  local label="$1" seqs="$2"; shift 2
+spike_case() {  # LABEL FIXTURES-CSV EXPECTED-FLAGGED-COUNT EXPECT-JSON-LINES...
+  local label="$1" seqs="$2" nres="$3"; shift 3
   new_case; mkcred; run_fixture ${seqs//,/ }
   check "$label" "$(printf "%s\n" "$@" | "$JQ_BIN" -cS .)" "$(spooled)"
   check "$label: silent, exits 0" "0||" "$RC|$OUT|$ERR"
-  check "$label: no event carries a resumed flag yet" "0" "$(spooled | grep -c resumed || true)"
+  check "$label: events carrying a resumed flag" "$nres" "$(spooled | grep -c '"resumed":true' || true)"
   end_case
 }
-spike_case "baseline: start, tool, stop" spike-start,spike-tool,spike-stop "$SPK_START" "$SPK_TOOL" "$SPK_STOP"
-spike_case "resume shape 1 (Start fires again): the second sub_start is dropped by the seen-set, the second tool and stop are sent plain" \
-  spike-start,spike-tool,spike-stop,spike-start,spike-tool,spike-stop "$SPK_START" "$SPK_TOOL" "$SPK_STOP" "$SPK_TOOL2" "$SPK_STOP"
-spike_case "resume shape 2 (no Start, no Stop on the resume): a tool after the stop is sent as a plain sub_tool, nothing marks it" \
-  spike-start,spike-stop,spike-tool "$SPK_START" "$SPK_STOP" "$SPK_TOOL"
-spike_case "resume shape 3 (tool events only, then a second Stop): both stops are sent plain" \
-  spike-start,spike-stop,spike-tool,spike-stop "$SPK_START" "$SPK_STOP" "$SPK_TOOL" "$SPK_STOP"
+spike_case "baseline: start, tool, stop" spike-start,spike-tool,spike-stop 0 "$SPK_START" "$SPK_TOOL" "$SPK_STOP"
+spike_case "resume shape 1 (Start fires again): the second sub_start is dropped by the seen-set, the first tool after the stop is flagged, the second stop closes the segment unflagged" \
+  spike-start,spike-tool,spike-stop,spike-start,spike-tool,spike-stop 1 "$SPK_START" "$SPK_TOOL" "$SPK_STOP" "$SPK_TOOL_R" "$SPK_STOP"
+spike_case "resume shape 2 (no Start, no Stop on the resume): the tool after the stop is flagged" \
+  spike-start,spike-stop,spike-tool 1 "$SPK_START" "$SPK_STOP" "$SPK_TOOL_RA"
+spike_case "resume shape 3 (tool events only, then a second Stop): the tool is flagged, the second stop is not" \
+  spike-start,spike-stop,spike-tool,spike-stop 1 "$SPK_START" "$SPK_STOP" "$SPK_TOOL_RA" "$SPK_STOP"
 # the recorded facts: every key present exactly once, with the status the spike reached
 SPKF="$FIX/spike-facts.txt"
 spkf() { grep -E "^$1=" "$SPKF" | sed -E "s/^$1=([A-Z]+) .*/\1/"; }
@@ -3414,6 +3417,229 @@ check "fact b: the hook agent_id equals the filename id is UNPROVEN" "UNPROVEN" 
 check "fact b: the metadata file holds no id key is PROVEN" "PROVEN" "$(spkf b_meta_has_no_id_key)"
 check "fact c: metadata readable at the first tool is UNPROVEN" "UNPROVEN" "$(spkf c_meta_exists_at_first_tool)"
 check "the facts file holds no path, home directory or real id" "0" "$(grep -cE '/home/|/Users/|[0-9a-f]{8}-[0-9a-f]{4}-' "$SPKF" || true)"
+
+echo "== resume: sub.resumed on the first event after a stop, and the transcript-tail close (ALY-263.11 AC-12, D-05, D-19) =="
+# State: $HASH.rsm, JSON [[id, type, handbacks at the last stop (-1 unknown), "s" stopped | "r" resumed and open, ms of the last tail check]], at most
+# 64 ids (newest kept), 0600, no text. Rule: the first sub_tool or sub_stop of an id whose entry is "s" carries sub.resumed: true; a tool
+# makes the entry "r", a stop makes it "s" again (re-armed), so only the FIRST event after each stop is flagged. The tail close runs only while
+# an entry is "r": at a later hook event of the session (not a SubagentStop, not SessionEnd) at most once per id per minute and for at most
+# 2 ids, it reads the subagent transcript tail and, when the SubagentHandback count is higher than the one recorded, spools one sub_stop
+# parsed from the newest handback and records the new count, so a real SubagentStop that fires later is the only extra stop.
+rs_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TDIR="$PROJ/$RAWSID/subagents"; mkdir -p "$TDIR"; }
+rs_hb() { "$JQ_BIN" -nc --arg m "$1" '{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}'; }
+RSM_F() { echo "$DATA/live/$(test_sha "$RAWSID").rsm"; }
+rs_start() { "$JQ_BIN" -n --arg id "$1" --arg s "$RAWSID" '{session_id: $s, cwd: "/work/MARKER_CWD", hook_event_name: "SubagentStart", agent_id: $id, agent_type: "allye:bridge-pilot"}' >"$SB/stdin"; run_hook; }
+rs_tool() { "$JQ_BIN" --arg id "$1" --arg tp "$PROJ/t.jsonl" '.agent_id = $id | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+rs_stop() {  # rs_stop ID [MESSAGE]
+  "$JQ_BIN" --arg id "$1" --arg tp "$PROJ/t.jsonl" --arg ap "$TDIR/agent-$1.jsonl" --arg m "${2-status: passed}" '.agent_id = $id | .transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook; }
+rs_main() { "$JQ_BIN" --arg tp "$PROJ/t.jsonl" 'del(.agent_id, .agent_type) | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+# rs_seq ID: "tool:flag" / "stop:flag" per sub_tool and sub_stop of the id, in order ("-" when the flag is absent)
+rs_seq() { spooled | "$JQ_BIN" -r --arg id "$1" 'select((.type == "sub_tool" or .type == "sub_stop") and .sub.id == $id) | "\(.type[4:]):\(.sub.resumed // "-")"' | tr '\n' ' ' | sed 's/ $//'; }
+rs_ok() { check "$1: silent, exits 0" "0||" "$RC|$OUT|$ERR"; }
+rs_seed() { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; }
+rs_edit() {  # rs_edit LINE1 JQ-FILTER: rewrite the state file with a new first line and the filter applied to its JSON (compact)
+  local f; f=$(RSM_F); { printf '%s\n' "$1"; tail -n +2 "$f" | "$JQ_BIN" -c "$2"; } >"$SB/rsm.tmp" && cat "$SB/rsm.tmp" >"$f"; }
+rs_hbi() { "$JQ_BIN" -nc --arg id "$1" --arg m "$2" '{type:"assistant",message:{content:[{type:"tool_use",id:$id,name:"SubagentHandback",input:{message:$m}}]}}'; }
+
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "the first tool after the stop is flagged" "tool:- stop:- tool:true" "$(rs_seq r1)"; rs_ok "tool after stop"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_stop r1
+check "a second stop with no tool in between is flagged" "tool:- stop:- stop:true" "$(rs_seq r1)"; rs_ok "stop after stop"; end_case
+rs_new; rs_start r1; rs_stop r1; rs_tool r1; rs_stop r1
+check "the tool after the stop is flagged, the stop that closes the resumed segment is not" "stop:- tool:true stop:-" "$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1; rs_tool r1; rs_tool r1
+check "events after the flagged one carry no flag" "tool:- stop:- tool:true tool:- tool:-" "$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1; rs_stop r1; rs_tool r1; rs_tool r1; rs_stop r1
+check "two resume cycles: the first event after each stop is flagged, the stops re-arm" "tool:- stop:- tool:true stop:- tool:true tool:- stop:-" "$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_tool r1
+check "an id that never stopped is never flagged" "tool:- tool:-" "$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_start r2; rs_tool r2; rs_tool r1
+check "the flag is per agent id: another id's events are not flagged" "tool:-|tool:- stop:- tool:true" "$(rs_seq r2)|$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_start r1
+check "a repeated sub_start stays dropped by the seen-set" "1" "$(spooled | grep -c '"type":"sub_start"')"; end_case
+# no text in the state, a private file
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "the state file is a private regular file holding the id, the type, the count and the marker" "600 [[\"r1\",\"allye:bridge-pilot\",-1,\"r\",0" "$(stat -c %a "$(RSM_F)") $(tail -n +2 "$(RSM_F)" | head -c 36)"
+check "no marker text is in the state file" "0" "$(grep -c MARKER "$(RSM_F)" || true)"; end_case
+# the bound: 64 ids, the newest kept
+rs_new; rs_seed
+"$JQ_BIN" -nc '[range(0; 64) | ["o\(.)", "allye:bridge-pilot", -1, "s", 0]]' >"$(RSM_F)"; chmod 600 "$(RSM_F)"
+rs_start n65; rs_tool n65; rs_stop n65; rs_tool o0; rs_tool o1
+check "a 65th id evicts the oldest: o0 is no longer known, o1 still is" "tool:-|tool:true" "$(rs_seq o0)|$(rs_seq o1)"
+check "the state keeps at most 64 ids" "64" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" 'length')"; end_case
+# old and corrupt state
+rs_new; rs_seed; printf 'r1\nr2\n' >"$DATA/live/$(test_sha "$RAWSID").subs"; chmod 600 "$DATA/live/$(test_sha "$RAWSID").subs"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "a session with an old seen-set and no resume state works and flags the resume" "tool:- stop:- tool:true" "$(rs_seq r1)"; rs_ok "old state"; end_case
+rs_new; rs_seed; printf '[["r1","allye:bridge-pilot","s"],["r2"],"x",["bad id","allye:bridge-pilot",1,"s",0],["r3","allye:bridge-pilot",1,"q",0]]' >"$(RSM_F)"; chmod 600 "$(RSM_F)"
+rs_tool r1; rs_tool r3
+check "entries off the shape count as empty (old short entries, a bad id, a bad marker)" "tool:-|tool:-" "$(rs_seq r1)|$(rs_seq r3)"; rs_ok "old shape"; end_case
+rs_new; rs_seed; printf '{not json' >"$(RSM_F)"; chmod 600 "$(RSM_F)"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "a corrupt state file counts as empty and is rewritten by the stop" "tool:- stop:- tool:true" "$(rs_seq r1)"; rs_ok "corrupt state"; end_case
+rs_new; rs_seed; : >"$SB/real.rsm"; chmod 600 "$SB/real.rsm"; ln -s "$SB/real.rsm" "$(RSM_F)"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "a symlinked state file is neither used nor written through" "tool:- stop:- tool:-|0" "$(rs_seq r1)|$(wc -c <"$SB/real.rsm" | tr -d ' ')"; rs_ok "symlinked state"; end_case
+rs_new; rs_seed; printf '[["r1","allye:bridge-pilot",-1,"s",0]]' >"$(RSM_F)"; chmod 644 "$(RSM_F)"
+rs_tool r1
+check "a state file that is not private is not used" "tool:-" "$(rs_seq r1)"; end_case
+# ids that fail the id regex
+rs_new; rs_start r1; rs_stop 'bad id'; rs_tool 'bad id'; rs_tool 'bad/../id'
+check "ids failing the id pattern send no sub event" "0" "$(spooled | grep -c 'bad' || true)"
+check "no state entry for a bad id" "0" "$( [ -f "$(RSM_F)" ] && grep -c bad "$(RSM_F)" || echo 0)"; rs_ok "bad ids"; end_case
+# texts off: the flag is metadata and unchanged
+rs_new; rs_seed; : >"$DATA/live/detailed-off"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "texts off: the flag still goes, no phrase does" "tool:- stop:- tool:true|0" "$(rs_seq r1)|$(spooled | grep -c '"activity"' || true)"; rs_ok "texts off"; end_case
+rs_new; rs_seed; : >"$DATA/live/activity-off"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "activity off: the flag still goes" "tool:- stop:- tool:true" "$(rs_seq r1)"; end_case
+
+# the flag reaches the request body (the batch builder's nested allowlist keeps it, and only the value true)
+rs_new; SHIMD="$SHIMS"; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1; rs_stop r1; rs_stop r1; wait_idle
+check "sub.resumed: true is sent on the first sub_tool and the first sub_stop after a stop" '["sub_tool",true] ["sub_stop",true]' "$("$JQ_BIN" -rc '.events[] | select(.sub.resumed != null) | [.type, .sub.resumed]' "$SB/api/ingest-bodies.log" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"; end_case
+rs_new; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; H=$(test_sha "$RAWSID"); SPF="$DATA/live/$H.spool"
+"$JQ_BIN" -nc --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{seq: 1, at: $at, type: "sub_tool", tool: "Read", sub: {id: "r1", type: "allye:bridge-pilot", resumed: "yes"}}, {seq: 2, at: $at, type: "sub_stop", sub: {id: "r1", type: "allye:bridge-pilot", outcome: "pass", resumed: false}}' >"$SPF"; chmod 600 "$SPF"
+rs_start r9; wait_idle
+check "a resumed value that is not the boolean true is dropped at flush" "0" "$("$JQ_BIN" -rc '.events[] | select(.sub.resumed != null)' "$SB/api/ingest-bodies.log" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+
+# ─── the transcript-tail close ───
+rs_stops() { spooled | "$JQ_BIN" -c --arg id "$1" 'select(.type == "sub_stop" and .sub.id == $id)'; }
+rs_nstops() { rs_stops "$1" | wc -l | tr -d ' '; }
+rs_cycle() {  # a stopped, resumed id r1 whose transcript holds the first handback only (recorded at the stop)
+  rs_start r1; rs_tool r1; { rs_hb "status: passed"; } >"$TDIR/agent-r1.jsonl"; rs_stop r1 ""; rs_tool r1
+}
+rs_new; rs_cycle
+{ rs_hb "status: failed
+summary: second round was rejected
+attempt: 1
+next: pilot_correction"; } >>"$TDIR/agent-r1.jsonl"
+rs_main
+check "a resumed id whose transcript holds one more handback: one sub_stop from the newest report, not flagged" '{"sub":{"attempt":1,"id":"r1","next":"pilot_correction","outcome":"fail","summary":"second round was rejected","type":"allye:bridge-pilot"},"type":"sub_stop"}' "$(rs_stops r1 | tail -n 1)"
+check "the first segment's stop and the synthesized one: two stops" "2" "$(rs_nstops r1)"
+rs_ok "tail close"
+rs_main
+check "a second hook event adds no second stop for the same handback" "2" "$(rs_nstops r1)"
+rs_stop r1 "status: failed"
+check "a late real SubagentStop for the handback the tail close already reported is dropped (no duplicate, no spurious segment)" "2" "$(rs_nstops r1)"
+end_case
+rs_new; rs_cycle
+rs_main
+check "equal handback count: nothing is synthesized" "1" "$(rs_nstops r1)"; rs_ok "equal count"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1 "status: passed"; rs_tool r1
+{ rs_hb "status: failed"; } >"$TDIR/agent-r1.jsonl"; rs_main
+check "a stop whose transcript could not be read records an unknown count: no tail close" "1" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle
+{ rs_hb "status: failed
+summary: second round was rejected"; } >>"$TDIR/agent-r1.jsonl"
+rs_stop r1 "status: failed"
+rs_main
+check "the real SubagentStop of the resume arrives first: the tail close does not duplicate it" "2" "$(rs_nstops r1)"; end_case
+# bounded: once a minute per id, the check is recorded even when nothing was closed
+rs_new; rs_cycle; rs_main
+{ rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a second check inside the minute does not read again (a handback added meanwhile waits)" "1" "$(rs_nstops r1)"
+check "the time of the check is recorded in the state" "true" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" '.[0][4] > 0')"
+check "line 1 of the state file holds the next check time (a minute after the check)" "true" "$(l=$(head -n 1 "$(RSM_F)"); c=$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" '.[0][4]'); [ "$l" -eq $((c + 60000)) ] && echo true)"
+rs_edit 0 '.[0][4] = 1'; rs_main
+check "a check older than a minute reads again and closes the segment" "2" "$(rs_nstops r1)"; end_case
+# the stop of another id never runs it
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"
+rs_start r2; rs_tool r2; rs_stop r2
+check "a SubagentStop of another id does not run the tail close" "1" "$(rs_nstops r1)"; end_case
+# no resumed entry open: no read at all
+rs_new; rs_start r1; rs_tool r1; rs_stop r1 "status: passed"; { rs_hb "status: failed"; } >"$TDIR/agent-r1.jsonl"; rs_main; rs_main
+check "an id that is stopped and not resumed is never read" "1" "$(rs_nstops r1)"; end_case
+# a handback without a usable report: the count rises, outcome unknown, still one stop
+rs_new; rs_cycle; { rs_hb "no report here"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a handback without a status closes the segment with outcome unknown (as a real stop would)" '{"code":"returned","sub":{"id":"r1","outcome":"unknown","type":"allye:bridge-pilot"},"type":"sub_stop"}' "$(rs_stops r1 | tail -n 1)"; end_case
+# texts off: the synthesized stop carries no summary text
+rs_new; rs_seed; : >"$DATA/live/detailed-off"; rs_cycle
+{ rs_hb "status: failed
+summary: second round was rejected
+attempt: 1"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "texts off: the synthesized stop has the outcome and chips but no summary" '{"sub":{"attempt":1,"id":"r1","outcome":"fail","type":"allye:bridge-pilot"},"type":"sub_stop"}' "$(rs_stops r1 | tail -n 1)"; end_case
+# only the allowed whole-line fields leave
+rs_new; rs_cycle; { rs_hb "status: passed
+MARKER_MSG free text the parser does not allow
+summary: the round is done now"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "free text of the report does not leave" "0" "$(grep -rl MARKER_MSG "$DATA" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+# hostile transcripts: nothing, exit 0, silent
+rs_hostile() {  # LABEL: the transcript was prepared after the stop; one main event
+  rs_main
+  check "$1: nothing synthesized" "1" "$(rs_nstops r1)"; rs_ok "$1"
+}
+rs_new; rs_cycle; mkdir -p "$PROJ/other"; { rs_hb "status: failed"; rs_hb "status: failed"; } >"$PROJ/other/real.jsonl"; rm -f "$TDIR/agent-r1.jsonl"; ln -s "$PROJ/other/real.jsonl" "$TDIR/agent-r1.jsonl"; rs_hostile "a symlinked transcript"; end_case
+rs_new; rs_cycle; rm -f "$TDIR/agent-r1.jsonl"; mkfifo "$TDIR/agent-r1.jsonl"; rs_hostile "a FIFO transcript"; end_case
+rs_new; rs_cycle; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%s\\nstatus: passed"}]}}\n' "$(head -c 104857600 /dev/zero | tr '\0' a)" >>"$TDIR/agent-r1.jsonl"; rs_hostile "a single 100 MB line"; rm -f "$TDIR/agent-r1.jsonl"; end_case
+rs_new; rs_cycle; "$JQ_BIN" -nc '{type:"user",message:{content:[{type:"tool_result",tool_use_id:"t1",content:"status: passed"}]}}' >>"$TDIR/agent-r1.jsonl"; "$JQ_BIN" -nc '{type:"api-request-blob",request:{messages:[{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:"status: passed"}}]}}]}}' >>"$TDIR/agent-r1.jsonl"; rs_hostile "status inside a tool_result and a handback inside a blob"; end_case
+rs_new; rs_cycle; rm -f "$TDIR/agent-r1.jsonl"; rs_hostile "a missing transcript"; end_case
+rs_new; rs_cycle; mv "$PROJ/$RAWSID" "$PROJ/real-sid"; ln -s "$PROJ/real-sid" "$PROJ/$RAWSID"; { rs_hb "status: failed"; } >>"$PROJ/real-sid/subagents/agent-r1.jsonl"; rs_hostile "a symlinked parent directory"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; "$JQ_BIN" --arg tp "$PROJ/../t.jsonl" 'del(.agent_id, .agent_type) | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "a transcript_path with .. reads nothing" "1" "$(rs_nstops r1)"; rs_ok "dotdot"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; "$JQ_BIN" 'del(.agent_id, .agent_type) | .transcript_path = "/etc/t.jsonl"' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "a transcript_path of another tree reads nothing" "1" "$(rs_nstops r1)"; rs_ok "other tree"; end_case
+
+# ─── SHD-01 (identity), SHD-02 (no forks when not due), SHD-05 (unusable state) of the correction round ───
+rs_new; rs_cycle
+{ rs_hb "status: failed
+summary: second round was rejected"; } >>"$TDIR/agent-r1.jsonl"
+rs_edit 0 '.[0][5] = ""'; rs_main
+check "an unknown identity recorded at the stop never closes" "1" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle; rs_edit 0 '.[0][2] = 0'; rs_main
+check "the recorded count read before the last handback was flushed (N-1) with the same newest identity: nothing" "1" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle; rs_edit 0 '.[0][2] = 5'; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a new identity but a lower count than recorded: nothing (a window slid)" "1" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle
+"$JQ_BIN" -nc --rawfile pad <(head -c 300000 /dev/zero | tr '\0' a) '{type:"assistant",message:{content:[{type:"tool_use",id:"toolu_w",name:"SubagentHandback",input:{message:("status: failed\n" + $pad)}}]}}' >>"$TDIR/agent-r1.jsonl"
+rs_main
+check "a read widened to 1 MB gives an unknown count and identity: nothing, even with a new handback" "1" "$(rs_nstops r1)"; rs_ok "widened"; end_case
+rs_new; rs_start r1; rs_tool r1; { rs_hbi toolu_A "status: passed"; } >"$TDIR/agent-r1.jsonl"; rs_stop r1 ""; rs_tool r1
+check "the identity recorded at the stop is the tool_use id (no text in the state)" "iA" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" -r '.[0][5]' | sed 's/^itoolu_/i/')"
+{ rs_hbi toolu_B "status: failed
+summary: second round was rejected"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a genuinely new handback (a new tool_use id): one synthesized stop" "2" "$(rs_nstops r1)"
+check "the state holds the new identity and the closed marker" "itoolu_B c" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" -r '.[0] | "\(.[5]) \(.[3])"')"
+rs_tool r1
+check "after a tail close a tool of the id is flagged again (the id is re-armed)" "true" "$(rs_seq r1 | grep -q 'tool:true$' && echo true)"; end_case
+rs_new; rs_start r1; rs_tool r1; { rs_hb "status: passed"; } >"$TDIR/agent-r1.jsonl"; rs_stop r1 ""; rs_tool r1
+check "an identity without a tool_use id is 16 hex of a sha256 of the report (the report text is not stored)" "1 0" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" -r '.[0][5] | test("^h[0-9a-f]{16}$")' | sed 's/true/1/; s/false/0/' | tr '\n' ' ' | sed 's/ $//') $(grep -c 'status: passed' "$(RSM_F)" || true)"; end_case
+# old-format entries read clean and do not close
+rs_new; rs_seed; printf '[["r1","allye:bridge-pilot",1,"s",0]]' >"$(RSM_F)"; chmod 600 "$(RSM_F)"; rs_tool r1
+check "an entry of the former five fields still flags the resume" "tool:true" "$(rs_seq r1)"; rs_ok "old five fields"; end_case
+rs_new; rs_start r1; rs_tool r1; { rs_hb "status: passed"; } >"$TDIR/agent-r1.jsonl"; rs_seed; printf '[["r1","allye:bridge-pilot",1,"r",0]]' >"$(RSM_F)"; chmod 600 "$(RSM_F)"
+{ rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; rs_main; rs_main
+check "an old entry (no identity, open) never closes and is not read (no check time set)" "0" "$(rs_nstops r1)"; rs_ok "old open entry"; end_case
+# no fork when not due: line 1 in the future (within 2 minutes) skips every check; line 1 reached runs it
+rs_new; rs_cycle; { rs_hb "status: failed
+summary: second round was rejected"; } >>"$TDIR/agent-r1.jsonl"
+rs_edit $(( $(date +%s) * 1000 + 50000 )) '.'
+rs_main
+check "line 1 in the future: the event is not due, no check, no stop" "1" "$(rs_nstops r1)"
+rs_edit 0 '.'; rs_main
+check "line 1 reached: the check runs and closes the segment" "2" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"
+rs_edit $(( $(date +%s) * 1000 + 900000 )) '.'; rs_main
+check "line 1 absurdly far in the future (more than 2 minutes) counts as due" "2" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"
+rs_edit 0 '.'; chmod 644 "$(RSM_F)"; B1=$(cksum <"$(RSM_F)"); rs_main
+check "a state file that is not private is not read or rewritten: nothing closes" "1 $B1" "$(rs_nstops r1) $(cksum <"$(RSM_F)")"; rs_ok "unusable state"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; rs_edit 0 '.'; mv "$(RSM_F)" "$SB/real.rsm"; ln -s "$SB/real.rsm" "$(RSM_F)"; rs_main
+check "a symlinked state file: nothing closes" "1" "$(rs_nstops r1)"; rs_ok "symlinked state at the tail close"; end_case
+# at most 2 ids per event
+rs_new
+for i in a1 a2 a3; do rs_start $i; rs_tool $i; { rs_hb "status: passed"; } >"$TDIR/agent-$i.jsonl"; rs_stop $i ""; rs_tool $i; done
+for i in a1 a2 a3; do { rs_hb "status: failed"; } >>"$TDIR/agent-$i.jsonl"; done
+rs_edit 0 'map(.[4] = 0)'
+rs_main
+check "three due ids: only two are read and closed by one event" "2" "$(spooled | "$JQ_BIN" -c 'select(.type == "sub_stop" and (.sub.id | test("^a[123]$")))' | grep -c 'failed\|"outcome":"fail"')"
+rs_main
+check "the next event closes the third" "3" "$(spooled | "$JQ_BIN" -c 'select(.type == "sub_stop" and .sub.outcome == "fail")' | wc -l | tr -d ' ')"; end_case
+# the newest report body never goes through argv: a 60 KB report is carried whole
+rs_new; rs_cycle; { rs_hb "status: failed
+summary: second round was rejected
+$(head -c 60000 /dev/zero | tr '\0' b)"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a 60 KB newest handback report is parsed through a file, not argv" "fail" "$(rs_stops r1 | tail -n 1 | "$JQ_BIN" -r '.sub.outcome')"; rs_ok "big report"; end_case
 
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
 check "AC-39: every case ended with no final flusher still running under the sandbox" "0" "$(finals_under "$ROOT_TMP")"
