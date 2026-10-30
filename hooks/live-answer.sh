@@ -21,7 +21,7 @@
 # hooks/live-report.sh slice .2 computes `h`. The session is identified to the API by session_hash = sha256 of the session_id (no
 # trailing newline), the same value as the reporter's HASH.
 #
-# Open (AC-06): POST /api/live/requests {session_hash, kind, hash, risk, tool} (no tu, never; `after` is slice .10), --max-time 2.
+# Open (AC-06): POST /api/live/requests {session_hash, kind, hash, risk, tool} (no tu, never; `after` = the reporter's seq when readable safely, see read_after), --max-time 2.
 # answerable false: exit at once. true: poll GET /api/live/requests/:id/wait until the deadline = min(110 s, expiresAt), each chunk
 # --max-time min(30, remaining - 1), stopping when 1 s or less remains. 110 is the default of ANSWER_BUDGET_DEFAULT below;
 # LIVE_ANSWER_BUDGET_S (digits, at most 110) lowers it and exists for tests only. Every status ends the loop here except `pending`.
@@ -341,6 +341,26 @@ $QANS_PROG" 2>/dev/null) || return 0
   return 0
 }
 
+# read_after: sets AFTER to the reporter's highest event seq of this session ($LIVE_DIR/<session hash>.seq, ALY-269.10, D-02), or "".
+# The file must be what the reporter's own reader accepts (regular file, no symlink, owner, mode 0600) and its whole content
+# a clean integer: 1 to 16 digits, no leading zero (except 0 itself), below 2^53 and at most one day ahead of the Unix-ms clock (the reporter's own bound), one trailing newline tolerated. The reporter
+# writes the counter with mktemp + mv (atomic rename), so a reader sees the old or the new complete value, never a prefix; one
+# read of the whole file plus the digits-only check means a damaged or half-written file can only OMIT `after`, never send a
+# smaller wrong number. No lock is taken and nothing waits. Real seqs are Unix milliseconds (13 digits), hence 16, not 12.
+read_after() {
+  local f="$LIVE_DIR/$SHASH.seq" v ms
+  AFTER=""
+  [ -f "$f" ] && [ ! -L "$f" ] && [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -perm 0600 -print 2>/dev/null)" ] || return 0
+  v=$(head -c 40 "$f" 2>/dev/null) || return 0
+  [[ "$v" =~ ^(0|[1-9][0-9]{0,15})$ ]] && [ "$v" -lt 9007199254740991 ] || return 0
+  # the reporter heals a counter more than a day ahead of the Unix-ms clock to 0 (live-report.sh, seq block): such a value would
+  # sit above every later cmd_end seq, so it is not sent (an unreadable clock omits too)
+  ms=$(date +%s%3N 2>/dev/null) || return 0
+  [[ "$ms" =~ ^[0-9]{13}$ ]] || return 0
+  [ "$v" -le $((ms + 86400000)) ] || return 0
+  AFTER="$v"
+}
+
 main() {
   local F SID TOOL HASH SHASH KIND SEL line rem mt wstart dl exp_in st reason R rid ans exp
 
@@ -411,6 +431,11 @@ $QBODY_PROG" >"$T/body" 2>/dev/null || return 0
       '{session_hash: $s, kind: $k, hash: $h, risk: $r, tool: $t}' >"$T/body" 2>/dev/null || return 0
   fi
   INPUT=""
+  # after (ALY-269.10): the reporter's highest seq, added to the strict body for either kind; omitted when it cannot be read cleanly
+  read_after
+  if [ -n "$AFTER" ]; then
+    jq -c --argjson a "$AFTER" '. + {after: $a}' "$T/body" >"$T/body.after" 2>/dev/null && [ -s "$T/body.after" ] && mv -f "$T/body.after" "$T/body" 2>/dev/null
+  fi
   dbg "open"
 
   api_call POST /api/live/requests 2 1

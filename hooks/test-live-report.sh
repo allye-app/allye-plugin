@@ -4854,6 +4854,80 @@ check "stderr stays empty with the debug flag" "" "$ERR"
 end_case_ans
 ans_cleanup_bg
 
+echo "== answer after: the open carries the reporter's own highest seq, omitted when it cannot be read safely (ALY-269.10 D-02, AC-18) =="
+# aopen_body: the recorded open body of the last run
+aopen_body() { slog | "$JQ_BIN" -c 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson'; }
+aseqf() { echo "$DATA/live/$(test_sha sess-0001).seq"; }
+# aseq_case VALUE [MODE]: a fresh case whose seq file holds VALUE (printf %s, no newline, as the reporter writes it)
+aseq_case() { ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' "$1" >"$(aseqf)"; chmod "${2:-600}" "$(aseqf)"; ans_run; }
+aseq_case 7
+quiet "seq file holds 7"
+check "after is the integer 7, a JSON number, and the keys are the strict set plus after" '7 number ["after","hash","kind","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -r '"\(.after) \(.after | type) \([keys[]] | sort | tojson)"' | sed 's/ \[/ [/')"
+check "the seq file is left untouched (read only)" "7 600" "$(cat "$(aseqf)") $(find "$(aseqf)" -prune -printf '%m')"
+end_case_ans
+aseq_case 1790000000123
+check "a real reporter seq (Unix ms, 13 digits) is sent as after" "1790000000123 number" "$(aopen_body | "$JQ_BIN" -r '"\(.after) \(.after | type)"')"
+end_case_ans
+NOWMS=$(date +%s%3N)
+aseq_case $((NOWMS + 3600000))
+check "a value one hour ahead of the clock (13 digits) is accepted" "$((NOWMS + 3600000))" "$(aopen_body | "$JQ_BIN" -r '.after')"
+end_case_ans
+for bad in 9007199254740990 $((NOWMS + 86400000 + 60000)); do
+  aseq_case "$bad"
+  check "a counter above the reporter's one-day bound ($bad) is omitted, still opens" "false 1 0" "$(aopen_body | "$JQ_BIN" -r 'has("after")') $(sopen) $RC"
+  end_case_ans
+done
+aseq_case 0
+check "a counter of 0 is a valid non-negative integer" "0 number" "$(aopen_body | "$JQ_BIN" -r '"\(.after) \(.after | type)"')"
+end_case_ans
+for bad in '' 'abc' '7x' '-1' '1.5' '007' '+7' ' 7' '7 8' '12345678901234567' '9007199254740991' '99999999999999999999'; do
+  aseq_case "$bad"
+  check "seq file '$bad': after omitted, one open still made, exit 0, silent" "0|1|0||" "$(aopen_body | "$JQ_BIN" -r 'has("after") | if . then 1 else 0 end')|$(sopen)|$RC|$OUT|$ERR"
+  end_case_ans
+done
+aseq_case $'7\n'
+check "a trailing newline alone is tolerated (a clean integer)" "7" "$(aopen_body | "$JQ_BIN" -r '.after')"
+end_case_ans
+aseq_case $'7\nx'
+check "trailing junk after a newline: after omitted" "false" "$(aopen_body | "$JQ_BIN" -r 'has("after")')"
+end_case_ans
+aseq_case 7 644
+check "wrong mode (0644): after omitted, still opens" "false 1 0" "$(aopen_body | "$JQ_BIN" -r 'has("after")') $(sopen) $RC"
+end_case_ans
+aseq_case 7 660
+check "wrong mode (0660): after omitted" "false" "$(aopen_body | "$JQ_BIN" -r 'has("after")')"
+end_case_ans
+ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '7' >"$SB/real.seq"; chmod 600 "$SB/real.seq"; ln -s "$SB/real.seq" "$(aseqf)"; ans_run
+check "a symlink as seq file (target is a clean 0600 file): after omitted, still opens, exit 0" "false 1 0" "$(aopen_body | "$JQ_BIN" -r 'has("after")') $(sopen) $RC"
+end_case_ans
+ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; mkdir "$(aseqf)"; chmod 700 "$(aseqf)"; ans_run
+check "a directory as seq file: after omitted, still opens" "false 1 0" "$(aopen_body | "$JQ_BIN" -r 'has("after")') $(sopen) $RC"
+end_case_ans
+ans_case; smode wait terminal; ans_run
+check "no seq file at all: after omitted, the body is exactly the strict set" '["hash","kind","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -c 'keys')"
+end_case_ans
+ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '7' >"$DATA/live/$(test_sha other-session).seq"; chmod 600 "$DATA/live/$(test_sha other-session).seq"; ans_run
+check "the seq of ANOTHER session is never used" "false" "$(aopen_body | "$JQ_BIN" -r 'has("after")')"
+end_case_ans
+ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '7' >"$(aseqf)"; chmod 600 "$(aseqf)"
+ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
+check "the seq read never waits on the reporter's lock (no lock path in the answer client)" "0" "$(printf '%s\n' "$ACODE" | grep -cE '\.lock|flock|lock_take' || true)"
+end_case_ans
+
+echo "== answer after integration: the reporter's cmd_end seq is above the after read at open (ALY-269.10 AC-18) =="
+ans_case; smode wait terminal; SHIMD="$SHIMS_STUB"; DATA_ENV="$DATA"
+for ev in PreToolUse PreToolUse; do
+  "$JQ_BIN" -nc --arg e "$ev" --arg c "$SB/proj" '{hook_event_name: $e, session_id: "sess-0001", cwd: $c, tool_name: "Bash", tool_input: {command: "echo hi", description: "d"}, tool_use_id: "toolu_a1"}' >"$SB/stdin"; run_hook
+done
+SEQ_N=$(cat "$(aseqf)" 2>/dev/null || true)
+ans_payload sess-0001 Bash '{"description":"d","command":"echo hi"}'; ans_run
+check "the reporter's counter is an integer and the open carries exactly it" "yes $SEQ_N" "$([[ "$SEQ_N" =~ ^[1-9][0-9]*$ ]] && echo yes || echo no) $(aopen_body | "$JQ_BIN" -r '.after')"
+"$JQ_BIN" -nc --arg c "$SB/proj" '{hook_event_name: "PostToolUse", session_id: "sess-0001", cwd: $c, tool_name: "Bash", tool_input: {command: "echo hi", description: "d"}, tool_response: {output: "x"}, tool_use_id: "toolu_a1"}' >"$SB/stdin"; run_hook
+CESEQ=$({ cat "$DATA/live/$(test_sha sess-0001).spool" 2>/dev/null; slog | "$JQ_BIN" -r 'select(.method == "POST" and (.path | test("/ingest|/events|/live/sessions"))) | .body' 2>/dev/null; } | "$JQ_BIN" -c '.. | objects | select(.type? == "cmd_end") | .seq' 2>/dev/null | tail -n 1)
+check "the cmd_end of the later PostToolUse has an integer seq strictly greater than after" "yes" "$([[ "$CESEQ" =~ ^[0-9]+$ ]] && [[ "$SEQ_N" =~ ^[0-9]+$ ]] && [ "$CESEQ" -gt "$SEQ_N" ] && echo yes || echo "no cesq=$CESEQ n=$SEQ_N")"
+end_case_ans
+ans_cleanup_bg
+
 #@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
 # every worker runs these final checks over its own sandboxes; only the worker of the group `final` counts them
