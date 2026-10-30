@@ -1,0 +1,15 @@
+# Spike ALY-263.8 (AC-12, D-14, D-19). Recorded facts; the `spike` section of hooks/test-live-report.sh asserts this file.
+# kind: transcript = structure of real subagent files under ~/.claude/projects (keys, counts only; 5429 pairs scanned);
+#       none = no available evidence. Ids in the fixtures are synthetic.
+# (a) SubagentStart and SubagentStop fire on a SendMessage resume
+a_start_fires_on_resume=UNPROVEN evidence=none
+a_stop_fires_on_resume=UNPROVEN evidence=none
+# a resume reuses the same agent id, transcript file and metadata file (files with 2 or more SubagentHandback calls: 833 of 5429, one file each)
+a_resume_reuses_id_and_files=PROVEN evidence=transcript
+# (b) hook agent_id equals the id in agent-<id>.meta.json / agent-<id>.jsonl
+b_transcript_agentId_equals_filename_id=PROVEN evidence=transcript(5429 of 5429; the agentId key of the first line equals the filename id, no agent- prefix)
+b_meta_pairs_with_transcript_by_filename=PROVEN evidence=transcript(5429 of 5429)
+b_hook_agent_id_equals_filename_id=UNPROVEN evidence=none(no captured hook payload)
+b_meta_has_no_id_key=PROVEN evidence=transcript(keys: agentType description toolUseId spawnDepth requestShape ...; no agentId)
+# (c) metadata file readable at the first tool event of a subagent
+c_meta_exists_at_first_tool=UNPROVEN evidence=none(file birth times of copied files are not reliable; hook ordering is not visible in transcripts)

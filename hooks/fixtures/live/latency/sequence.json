@@ -1,0 +1,182 @@
+[
+ {
+  "tool_name": "Skill",
+  "tool_input": {
+   "skill": "allye:bridge-pilot"
+  }
+ },
+ {
+  "tool_name": "mcp__plugin_allye_allye__tasks",
+  "tool_input": {
+   "action": "task_start",
+   "task": "ALY-260.4"
+  }
+ },
+ {
+  "tool_name": "mcp__plugin_allye_allye__specs",
+  "tool_input": {
+   "action": "spec_context",
+   "spec": "ALY-260"
+  }
+ },
+ {
+  "tool_name": "Read",
+  "tool_input": {
+   "file_path": "/work/repo/src/module1.ts"
+  }
+ },
+ {
+  "tool_name": "Read",
+  "tool_input": {
+   "file_path": "/work/repo/src/module2.ts"
+  }
+ },
+ {
+  "tool_name": "Read",
+  "tool_input": {
+   "file_path": "/work/repo/src/module3.ts"
+  }
+ },
+ {
+  "tool_name": "Read",
+  "tool_input": {
+   "file_path": "/work/repo/src/module4.ts"
+  }
+ },
+ {
+  "tool_name": "Read",
+  "tool_input": {
+   "file_path": "/work/repo/src/module5.ts"
+  }
+ },
+ {
+  "tool_name": "Grep",
+  "tool_input": {
+   "pattern": "MARKER_PATTERN",
+   "path": "/work/repo/src"
+  }
+ },
+ {
+  "tool_name": "Glob",
+  "tool_input": {
+   "pattern": "**/*.test.ts"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "git status"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "git diff --stat"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "npm test"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "npx vitest run --maxWorkers=4"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "npx tsc --noEmit"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "ls -la /work/repo"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "FOO=bar node --test --test-concurrency=4"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "npm run lint",
+   "description": "Lint the changed scripts first"
+  }
+ },
+ {
+  "tool_name": "Edit",
+  "tool_input": {
+   "file_path": "/work/repo/src/module1.ts",
+   "old_string": "a",
+   "new_string": "b"
+  }
+ },
+ {
+  "tool_name": "Edit",
+  "tool_input": {
+   "file_path": "/work/repo/src/module2.ts",
+   "old_string": "a",
+   "new_string": "b"
+  }
+ },
+ {
+  "tool_name": "Edit",
+  "tool_input": {
+   "file_path": "/work/repo/src/module3.ts",
+   "old_string": "a",
+   "new_string": "b"
+  }
+ },
+ {
+  "tool_name": "Write",
+  "tool_input": {
+   "file_path": "/work/repo/test/new.test.ts",
+   "content": "x"
+  }
+ },
+ {
+  "tool_name": "Read",
+  "tool_input": {
+   "file_path": "/work/repo/.env.local"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "git diff"
+  }
+ },
+ {
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "npm test"
+  }
+ },
+ {
+  "tool_name": "mcp__plugin_allye_allye__tasks",
+  "tool_input": {
+   "action": "task_submit",
+   "task": "ALY-260.4"
+  }
+ },
+ {
+  "tool_name": "mcp__github__create_issue",
+  "tool_input": {
+   "title": "x"
+  }
+ },
+ {
+  "tool_name": "Read",
+  "tool_input": {
+   "file_path": "/work/repo/src/module1.ts"
+  }
+ }
+]

@@ -108,6 +108,8 @@ next: mothership-route|human-approval
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 `filesChanged` stays empty unless an approved installation changed files; the cache file is written by the Mothership.
 
 ## Limits

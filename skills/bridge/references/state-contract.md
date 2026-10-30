@@ -43,6 +43,7 @@ A small, rewritable snapshot to resume quickly. It is a convenience view, never 
 - Mode: launch|mission|repair|optimize|shield|blueprint|dispatch   Iteration: <n>/<cap or n/a>
 - Pre-existing changes (excluded): [<paths>] | none
 - Gates: SHIELD_CLEAR <sha|—> · WATCHER_APPROVED <sha|—> · CI_PENDING <sha|—> · MISSION_COMPLETE <sha|—>
+- PR: #N
 
 | Task | Depends on | Status | Corrections | Verify |
 |---|---|---|---|---|
@@ -51,6 +52,8 @@ A small, rewritable snapshot to resume quickly. It is a convenience view, never 
 
 ## Journal
 ```
+
+**PR line.** Write exactly one `- PR: #N` line in the log header, right after the Gates line, immediately after the PR is opened (`publish.md` §7) and never before. Write it as `- PR: #<number>` alone, no other text on the line (the template line `- PR: #N` is a placeholder and is absent until the PR exists). Once written it stays in the header: keep it whenever the projection is rewritten, never duplicate it. The Live reporter reads it from the verified log.
 
 Rewrite the projection only to reflect journal entries already appended. Statuses here are local slice states (below), not Allye statuses.
 

@@ -1,2 +1,2 @@
-{"type":"tool","tool":"allye:task_start"}
+{"type":"tool","tool":"allye:task_start","activity":"Start a task"}
 {"type":"bind","bind":{"source":"mcp","spec":"ALY-203"}}

@@ -81,6 +81,8 @@ next: mothership-check|pilot-correction
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 In `scope` mode, `approved` means `unexpected` is empty; it issues no gate. `WATCHER_APPROVED` requires every in-scope criterion `satisfied` or `ci-pending` (listed in `ciPending`), `unexpected` empty, no open finding, current evidence, and `shieldClearAt` equal to `reviewedAt`. Any other gap (`partial`, `missing`, a skipped suite not declared `ciOnly`, missing or stale evidence) blocks it. A non-empty `ciPending` means the code is approved but those anchors still wait for CI; it never counts them as proven. Any later change to the diff invalidates it.
 
 ## Docs gate
