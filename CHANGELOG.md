@@ -1,3 +1,15 @@
+# [2.14.0](https://github.com/allye-app/allye-plugin/compare/v2.13.0...v2.14.0) (2026-10-30)
+
+
+### Features
+
+* **hooks:** add the blocking answer client skeleton (ALY-269.3) ([e4ec588](https://github.com/allye-app/allye-plugin/commit/e4ec5881ede96b636c8cdde58e34a2820db11d8c))
+* **hooks:** answer AskUserQuestion from Allye through the PermissionRequest hook (ALY-269.4) ([b393075](https://github.com/allye-app/allye-plugin/commit/b393075dcd706aeffa361b8bd97cd01d92fb09d8))
+* **hooks:** answer permissions from Allye with a fail-closed risk class (ALY-269.5, ALY-269.11) ([889d89e](https://github.com/allye-app/allye-plugin/commit/889d89ee0ed9a2c84d3c93d88086dca628004018)), closes [hi#risk](https://github.com/hi/issues/risk)
+* **hooks:** register the blocking PermissionRequest answer hook (ALY-269.6) ([34a7f88](https://github.com/allye-app/allye-plugin/commit/34a7f880111bbff31835544257022f969247507d))
+* **hooks:** send after on the answer request open (ALY-269.10) ([1a4ef41](https://github.com/allye-app/allye-plugin/commit/1a4ef4134cc26ff9da71bbeb9d52785d68bd7a20))
+* **hooks:** send tu on tool events and cmd_end with h and seq (ALY-269.2) ([36aff06](https://github.com/allye-app/allye-plugin/commit/36aff063d7791a12127853c8b3f5bc24101266a5))
+
 # [2.13.0](https://github.com/allye-app/allye-plugin/compare/v2.12.0...v2.13.0) (2026-10-30)
 
 
