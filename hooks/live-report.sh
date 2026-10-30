@@ -107,6 +107,13 @@ CFP=""
 #   included, only when it differs from the last set sent ($HASH.gates, same owner/mode/symlink checks; absent
 #   means the empty set, so a first all-dash journal sends nothing). No Gates line: nothing. Nothing about the
 #   file (path, other lines, sha values) leaves.
+#   ALY-263.15 (AC-18, D-20, D-21): the same verified read also takes the first column-0 line matching
+#   `^- PR: #([1-9][0-9]{0,6})[ \t\r]*$` (any other text on the line, `#0`, `#01`, 8 digits, an indented or lowercase
+#   line match nothing; a non-matching `- PR:` line is skipped, the first MATCHING line wins). Its number leaves only as the
+#   JSON integer `pr` on the gates event, only when it differs from the last pr sent, stored as a second line of
+#   $HASH.gates (an old file with the array alone reads clean: no pr yet). The gates event is sent when the set or the pr
+#   changed; it always carries `gates`: the current set when the log has a Gates line, else the last set sent ([] at first).
+#   A pr is metadata (sent with texts off) and is validated again at flush (integer 1..9999999; invalid dropped, event kept).
 # (The payload is read further down, after the function definitions and the watcher-mode dispatch of ALY-217.)
 
 # A path we may use: absent, or a regular file (no symlink) owned by the user with exactly mode 0600.
@@ -426,7 +433,9 @@ jq_valid_def() {
       elif .key == "resumed" then (.value == true)
       elif .key == "phase" then (.value | IN("stage","publish"))
       else true end;
-    def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity","label")))
+    def prok: (.pr | type == "number" and . == floor and . >= 1 and . <= 9999999);
+    def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","pr","activity","label")))
+      | (if has("pr") and ((.type == "gates" and prok) | not) then del(.pr) else . end)
       | (if (.sub | type) == "object" then .sub |= (with_entries(select(.key | IN("id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed","phase")) | select(subfld))
           | (if has("checks") then .checks |= pick(["ok","run"]) else . end)
           | (if has("findings") then .findings |= pick(["critical","high","medium","low","info"]) else . end)) else . end);
@@ -1986,7 +1995,7 @@ fi
 
 # ─── ALY-203.4: gates (BR-10). Every check must pass before the file is opened. ───
 GATEF="$LIVE_DIR/$HASH.gates"
-GATELINE=""; GNEW=""
+GATELINE=""; GNEW=""; PRNEW=""; PLAST=""; PRSEND=""; GEFF=""; PWRITE=""
 mission_log_of() {  # prints the physical log.md path for GFP/GCWD, or fails
   local fp="$1" cwd="$2" phys slug p
   case "$cwd/" in */./*|*/../*|*//*) return 1 ;; esac
@@ -2010,29 +2019,43 @@ mission_log_of() {  # prints the physical log.md path for GFP/GCWD, or fails
 if [ "$GFP" != "-" ] && [ "$GCWD" != "-" ]; then
   GPATH=$(mission_log_of "$GFP" "$GCWD") || GPATH=""
   if [ -n "$GPATH" ]; then
-    GNEW=$(head -c 65536 "$GPATH" 2>/dev/null | jq -Rrs '
+    # two lines out: the gates array (or -) and the pr digits (or -); nothing else of the file is printed
+    GOUT=$(head -c 65536 "$GPATH" 2>/dev/null | jq -Rrs '
       ["SHIELD_CLEAR","WATCHER_APPROVED","MISSION_COMPLETE","CI_PENDING"] as $set
-      | (split("\n") | map(select(test("\\A- Gates:"))) | .[0]) as $l
-      | if $l == null then empty
-        else ([($l | sub("\\A- Gates:"; "") | split("\u00b7")[]
-                 | gsub("\\A[ \t]+|[ \t\r]+\\z"; "") | split(" ") | map(select(length > 0)))
-               | select(length >= 2 and .[1] != "\u2014") | .[0]]) as $on
-             | [$set[] | select(. as $n | $on | index($n) != null)] | tojson
-        end' 2>/dev/null) || GNEW=""
+      | split("\n") as $ls
+      | ($ls | map(select(test("\\A- Gates:"))) | .[0]) as $l
+      | ($ls | map(select(test("\\A- PR: #[1-9][0-9]{0,6}[ \t\r]*\\z"))) | .[0]) as $p
+      | (if $l == null then "-"
+         else ([($l | sub("\\A- Gates:"; "") | split("\u00b7")[]
+                  | gsub("\\A[ \t]+|[ \t\r]+\\z"; "") | split(" ") | map(select(length > 0)))
+                | select(length >= 2 and .[1] != "\u2014") | .[0]]) as $on
+              | [$set[] | select(. as $n | $on | index($n) != null)] | tojson
+         end),
+        (if $p == null then "-" else ($p | sub("\\A- PR: #"; "") | gsub("[ \t\r]"; "")) end)' 2>/dev/null) || GOUT=""
+    GNEW=${GOUT%%$'\n'*}; PRNEW=""; case "$GOUT" in *$'\n'*) PRNEW=${GOUT#*$'\n'} ;; esac
     case "$GNEW" in "["*"]") ;; *) GNEW="" ;; esac
+    [[ "$PRNEW" =~ ^[1-9][0-9]{0,6}$ ]] || PRNEW=""
   fi
   GPATH=""
 fi
-if [ -n "$GNEW" ]; then
+if [ -n "$GNEW" ] || [ -n "$PRNEW" ]; then
   GLAST="[]"
   if [ -f "$GATEF" ] && [ ! -L "$GATEF" ]; then
     if private_file_ok "$GATEF"; then
-      GLAST=$(cat "$GATEF" 2>/dev/null) || GLAST="[]"
+      # line 1: the set last sent; optional line 2: the pr last sent (ALY-263.15). An old file holds the array alone.
+      GLAST=""; PLAST=""
+      { IFS= read -r GLAST; IFS= read -r PLAST; } <"$GATEF" 2>/dev/null || true   # no head: the 64 KB probe counts head calls
       case "$GLAST" in "["*"]") ;; *) GLAST="[]" ;; esac
-    else GNEW=""; fi
-  elif ! private_file_ok "$GATEF"; then GNEW=""; fi
-  if [ -n "$GNEW" ] && [ "$GNEW" != "$GLAST" ]; then
-    GATELINE=$(jq -nc --argjson g "$GNEW" --arg at "$AT" '{type: "gates", gates: $g, at: $at}' 2>/dev/null) || GATELINE=""
+      [[ "$PLAST" =~ ^[1-9][0-9]{0,6}$ ]] || PLAST=""
+    else GNEW=""; PRNEW=""; fi
+  elif ! private_file_ok "$GATEF"; then GNEW=""; PRNEW=""; fi
+  GSEND=0
+  if [ -n "$GNEW" ] && [ "$GNEW" != "$GLAST" ]; then GSEND=1; fi
+  if [ -n "$PRNEW" ] && [ "$PRNEW" != "$PLAST" ]; then GSEND=1; PRSEND="$PRNEW"; fi
+  if [ "$GSEND" = 1 ]; then
+    GEFF="${GNEW:-$GLAST}"; PWRITE="${PRNEW:-$PLAST}"
+    GATELINE=$(jq -nc --argjson g "$GEFF" --arg at "$AT" --arg pr "$PRSEND" \
+      '{type: "gates", gates: $g, at: $at} + (if $pr != "" then {pr: ($pr | tonumber)} else {} end)' 2>/dev/null) || GATELINE=""
   fi
 fi
 if [ -n "$GATELINE" ]; then
@@ -2135,7 +2158,7 @@ fi
 if [ "$LBLWRITE" = after ] || [ "$LBLWRITE" = now ]; then label_state_write "$LBLSTORED"; fi
 if [ -n "$GATELINE" ]; then
   TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
-  printf '%s' "$GNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+  { printf '%s' "$GEFF"; if [ -n "$PWRITE" ]; then printf '\n%s' "$PWRITE"; fi; } >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 # The Agent/Task stash (D-24 b): one atomic write (temp 0600 + mv) when it changed; an emptied stash is removed.
 if [ "$AGT" != "-" ] && [ "$AGOK" = 1 ]; then

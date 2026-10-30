@@ -1021,7 +1021,7 @@ check "allowlist: the extra key inside checks and the unknown key of sub are in 
 end_case
 
 # ─── ALY-203.4: mission gates (BR-10, AC-08, AC-16) ─────────────────────────
-echo "== mission gates from the journal (AC-08, AC-16) =="
+echo "== gates: the journal Gates line (AC-08, AC-16) =="
 SHA1=GATESHA1MARKER; SHA2=GATESHA2MARKER
 gates_line() {  # S W C M: values (use - for the dash)
   local v; v() { [ "$1" = "-" ] && printf '\xe2\x80\x94' || printf '%s' "$1"; }
@@ -1083,6 +1083,134 @@ check "gate state with a wrong mode: nothing sent" "3" "$(gevn)"
 rm -f "$GF"; ln -s "$SB/stdin" "$GF"; fire Write
 check "symlinked gate state: nothing sent, target untouched" "3|yes" "$(gevn)|$([ -s "$SB/stdin" ] && echo yes || echo no)"
 end_case
+
+# ─── ALY-263.15: the PR number on the gates event (AC-18, D-20, D-21, BR-01) ───
+echo "== gates: the PR line of the verified log (ALY-263.15 AC-18) =="
+prs() { gev | "$JQ_BIN" -r '(.pr // "-" | tostring)' | tr '\n' ' ' | sed 's/ $//'; }   # the pr of every gates event, "-" when absent
+GFILE() { echo "$DATA/live/$(test_sha sess-gate-1).gates"; }
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #123"; fire Write
+check "a valid PR line: pr is a JSON integer on the gates event, with the current gates" '{"gates":["SHIELD_CLEAR"],"pr":123,"type":"gates"}' "$(gev)"
+check "the gates event keys are exactly seq, type, gates, at and pr" "seq,type,gates,at,pr" "$("$JQ_BIN" -r 'select(.type=="gates") | keys_unsorted | join(",")' "$DATA/live/$(test_sha sess-gate-1).spool" | head -n 1)"
+check "the state file holds the set on line 1 and the pr on line 2, private" "600 $(printf '%s\n%s' '["SHIELD_CLEAR"]' 123)" "$(find "$(GFILE)" -printf '%m') $(cat "$(GFILE)")"
+check "nothing else of the log leaves: no marker, path or slug in a file, a log or an output" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find '; } | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|missions|m-1' || true)"
+end_case
+new_case; mkcred; mklog m-1 "- PR: #7"; fire Write
+check "a PR line without a Gates line: one gates event with the empty set and the pr" '{"gates":[],"pr":7,"type":"gates"}' "$(gev)"; end_case
+new_case; mkcred; mklog m-1 "- PR: #11" "- PR: #12"; fire Write
+check "the first PR line wins" "11" "$(prs)"; end_case
+new_case; mkcred; mklog m-1 "- PR: #5 merged" "- PR: #8"; fire Write
+check "a first line that does not match is skipped: the first MATCHING line wins" "8" "$(prs)"; end_case
+for ok in "- PR: #9999999" "- PR: #1" "- PR: #5 " "- PR: #5"$'\t'" " "- PR: #5"$'\r'; do
+  new_case; mkcred; mklog m-1 "$ok"; fire Write
+  check "valid PR line '$(printf '%s' "$ok" | od -An -c | tr -s ' ' | sed 's/^ //')' sends a pr" "yes" "$([[ "$(prs)" =~ ^[1-9][0-9]{0,6}$ ]] && echo yes || echo no)"; end_case
+done
+for bad in "- PR: #5 merged" "- PR: #5x" "- PR: #5 #6" "- PR: #0" "- PR: #00" "- PR: #01" "- PR: #12345678" "- PR: #-5" "- PR: #5.0" "- PR: #5,1" "- PR: #" "- PR: 5" "- PR:#5" "- PR:  #5" "  - PR: #5" " - PR: #5" "- pr: #5" "- Pr: #5" "-- PR: #5" "* PR: #5" "- PR:"$'\t'"#5" "- PR: #5"$'\v' "- PR: ##5" "PR: #5" "- PR: #５"; do
+  new_case; mkcred; mklog m-1 "$bad"; fire Write
+  check "malformed or indented PR line '$(printf '%s' "$bad" | od -An -c | tr -s ' ' | sed 's/^ //')' sends nothing" "0" "$(gevn)"; end_case
+done
+new_case; mkcred; mklog m-1 "- Notes: - PR: #5" "text - PR: #6"; fire Write
+check "a PR text inside another line counts for nothing" "0" "$(gevn)"; end_case
+
+echo "== gates: pr only on change, with the set (ALY-263.15 D-21) =="
+new_case; mkcred
+mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #10"; fire Write
+fire Edit
+mklog m-1 "$(gates_line "$SHA2" - - -)" "- PR: #10"; fire Write
+check "pr unchanged (and the same set): not resent" "1|10" "$(gevn)|$(prs)"
+mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #11"; fire Edit
+check "pr changed, same set: one more gates event with the new pr and the current set" "2|10 11|$(printf '%s' '{"gates":["SHIELD_CLEAR"],"pr":11,"type":"gates"}')" "$(gevn)|$(prs)|$(gev | tail -n 1)"
+mklog m-1 "$(gates_line "$SHA1" "$SHA1" - -)" "- PR: #11"; fire Edit
+check "set changed, pr unchanged: the gates event carries no pr" "3|10 11 -" "$(gevn)|$(prs)"
+mklog m-1 "$(gates_line "$SHA1" "$SHA1" - -)"; fire Edit
+check "the PR line removed from the log sends nothing" "3" "$(gevn)"
+mklog m-1 "$(gates_line "$SHA1" "$SHA1" - -)" "- PR: #11"; fire Edit
+check "the same pr back after a removal is not resent (the last value kept)" "3" "$(gevn)"
+mklog m-1 "- PR: #12"; fire Edit
+check "a PR line without a Gates line later: the last set sent is carried, not emptied" '{"gates":["SHIELD_CLEAR","WATCHER_APPROVED"],"pr":12,"type":"gates"}' "$(gev | tail -n 1)"
+check "the state file now holds the last set and pr 12" "$(printf '%s\n%s' '["SHIELD_CLEAR","WATCHER_APPROVED"]' 12)" "$(cat "$(GFILE)")"
+end_case
+new_case; mkcred
+mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write
+mklog m-1 "$(gates_line "$SHA2" - - -)" "- PR: #20"; fire Write
+check "gates unchanged and a pr added: exactly one more gates event, with the pr" "2|- 20" "$(gevn)|$(prs)"; end_case
+new_case; mkcred
+mklog m-1 "- PR: #20"; fire Write; mklog m-1 "- PR: #20"; fire Write
+check "a PR line alone twice: one event" "1" "$(gevn)"; end_case
+# an old state file (the array alone, written before the pr existed) reads clean
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' '["SHIELD_CLEAR"]' >"$(GFILE)"; chmod 600 "$(GFILE)"
+mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write
+check "old state file, same set, no PR line: nothing resent" "0" "$(gevn)"
+mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #30"; fire Write
+check "old state file, then a PR line: one gates event with the set and the pr" '{"gates":["SHIELD_CLEAR"],"pr":30,"type":"gates"}' "$(gev)"
+end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' '["SHIELD_CLEAR"]' >"$(GFILE)"; chmod 600 "$(GFILE)"
+mklog m-1 "$(gates_line "$SHA1" "$SHA1" - -)"; fire Write
+check "old state file, set changed: one event, no pr key, and the file is rewritten without a pr line" "1|-|$(printf '%s' '["SHIELD_CLEAR","WATCHER_APPROVED"]')" "$(gevn)|$(prs)|$(cat "$(GFILE)")"; end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s\n%s' '["SHIELD_CLEAR"]' 'garbage' >"$(GFILE)"; chmod 600 "$(GFILE)"
+mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #31"; fire Write
+check "a state file with a corrupt second line reads as no pr: the pr is sent once, the set is not" '{"gates":["SHIELD_CLEAR"],"pr":31,"type":"gates"}' "$(gev)"; end_case
+# the private-file checks of the state apply to the pr too
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$(GFILE)"; chmod 644 "$(GFILE)"
+mklog m-1 "- PR: #40"; fire Write
+check "a gate state file with a wrong mode: no pr sent either" "0" "$(gevn)"
+rm -f "$(GFILE)"; ln -s "$SB/stdin" "$(GFILE)"; fire Write
+check "a symlinked gate state: no pr sent, target untouched" "0|yes" "$(gevn)|$([ -s "$SB/stdin" ] && echo yes || echo no)"; end_case
+
+echo "== gates: pr, unverified or unreadable logs and hostile lines send nothing (ALY-263.15 BR-01) =="
+no_pr() { check "$1: no gates event, no pr" "0|" "$(gevn)|$(prs)"; }
+new_case; mkcred; mklog m-1 "- PR: #50"; fire Read; no_pr "tool Read"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"; fire Bash; no_pr "tool Bash"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"; cp "$SB/proj/.allye/missions/m-1/log.md" "$SB/proj/.allye/missions/m-1/notes.md"; fire Write "$SB/proj/.allye/missions/m-1/notes.md"; no_pr "a PR line in notes.md (not the verified log)"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"; mkdir -p "$SB/proj/other"; cp "$SB/proj/.allye/missions/m-1/log.md" "$SB/proj/other/log.md"; fire Write "$SB/proj/other/log.md"; no_pr "a PR line in log.md of another directory"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"; fire Write "$SB/proj/.allye/missions/m-1/crew/shield.md"; no_pr "a PR line, write of a crew file"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"
+"$JQ_BIN" -n --arg f "$SB/proj/.allye/missions/m-1/log.md" --arg c "$SB/proj" '{session_id:"sess-gate-1",hook_event_name:"PostToolUse",cwd:$c,tool_name:"Write",agent_id:"agent-x",agent_type:"allye:bridge-pilot",tool_input:{file_path:$f,content:"- PR: #50"},tool_response:{}}' >"$SB/stdin"; run_hook
+no_pr "a write made inside a subagent"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1/log.md"; fire Write; no_pr "log.md is a directory (read failure)"; end_case
+new_case; mkcred; fire Write; no_pr "log.md missing (read failure)"; end_case
+new_case; mkcred; mklog real "- PR: #50"; mkdir -p "$SB/proj/.allye/missions/m-1"; ln -s "$SB/proj/.allye/missions/real/log.md" "$SB/proj/.allye/missions/m-1/log.md"; fire Write; no_pr "symlinked log.md"; end_case
+if [ "$(id -u)" != 0 ]; then   # root reads a mode 000 file: the case needs a normal user
+  new_case; mkcred; mklog m-1 "- PR: #50"; chmod 000 "$SB/proj/.allye/missions/m-1/log.md"; fire Write; chmod 644 "$SB/proj/.allye/missions/m-1/log.md"
+  no_pr "an unreadable log.md (read failure)"; end_case
+fi
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { echo "# Mission log"; printf -- '- PR: #5 '; head -c 60000 /dev/zero | tr '\0' 'x'; echo; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+no_pr "a PR line of 60000 characters (hostile long line)"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { echo "# Mission log"; printf -- '- PR: #'; head -c 60000 /dev/zero | tr '\0' '1'; echo; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+no_pr "a PR number of 60000 digits"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { echo "# Mission log"; printf -- '- PR: #5'; head -c 60000 /dev/zero | tr '\0' ' '; echo; echo "- PR: #6"; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+check "a valid PR line followed by 60000 spaces still matches (whitespace only); the first matching line wins" "5" "$(prs)"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { head -c 70000 /dev/zero | tr '\0' 'x'; echo; echo "- PR: #5"; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+no_pr "a PR line only beyond 64 KB"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { echo "- PR: #5"; head -c 65600 /dev/zero | tr '\0' 'x'; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+no_pr "a log of more than 65536 bytes with a valid PR line first is never opened"; end_case
+new_case; mkcred; mklog m-1 "- PR: #5\\n- PR: #6" "- PR: #5 \$(touch $SB/pwned)" '- PR: #5`touch '"$SB"'/pwned`'; fire Write
+check "PR lines with shell syntax or an escaped newline send nothing and run nothing" "0|0|no" "$(gevn)|$(prs | grep -c . || true)|$([ -e "$SB/pwned" ] && echo yes || echo no)"; end_case
+# BR-01: a transcript can never produce a pr or a gate marker
+new_case; mkcred; printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- PR: #77\n- Gates: SHIELD_CLEAR abc"}]}}' >"$SB/t77.jsonl"
+"$JQ_BIN" -n --arg t "$SB/t77.jsonl" '{session_id:"sess-gate-1",hook_event_name:"Stop",cwd:"/tmp",transcript_path:$t,last_assistant_message:"- PR: #77\n- Gates: SHIELD_CLEAR abc"}' >"$SB/stdin"; run_hook
+no_pr "a PR line and a Gates line in a transcript or a message"; end_case
+
+echo "== gates: pr is metadata, validated at flush, sent with texts off (ALY-263.15) =="
+# own helpers: the filtered run (^gates) does not keep the sections that define nowiso and sp2
+nowiso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+sp2() { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"; }
+prev_line() {  # SEQ JSON-VALUE-OF-pr TYPE
+  "$JQ_BIN" -nc --argjson s "$1" --argjson p "$2" --arg t "$3" --arg at "$(nowiso)" '{seq: $s, at: $at, type: $t, pr: $p} + (if $t == "gates" then {gates: ["SHIELD_CLEAR"]} else {state: "working"} end)'
+}
+pr_flush_case() {  # LABEL [off]
+  new_case; mkcred; SHIMD="$SHIMS"; sp2
+  [ "${2:-}" = off ] && { : >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"; }
+  { prev_line 4001 5 gates; prev_line 4002 0 gates; prev_line 4003 1.5 gates; prev_line 4004 '"7"' gates; prev_line 4005 10000000 gates
+    prev_line 4006 5 state; prev_line 4007 9999999 gates; prev_line 4008 -3 gates; prev_line 4009 null gates; prev_line 4010 true gates; prev_line 4011 1 gates; } >"$SPF"
+  run_fixture user-prompt-submit
+  check "$1: pr 1..9999999 on a gates event is sent as an integer; an invalid value (0, decimal, string, 10000000, negative, null, boolean) or a pr on another event is dropped and the event stays" \
+    "4001:5 4002:- 4003:- 4004:- 4005:- 4006:- 4007:9999999 4008:- 4009:- 4010:- 4011:1" \
+    "$("$JQ_BIN" -r '.events[] | "\(.seq):\(.pr // "-")"' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//')"
+  check "$1: the sent pr values are JSON integers" "5 9999999 1" "$("$JQ_BIN" -r '.events[] | select(.pr != null) | "\(.pr)"' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//')"
+  end_case
+}
+pr_flush_case "texts on"
+pr_flush_case "texts off (activity-off)" off
 
 echo "== gates: other files, tools and paths send nothing (AC-08, AC-16) =="
 no_gates() {  # LABEL, after the event(s) have fired
@@ -1188,7 +1316,7 @@ check "raw session id absent from every file, filename, shim log and request" "0
 final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWSID").final.lock" ] || break; sleep 0.05; done   # the SessionEnd fixtures' final flusher (stub curl)
 check "files are keyed by sha256(session id): acts, bind, cred, flushed, label, rsm, seq, spool, state, subs, tkmem and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").label $(test_sha "$RAWSID").rsm $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").tkmem $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
-check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity","label"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","pr","activity","label"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","ready","approved","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"

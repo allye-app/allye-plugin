@@ -262,3 +262,21 @@ letter, not all dots, not matching the case-insensitive denylist (`namedeny`, th
 basename) and not matching the secret-shaped drops (`namedrop`: 16 hex characters, 20+ characters with a digit, 24+ characters, token
 prefixes), else the constant. The section `classifier` of `test-live-report.sh` covers the table and 36 hostile paths. The
 subagent fixtures use `/x/MARKER_PATH/readme.txt`: the marker stays in a directory, which never leaves.
+
+## The PR number on the gates event (ALY-263.15, AC-18, D-20, D-21)
+
+The existing gates read of the verified mission log (the same main-session Write/Edit path and file checks as the `- Gates:` line,
+`mission_log_of`, 64 KB bound, no symlinks) also takes the first column-0 line matching `^- PR: #([1-9][0-9]{0,6})[ \t\r]*$` (a line
+that does not match is skipped; the first MATCHING line wins). Only its number leaves, as the JSON integer `pr` of the `gates` event,
+and only when it differs from the last pr sent. Any other text on the line, `#0`, `#01`, 8 digits, a sign or a decimal, an indented,
+lowercase or tab-separated line, and a PR line in any other file, in a transcript or in a message send nothing.
+
+- State: `$HASH.gates` keeps the set last sent on line 1 and, when one was sent, the pr on line 2. An old file (the array alone) reads
+  clean as "no pr yet" and is not resent; a corrupt second line reads as no pr. The same private-file checks apply (wrong mode or a
+  symlink: nothing is sent, the pr included). A log that later loses its PR line sends nothing and the stored pr is kept.
+- Event: the gates event is sent when the set or the pr changed. It always carries `gates`: the current set when the log has a
+  `- Gates:` line, else the last set sent (`[]` at first), because the API requires the array. `pr` is present only when it changed.
+- Flush: `pr` is in the allowlist of a `gates` event only; it must be an integer 1..9999999, anything else is dropped and the event
+  stays. It is metadata, not display text: it is sent with texts off.
+- Cases: the `gates:` sections of `test-live-report.sh` (valid line, first line wins, malformed numbers, indented/lowercase, change
+  and no-change, old state file, texts off and flush validation, unverified files, read failures, hostile long lines).
