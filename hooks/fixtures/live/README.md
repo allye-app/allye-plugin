@@ -34,8 +34,8 @@ Evidence: `strings` on that binary (bundled hook input schemas). No network, no 
 | async command hooks | confirmed | `async:M().optional().describe("If true, hook runs in background without blocking")` (hook config schema) |
 | common input fields | confirmed | `session_id:o(),transcript_path:o(),cwd:o(),prompt_id:...,permission_mode:...,agent_id:...,agent_type:...` |
 
-Other events exist in the binary (PostToolUseFailure, PostToolBatch, PermissionDenied, PreCompact, ...) but the spec maps
-none of them: they are neither mapped, fixtured (except as `unmapped-event-*` negative controls) nor to be registered.
+Other events exist in the binary (PostToolBatch, PermissionDenied, PreCompact, ...) but the spec maps
+none of them (PostToolUseFailure is mapped since ALY-269, see `post-tool-use-failure`): they are neither mapped, fixtured (except as `unmapped-event-*` negative controls) nor to be registered.
 
 ## Mapping implemented in this slice
 

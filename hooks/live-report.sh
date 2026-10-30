@@ -381,13 +381,16 @@ spool_trim() {
   TMPF="$tmp"
   # ALY-263.13 (AC-16, D-18): a full spool loses phrase events first: the oldest `sub_tool` events and the main-session `tool` events
   # that carry an `activity` go before anything else (sub_start, sub_stop, state, bind, gates, label, a tool without a phrase); only when
-  # no such event is left do the oldest other lines go, as before. Order is kept. A jq failure falls back to the plain newest-500 trim.
+  # no such event is left do the oldest other lines go, as before. Order is kept.
+  # ALY-269.2: a `cmd_end` is an optional refinement (without it the app keeps its derived rule), so it goes after the phrases and before every
+  # other kind: phrases, then the oldest cmd_end events, then the rest. A jq failure falls back to the plain newest-500 trim.
   # The type keys are matched on the compact lines the hook writes (`"type":"sub_tool"`): a phrase quote inside a value is escaped, so it
   # can never spell that key.
   if jq -Rrn '
       [inputs] as $l | ($l | length) as $n | ($l | map((utf8bytelength) + 1)) as $b
-      | ($l | map(test("\"type\":\"sub_tool\"") or (test("\"type\":\"tool\"") and test("\"activity\":")))) as $ev
-      | ([range(0; $n) | select($ev[.])] + [range(0; $n) | select($ev[.] | not)]) as $order
+      | ($l | map(if test("\"type\":\"sub_tool\"") or (test("\"type\":\"tool\"") and test("\"activity\":")) then 0
+                    elif test("\"type\":\"cmd_end\"") then 1 else 2 end)) as $ev
+      | ([range(0; $n) | select($ev[.] == 0)] + [range(0; $n) | select($ev[.] == 1)] + [range(0; $n) | select($ev[.] == 2)]) as $order
       | (reduce $order[] as $i ({d: {}, n: $n, b: ($b | add // 0)};
           if .n > 500 or .b > 262144 then .d[($i | tostring)] = true | .n -= 1 | .b -= $b[$i] else . end) | .d) as $d
       | range(0; $n) | select($d[tostring] | not) | $l[.]' "$f" >"$tmp" 2>/dev/null && [ -s "$tmp" ]; then
@@ -434,13 +437,16 @@ jq_valid_def() {
       elif .key == "phase" then (.value | IN("stage","publish"))
       else true end;
     def prok: (.pr | type == "number" and . == floor and . >= 1 and . <= 9999999);
-    def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","pr","activity","label")))
+    def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","pr","activity","label","tu","h","ok")))
+      | (if has("tu") and ((.tu | type == "string" and test("\\A[A-Za-z0-9_-]{1,64}\\z")) and (.type | IN("tool","sub_tool","cmd_end")) | not) then del(.tu) else . end)
+      | (if has("h") and ((.h | type == "string" and test("\\A[0-9a-f]{64}\\z")) and .type == "cmd_end" | not) then del(.h) else . end)
+      | (if has("ok") and ((.ok | type == "boolean") and .type == "cmd_end" | not) then del(.ok) else . end)
       | (if has("pr") and ((.type == "gates" and prok) | not) then del(.pr) else . end)
       | (if (.sub | type) == "object" then .sub |= (with_entries(select(.key | IN("id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed","phase")) | select(subfld))
           | (if has("checks") then .checks |= pick(["ok","run"]) else . end)
           | (if has("findings") then .findings |= pick(["critical","high","medium","low","info"]) else . end)) else . end);
     def ok: type == "object" and (.seq | type == "number" and . == floor and . >= 1) and (.at | type == "string")
-            and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates","label"))
+            and (.type | IN("state","tool","sub_start","sub_tool","sub_stop","bind","gates","label","cmd_end"))
             and (if .type == "label" then (.label | type == "object" and (keys - ["text","source","cwd"] | length) == 0
                    and (.text | type == "string" and (explode | length) >= 1 and (explode | length) <= 60) and (.source | IN("explicit","ai"))
                    and (.cwd == null or (.cwd | type == "string" and test("\\A[A-Za-z0-9._-]{1,60}\\z")))) else true end);
@@ -458,6 +464,26 @@ backoff_active() {
   now=$(date +%s 2>/dev/null) || return 1
   [[ "$now" =~ ^[0-9]{1,12}$ ]] && [ "$now" -lt "$u" ]
 }
+# ALY-269.2 (AC-12, D-06): the `notu` mark, same shape and safety as the back-off file (`<until epoch> <credential fingerprint>`): set when ingest
+# answers 400 to a batch that carried `tu` or `cmd_end` (an API that does not know them), for 10 minutes. While it lasts, batch_build leaves
+# `tu` out and skips every cmd_end. The mark belongs to the API, not to a session, so it is kept per credential like the back-off.
+NOTUF="$LIVE_DIR/notu"
+notu_active() {
+  local u="" f="" now
+  [ -f "$NOTUF" ] && [ ! -L "$NOTUF" ] && private_file_ok "$NOTUF" || return 1
+  { IFS=' ' read -r u f <"$NOTUF"; } 2>/dev/null
+  credfp
+  [[ "$u" =~ ^[0-9]{1,12}$ ]] && [ "$f" = "$CFP" ] || return 1
+  now=$(date +%s 2>/dev/null) || return 1
+  [[ "$now" =~ ^[0-9]{1,12}$ ]] && [ "$now" -lt "$u" ]
+}
+notu_set() {  # SECONDS from now, for this credential; fails (non-zero) when the mark could not be written
+  local now tmp
+  now=$(date +%s 2>/dev/null) || return 1; credfp
+  tmp=$(mktemp "$LIVE_DIR/.notu.XXXXXX" 2>/dev/null) || return 1; TMPF="$tmp"
+  printf '%s %s' "$((now + $1))" "$CFP" >"$tmp" 2>/dev/null && mv -f "$tmp" "$NOTUF" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+  return 0
+}
 backoff_set() {  # SECONDS from now, for this credential
   local now tmp
   now=$(date +%s 2>/dev/null) || return 0; credfp
@@ -468,7 +494,7 @@ backoff_set() {  # SECONDS from now, for this credential
 # batch_build: sets BK (physical lines consumed), BMAX (highest seq in the batch) and BODY (the request body, empty
 # when the consumed lines held no valid event). At most 50 events and 16384 bytes of body; only contract keys are kept.
 batch_build() {
-  local n base out rest now strip
+  local n base out rest now strip notu
   BK=0; BMAX=0; BODY=""
   now=$(date +%s 2>/dev/null) || return 1; [[ "$now" =~ ^[0-9]{1,12}$ ]] || return 1
   [ -f "$SPOOL" ] && [ ! -L "$SPOOL" ] || return 1
@@ -479,8 +505,9 @@ batch_build() {
   # flag existed; the structured fields and the tool events go on. This is the one place a spooled event becomes a request.
   strip=0
   if [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ] || [ -e "$LIVE_DIR/detailed-off" ] || [ -L "$LIVE_DIR/detailed-off" ]; then strip=1; fi
+  notu=0; if notu_active; then notu=1; fi   # ALY-269.2 (AC-12): after a 400 for tu/cmd_end the batch goes without them
   base=$(printf '{"client":{"kind":"claude-code"},"session":{"hash":"%s"},"events":[' "$HASH")
-  out=$(head -n "$n" "$SPOOL" 2>/dev/null | jq -Rn -r --arg base "$base" --arg strip "$strip" --argjson now "$now" "$(jq_valid_def)"'
+  out=$(head -n "$n" "$SPOOL" 2>/dev/null | jq -Rn -r --arg base "$base" --arg strip "$strip" --arg notu "$notu" --argjson now "$now" "$(jq_valid_def)"'
     [inputs] as $L
     | (reduce range(0; $L | length) as $i ({evs: [], size: (($base | utf8bytelength) + 2), k: 0, max: 0, done: false};
         if .done then .
@@ -488,7 +515,8 @@ batch_build() {
           | if ($e | ok | not) then .k = $i + 1
             elif ($e | fresh($now) | not) then .k = $i + 1 | .max = ([.max, $e.seq] | max)
             elif $strip == "1" and $e.type == "label" then .k = $i + 1 | .max = ([.max, $e.seq] | max)   # a label is display text (ALY-263.6, BR-03): not sent while texts are off
-            else ($e | keep | if $strip == "1" then del(.activity) | (if (.sub | type) == "object" then .sub |= del(.desc, .summary) else . end) else . end) as $ev | ($ev | tojson | utf8bytelength) as $len
+            elif $notu == "1" and $e.type == "cmd_end" then .k = $i + 1 | .max = ([.max, $e.seq] | max)   # ALY-269.2: dropped for 10 minutes after a 400
+            else ($e | keep | (if $notu == "1" then del(.tu) else . end) | if $strip == "1" then del(.activity) | (if (.sub | type) == "object" then .sub |= del(.desc, .summary) else . end) else . end) as $ev | ($ev | tojson | utf8bytelength) as $len
               | (if (.evs | length) > 0 then 1 else 0 end) as $sep
               | if ((.evs | length) >= 50) or (((.evs | length) > 0) and ((.size + $sep + $len) > 16384)) then .done = true
                 elif (.size + $sep + $len) > 16384 then .k = $i + 1 | .max = ([.max, $ev.seq] | max)
@@ -609,8 +637,20 @@ flush_run() {
     rm -f "$RESPF" 2>/dev/null
     [[ "$ecode" =~ ^[A-Z_]{1,60}$ ]] || ecode=""
     case "$status" in
-      2??|400|413)
-        # 400 (and 413): the batch is discarded and the next one tried, so a plugin newer than the API (new fields, strict body)
+      400)
+        # ALY-269.2 (AC-12, D-06): a 400 for a batch that carried `tu` or `cmd_end` is most likely an API that does not know them: mark it for
+        # 10 minutes and go round again; the same lines (same seq, nothing renumbered) are rebuilt without those fields and sent once more, so
+        # the phrase events are not lost. The test is on the body that was sent (built WITH tu/cmd_end, so before any mark), not on the mark now:
+        # another session may have set it while this request was in flight. When the mark cannot be written and is not active, the batch is
+        # discarded (no resend loop). A 400 for a body without them is discarded as before.
+        case "$BODY" in
+          *'"type":"cmd_end"'*|*'"tu":"'*)
+            if notu_active || { notu_set 600; notu_active; }; then rm -f "$HDRF" 2>/dev/null; continue; fi ;;
+        esac
+        spool_drop_sent "$BMAX" || return 1
+        [ "$(wc -c <"$SPOOL" 2>/dev/null)" != "$before" ] || return 1 ;;
+      2??|413)
+        # 413 (and 2xx): the batch is discarded and the next one tried, so a plugin newer than the API (new fields, strict body)
         # loses its batches with a 400; hence the release order API -> plugin (ALY-257 D-10), and the API rolls back only
         # together with the plugin (ALY-258.3 D-37; docs/live-reporting.md, task .5).
         case "$status" in 2??) detailed_cache "$det" ;; esac
@@ -1563,12 +1603,21 @@ def tooltpl:
   elif .tool_name | startswith("mcp__") then mcptpl
   else null end;
 def toolphrase: if $txt != "1" then null else ([actof // tooltpl] | .[0]) end;
+# ALY-269.2 (AC-02, D-01): `tu`, the hook call id, only when it passes idok (omitted otherwise, never null); only on tool and sub_tool events.
+def tuf: if (.tool_use_id | idok) then {tu: .tool_use_id} else {} end;
 def toolev:
   redtool as $t
   | if (.agent_id // null) != null then
-    (subof) as $s | if $s != null and $t != null then toolphrase as $a | [{type: "sub_tool", tool: $t, sub: $s} | withact($a)] else trig end
-  elif $t != null then toolphrase as $m | [{type: "tool", tool: $t} | withact($m)]
+    (subof) as $s | if $s != null and $t != null then toolphrase as $a | [({type: "sub_tool", tool: $t, sub: $s} + tuf) | withact($a)] else trig end
+  elif $t != null then toolphrase as $m | [({type: "tool", tool: $t} + tuf) | withact($m)]
   else trig end;
+# ALY-269.2 (AC-02, D-01, D-13): the end of a call, from PostToolUse (ok true) and PostToolUseFailure (ok false, never read from the response).
+# The trigger stays first. hk is an internal marker that bash replaces by `h` (the sha256 of the canonical input) or removes; a subagent whose
+# id fails its pattern sends the trigger alone, like a tool event does.
+def cmdend($ok):
+  [{type: "trig"}] + (
+    if (.agent_id // null) != null then (subof) as $s | if $s != null then [{type: "cmd_end", ok: $ok, sub: $s} + tuf + {hk: true}] else [] end
+    else [{type: "cmd_end", ok: $ok} + tuf + {hk: true}] end);
 def failcode: .error as $x | if ($x | type) == "string" and (["rate_limit","authentication_failed","billing_error","invalid_request","server_error","max_output_tokens"] | index($x)) != null then "cli_error_" + $x else "cli_error_unknown" end;
 def endcode: .reason as $x | if ($x | type) == "string" and (["clear","resume","logout","prompt_input_exit"] | index($x)) != null then "end_" + $x else "end_other" end;
 def evs:
@@ -1577,7 +1626,8 @@ def evs:
     elif $e == "UserPromptSubmit"    then st("working")
     elif $e == "UserPromptExpansion" then []
     elif $e == "PreToolUse"          then (if .tool_name == "AskUserQuestion" then stc("waiting_input"; "asked_question") else toolev end)
-    elif $e == "PostToolUse"         then trig   # D-01: no tool event from Post, only the BR-14 trigger
+    elif $e == "PostToolUse"         then cmdend(true)    # D-01: no tool event from Post; the BR-14 trigger and the command end (ALY-269.2)
+    elif $e == "PostToolUseFailure"  then cmdend(false)
     elif $e == "PermissionRequest"   then stc("waiting_input"; "permission_prompt")
     elif $e == "Notification"        then (if .notification_type == "permission_prompt" then stc("waiting_input"; "permission_prompt")
                                            elif .notification_type == "idle_prompt" then st("idle") else [] end)
@@ -1912,6 +1962,20 @@ case "$LBLC" in -|'{'*'}') ;; *) exit 0 ;; esac
 case "$TKMC" in -|'['*']') ;; *) exit 0 ;; esac
 case "$RSMC" in -|'['*']') ;; *) exit 0 ;; esac
 [[ "$RSDC" =~ ^(-|[0-9]{1,16})$ ]] || exit 0
+
+# ─── ALY-269.2 (AC-02, AC-05, D-08, D-13): `h` of a cmd_end. Only PostToolUse and PostToolUseFailure events carry the marker, so every other
+# event pays nothing. h = sha256 hex of the canonical JSON (`jq -S -c`, streamed: the input never goes through argv) of [tool_name, tool_input],
+# or of tool_input.questions alone for AskUserQuestion (PostToolUse adds answers/annotations to tool_input). A missing hash tool, a jq failure or
+# an input of another shape leaves `h` out; the marker is always removed.
+case "$EVENTS" in
+  *',"hk":true'*)
+    CJ=$(printf '%s' "$INPUT" | jq -S -c 'if .tool_name == "AskUserQuestion" then (.tool_input | objects | .questions | arrays) // empty
+      elif (.tool_name | type) == "string" and (.tool_input | type) == "object" then [.tool_name, .tool_input] else empty end' 2>/dev/null) || CJ=""
+    CH=""
+    if [ -n "$CJ" ]; then CH=$(printf '%s\n' "$CJ" | sha_hex 2>/dev/null) || CH=""; fi
+    CJ=""
+    if [[ "$CH" =~ ^[0-9a-f]{64}$ ]]; then EVENTS="${EVENTS/,\"hk\":true/,\"h\":\"$CH\"}"; else EVENTS="${EVENTS/,\"hk\":true/}"; fi ;;
+esac
 
 # ─── ALY-203.3: binding (BR-08). Strength: skill 4 > mcp 3 > env 2 > branch 1. ───
 # ALY-263.5 (AC-08, D-15): a candidate with the internal touch marker (spec_context/spec_get or a launch with a spec key) is

@@ -1,0 +1,33 @@
+{
+  "session_id": "session-SCRUBBED",
+  "transcript_path": "/path/SCRUBBED/transcript.jsonl",
+  "cwd": "/path/SCRUBBED",
+  "permission_mode": "default",
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Which approach should we take?",
+        "header": "Approach",
+        "options": [
+          { "label": "Recommended - run rm -rf", "description": "Delete the build directory first" },
+          { "label": "Keep going", "description": "Reuse what is there" },
+          { "label": "Skip" }
+        ],
+        "multiSelect": false
+      },
+      {
+        "question": "Which checks should run?",
+        "header": "Checks",
+        "options": [
+          { "label": "Unit", "description": "Fast unit tests" },
+          { "label": "Lint", "description": "Static analysis" },
+          { "label": "End to end", "description": "Slow browser tests" }
+        ],
+        "multiSelect": true
+      }
+    ],
+    "metadata": { "source": "scrubbed", "n": 1 }
+  }
+}

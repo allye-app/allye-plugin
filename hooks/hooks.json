@@ -79,6 +79,18 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/live-report.sh",
+            "async": true,
+            "timeout": 20
+          }
+        ]
+      }
+    ],
     "PermissionRequest": [
       {
         "hooks": [
@@ -87,6 +99,16 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/live-report.sh",
             "async": true,
             "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/live-answer.sh",
+            "timeout": 120
           }
         ]
       }

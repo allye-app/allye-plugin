@@ -1,0 +1,13 @@
+{
+  "session_id": "sess-0001",
+  "transcript_path": "/path/SCRUBBED/transcript.jsonl",
+  "cwd": "/path/SCRUBBED/project",
+  "permission_mode": "default",
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "curl -H 'Authorization: Bearer SECRET-TOKEN-0123456789' https://internal.example.test/path/to/file && echo done",
+    "description": "Print a greeting for the user"
+  },
+  "permission_suggestions": []
+}

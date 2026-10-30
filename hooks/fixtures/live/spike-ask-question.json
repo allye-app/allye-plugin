@@ -1,0 +1,32 @@
+{
+  "session_id": "session-SCRUBBED",
+  "transcript_path": "/path/SCRUBBED/transcript.jsonl",
+  "cwd": "/path/SCRUBBED",
+  "scratchpad_dir": "/path/SCRUBBED/scratch",
+  "prompt_id": "prompt-SCRUBBED",
+  "permission_mode": "<string>",
+  "effort": {
+    "level": "<string>"
+  },
+  "hook_event_name": "PermissionRequest",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "<string>",
+        "header": "<string>",
+        "options": [
+          {
+            "label": "<string>",
+            "description": "<string>"
+          },
+          {
+            "label": "<string>",
+            "description": "<string>"
+          }
+        ],
+        "multiSelect": false
+      }
+    ]
+  }
+}
