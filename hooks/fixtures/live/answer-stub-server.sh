@@ -14,6 +14,7 @@
 #   open         ok (default) | unanswerable | 404 (code not_found) | run_not_found (404, code run_not_found) | 405 | 429 | 500 | garbage | notjson | redirect | hold | killmid
 #   wait         space-separated modes, the Nth wait call takes the Nth word (the last repeats):
 #                pending (default) | allow | deny | question | decision | nodecision | terminal | expired | no_audience | slow | hold | malformed | unknown | redirect | 500 | 404 | 429
+#                rawdata (ALY-269.5): answers with the file wait-data as the whole `data` object (any decision shape)
 #   expires-in   seconds from the open to `expiresAt` (default 100); expires-at: a raw expiresAt string that overrides it
 #   decision     (ALY-269.4) raw JSON file read by the wait mode `decision`: its content becomes `data.decision` of an `answered` wait
 #                (`nodecision` answers with no decision key at all)
@@ -74,6 +75,7 @@ const server = createServer((req, res) => {
           case "question": return done("answered", { decision: { answers: [{ q: 0, picks: [0] }] } });
           case "decision": return done("answered", { decision: JSON.parse(read("decision", "null")) });
           case "nodecision": return done("answered");
+          case "rawdata": return ok(res, JSON.parse(read("wait-data", "{}")));   // ALY-269.5: the raw `data` of the wait answer, from the control file wait-data
           case "terminal": return done("terminal", { reason: "cmd_end" });
           case "expired": return done("expired", { reason: "expired" });
           case "no_audience": return done("expired", { reason: "no_audience" });
