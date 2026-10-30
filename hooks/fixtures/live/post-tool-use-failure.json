@@ -8,5 +8,6 @@
   "tool_input": {
     "command": "MARKER_CMD"
   },
+  "tool_use_id": "toolu_09",
   "error": "MARKER_MSG"
 }

@@ -287,9 +287,12 @@ test_sha() { if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sh
 DEFAULT_SID="sess-0001"
 spool_of() { echo "$DATA/live/$(test_sha "$1").spool"; }
 # spooled SID: the spool lines without their `at` and `seq`, compact, one per line ("" when no spool).
-spooled_all() { local f; f=$(spool_of "${1:-$RAWSID}"); [ -f "$f" ] && "$JQ_BIN" -cS 'del(.at, .seq)' "$f" || true; }
+# ALY-269.2: `tu` is not shown here (the section `cmd end` reads it from the raw spool); the cmd_end events are shown by `spooled_ev` (the fixture
+# check) and left out of `spooled`, which the older sections read for the events they know.
+spooled_all() { local f; f=$(spool_of "${1:-$RAWSID}"); [ -f "$f" ] && "$JQ_BIN" -cS 'del(.at, .seq, .tu)' "$f" || true; }
 # `spooled` leaves out the label events (ALY-263.6): a SessionStart in a real directory adds one; the section "label" reads them with labels.
-spooled() { spooled_all "$@" | grep -v '"type":"label"' || true; }
+spooled() { spooled_all "$@" | grep -v '"type":"label"' | grep -v '"type":"cmd_end"' || true; }
+spooled_ev() { spooled_all "$@" | grep -v '"type":"label"' || true; }
 # run_fixture NAME...: feeds each fixture in order on stdin (same session), sets OUT/ERR/RC of the last.
 run_fixture() { local n; for n in "$@"; do cp "$FIX/$n.json" "$SB/stdin"; run_hook; done; }
 expected_of() { local n; for n in "$@"; do cat "$FIX/$n.expect"; done; }
@@ -297,7 +300,7 @@ expected_of() { local n; for n in "$@"; do cat "$FIX/$n.expect"; done; }
 expect_fixture() {
   new_case; mkcred; run_fixture "$1"
   check "$1: exits 0, silent" "0||" "$RC|$OUT|$ERR"
-  check "$1: spools exactly the listed events" "$(expected_of "$1" | "$JQ_BIN" -cS .)" "$(spooled)"
+  check "$1: spools exactly the listed events" "$(expected_of "$1" | "$JQ_BIN" -cS .)" "$(spooled_ev)"
   check "$1: the flush reached no API (the stub curl fails; no request arrived)" "0" "$(reqs)"
   end_case
 }
@@ -372,10 +375,11 @@ FXI=0
 for f in "$FIX"/*.json; do
   n=$(basename "$f" .json)
   FXI=$((FXI + 1)); pt_mine "$FXI" || continue   # PT_SHARD: the fixtures are split over the shards of this group
+  case "$n" in spike-ask-question|spike-permission-request|spike-post-tool-use) continue ;; esac   # ALY-269.1 payload evidence (scrubbed session id; test/test-spike-doc.mjs checks it): not event fixtures
   [ -f "$FIX/$n.expect" ] || { check "$n: has an .expect file" "yes" "no"; continue; }
   expect_fixture "$n"
 done
-pt_mine 0 && check "every confirmed event of the table has a fixture" "0" "$(for e in SessionStart UserPromptSubmit UserPromptExpansion PreToolUse PostToolUse PermissionRequest Notification SubagentStart SubagentStop Stop StopFailure SessionEnd; do grep -lq "\"hook_event_name\": \"$e\"" "$FIX"/*.json || echo "$e"; done | wc -l | tr -d ' ')"
+pt_mine 0 && check "every confirmed event of the table has a fixture" "0" "$(for e in SessionStart UserPromptSubmit UserPromptExpansion PreToolUse PostToolUse PostToolUseFailure PermissionRequest Notification SubagentStart SubagentStop Stop StopFailure SessionEnd; do grep -lq "\"hook_event_name\": \"$e\"" "$FIX"/*.json || echo "$e"; done | wc -l | tr -d ' ')"
 
 # ─── AC-15 / BR-14: working before the first tool or subagent event after waiting_input ─────
 #@group waiting 13
@@ -1393,7 +1397,7 @@ check "raw session id absent from every file, filename, shim log and request" "0
 final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWSID").final.lock" ] || break; sleep 0.05; done   # the SessionEnd fixtures' final flusher (stub curl)
 check "files are keyed by sha256(session id): acts, bind, cred, flushed, label, rsm, seq, spool, state, subs, tkmem and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").label $(test_sha "$RAWSID").rsm $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").tkmem $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
-check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","pr","activity","label"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","pr","activity","label","tu","h","ok"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","ready","approved","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
@@ -2475,7 +2479,7 @@ increasing() { awk 'NR > 1 && $1 <= prev { bad = 1 } { prev = $1 } END { print (
 new_case; mkcred
 cp "$FIX/permission-request.json" "$SB/stdin"; run_hook
 cp "$FIX/pre-tool-use.json" "$SB/stdin"; run_hook; cp "$FIX/post-tool-use.json" "$SB/stdin"; run_hook
-check "waiting then a tool: three lines with strictly increasing seq (two events from one hook included)" "3 yes" "$(seqs | wc -l | tr -d ' ') $(seqs | increasing)"
+check "waiting then a tool: four lines (waiting, working, the tool and the cmd_end of the PostToolUse) with strictly increasing seq (two events from one hook included)" "4 yes" "$(seqs | wc -l | tr -d ' ') $(seqs | increasing)"
 check "seq counter file: private, holds the last seq" "600 $(seqs | tail -n 1)" "$(find "$DATA/live/$(test_sha "$RAWSID").seq" -printf '%m') $(cat "$DATA/live/$(test_sha "$RAWSID").seq")"
 check "no lock directory left behind, no temp file" "0" "$(find "$DATA/live" -name '*.lock*' -o -name '.*.??????' | wc -l | tr -d ' ')"
 LASTSEQ=$(seqs | tail -n 1)
@@ -2598,7 +2602,7 @@ check "ten hooks: the expected multiset of events (fixture expectations summed)"
     # ALY-263.13: of the equal main-session phrases only the first is sent (whichever hook wins the lock); the others lose `activity`
     if [ "$f" = pre-tool-use ] && [ "$SEENP" = yes ]; then "$JQ_BIN" -cS 'del(.activity)' "$FIX/$f.expect"; else "$JQ_BIN" -cS . "$FIX/$f.expect"; fi
     [ "$f" != pre-tool-use ] || SEENP=yes
-  done | sort | tr '\n' ' ')" "$("$JQ_BIN" -cS 'del(.at, .seq)' "$SP" | sort | tr '\n' ' ')"
+  done | sort | tr '\n' ' ')" "$("$JQ_BIN" -cS 'del(.at, .seq, .tu)' "$SP" | sort | tr '\n' ' ')"
 check "ten hooks: counter equals the largest seq, outputs empty, no lock left" "$(seqs | tail -n 1)||no" "$(cat "$DATA/live/$(test_sha "$RAWSID").seq")|$(cat "$SB"/par.*)|$([ -n "$(find "$DATA/live" -name '*.lock' 2>/dev/null)" ] && echo yes || echo no)"
 end_case
 
@@ -2733,9 +2737,9 @@ fake_wait_on   # a pending sleeper of the harness: these hooks may not arm one, 
 at 1; run_fixture pre-tool-use; at 1; run_fixture pre-tool-use; at 1; run_fixture pre-tool-use
 check "three non-important events within 2 s: nothing sent, all three spooled" "1 3" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
 at 1; run_fixture post-tool-use
-check "still nothing at 1 s (a PostToolUse adds no line)" "1 3" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+check "still nothing at 1 s (a PostToolUse adds only its cmd_end line, ALY-269.2)" "1 4" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
 at 2; run_fixture pre-tool-use
-check "at 2 s since the last flush: one request carrying the 4 spooled events" "2 4 0" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tail -n 1) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+check "at 2 s since the last flush: one request carrying the 5 spooled events (the cmd_end line included)" "2 5 0" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tail -n 1) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
 at 3; run_fixture pre-tool-use
 check "1 s after that flush a plain event waits" "2 1" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
 at 3; run_fixture subagent-start
@@ -3081,9 +3085,9 @@ flush_direct() {
   local H; H=$(test_sha "$RAWSID")
   env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REALBIN" CLAUDE_PLUGIN_DATA="$DATA" "$BASH_BIN" -c "
     LC_ALL=C; umask 077; UID_NOW=\$(id -u); . '$LIB'; CFP=''; SEND_MAXTIME=8; SEND_CONNECT=3
-    $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent detailed_cache flush_run; do fn_body "$HOOK" "$f"; done)
+    $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set notu_active notu_set mark_disabled batch_build spool_drop_sent detailed_cache flush_run; do fn_body "$HOOK" "$f"; done)
     HASH='$H'; LIVE_DIR='$DATA/live'; SPOOL=\"\$LIVE_DIR/\$HASH.spool\"; LOCKD=\"\$LIVE_DIR/\$HASH.lock\"; FLOCK=\"\$LIVE_DIR/\$HASH.flush.lock\"
-    BATCHF=\"\$LIVE_DIR/\$HASH.batch\"; HDRF=\"\$LIVE_DIR/\$HASH.hdr\"; RESPF=\"\$LIVE_DIR/\$HASH.resp\"; DIR='$DATA'; BACKOFFF=\"\$LIVE_DIR/backoff\"; LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
+    BATCHF=\"\$LIVE_DIR/\$HASH.batch\"; HDRF=\"\$LIVE_DIR/\$HASH.hdr\"; RESPF=\"\$LIVE_DIR/\$HASH.resp\"; DIR='$DATA'; BACKOFFF=\"\$LIVE_DIR/backoff\"; NOTUF=\"\$LIVE_DIR/notu\"; LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
     lock_take \"\$FLOCK\" 0 && { FTOK=\$LOCK_TOKEN; flush_run; lock_drop \"\$FLOCK\" \"\$FTOK\"; }"
 }
 BASE_LEN() { printf '{"client":{"kind":"claude-code"},"session":{"hash":"%s"},"events":[]}' "$(test_sha "$RAWSID")" | wc -c | tr -d ' '; }
@@ -3135,8 +3139,8 @@ end_case
 direct_case; line6 1001 0 >"$SPF"
 env -i HOME="$SB/home" PATH="$SHIMS:$REALBIN" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REALBIN" "$BASH_BIN" -c "
   LC_ALL=C; umask 077; UID_NOW=\$(id -u); . '$LIB'; CFP=''; SEND_MAXTIME=8; SEND_CONNECT=3
-  $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set mark_disabled batch_build spool_drop_sent detailed_cache flush_run; do fn_body "$HOOK" "$f"; done)
-  HASH='$(test_sha "$RAWSID")'; LIVE_DIR='$DATA/live'; SPOOL='$SPF'; LOCKD=\"\$LIVE_DIR/x.lock\"; FLOCK=\"\$LIVE_DIR/x.flush.lock\"; BATCHF=\"\$LIVE_DIR/x.batch\"; HDRF=\"\$LIVE_DIR/x.hdr\"; RESPF=\"\$LIVE_DIR/x.resp\"; DIR='$DATA'; BACKOFFF=\"\$LIVE_DIR/backoff\"
+  $(for f in lock_is_stale lock_take lock_drop lock_touch private_file_ok jq_valid_def credfp backoff_active backoff_set notu_active notu_set mark_disabled batch_build spool_drop_sent detailed_cache flush_run; do fn_body "$HOOK" "$f"; done)
+  HASH='$(test_sha "$RAWSID")'; LIVE_DIR='$DATA/live'; SPOOL='$SPF'; LOCKD=\"\$LIVE_DIR/x.lock\"; FLOCK=\"\$LIVE_DIR/x.flush.lock\"; BATCHF=\"\$LIVE_DIR/x.batch\"; HDRF=\"\$LIVE_DIR/x.hdr\"; RESPF=\"\$LIVE_DIR/x.resp\"; DIR='$DATA'; BACKOFFF=\"\$LIVE_DIR/backoff\"; NOTUF=\"\$LIVE_DIR/notu\"
   LIVE_API='$API'; LIVE_TOKEN='$TOKEN'; TMPF=''
   mkdir \"\$FLOCK\"; printf '%s %s' \"\$(date +%s)\" 'someone-else' >\"\$FLOCK/t\"; FTOK=not-mine; flush_run"
 check "flusher that no longer owns its lock sends nothing and keeps the spool" "0 1" "$(nbodies) $(wc -l <"$SPF" | tr -d ' ')"; end_case
@@ -3804,17 +3808,17 @@ check "hooks.json parses as JSON with a single top-level key, hooks" "yes hooks"
 # (unmapped-event-*, unknown-event*) are fixtures of events that are NOT registered.
 FIX_EVENTS=$(for f in "$FIX"/*.json; do case "$(basename "$f")" in unmapped-event-*|unknown-event*) continue ;; esac; "$JQ_BIN" -r '.hook_event_name' "$f"; done | sort -u | tr '\n' ' ')
 REG_EVENTS=$("$JQ_BIN" -r '.hooks | keys[]' "$HJ" 2>/dev/null | sort -u | tr '\n' ' ')
-check "the fixture event list is the 12 confirmed events (not vacuous)" "12" "$(printf '%s' "$FIX_EVENTS" | wc -w | tr -d ' ')"
+check "the fixture event list is the 13 confirmed events (not vacuous)" "13" "$(printf '%s' "$FIX_EVENTS" | wc -w | tr -d ' ')"
 check "registered events == fixture events, no extra event" "$FIX_EVENTS" "$REG_EVENTS"
-check "no negative-control event is registered" "0" "$("$JQ_BIN" -r '.hooks | keys[] | select(IN("FileChanged","PostToolUseFailure","PostToolBatch","PermissionDenied","PreCompact") or startswith("MARKER"))' "$HJ" | wc -l | tr -d ' ')"
+check "no negative-control event is registered" "0" "$("$JQ_BIN" -r '.hooks | keys[] | select(IN("FileChanged","PostToolBatch","PermissionDenied","PreCompact") or startswith("MARKER"))' "$HJ" | wc -l | tr -d ' ')"
 REPORTER_CMD='${CLAUDE_PLUGIN_ROOT}/hooks/live-report.sh'
 rep() { "$JQ_BIN" -r --arg c "$REPORTER_CMD" "$1" "$HJ"; }
-check "every event has exactly one reporter hook, in one entry of its own" "12 12" "$(rep '[.hooks[][] | select(.hooks | map(.command) | index($c))] | length') $(rep '[.hooks | to_entries[] | select(.value | map(.hooks[] | select(.command == $c)) | length == 1)] | length')"
+check "every event has exactly one reporter hook, in one entry of its own" "13 13" "$(rep '[.hooks[][] | select(.hooks | map(.command) | index($c))] | length') $(rep '[.hooks | to_entries[] | select(.value | map(.hooks[] | select(.command == $c)) | length == 1)] | length')"
 check "every reporter entry holds the reporter command alone (no other hook shares it)" "0" "$(rep '[.hooks[][] | select(.hooks | map(.command) | index($c)) | select((.hooks | length) != 1)] | length')"
-check "every reporter hook is a command hook with the exact path under CLAUDE_PLUGIN_ROOT" "12" "$(rep '[.hooks[][].hooks[] | select(.command == $c and .type == "command")] | length')"
-check "every reporter hook except SessionEnd is async" "11 0" "$(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c and .async == true)] | length') $(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c and .async != true)] | length')"
+check "every reporter hook is a command hook with the exact path under CLAUDE_PLUGIN_ROOT" "13" "$(rep '[.hooks[][].hooks[] | select(.command == $c and .type == "command")] | length')"
+check "every reporter hook except SessionEnd is async" "12 0" "$(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c and .async == true)] | length') $(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c and .async != true)] | length')"
 check "SessionEnd is synchronous (no async) with a 2 second timeout" "null 2" "$(rep '.hooks.SessionEnd[].hooks[] | select(.command == $c) | (.async // null | tostring)') $(rep '.hooks.SessionEnd[].hooks[] | select(.command == $c) | .timeout')"
-check "async reporter hooks carry a 20 second timeout (state lock wait plus git, as the flush is detached)" "11 20" "$(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c and (.timeout | type == "number"))] | length') $(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c) | .timeout] | unique | .[0]')"
+check "async reporter hooks carry a 20 second timeout (state lock wait plus git, as the flush is detached)" "12 20" "$(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c and (.timeout | type == "number"))] | length') $(rep '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[].hooks[] | select(.command == $c) | .timeout] | unique | .[0]')"
 check "every reporter timeout is a number between 1 and 60" "0" "$(rep '[.hooks[][].hooks[] | select(.command == $c) | select((.timeout | type) != "number" or .timeout < 1 or .timeout > 60)] | length')"
 check "the reporter registrations add no matcher (the script filters by itself)" "0" "$(rep '[.hooks[][] | select(.hooks | map(.command) | index($c)) | select(has("matcher"))] | length')"
 check "the existing SessionStart hooks are unchanged (same entries, same order, first)" '[{"hooks":[{"command":"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh","timeout":15,"type":"command"}]},{"hooks":[{"command":"${CLAUDE_PLUGIN_ROOT}/hooks/session-preferences.sh","timeout":5,"type":"command"}],"matcher":"startup|clear|compact"}]' \
@@ -4098,6 +4102,192 @@ check "a 60 KB newest handback report is parsed through a file, not argv" "fail"
 # ─── ALY-263.13 (AC-16): the ALY-260-style sequence replayed through the current script, FUNCTIONAL checks only ──────────────────────────
 # No assertion here bounds elapsed time (architecture guard ALY-54). The measured p95 added per tool event is printed by the non-gating
 # helper hooks/test/measure-latency.sh, which replays hooks/fixtures/live/latency/sequence.json against the frozen v2.12.0 script and this one.
+#@group cmdend 25
+echo "== cmd end: tu on tool events, cmd_end with h, 400 drop-and-resend, seq (ALY-269.2 AC-02, AC-12, D-01, D-13) =="
+T0=1800000000
+sha_hex() { local o; if command -v sha256sum >/dev/null 2>&1; then o=$(sha256sum); else o=$(shasum -a 256); fi; printf '%s' "${o%% *}"; }
+# raw spool (tu and seq visible), one JSON line per event; ce FIELD-EXPR: that expression over every cmd_end line
+raw() { cat "$(spool_of "$RAWSID")" 2>/dev/null || true; }
+rawq() { raw | "$JQ_BIN" -c "select($1)" 2>/dev/null || true; }
+ce() { rawq '.type == "cmd_end"' | "$JQ_BIN" -r "$1"; }
+# pl FIXTURE JQ-EXPR: the fixture changed by the expression is the next stdin; the hook runs
+pl() { "$JQ_BIN" -c "$2" "$FIX/$1.json" >"$SB/stdin"; run_hook; }
+# Known-answer vectors (the answer client of ALY-269.3 reuses them). The canonical JSON is `jq -S -c` over the array, the hash is the sha256 hex of that line:
+#   V1: tool_name Bash, tool_input {"description":"d","command":"echo hi"}  ->  ["Bash",{"command":"echo hi","description":"d"}]  ->  VEC1
+#   V2: AskUserQuestion, questions [{"question":"Which?","header":"H","options":[{"label":"A","description":"a"},{"label":"B","description":"b"}],"multiSelect":false}]
+#       ->  [{"header":"H","multiSelect":false,"options":[{"description":"a","label":"A"},{"description":"b","label":"B"}],"question":"Which?"}]  ->  VEC2
+VEC1=cb849cc1afccaaee6ac77370f8db2f40d8c1736adbbfed6de716bcadc140df0a
+VEC2=82a468e179ecb140f091484cfea7e342b4505f089443ac047467c66058152dc9
+check "the vectors are what sha256 of the canonical line gives (positive control of the test itself)" "$VEC1 $VEC2" \
+  "$(printf '%s\n' '["Bash",{"command":"echo hi","description":"d"}]' | sha_hex) $(printf '%s\n' '[{"header":"H","multiSelect":false,"options":[{"description":"a","label":"A"},{"description":"b","label":"B"}],"question":"Which?"}]' | sha_hex)"
+
+new_case; mkcred
+run_fixture pre-tool-use pre-tool-use-subagent
+check "tu: the PreToolUse tool_use_id rides on the tool event and on the sub_tool event" "toolu_01 toolu_04" "$(rawq '.type == "tool"' | "$JQ_BIN" -r '.tu') $(rawq '.type == "sub_tool"' | "$JQ_BIN" -r '.tu')"
+check "tu: a PreToolUse adds no cmd_end and no h" "0 0" "$(rawq '.type == "cmd_end"' | wc -l | tr -d ' ') $(raw | grep -c '"h"' || true)"
+end_case
+for bad in 'bad id!' '' "$(head -c 65 /dev/zero | tr '\0' a)"; do
+  new_case; mkcred; pl pre-tool-use ".tool_use_id = \"$bad\""
+  check "tu: an invalid tool_use_id ('${bad:0:12}') is omitted from the tool event, never null or empty" "1 false" "$(rawq '.type == "tool"' | wc -l | tr -d ' ') $(rawq '.type == "tool"' | "$JQ_BIN" -r 'has("tu")')"
+  end_case
+done
+new_case; mkcred; pl pre-tool-use 'del(.tool_use_id)'
+check "tu: a missing tool_use_id is omitted" "false" "$(rawq '.type == "tool"' | "$JQ_BIN" -r 'has("tu")')"; end_case
+new_case; mkcred; pl permission-request '.tool_use_id = "toolu_perm"'
+check "tu: a waiting (permission) state event never carries tu" "1 false" "$(rawq '.type == "state"' | wc -l | tr -d ' ') $(rawq '.type == "state"' | "$JQ_BIN" -r 'has("tu")')"; end_case
+
+# cmd_end
+new_case; mkcred; run_fixture post-tool-use
+check "cmd_end main (PostToolUse): one event with exactly at, h, ok, seq, tu, type; ok true; tu and h as expected" "1 at,h,ok,seq,tu,type true toolu_06 fc6f97f4dbdc375a316ed3e29d3130dbb01730920e3edc5814a65d1ff3f87f21" \
+  "$(rawq '.type == "cmd_end"' | wc -l | tr -d ' ') $(ce 'keys | join(",")') $(ce '.ok') $(ce '.tu') $(ce '.h')"
+check "cmd_end: at is the event time, the same ISO format as the other events; the line is valid on its own" "yes" "$(ce '.at | test("\\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\z")' | sed 's/true/yes/;s/false/no/')"
+end_case
+new_case; mkcred; run_fixture post-tool-use-subagent
+check "cmd_end subagent: sub = {id, type} exactly like a sub_tool, ok true, tu" "agent-abc123 allye:bridge-pilot true toolu_07 0" "$(ce '.sub.id') $(ce '.sub.type') $(ce '.ok') $(ce '.tu') $(rawq '.type == "sub_tool"' | wc -l | tr -d ' ')"
+end_case
+new_case; mkcred; run_fixture post-tool-use-failure
+check "cmd_end PostToolUseFailure: ok false (never read from the error text), tu, h" "false toolu_09 b63b06b4abbf6ecbf9b66fda848cd216358176235a5c9c51ef2dc3127d4c41ef" "$(ce '.ok') $(ce '.tu') $(ce '.h')"
+end_case
+new_case; mkcred; pl post-tool-use '.tool_response = {"is_error": true, "error": "failed: exit 1"}'
+check "cmd_end: ok comes from the event name; an error text inside a PostToolUse response does not flip it" "true" "$(ce '.ok')"; end_case
+new_case; mkcred; pl post-tool-use 'del(.tool_use_id)'
+check "cmd_end without a usable tool_use_id: still sent, tu omitted, h kept" "false true" "$(ce 'has("tu")') $(ce 'has("h")')"; end_case
+new_case; mkcred; pl post-tool-use '.tool_use_id = "no good"'
+check "cmd_end with an invalid tool_use_id: tu omitted" "false" "$(ce 'has("tu")')"; end_case
+new_case; mkcred; pl post-tool-use-subagent '.agent_id = "bad id!"'
+check "cmd_end of a subagent with an invalid id: nothing but the trigger (no cmd_end, like no sub_tool)" "0" "$(rawq '.type == "cmd_end"' | wc -l | tr -d ' ')"; end_case
+new_case; mkcred; pl post-tool-use '.tool_input = "not an object"'
+check "cmd_end with a tool_input that is not an object: sent without h" "1 false" "$(rawq '.type == "cmd_end"' | wc -l | tr -d ' ') $(ce 'has("h")')"; end_case
+
+# h: known answers
+new_case; mkcred; pl post-tool-use '.tool_name = "Bash" | .tool_input = {"description": "d", "command": "echo hi"}'
+check "h: known answer V1 (key order of the input does not matter)" "$VEC1" "$(ce '.h')"; end_case
+Q='[{"question":"Which?","header":"H","options":[{"label":"A","description":"a"},{"label":"B","description":"b"}],"multiSelect":false}]'
+new_case; mkcred; pl cmd-end ".tool_input = {\"questions\": $Q}"
+check "h: AskUserQuestion is over tool_input.questions alone: known answer V2" "$VEC2" "$(ce '.h')"; end_case
+new_case; mkcred; pl cmd-end ".tool_input = {\"questions\": $Q, \"answers\": {\"Which?\": \"B\"}, \"annotations\": {\"x\": 1}}"
+check "h: answers and annotations that PostToolUse adds do not change it (V2 again)" "$VEC2" "$(ce '.h')"
+check "h: and it differs from the hash of the whole [tool_name, tool_input]" "yes" "$([ "$(ce '.h')" != "$("$JQ_BIN" -S -c '[.tool_name, .tool_input]' "$FIX/cmd-end.json" | sha_hex)" ] && echo yes || echo no)"; end_case
+new_case; mkcred; pl cmd-end 'del(.tool_input.questions)'
+check "h: AskUserQuestion without questions: no h" "false" "$(ce 'has("h")')"; end_case
+new_case; mkcred; run_fixture cmd-end
+check "h: the cmd-end fixture (answers in the input) hashes the questions" "$VEC2" "$(ce '.h')"; end_case
+# a 1 MB tool_input is streamed, never put on argv
+new_case; mkcred; head -c 1000000 /dev/zero | tr '\0' 'a' >"$SB/big.txt"
+"$JQ_BIN" -c --rawfile c "$SB/big.txt" '.tool_input = {command: $c, description: "d"}' "$FIX/post-tool-use.json" >"$SB/stdin"; run_hook
+BIGH=$("$JQ_BIN" -S -c --rawfile c "$SB/big.txt" -n '["Edit", {command: $c, description: "d"}]' | sha_hex)
+check "h: a 1 MB tool_input: exits 0, silent, h equals the hash of the canonical array computed apart" "0|| $BIGH" "$RC|$OUT$ERR| $(ce '.h')"; end_case
+
+# Live off / unpaired: nothing is spooled or sent
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/off"; chmod 600 "$DATA/live/off"
+run_fixture post-tool-use post-tool-use-failure pre-tool-use
+check "Live off: no cmd_end, no tool event is spooled, nothing sent" "0 0" "$(raw | wc -l | tr -d ' ') $(nbodies)"; end_case
+new_case
+run_fixture post-tool-use post-tool-use-failure
+check "no credential: nothing spooled, no request" "no 0" "$([ -e "$DATA/live" ] && echo yes || echo no) $(reqs)"; end_case
+
+# seq: cmd_end takes its number like every event, strictly increasing, and the body carries the same
+new_case; mkcred; at 0
+run_fixture pre-tool-use post-tool-use post-tool-use-failure
+SPOOLSEQ=$(ce '.seq' | tr '\n' ',')
+check "seq: each cmd_end has an integer seq, strictly increasing with the other events in spool order" "yes 2" "$("$JQ_BIN" -s '[.[].seq] as $s | (($s | all(type == "number" and . == floor)) and $s == ($s | sort) and ($s | unique | length) == ($s | length))' "$(spool_of "$RAWSID")" | sed 's/true/yes/;s/false/no/') $(ce '.seq' | wc -l | tr -d ' ')"
+SHIMD="$SHIMS"; at 0; run_fixture subagent-start
+check "seq: the batch carries the cmd_end events with the very seq the hook gave them in the spool" "$SPOOLSEQ" "$("$JQ_BIN" -r 'select(.events != null) | .events[] | select(.type == "cmd_end") | .seq' "$SB/api/ingest-bodies.log" | tr '\n' ',')"
+check "seq: the whole body is strictly increasing" "yes" "$("$JQ_BIN" -s '[.[].events[].seq] as $s | ($s == ($s | sort) and ($s | unique | length) == ($s | length))' "$SB/api/ingest-bodies.log" | sed 's/true/yes/;s/false/no/')"
+end_case
+
+# 400: the whole batch is not lost; tu and cmd_end go for 10 minutes
+CREDFP2() { test_sha "$TOKEN"; }
+NOTU() { echo "$DATA/live/notu"; }
+yn() { sed 's/true/yes/;s/false/no/'; }
+bodyq() { "$JQ_BIN" -c "$2" <(sed -n "${1}p" "$SB/api/ingest-bodies.log"); }   # LINE-OF-BODIES-LOG JQ-EXPR over that body
+since() { tail -n +$(($1 + 1)) "$SB/api/ingest-bodies.log" | "$JQ_BIN" -s "[.[].events[]] | $2"; }   # N JQ-EXPR over the events of the bodies after the first N
+# stage: the tool, cmd_end and subagent events are spooled while the curl is a stub that fails, so one real flush then sends them as one batch
+stage() { SHIMD="$SHIMS_STUB"; at "${1:-0}"; run_fixture pre-tool-use post-tool-use pre-tool-use-subagent; SHIMD="$SHIMS"; }
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+stage 0; SEQS1=$(raw | "$JQ_BIN" -r '.seq' | tr '\n' ',')
+printf '400\n' >"$SB/api/ingest-script"; at 0; run_fixture subagent-stop
+check "400 with tu/cmd_end: the batch is sent twice" "2" "$(nbodies)"
+check "400: the first body carried tu and a cmd_end" "yes yes" "$(bodyq 1 '[.events[] | has("tu")] | any' | yn) $(bodyq 1 '[.events[].type] | index("cmd_end") != null' | yn)"
+check "400: the second body has no tu and no cmd_end, but the phrase events" "no no yes" "$(bodyq 2 '[.events[] | has("tu")] | any' | yn) $(bodyq 2 '[.events[].type] | index("cmd_end") != null' | yn) $(bodyq 2 '[.events[].type] | index("tool") != null and index("sub_tool") != null' | yn)"
+check "400: the events kept in the second body keep the seq they had in the first (nothing renumbered, none duplicated)" "yes" "$("$JQ_BIN" -s '(.[0].events | map(select(.type != "cmd_end")) | map(.seq)) == (.[1].events | map(.seq))' "$SB/api/ingest-bodies.log" | yn)"
+check "400: the spool is empty (sent), the mark is until t+600 for this credential, private, no stderr" "0 $((T0 + 600)) $(CREDFP2) 600 " "$(spn) $(cut -d' ' -f1 "$(NOTU)") $(cut -d' ' -f2 "$(NOTU)") $(find "$(NOTU)" -printf '%m') $ERR"
+# while the mark holds: new events go without tu and without cmd_end
+N0=$(nbodies); at 10; run_fixture pre-tool-use post-tool-use subagent-stop
+check "mark active: later batches have no tu and no cmd_end, the tool events are there; the dropped cmd_end is not left in the spool" "no no yes 0" "$(since "$N0" 'map(has("tu")) | any' | yn) $(since "$N0" 'map(.type) | index("cmd_end") != null' | yn) $(since "$N0" 'map(.type) | index("tool") != null' | yn) $(spn)"
+# the mark ends at t+600
+N0=$(nbodies); at 599; run_fixture pre-tool-use post-tool-use subagent-stop
+check "one second before the end of the mark: still no tu, no cmd_end" "no no" "$(since "$N0" 'map(has("tu")) | any' | yn) $(since "$N0" 'map(.type) | index("cmd_end") != null' | yn)"
+N0=$(nbodies); at 600; run_fixture pre-tool-use post-tool-use subagent-stop
+check "the mark is over at t+600: tu and cmd_end are sent again" "yes yes" "$(since "$N0" 'map(has("tu")) | any' | yn) $(since "$N0" 'map(.type) | index("cmd_end") != null' | yn)"
+end_case
+# an old timestamp written by hand: an expired mark
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s %s' "$((T0 - 1))" "$(CREDFP2)" >"$(NOTU)"; chmod 600 "$(NOTU)"
+stage 0; run_fixture subagent-stop
+check "an expired mark (old timestamp) no longer drops tu and cmd_end" "yes yes" "$(bodyq 1 '[.events[] | has("tu")] | any' | yn) $(bodyq 1 '[.events[].type] | index("cmd_end") != null' | yn)"; end_case
+# a mark of another credential and a symlinked mark do not count
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s %s' "$((T0 + 600))" "$(test_sha "$TOKEN2")" >"$(NOTU)"; chmod 600 "$(NOTU)"
+stage 0; run_fixture subagent-stop
+check "a mark written for another credential is ignored" "yes" "$(bodyq 1 '[.events[] | has("tu")] | any' | yn)"; end_case
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s %s' "$((T0 + 600))" "$(CREDFP2)" >"$SB/elsewhere"; chmod 600 "$SB/elsewhere"; ln -s "$SB/elsewhere" "$(NOTU)"
+stage 0; run_fixture subagent-stop
+check "a symlinked mark file is ignored (tu goes)" "yes" "$(bodyq 1 '[.events[] | has("tu")] | any' | yn)"; end_case
+# race: another session sets the mark while this batch (built with tu and cmd_end) is in flight; its 400 still resends it without them
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+stage 0; printf '400:2500\n' >"$SB/api/ingest-script"
+cp "$FIX/subagent-stop.json" "$SB/stdin"
+env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$SHIMS:$REAL" SHIM_LOG="$SB/log" ALLYE_LIVE_WATCH=0 SHIM_REAL="$REAL" SHIM_DATE_NOW="$T0" "$BASH_BIN" "$HOOK" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
+sleep 0.6   # the flusher builds its body and waits for the (delayed) 400; the mark appears meanwhile
+printf '%s %s' "$((T0 + 600))" "$(CREDFP2)" >"$DATA/live/.notu.race"; chmod 600 "$DATA/live/.notu.race"; mv -f "$DATA/live/.notu.race" "$(NOTU)"
+wait_idle
+check "race: the first body was built with tu and cmd_end, the 400 came after the mark appeared: it is resent" "2 yes yes" "$(nbodies) $(bodyq 1 '[.events[] | has("tu")] | any' | yn) $(bodyq 1 '[.events[].type] | index("cmd_end") != null' | yn)"
+check "race: the resent body has no tu and no cmd_end, the phrase events survive with their seq, the spool is empty" "no no yes yes 0" "$(bodyq 2 '[.events[] | has("tu")] | any' | yn) $(bodyq 2 '[.events[].type] | index("cmd_end") != null' | yn) $(bodyq 2 '[.events[].type] | index("tool") != null and index("sub_tool") != null' | yn) $("$JQ_BIN" -s '(.[0].events | map(select(.type != "cmd_end")) | map(.seq)) == (.[1].events | map(.seq))' "$SB/api/ingest-bodies.log" | yn) $(spn)"
+end_case
+# the mark cannot be written: one rejected batch is discarded, no resend loop
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; link_shims "$SB/shim-mk" mktemp
+printf '#!%s\ncase "$*" in *.notu.*) exit 1 ;; esac\nexec "$SHIM_REAL/mktemp" "$@"\n' "$BASH_BIN" >"$SB/shim-mk/mktemp"; chmod +x "$SB/shim-mk/mktemp"
+stage 0; SHIMD="$SB/shim-mk"; printf '400' >"$SB/api/ingest-mode"; run_fixture subagent-stop
+check "mark not writable: one request, the batch is discarded (no resend loop), no mark, exit 0 silent" "1 0 no 0||" "$(nbodies) $(spn) $([ -e "$(NOTU)" ] && echo yes || echo no) $RC|$OUT|$ERR"; end_case
+# hand-written spool lines: malformed tu, h and ok, and a tu on a state event, are stripped at send time (keep)
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$(spool_of "$RAWSID")"; AT0=$(date -u -d "@$T0" +%Y-%m-%dT%H:%M:%SZ); GOODH=$(printf 'a%.0s' $(seq 1 64))
+{ "$JQ_BIN" -nc --arg at "$AT0" --arg gh "$GOODH" --arg long "$(head -c 65 /dev/zero | tr '\0' a)" '
+    {seq: 1, at: $at, type: "state", state: "working", tu: "toolu_state"},
+    {seq: 2, at: $at, type: "tool", tool: "Bash", tu: "bad id!"},
+    {seq: 3, at: $at, type: "tool", tool: "Bash", tu: $long},
+    {seq: 4, at: $at, type: "tool", tool: "Bash", tu: 5},
+    {seq: 5, at: $at, type: "tool", tool: "Bash", tu: "toolu_ok", h: $gh, ok: true},
+    {seq: 6, at: $at, type: "cmd_end", ok: true, h: "ABCDEF", tu: "toolu_ok"},
+    {seq: 7, at: $at, type: "cmd_end", ok: "yes", h: ($gh | ascii_upcase), tu: "x y"},
+    {seq: 8, at: $at, type: "cmd_end", ok: false, h: $gh, tu: "toolu_ok2"},
+    {seq: 9, at: $at, type: "sub_start", sub: {id: "a", type: "t"}, tu: "toolu_sub"}'; } >"$SPF"; chmod 600 "$SPF"
+SHIMD="$SHIMS"; at 0; run_fixture subagent-stop
+check "keep at send time: tu only on tool, sub_tool and cmd_end and only when valid (state, sub_start, bad id, 65 chars, a number lose it); a valid one stays" "- - - - toolu_ok toolu_ok - toolu_ok2 -" "$(bodyq 1 '[.events[] | select(.seq <= 9) | (.tu // "-")] | join(" ")' | tr -d '"')"
+check "keep at send time: h only on cmd_end and only as 64 lowercase hex; ok only on cmd_end and only as a boolean" "-/- -/- -/- -/- -/- -/true -/- h/false -/-" "$(bodyq 1 '[.events[] | select(.seq <= 9) | ((if has("h") then (if (.h | test("\\A[0-9a-f]{64}\\z")) then "h" else "BAD" end) else "-" end) + "/" + (if has("ok") then (.ok | tostring) else "-" end))] | join(" ")' | tr -d '"')"
+end_case
+# a 400 for a batch that has no tu/cmd_end: as before, discarded, no mark
+new7; printf '400' >"$SB/api/ingest-mode"; at 0; run_fixture user-prompt-submit
+check "400 for a batch without tu/cmd_end: discarded once, no resend, no mark" "1 0 no" "$(nbodies) $(spn) $([ -e "$(NOTU)" ] && echo yes || echo no)"; end_case
+# a 400 while the mark holds: the clean batch is discarded once
+new7; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s %s' "$((T0 + 600))" "$(CREDFP2)" >"$(NOTU)"; chmod 600 "$(NOTU)"
+printf '400' >"$SB/api/ingest-mode"; stage 0; run_fixture subagent-stop
+check "400 while the mark holds: the clean batch is discarded once (one request, empty spool)" "1 0" "$(nbodies) $(spn)"; end_case
+# only cmd_end lines in the rejected batch: marked, nothing left to resend, the spool is emptied
+new7; printf '400\n' >"$SB/api/ingest-script"; at 0; run_fixture post-tool-use
+check "400 for a batch of cmd_end only: mark set, the lines are dropped without a second request, spool empty" "1 0 yes" "$(nbodies) $(spn) $([ -e "$(NOTU)" ] && echo yes || echo no)"; end_case
+new7; printf '400\n' >"$SB/api/ingest-script"; stage 0; run_fixture subagent-stop
+check "400 handling: exit 0, no output, no stderr" "0||" "$RC|$OUT|$ERR"; end_case
+
+# spool eviction: phrases first, then cmd_end (oldest first), then everything else
+evfill() {  # STATES PHRASES ENDS: a private spool, state lines first, then sub_tool phrases, then cmd_end lines (idx counts from 1)
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"
+  "$JQ_BIN" -nc --argjson a "$1" --argjson b "$2" --argjson c "$3" 'range(1; $a + $b + $c + 1) | . as $i | {seq: $i, at: "2026-01-01T00:00:00Z", idx: $i}
+    + (if $i <= $a then {type: "state", state: "working"} elif $i <= $a + $b then {type: "sub_tool", tool: "Read", sub: {id: "a", type: "t"}, activity: "Read a file"} else {type: "cmd_end", ok: true, h: "0000000000000000000000000000000000000000000000000000000000000000"} end)' >"$SPF"
+}
+new_case; mkcred; evfill 300 110 111; run_fixture user-prompt-submit
+check "eviction: phrases go before cmd_end: the 22 oldest sub_tool are dropped, every cmd_end and every state is kept" "500 300 111 88" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "state") | .idx // empty' "$SPF" | wc -l | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "cmd_end") | .idx' "$SPF" | wc -l | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "sub_tool") | .idx' "$SPF" | wc -l | tr -d ' ')"; end_case
+new_case; mkcred; evfill 300 0 200; run_fixture user-prompt-submit
+check "eviction: with no phrase left the oldest cmd_end go before any state: states kept, the oldest cmd_end dropped" "500 300 199 302" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "state") | .idx // empty' "$SPF" | wc -l | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "cmd_end") | .idx' "$SPF" | wc -l | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "cmd_end") | .idx' "$SPF" | head -n 1)"; end_case
+
 #@group latency 23
 echo "== latency: the fixture sequence of ALY-260 replayed, flush rules and fail-quiet reads (ALY-263.13 AC-16) =="
 LATSEQ="$FIX/latency/sequence.json"
