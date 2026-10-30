@@ -245,7 +245,7 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
 
 The `sub_tool` phrase (`toolphrase` in the reporter's jq program) is (a) the Bash/Agent/Task `description` through the cleaner (free text
 keeps the 3-word minimum), else (b) a constant template of this table with at most one allowlisted slot. Nothing else of the tool input
-is ever emitted, and templates skip the 3-word minimum. The main-session `tool` event still uses only (a) until ALY-263.13.
+is ever emitted, and templates skip the 3-word minimum. Since ALY-263.13 the main-session `tool` event uses the same grammar and gates.
 
 | Tool | Phrase |
 |---|---|
