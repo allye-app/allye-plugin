@@ -1,3 +1,10 @@
+## [2.15.1](https://github.com/allye-app/allye-plugin/compare/v2.15.0...v2.15.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **hooks:** send the task key of a short dispatch description to Live (ALY-281.2) ([301c0b0](https://github.com/allye-app/allye-plugin/commit/301c0b0af5d563d193b6795056e9275810f7382d))
+
 # [2.15.0](https://github.com/allye-app/allye-plugin/compare/v2.14.0...v2.15.0) (2026-10-30)
 
 
