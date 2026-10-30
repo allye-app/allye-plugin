@@ -1390,7 +1390,10 @@ end_case
 #@group markers 30
 echo "== markers and the raw session id (AC-02, AC-14) =="
 new_case; mkcred
-for f in "$FIX"/*.json; do cp "$f" "$SB/stdin"; run_hook; [ -z "$OUT$ERR" ] || echo "  (output from $(basename "$f"))"; done
+for f in "$FIX"/*.json; do
+  case "$(basename "$f" .json)" in spike-ask-question|spike-permission-request|spike-post-tool-use|answer-question|answer-permission) continue ;; esac   # ALY-269 hook payloads (own scrubbed session ids): not reporter event fixtures
+  cp "$f" "$SB/stdin"; run_hook; [ -z "$OUT$ERR" ] || echo "  (output from $(basename "$f"))"
+done
 ALLTXT="$SB/all.txt"; { find "$DATA" -type f -exec cat {} +; find "$DATA" -print; cat "$SB/log"/* "$SB/api/requests.log" 2>/dev/null; } >"$ALLTXT"
 for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$m" "$ALLTXT" || true)"; done
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
@@ -5329,6 +5332,8 @@ end_case_ans
 
 echo "== hooks.json: one blocking PermissionRequest hook runs the answer client, the async entries are unchanged (AC-10, D-07 ALY-269.6) =="
 ANSCMD='${CLAUDE_PLUGIN_ROOT}/hooks/live-answer.sh'
+# the hooks.json group defines these for its own sections; this section runs in the `answer` group (its own process), so define them here
+HJ="$SCRIPT_DIR/hooks.json"; PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; REPORTER_CMD='${CLAUDE_PLUGIN_ROOT}/hooks/live-report.sh'
 rep2() { "$JQ_BIN" -r --arg c "$REPORTER_CMD" --arg a "$ANSCMD" "$1" "$HJ"; }
 check "the answer client is registered exactly once in the whole file" "1" "$(rep2 '[.hooks[][].hooks[] | select(.command == $a)] | length')"
 check "it is under PermissionRequest only (no PreToolUse or other event runs it)" "PermissionRequest 0" "$(rep2 '[.hooks | to_entries[] | select(.value[].hooks[].command == $a) | .key] | unique | join(",")') $(rep2 '[.hooks.PreToolUse[].hooks[] | select(.command | test("live-answer"))] | length')"
