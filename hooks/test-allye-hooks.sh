@@ -617,7 +617,7 @@ run_script live status "$DATA"; check "live status after activity off: reporting
 check "activity off leaves the live-off flag alone" "no" "$([ -e "$(LV off)" ] && echo yes || echo no)"
 printf '5xx' >"$SB/api/ingest-mode"   # the API fails: the reporter's lines stay in the spool
 run_live activity-bash
-check "activity off: the reporter spools the tool event without the phrase" '{"tool":"Bash","type":"tool"}' "$("$JQ_BIN" -cS 'del(.at, .seq)' "$DATA"/live/*.spool | tail -n 1)"
+check "activity off: the reporter spools the tool event without the phrase" '{"tool":"Bash","tu":"toolu_act","type":"tool"}' "$("$JQ_BIN" -cS 'del(.at, .seq)' "$DATA"/live/*.spool | tail -n 1)"
 run_script live activity off "$DATA"; check "activity off twice is harmless" "0 600" "$RC $(find "$(LV activity-off)" -printf '%m')"
 run_script live activity on "$DATA"
 check "activity on removes the flag and says on" "0 no|Live texts are on." "$RC $([ -e "$(LV activity-off)" ] && echo yes || echo no)|$OUT"
