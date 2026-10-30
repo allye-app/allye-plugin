@@ -13,8 +13,10 @@
 # of DIR at every request:
 #   open         ok (default) | unanswerable | 404 (code not_found) | run_not_found (404, code run_not_found) | 405 | 429 | 500 | garbage | notjson | redirect | hold | killmid
 #   wait         space-separated modes, the Nth wait call takes the Nth word (the last repeats):
-#                pending (default) | allow | deny | question | terminal | expired | no_audience | slow | hold | malformed | unknown | redirect | 500 | 404 | 429
+#                pending (default) | allow | deny | question | decision | nodecision | terminal | expired | no_audience | slow | hold | malformed | unknown | redirect | 500 | 404 | 429
 #   expires-in   seconds from the open to `expiresAt` (default 100); expires-at: a raw expiresAt string that overrides it
+#   decision     (ALY-269.4) raw JSON file read by the wait mode `decision`: its content becomes `data.decision` of an `answered` wait
+#                (`nodecision` answers with no decision key at all)
 #   cancel, ack  ok (default) | hold | 500
 # Envelope as the API: success {data: ...}; error {timestamp, requestId, correlationId, path, error: {statusCode, message: {code, message}}}.
 # `redirect` answers 302 to /redirect-target of this same stub, so a test can see that the target is never requested.
@@ -70,6 +72,8 @@ const server = createServer((req, res) => {
           case "allow": return done("answered", { decision: { behavior: "allow" } });
           case "deny": return done("answered", { decision: { behavior: "deny", message: "no" } });
           case "question": return done("answered", { decision: { answers: [{ q: 0, picks: [0] }] } });
+          case "decision": return done("answered", { decision: JSON.parse(read("decision", "null")) });
+          case "nodecision": return done("answered");
           case "terminal": return done("terminal", { reason: "cmd_end" });
           case "expired": return done("expired", { reason: "expired" });
           case "no_audience": return done("expired", { reason: "no_audience" });

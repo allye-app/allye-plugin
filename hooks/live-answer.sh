@@ -33,6 +33,29 @@
 # While it lasts the script exits at once with no network call. It is a per-credential file, not a key of the per-session state
 # file (that file holds one validated state word); the same precedent as `notu` of slice ALY-269.2.
 #
+# Questions (ALY-269.4, AC-03, AC-08, AC-09, AC-18, AC-19, BR-01, BR-03): for tool_name AskUserQuestion (and only then) the open is
+# {session_hash, kind: question, hash, risk: normal, tool: AskUserQuestion, questions}. `questions` keeps ONLY header, question,
+# multiSelect (boolean) and option label and description of at most 4 questions and 4 options each, every text cleaned and capped by
+# the reporter's cleaner (QCLEAN_DEFS below, copied verbatim from hooks/live-report.sh `actbad` .. `actclean`, ALY-217.6/263.6/263.9;
+# caps header 40, question 400, label 100, description 300; minimum one word). A required text the cleaner removes entirely, a question
+# without options or a non-object entry means no open (the API is strict; a 400 would be a backoff). Detailed Live off (the reporter's
+# activity-off or detailed-off entry in the live directory, any entry counts) means no open and no network call at all. The ORIGINAL
+# tool_input is kept in the 0600 file $T/orig (never on argv) and removed with $T by the EXIT trap.
+# Output (AC-08): only on `answered` with a decision {answers: [{q, picks, other?}]} that passes a STRICT check, and then ONE printf of
+#   {"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":<tool_input + answers>}}}
+# where `answers` is keyed by the ORIGINAL question text and holds the ORIGINAL option labels picked by INDEX (sorted by index, joined
+# with "," and no space; `other` alone, or after the labels, joined with ","). Valid = an object with only `answers`; one entry per
+# question (q an integer in range, no duplicate q); picks distinct integers in range of the option list; a single-choice question has
+# exactly one pick and no `other`, or no pick and an `other`; a multiSelect question has at least one pick or an `other`; `other`
+# a string that is not empty after sanitising (AC-19: control, bidi, zero-width, tag and other format characters removed, at most 500
+# characters, NFC through `uconv -x any-nfc` when that tool is on the PATH; without it the strip and cap are applied and the decomposed
+# form is kept, and a failing uconv prints nothing). Question texts must be unique strings (they are the answer keys). Anything else,
+# `behavior` or any permission style decision included, prints nothing: the terminal keeps the last word. The request is already
+# answered on the server then, so there is no cancel; no ack either (nothing was delivered). After a successful print: ack (--max-time 2,
+# result ignored). The jq output is ASCII only (-a), a single line.
+# Stale files (SHD-03): at start `.answer.*` directories and `.answer-backoff.*` files of the user older than 10 minutes (no
+# symlinks) are removed from the live directory, best effort and silent (find -mmin; GNU and BSD find both have it).
+#
 # Cleanup (AC-14): the EXIT trap (also run by INT, TERM and HUP) kills the child it started, sends a best-effort
 # POST /api/live/requests/:id/cancel (--max-time 1) while the request is still pending (opened; no answered, terminal, expired or
 # API error seen), and removes its temp directory. Debug: LIVE_ANSWER_DEBUG=1 writes fixed stage words to a 0600 file
@@ -138,6 +161,186 @@ hash_of() {
   esac
 }
 
+QCLEAN_DEFS=$(cat <<'QEOF'
+def actbad: . < 32 or (. >= 127 and . <= 159) or . == 173 or . == 847 or (. >= 1536 and . <= 1541) or . == 1564 or . == 1757
+  or . == 1807 or . == 2192 or . == 2193 or . == 2274 or . == 6158 or (. >= 8203 and . <= 8207) or (. >= 8234 and . <= 8238)
+  or (. >= 8288 and . <= 8303) or (. >= 55296 and . <= 57343) or (. >= 65024 and . <= 65039) or . == 65279
+  or (. >= 65529 and . <= 65533) or . == 69821 or . == 69837 or (. >= 78896 and . <= 78911) or (. >= 113824 and . <= 113827)
+  or (. >= 119155 and . <= 119162) or (. >= 917504 and . <= 917631) or (. >= 917760 and . <= 917999);
+def actws: . == 9 or . == 10 or . == 11 or . == 12 or . == 13 or . == 133 or . == 160 or . == 5760 or (. >= 8192 and . <= 8202)
+  or . == 8232 or . == 8233 or . == 8239 or . == 8287 or . == 12288;
+# D-23 step 4, one token: dropped as a path, URL, email, IP address, long base64/hex string or secret.
+def actcore: gsub("\\A[\"\u0027(\\[{<,;.!?]+|[\"\u0027)\\]}>,;.!?]+\\z"; "");
+def actpath: test("[/\\\\]") or (actcore | test("\\A(~|[A-Za-z]:)"));
+# ALY-258 (SHD-01 of ALY-257): the API network rules. A token is split on = , ; [ ] ( ) | and every piece is tested whole, without
+# leading/trailing `:` and without a `:port` suffix, as an e-mail, IPv4 (with port), IPv6, URL/www/arn:, hostname (also *.internal,
+# *.local, *.corp) or a digit shape of 10+ digits. Mirrors pieceIsIdentifier of agent-run-text-scrub.ts.
+def actbare: gsub("\\A[\"\u0027(\\[{<\u201c\u2018\u00ab]+"; "") | gsub("[\"\u0027)\\]}>\u201d\u2019\u00bb,;!?.]+\\z"; "");
+def actident:
+  length > 0 and (
+    (contains("@") and contains("."))
+    or test("\\A[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]{1,5})?\\z")
+    or (test("\\A[0-9A-Fa-f.:]{3,}\\z") and ([match(":"; "g")] | length) as $n | $n >= 2 and (contains("::") or $n == 7))
+    or (ascii_downcase | (contains("://") or contains("www.") or startswith("arn:")))
+    or (ascii_downcase | test("\\.(internal|local|corp)\\z") or test("\\A([a-z0-9-]+\\.)+[a-z]{2,24}\\z"))
+    or (test("\\A[0-9()+./-]*\\z") and ([match("[0-9]"; "g")] | length) >= 10));
+def actnet:
+  [splits("[=,;\\[\\]()|]")] | any(
+    actbare as $b | ($b | actident) or ($b | gsub("\\A:+|:+\\z"; "") | . as $t | actident or (sub(":[0-9]{1,5}\\z"; "") | . != $t and actident)));
+# ALY-263.9: the secret-shaped drops shared by actdrop and the basename of the classifier (a file name is not a hostname: only these apply to it).
+def namedrop:
+  test("[0-9A-Fa-f]{16,}")
+  or ([match("[A-Za-z0-9+/=_-]{20,}"; "g").string | select(test("[0-9]"))] | length > 0)
+  or test("[A-Za-z0-9_-]{24,}")
+  # D-20 subset (ALY-258): the distinctive secret prefixes anywhere in the token; sk-/sk_/pk-/rk- only at its start or
+  # after a non-alphanumeric (so risk-based survives); arn:; hostnames; colon/dash separated hex pairs.
+  or test("(ghp_|gho_|ghs_|github_pat_|xox[abprs]-|AKIA|ASIA|eyJ|glpat-)")
+  or test("(\\A|[^A-Za-z0-9])(sk-|sk_|pk-|rk-)");
+def actdrop:
+  actcore as $c
+  | test("[/\\\\]") or ($c | test("\\A(~|[A-Za-z]:)")) or contains("://") or ($c | ascii_downcase | startswith("www."))
+    or test("[^@]@[^@]+\\.[^@]") or ($c | test("\\A[0-9]{1,3}(\\.[0-9]{1,3}){3}(:[0-9]{1,5})?\\z")) or contains("::")
+    or ($c | test("\\A[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{0,4}){2,}\\z"))
+    or namedrop
+    or ($c | ascii_downcase | startswith("arn:"))
+    or ($c | test("\\A([A-Za-z0-9-]+\\.){2,}[A-Za-z]{2,}\\z"))
+    or ($c | test("\\A([A-Za-z0-9-]+\\.)+(com|net|org|io|dev|app|co|br|ai|cloud|info|biz|edu|gov|local|internal|corp|test|lan)\\z"; "i"))
+    or test("([0-9A-Fa-f]{2}[:-]){7}[0-9A-Fa-f]{2}")
+    or actnet
+    or test("[\uff00-\uffef]");   # fullwidth/halfwidth forms: look-alikes of ASCII that the API would NFKC-normalise (the plugin cannot) are dropped whole
+# Secrets (D-23 step 4 and Shield SHD-01/03 of ALY-217.6). actkv: `key=value` / `key:value` (also bare `key:`, actbare);
+# actkey: a key-like word alone; actsep: a standalone `=` / `:`; actscheme: an auth scheme; actauth: auth/authorization;
+# actword: a secret word whose next token (after an optional is/as/=) is its value.
+# actwk: the whole-word secret names of D-20 that are too common as substrings (session, sid...) to match inside a word.
+def actwk: (. | ascii_downcase) | IN("pwd","pw","cookie","session","sid","passphrase","key","auth","bearer","credential","apikey");
+def actkv: test("\\A[^=:]*(key|token|secret|pass|auth|credential)[^=:]*[=:]"; "i") or test("\\A(pwd|pw|cookie|session|sid)[=:]"; "i");
+def actbare: test("\\A[^=:]*(key|token|secret|pass|auth|credential)[^=:]*[=:]+[\"\u0027]?\\z"; "i") or test("\\A(pwd|pw|cookie|session|sid)[=:]+[\"\u0027]?\\z"; "i");
+def actkey: actcore | (test("(key|token|secret|pass|auth|credential)"; "i") or actwk);
+def actsep: actcore | test("\\A[=:]+\\z");
+def actscheme: (actcore | ascii_downcase) | IN("basic","bearer","token","digest");
+def actauth: (actcore | ascii_downcase | sub("[=:]+\\z"; "")) | IN("auth","authorization","proxy-authorization");
+def actword: (actcore | ascii_downcase) | IN("password","passwd","secret","token","apikey","api_key","access_key","private_key","credential","credentials");
+def actbearer: (actcore | ascii_downcase) == "bearer";
+# The cleaned phrase of a field, or null: (1) strings only; (2) whitespace to spaces, forbidden code points stripped;
+# (3) backticked spans removed; (4) token drops (a bare `key:` / `key=`, `key = value`, `key : value`, `password is x`,
+# `Authorization [:] Basic|Bearer|Token|Digest x` and `Bearer x` drop the value too, chained); (5) at
+# least 3 words and 8 characters; (6) at most $cap code points (ALY-258: 140 for every text), cut at the last space
+# (hard cut at $cap-1 when there is none or when that would leave fewer than 8) plus U+2026, so the ellipsis is inside the cap.
+# This is the one cleaner of the reporter: a documented subset of the API scrubber (ALY-257 D-20), which stays authoritative.
+def actcap: 140;
+# ALY-263.6 (AC-09): the minimum of words and characters is a parameter; every text but the session label keeps 3 words and 8 characters.
+def actclean($cap; $minw; $minc):
+  if type != "string" then null else
+    .[0:4096] | explode | map(if actws then 32 elif actbad then empty else . end) | implode
+    | (try gsub("[\\p{Cc}\\p{Cf}\\p{Cs}]"; "") catch .)
+    | gsub("`[^`]*(`|\\z)"; " ")
+    | gsub("\\+?\\(?(?<![0-9A-Za-z])[0-9]([ .\\-()]{0,2}[0-9]){9,18}(?![0-9A-Za-z])"; " ")   # 10+ digits with separators/parentheses: account ids, CPF/CNPJ, phones, cards
+    | [splits(" +") | select(length > 0)] as $t0
+    # a path token is dropped (actdrop) and so are the Capitalized words that follow it, up to the next punctuation (D-20)
+    | (reduce $t0[] as $w ({o: [], c: false};
+        if ($w | actpath) then .c = true
+        elif .c and ($w | test("\\A\\p{Lu}")) then (if ($w | test("[,;.!?:]\\z")) then .c = false else . end)
+        else .o += [$w] | .c = false end) | .o) as $t
+    | (reduce range(0; $t | length) as $k ({o: [], s: 0};
+        $t[$k] as $w | ($t[$k + 1] // "") as $n
+        | if .s > 0 then .s -= 1 | (if ($w | actscheme) or ($w | actbare) or ($w | actsep) then .s += 1 else . end)
+          elif ($w | actcore | actwk) and ($n | ascii_downcase | IN("is","as")) then .s = 2   # `the key is x`, `session is x`: the whole-word names
+          elif ($w | actbearer) then .s = 1
+          elif ($w | actauth) and ($n | actscheme) then .s = 1   # the scheme, then (chained) its value
+          elif ($w | actkv) then (if ($w | actbare) then .s = 1 else . end)
+          elif ($w | actkey) and ($n | actsep) then .s = 1   # the separator, then (chained) the value
+          elif ($w | actword) then (if ($n | ascii_downcase | IN("is","as")) then .s = 2 else .s = 1 end)
+          elif ($w | actdrop) then .
+          else .o += [$w] end)) as $r
+    | ($r.o | join(" ")) as $p
+    | if ($r.o | length) < $minw or ($p | length) < $minc then null
+      elif ($p | length) <= $cap then $p
+      else ($p | explode) as $e
+        | ([range(0; $cap) | select($e[.] == 32)] | last) as $i
+        | (if $i != null and $i >= 8 then $e[0:$i] else $e[0:($cap - 1)] end | implode | sub(" +\\z"; "")) + "\u2026"
+      end
+  end;
+QEOF
+)
+
+# The jq programs of the question kind. Static text; nothing secret is ever in them.
+QBODY_PROG='
+def qc($c): actclean($c; 1; 1);
+def okobj: type == "object";
+(.tool_input.questions | arrays | .[0:4]) as $qs
+| if ($qs | length) >= 1 and all($qs[]; okobj and (.options | arrays | length) >= 1 and all(.options[0:4][]; okobj)) then
+    [$qs[] | {question: (.question | qc(400)), header: (.header | qc(40)), multiSelect: (.multiSelect == true),
+              options: [.options[0:4][] | {label: (.label | qc(100)), description: (.description | qc(300))}]}] as $q
+    | if all($q[]; .question != null and all(.options[]; .label != null)) then
+        {session_hash: $s, kind: "question", hash: $h, risk: "normal", tool: "AskUserQuestion",
+         questions: [$q[] | with_entries(select(.value != null)) | .options |= map(with_entries(select(.value != null)))]}
+      else empty end
+  else empty end'
+
+# $mode v: prints "ok" and the sanitised `other` texts (answers order) when the decision is valid; $mode b: with $oth (the texts after
+# NFC) prints the hook output. Both check everything, so a text that changed the check cannot slip through the second stage.
+QANS_PROG='
+def isint: type == "number" and . == floor and . >= 0 and . < 1000000;
+def cleanother: explode | map(select((actbad or . == 8232 or . == 8233) | not)) | implode | (try gsub("[\\p{Cc}\\p{Cf}\\p{Cs}]"; "") catch .) | .[0:500];
+def entryok($qs):
+  type == "object" and ((keys - ["other", "picks", "q"]) | length) == 0 and has("q") and has("picks")
+  and (.q | isint) and .q < ($qs | length)
+  and (.picks | type) == "array" and all(.picks[]; isint) and ((.picks | unique | length) == (.picks | length))
+  and (.q as $q | all(.picks[]; . < ($qs[$q].options | length)))
+  and ((has("other") | not) or ((.other | type) == "string" and (.other | cleanother | length) > 0))
+  and (.q as $q | ($qs[$q].multiSelect == true) as $m | (.picks | length) as $n | has("other") as $ot
+       | if $m then ($n >= 1 or $ot) else (($n == 1 and ($ot | not)) or ($n == 0 and $ot)) end);
+($o[0]) as $ti | ($ti.questions) as $qs | .data as $d
+| if ($d | type) == "object" and $d.status == "answered" and ($d.decision | type) == "object" and ($d.decision | keys) == ["answers"]
+     and ($ti | type) == "object" and ($qs | type) == "array" and ($qs | length) >= 1
+     and all($qs[]; type == "object" and (.question | type) == "string" and (.options | type) == "array" and (.options | length) >= 1
+                    and all(.options[]; type == "object" and (.label | type) == "string"))
+     and ([$qs[].question] | unique | length) == ($qs | length)
+     and ($d.decision.answers | type) == "array" and ($d.decision.answers | length) == ($qs | length)
+     and all($d.decision.answers[]; entryok($qs))
+     and ([$d.decision.answers[].q] | unique | length) == ($qs | length)
+  then
+    $d.decision.answers as $a
+    | [range(0; $a | length) | select($a[.] | has("other"))] as $pos
+    | [$pos[] | $a[.].other | cleanother] as $san
+    | if $mode == "v" then "ok", $san[]
+      elif ($oth | length) != ($san | length) then empty
+      else
+        ([range(0; $a | length) as $i | $a[$i] + {oi: ($pos | index($i))}] | sort_by(.q)
+          | map(.q as $q | {key: $qs[$q].question,
+                value: ([(.picks | sort)[] | $qs[$q].options[.].label] + (if .oi != null then [$oth[.oi]] else [] end) | join(","))})
+          | from_entries) as $ans
+        | {hookSpecificOutput: {hookEventName: "PermissionRequest", decision: {behavior: "allow", updatedInput: ($ti + {answers: $ans})}}}
+      end
+  else empty end'
+
+# answer_question: the `answered` stage of a question request; prints at most one line, never anything else. $T/orig holds tool_input.
+answer_question() {
+  local v out
+  [ -s "$T/orig" ] && [ -s "$T/resp" ] || return 0
+  : >"$T/oth"
+  v=$(head -c 65536 "$T/resp" | jq -r --arg mode v --slurpfile o "$T/orig" --argjson oth '[]' "$QCLEAN_DEFS
+$QANS_PROG" 2>/dev/null) || return 0
+  [ "${v%%$'\n'*}" = ok ] || return 0
+  if [[ "$v" == *$'\n'* ]]; then
+    printf '%s\n' "${v#*$'\n'}" >"$T/othraw" || return 0
+    if command -v uconv >/dev/null 2>&1; then
+      uconv -f utf-8 -t utf-8 -x any-nfc <"$T/othraw" >"$T/othnfc" 2>/dev/null || return 0
+      [ "$(wc -l <"$T/othnfc" | tr -d ' ')" = "$(wc -l <"$T/othraw" | tr -d ' ')" ] || return 0
+    else
+      cat "$T/othraw" >"$T/othnfc" 2>/dev/null || return 0
+    fi
+    jq -R -c '.[0:500]' <"$T/othnfc" >"$T/oth" 2>/dev/null || return 0
+  fi
+  out=$(head -c 65536 "$T/resp" | jq -a -c --arg mode b --slurpfile o "$T/orig" --slurpfile oth "$T/oth" "$QCLEAN_DEFS
+$QANS_PROG" 2>/dev/null) || return 0
+  [ -n "$out" ] && [[ "$out" != *$'\n'* ]] || return 0
+  printf '%s\n' "$out"
+  dbg "printed"
+  api_call POST "/api/live/requests/$RID/ack" 2 0
+  return 0
+}
+
 main() {
   local F SID TOOL HASH SHASH KIND SEL line rem mt wstart dl exp_in st reason R rid ans exp
 
@@ -166,6 +369,9 @@ main() {
   [ -n "$(find "$LIVE_DIR" -prune -type d -user "$UID_NOW" -perm 0700 -print 2>/dev/null)" ] || return 0
   # reporting switched off or disabled: nothing to do (fail safe: any entry counts)
   if [ -e "$LIVE_DIR/off" ] || [ -L "$LIVE_DIR/off" ] || [ -e "$LIVE_DIR/disabled" ] || [ -L "$LIVE_DIR/disabled" ]; then return 0; fi
+  # SHD-03: stale temp entries of this script (a killed run leaves its directory with a decision body); best effort, silent
+  find "$LIVE_DIR" -maxdepth 1 -name '.answer.*' -type d -mmin +10 -user "$UID_NOW" -exec rm -rf {} + 2>/dev/null || true
+  find "$LIVE_DIR" -maxdepth 1 -name '.answer-backoff.*' -type f -mmin +10 -user "$UID_NOW" -exec rm -f {} + 2>/dev/null || true
 
   BACKOFFF="$LIVE_DIR/answer-backoff"
   DBGF="$LIVE_DIR/answer-debug.log"
@@ -185,15 +391,26 @@ main() {
   SID=${F%%$'\n'*}; TOOL=${F#*$'\n'}
   SHASH=$(printf '%s' "$SID" | sha_hex) || return 0
   SEL=permission
-  KIND=permission   # slice .4 sets question for AskUserQuestion; the placeholder risk is normal until slice .5
-  [ "$TOOL" != AskUserQuestion ] || SEL=question
+  KIND=permission   # the placeholder risk is normal until slice .5
+  if [ "$TOOL" = AskUserQuestion ]; then
+    SEL=question; KIND=question
+    # Detailed Live off (the reporter's markers; any entry counts, fail safe): the question texts cannot be sent, so do not open
+    if [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ] || [ -e "$LIVE_DIR/detailed-off" ] || [ -L "$LIVE_DIR/detailed-off" ]; then return 0; fi
+  fi
   HASH=$(printf '%s' "$INPUT" | hash_of "$SEL") || return 0
   [[ "$HASH" =~ ^[0-9a-f]{64}$ ]] || return 0
-  INPUT=""
 
   T=$(mktemp -d "$LIVE_DIR/.answer.XXXXXX" 2>/dev/null) || { T=""; return 0; }
-  jq -n -c --arg s "$SHASH" --arg k "$KIND" --arg h "$HASH" --arg r normal --arg t "$TOOL" \
-    '{session_hash: $s, kind: $k, hash: $h, risk: $r, tool: $t}' >"$T/body" 2>/dev/null || return 0
+  if [ "$SEL" = question ]; then
+    printf '%s' "$INPUT" | jq -c '.tool_input' >"$T/orig" 2>/dev/null || return 0   # the ORIGINAL tool_input for the output stage
+    printf '%s' "$INPUT" | jq -c --arg s "$SHASH" --arg h "$HASH" "$QCLEAN_DEFS
+$QBODY_PROG" >"$T/body" 2>/dev/null || return 0
+    [ -s "$T/body" ] || return 0   # a text the cleaner removed, no options...: no open
+  else
+    jq -n -c --arg s "$SHASH" --arg k "$KIND" --arg h "$HASH" --arg r normal --arg t "$TOOL" \
+      '{session_hash: $s, kind: $k, hash: $h, risk: $r, tool: $t}' >"$T/body" 2>/dev/null || return 0
+  fi
+  INPUT=""
   dbg "open"
 
   api_call POST /api/live/requests 2 1
@@ -248,7 +465,8 @@ main() {
       then .data.status else empty end' 2>/dev/null) || st=""
     case "$st" in
       pending) dbg "wait pending" ;;
-      answered|terminal|expired) PENDING=0; dbg "wait $st"; return 0 ;;   # slice .4/.5 handle `answered`; the others end at once
+      answered) PENDING=0; dbg "wait answered"; [ "$SEL" != question ] || answer_question; return 0 ;;   # the permission kind is slice .5
+      terminal|expired) PENDING=0; dbg "wait $st"; return 0 ;;
       *) PENDING=0; dbg "wait malformed"; return 0 ;;
     esac
     if [ "$SECONDS" -le "$wstart" ]; then   # an immediate `pending`: do not spin

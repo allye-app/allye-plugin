@@ -4345,7 +4345,7 @@ check "a SubagentStop whose transcript path names nothing: exit 0, no stderr, no
 # argv) and no node. The API is the loopback stub hooks/fixtures/live/answer-stub-server.sh (node, outside the sandbox PATH, started with
 # every descriptor above 2 closed). Counts of stub hits and recorded exit statuses decide everything: no assertion bounds elapsed time (ALY-54);
 # LIVE_ANSWER_BUDGET_S (test-only) shortens the budget.
-#@group answer 45
+#@group answer 70
 #@always
 ANS="$SCRIPT_DIR/live-answer.sh"; STUBSH="$SCRIPT_DIR/fixtures/live/answer-stub-server.sh"
 LAST_STUB=""; BGPID=""; BGKILL=()
@@ -4405,6 +4405,16 @@ quiet() { check "$1: exit 0, stdout and stderr empty" "0||" "$RC|$OUT|$ERR"; }
 end_case_ans() { fake_stop; ans_cleanup_bg; }
 ans_cleanup_bg() { local p; for p in ${BGKILL[@]+"${BGKILL[@]}"}; do kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null; done; return 0; }
 TOKFP=$(printf '%s' "$TOKEN" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)
+# ALY-269.4 helpers. qpl: the AskUserQuestion fixture as the payload (the session id is overridden so the hash vectors stay stable).
+QFIX="$SCRIPT_DIR/fixtures/live/answer-question.json"
+SH1=70e4ea6b2d85d6bc12757223c762a95b8327ac9c1003956cc27b898bf1802b8d   # sha256 of "sess-0001"
+qpl() { "$JQ_BIN" -c --arg c "$SB/proj" '.cwd = $c | .session_id = "sess-0001"' "$QFIX" >"$SB/stdin"; }
+qbody() { slog | "$JQ_BIN" -c 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson'; }
+qdec() { printf '%s' "$1" >"$SB/api/decision"; smode wait decision; }   # the next wait answers `answered` with this decision JSON
+# the output the hook must print for a decision, from the fixture: $1 = the answers object
+qexpect() { "$JQ_BIN" -S -c --argjson a "$1" '{hookSpecificOutput: {hookEventName: "PermissionRequest", decision: {behavior: "allow", updatedInput: (.tool_input + {answers: $a})}}}' "$QFIX"; }
+qout() { printf '%s' "$OUT" | "$JQ_BIN" -S -c . 2>/dev/null || echo "NOT-JSON:$OUT"; }
+qonly() { check "$1: exactly one stdout line, no ESC byte, no stderr" "1 0 " "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ') $(printf '%s' "$OUT" | tr -d -c '\033' | wc -c | tr -d ' ') $ERR"; }
 #@end
 
 echo "== answer client static: exit 0 only, no set -e, curl flags, default budget (AC-16, AC-17, AC-06 ALY-269.3) =="
@@ -4650,6 +4660,186 @@ ans_case; smode wait terminal; ans_run; fake_stop; ans_run
 tab "the stub is gone (connection refused)"
 end_case_ans
 check "no stub process survives the group" "0" "$(fake_survivors)"
+
+echo "== answer question request: kind question, hash over the questions, cleaned texts, caps, Detailed Live (AC-03, AC-18, BR-01, ALY-269.4) =="
+QHASH=662030b626ffacefc738207141eecfac549e8c0c53619acac16ba52c04bdc4c2   # sha256 of `jq -S -c .tool_input.questions` of the fixture (python cross-check)
+ans_case; qpl; smode wait terminal; ans_run
+quiet "the question fixture"
+check "one open, one wait, no cancel" "1 1 0" "$(sopen) $(swaits) $(scancels)"
+OB=$(qbody)
+check "the open body is exactly {session_hash, kind, hash, risk, tool, questions}" '["hash","kind","questions","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
+check "kind question, risk normal, tool AskUserQuestion, session hash of the id" "question normal AskUserQuestion $SH1" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.kind) \(.risk) \(.tool) \(.session_hash)"')"
+check "hash is the known answer over tool_input.questions" "$QHASH" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.hash')"
+check "questions keep only header, question, multiSelect and option label and description" \
+  "$("$JQ_BIN" -S -c '[.tool_input.questions[] | {header, question, multiSelect, options: [.options[] | {label, description} | with_entries(select(.value != null))]}]' "$QFIX")" "$(printf '%s' "$OB" | "$JQ_BIN" -S -c '.questions')"
+check "nothing else of tool_input reaches the API (the metadata key and every other field)" "no no" "$(case "$(slog)" in *metadata*|*SCRUBBED*) echo yes ;; *) echo no ;; esac) $(case "$(slog)" in *transcript*|*permission_mode*) echo yes ;; *) echo no ;; esac)"
+check "nothing is left behind" "0 " "$(marked) $(live_left)"
+# the API contract of a question request (strict body: a 400 would be a backoff)
+QVALID='(.questions | type == "array" and length >= 1 and length <= 4) and all(.questions[]; (keys - ["header","multiSelect","options","question"] | length) == 0 and (.question | type == "string" and length >= 1 and length <= 400) and ((.header // "x") | type == "string" and length <= 40) and (.multiSelect | type == "boolean") and (.options | length >= 1 and length <= 4) and all(.options[]; (keys - ["description","label"] | length) == 0 and (.label | type == "string" and length >= 1 and length <= 100) and ((.description // "x") | length <= 300)))'
+check "the fixture body satisfies the API caps" "true" "$(printf '%s' "$OB" | "$JQ_BIN" "$QVALID")"
+end_case_ans
+
+ans_case; smode wait terminal
+LONGQ=$(for i in $(seq 1 120); do printf 'word%s ' "$i"; done)
+"$JQ_BIN" -nc --arg lq "$LONGQ" '{questions: [range(0; 5) as $i | {question: ($lq + "q\($i)"), header: ($lq | .[0:90]), multiSelect: ($i == 1), options: [range(0; 5) as $j | {label: ($lq + "l\($j)" | .[0:150]), description: $lq}]}]}' >"$SB/qin"
+ans_payload sess-0001 AskUserQuestion "$(cat "$SB/qin")"; ans_run
+quiet "5 questions with 5 options and over-long texts"
+OB=$(qbody)
+check "5 questions and 5 options are cut to 4 and 4; the body stays valid under the caps" "4 4 true" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.questions | length) \(.questions | map(.options | length) | max) \(. | '"$QVALID"')"')"
+check "an over-long text is cut by the cleaner, not dropped (non-empty, with an ellipsis)" "true true" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.questions[0].question | endswith("…")) \(.questions[0].header | length > 0)"')"
+check "the hash still covers the ORIGINAL questions array (all 5)" "$("$JQ_BIN" -S -c '.questions' "$SB/qin" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.hash')"
+end_case_ans
+
+ans_case; smode wait terminal
+ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"Use token ghp_abcdefghijklmnopqrstuvwxyz0123456789 and `rm -rf /` or https://evil.example.com/x now?","header":"Mode‮","options":[{"label":"Email a@b.example.org","description":"Run sk-ABCDEF1234567890abcdef now"},{"label":"Plain choice​ here"}],"multiSelect":false}]}'; ans_run
+quiet "secrets and markup in the texts"
+OB=$(qbody)
+check "the open went out with cleaned texts" "1" "$(sopen)"
+check "no token, backtick span, URL, e-mail or secret appears anywhere in the recorded body" "no no no no no no" "$(for w in ghp_ 'rm -rf' evil.example 'a@b' sk-ABC '‮'; do case "$(slog)" in *"$w"*) printf 'yes ';; *) printf 'no ';; esac; done | sed 's/ $//')"
+check "bidi and zero-width characters are stripped, the words around them kept" "Plain choice here Mode" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.questions[0].options[1].label) \(.questions[0].header)"')"
+end_case_ans
+ans_case; smode wait terminal
+ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"https://evil.example.com/x","options":[{"label":"A"},{"label":"B"}]}]}'; ans_run
+check "a required text that the cleaner removes entirely: no open (the API would answer 400), exit 0, silent" "0|0|" "$(sopen)|$RC|$OUT$ERR"
+ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"Which one?","options":[{"label":"https://evil.example.com/x"},{"label":"B"}]}]}'; ans_run
+check "an option label that the cleaner removes entirely: no open" "0|0|" "$(sopen)|$RC|$OUT$ERR"
+ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"Which one?","options":[]}]}'; ans_run
+check "a question with no options: no open" "0|0|" "$(sopen)|$RC|$OUT$ERR"
+ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"Which one?","options":[{"label":"A"},"B"]}]}'; ans_run
+check "an option that is not an object: no open" "0|0|" "$(sopen)|$RC|$OUT$ERR"
+ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"Which one?","header":"https://evil.example.com/x","multiSelect":"yes","options":[{"label":"A","description":"https://evil.example.com/x"},{"label":"B"}]}]}'; ans_run
+OB=$(qbody)
+check "a header or description removed by the cleaner is omitted; multiSelect is a boolean only" '{"multiSelect":false,"options":[{"label":"A"},{"label":"B"}],"question":"Which one?"}' "$(printf '%s' "$OB" | "$JQ_BIN" -S -c '.questions[0]')"
+end_case_ans
+
+echo "== answer question Detailed Live off: no open, no network (AC-03, BR-03, ALY-269.4) =="
+for flag in detailed-off activity-off; do
+  ans_case; qpl; smode wait terminal; mkdir -p -m 700 "$DATA/live"; : >"$DATA/live/$flag"; ans_run
+  quiet "$flag present"
+  check "$flag: no request at all (neither open nor wait)" "0 0" "$(sopen) $(swaits)"
+  end_case_ans
+done
+ans_case; qpl; smode wait terminal; mkdir -p -m 700 "$DATA/live"; ln -s /nonexistent "$DATA/live/detailed-off"; ans_run
+check "a detailed-off symlink counts as off (fail safe): no request" "0" "$(sopen)"
+end_case_ans
+ans_case; smode wait terminal; mkdir -p -m 700 "$DATA/live"; : >"$DATA/live/detailed-off"; ans_run
+check "a Bash permission request is not affected by the text flags in this slice (the permission kind is slice .5)" "1" "$(sopen)"
+end_case_ans
+
+echo "== answer question output: the exact PermissionRequest decision, mapped to the original labels (AC-08, AC-09, BR-03, ALY-269.4) =="
+A0='{"q":0,"picks":[1]}'; A1='{"q":1,"picks":[0,2]}'
+qrun() {  # DECISION-JSON: a fresh case with the fixture, the stub answering this decision
+  ans_case; qpl; qdec "$1"; ans_run
+}
+qrun "{\"answers\":[$A0,$A1]}"
+check "single + multi: exactly the allow decision with updatedInput = tool_input + answers (labels joined by commas)" "$(qexpect '{"Which approach should we take?":"Keep going","Which checks should run?":"Unit,End to end"}')" "$(qout)"
+qonly "single + multi"
+check "the printed updatedInput without answers is the original tool_input, key order and values untouched" "$("$JQ_BIN" -c '.tool_input' "$QFIX")" "$(printf '%s' "$OUT" | "$JQ_BIN" -c '.hookSpecificOutput.decision.updatedInput | del(.answers)')"
+check "the output has only hookEventName and decision{behavior, updatedInput}" '["hookSpecificOutput"] ["decision","hookEventName"] ["behavior","updatedInput"] allow' "$(printf '%s' "$OUT" | "$JQ_BIN" -r '[(keys | tojson), (.hookSpecificOutput | keys | tojson), (.hookSpecificOutput.decision | keys | tojson), .hookSpecificOutput.decision.behavior] | join(" ")')"
+check "one ack after the print, no cancel, one wait, nothing left behind" "1 0 1 0 " "$(sacks) $(scancels) $(swaits) $(marked) $(live_left)"
+check "the ack went to the request id" "1" "$(scount POST '^/api/live/requests/stub-req-1/ack$')"
+end_case_ans
+qrun "{\"answers\":[{\"q\":1,\"picks\":[2,0]},{\"q\":0,\"picks\":[0]}]}"
+check "answers in any order and picks in any order: labels by option index (sorted), keys by question text" "$(qexpect '{"Which approach should we take?":"Recommended - run rm -rf","Which checks should run?":"Unit,End to end"}')" "$(qout)"
+qonly "reordered"
+end_case_ans
+qrun "{\"answers\":[{\"q\":0,\"picks\":[],\"other\":\"Custom plan, with a comma\"},{\"q\":1,\"picks\":[1],\"other\":\"also this\"}]}"
+check "other alone is the value; labels then other are joined by a comma" "$(qexpect '{"Which approach should we take?":"Custom plan, with a comma","Which checks should run?":"Lint,also this"}')" "$(qout)"
+end_case_ans
+# the cleaner changes the request texts; the printed answer maps to the ORIGINAL unscrubbed label
+ans_case; ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"Run `the` job at /tmp/x now?","options":[{"label":"Use the `fast` path"},{"label":"Slow path https://evil.example.com"}],"multiSelect":false}],"extra":[1,2]}'; qdec '{"answers":[{"q":0,"picks":[0]}]}'; ans_run
+check "the request carried the cleaned text" "no" "$(case "$(qbody)" in *'`fast`'*|*evil.example*) echo yes ;; *) echo no ;; esac)"
+check "the answer uses the original question text and original label" '{"Run `the` job at /tmp/x now?":"Use the `fast` path"}' "$(printf '%s' "$OUT" | "$JQ_BIN" -c '.hookSpecificOutput.decision.updatedInput.answers')"
+check "the rest of tool_input (extra) is intact" "[1,2]" "$(printf '%s' "$OUT" | "$JQ_BIN" -c '.hookSpecificOutput.decision.updatedInput.extra')"
+end_case_ans
+
+echo "== answer question other: sanitised per AC-19 (AC-19, AC-08, ALY-269.4) =="
+OTHER_DIRTY='a\u001b[31mb‮c​d󠁁e\nf⁦g\u0007'
+qrun "{\"answers\":[$A0,{\"q\":1,\"picks\":[],\"other\":\"$OTHER_DIRTY\"}]}"
+check "control, bidi, zero-width and tag characters are stripped from other" "a[31mbcdefg" "$(printf '%s' "$OUT" | "$JQ_BIN" -r '.hookSpecificOutput.decision.updatedInput.answers["Which checks should run?"]')"
+qonly "dirty other"
+end_case_ans
+BIGOTHER=$(printf '\\u00e9%.0s' $(seq 1 600))
+qrun "{\"answers\":[$A0,{\"q\":1,\"picks\":[],\"other\":\"$BIGOTHER\"}]}"
+check "other is capped at 500 characters" "500" "$(printf '%s' "$OUT" | "$JQ_BIN" -r '.hookSpecificOutput.decision.updatedInput.answers["Which checks should run?"] | length')"
+end_case_ans
+qrun "{\"answers\":[$A0,{\"q\":1,\"picks\":[],\"other\":\"e\\u0301\"}]}"
+check "without uconv on the PATH NFC is not applied (documented): the decomposed form is kept" "e$(printf '\xcc\x81')" "$(printf '%s' "$OUT" | "$JQ_BIN" -r '.hookSpecificOutput.decision.updatedInput.answers["Which checks should run?"]')"
+end_case_ans
+if command -v uconv >/dev/null 2>&1; then
+  ans_case; qpl; REAL="$ROOT_TMP/realbin-uconv"; make_realbin "$REAL"; ln -sf "$(command -v uconv)" "$REAL/uconv"
+  qdec "{\"answers\":[$A0,{\"q\":1,\"picks\":[],\"other\":\"e\\u0301\"}]}"; ans_run
+  check "with uconv on the PATH other is NFC-normalised (e + U+0301 becomes U+00E9)" "$(printf '\xc3\xa9')" "$(printf '%s' "$OUT" | "$JQ_BIN" -r '.hookSpecificOutput.decision.updatedInput.answers["Which checks should run?"]')"
+  qonly "NFC other"
+  end_case_ans
+fi
+
+echo "== answer question BR-03: the output depends on the API indexes only, never on a label (BR-03, ALY-269.4) =="
+qrun "{\"answers\":[$A0,$A1]}"
+check "the option labelled Recommended is NOT in the answers when the decision picked another index" "Keep going" "$(printf '%s' "$OUT" | "$JQ_BIN" -r '.hookSpecificOutput.decision.updatedInput.answers["Which approach should we take?"]')"
+end_case_ans
+qrun "{\"answers\":[{\"q\":0,\"picks\":[0]},$A1]}"
+check "the option labelled Recommended is printed when its index was picked" "Recommended - run rm -rf" "$(printf '%s' "$OUT" | "$JQ_BIN" -r '.hookSpecificOutput.decision.updatedInput.answers["Which approach should we take?"]')"
+end_case_ans
+for m in pending terminal expired no_audience nodecision allow deny; do
+  ans_case; qpl; smode wait "$m"; [ "$m" != pending ] || RUN_ENV=(LIVE_ANSWER_BUDGET_S=3)
+  ans_run
+  check "wait $m on a question: nothing printed (no Recommended, no output), no ack" "0|0||0" "$RC|$(printf '%s' "$OUT" | wc -c | tr -d ' ')|$ERR|$(sacks)"
+  end_case_ans
+done
+
+echo "== answer question malformed decisions: nothing printed, no ack, no cancel (AC-08, AC-09, BR-02, ALY-269.4) =="
+mal() {  # LABEL DECISION-JSON
+  qrun "$2"
+  check "malformed ($1): exit 0, stdout and stderr empty" "0||" "$RC|$OUT|$ERR"
+  check "malformed ($1): no ack, no cancel (the request is answered on the server), nothing left behind" "0 0 1 " "$(sacks) $(scancels) $(swaits) $(live_left)"
+  end_case_ans
+}
+mal "unanswered question" "{\"answers\":[$A0]}"
+mal "empty answers" '{"answers":[]}'
+mal "q out of range" "{\"answers\":[$A0,{\"q\":2,\"picks\":[0]}]}"
+mal "q negative" "{\"answers\":[$A0,{\"q\":-1,\"picks\":[0]}]}"
+mal "q a string" "{\"answers\":[$A0,{\"q\":\"1\",\"picks\":[0]}]}"
+mal "q fractional" "{\"answers\":[$A0,{\"q\":1.5,\"picks\":[0]}]}"
+mal "pick out of range" "{\"answers\":[{\"q\":0,\"picks\":[3]},$A1]}"
+mal "pick negative" "{\"answers\":[{\"q\":0,\"picks\":[-1]},$A1]}"
+mal "pick a string" "{\"answers\":[{\"q\":0,\"picks\":[\"1\"]},$A1]}"
+mal "pick fractional" "{\"answers\":[{\"q\":0,\"picks\":[0.5]},$A1]}"
+mal "pick null" "{\"answers\":[{\"q\":0,\"picks\":[null]},$A1]}"
+mal "picks not an array" "{\"answers\":[{\"q\":0,\"picks\":1},$A1]}"
+mal "duplicate q" "{\"answers\":[$A0,{\"q\":0,\"picks\":[0]}]}"
+mal "duplicate picks" "{\"answers\":[$A0,{\"q\":1,\"picks\":[0,0]}]}"
+mal "single question with two picks" "{\"answers\":[{\"q\":0,\"picks\":[0,1]},$A1]}"
+mal "single question with no pick" "{\"answers\":[{\"q\":0,\"picks\":[]},$A1]}"
+mal "single question with a pick and other" "{\"answers\":[{\"q\":0,\"picks\":[1],\"other\":\"x\"},$A1]}"
+mal "multi question with no pick and no other" "{\"answers\":[$A0,{\"q\":1,\"picks\":[]}]}"
+mal "extra key in the decision" "{\"answers\":[$A0,$A1],\"extra\":1}"
+mal "extra key in an entry" "{\"answers\":[{\"q\":0,\"picks\":[1],\"x\":1},$A1]}"
+mal "missing picks" "{\"answers\":[{\"q\":0},$A1]}"
+mal "behavior on a question (with answers)" "{\"behavior\":\"allow\",\"answers\":[$A0,$A1]}"
+mal "behavior allow only" '{"behavior":"allow"}'
+mal "behavior deny with message" '{"behavior":"deny","message":"no"}'
+mal "other not a string" "{\"answers\":[$A0,{\"q\":1,\"picks\":[0],\"other\":5}]}"
+mal "other empty after sanitising" "{\"answers\":[$A0,{\"q\":1,\"picks\":[0],\"other\":\"\\u200b\\u202e\"}]}"
+mal "answers longer than the questions" "{\"answers\":[$A0,$A1,{\"q\":0,\"picks\":[0]}]}"
+mal "answers an object" "{\"answers\":{\"0\":1}}"
+mal "answers null" '{"answers":null}'
+mal "decision null" 'null'
+mal "decision an array" '[]'
+mal "decision a string" '"allow"'
+mal "decision empty object" '{}'
+mal "an entry that is not an object" "{\"answers\":[$A0,3]}"
+echo "== answer question stale temp entries: SHD-03 carry-over (ALY-269.4) =="
+ans_case; qpl; smode wait terminal; mkdir -p -m 700 "$DATA/live"
+mkdir -m 700 "$DATA/live/.answer.old1"; printf 'decision-body' >"$DATA/live/.answer.old1/resp"
+: >"$DATA/live/.answer-backoff.old2"; ln -s /nonexistent "$DATA/live/.answer.oldlink"; : >"$DATA/live/answer-backoff-keep"
+mkdir -m 700 "$DATA/live/.answer.fresh"; : >"$DATA/live/.answer-backoff.fresh"
+touch -d '2020-01-01 00:00:00' "$DATA/live/.answer.old1/resp" "$DATA/live/.answer.old1" "$DATA/live/.answer-backoff.old2" "$DATA/live/answer-backoff-keep"
+touch -h -d '2020-01-01 00:00:00' "$DATA/live/.answer.oldlink"
+ans_run
+quiet "stale entries present"
+check "old .answer.* dir and old .answer-backoff.* file are removed; fresh ones, the symlink and other files stay" ".answer-backoff.fresh .answer.fresh .answer.oldlink answer-backoff-keep " "$(ls -A "$DATA/live" | LC_ALL=C sort | tr '\n' ' ')"
+end_case_ans
 
 echo "== answer client debug log: off by default, 0600, no secrets or texts (AC-17, D-16 ALY-269.3) =="
 ans_case; smode wait terminal; ans_payload sess-0001 Bash '{"command":"echo SECRETWORDXYZ","description":"d"}'; ans_run
