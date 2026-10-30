@@ -376,6 +376,7 @@ for f in "$FIX"/*.json; do
   n=$(basename "$f" .json)
   FXI=$((FXI + 1)); pt_mine "$FXI" || continue   # PT_SHARD: the fixtures are split over the shards of this group
   case "$n" in spike-ask-question|spike-permission-request|spike-post-tool-use) continue ;; esac   # ALY-269.1 payload evidence (scrubbed session id; test/test-spike-doc.mjs checks it): not event fixtures
+  case "$n" in answer-question|answer-permission) continue ;; esac   # ALY-269.4/.5 hook payloads for the blocking answer client (the `answer` group runs them), not reporter event fixtures
   [ -f "$FIX/$n.expect" ] || { check "$n: has an .expect file" "yes" "no"; continue; }
   expect_fixture "$n"
 done
