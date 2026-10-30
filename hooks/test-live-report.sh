@@ -473,6 +473,54 @@ for bad in "launch2" "LAUNCH" "mission," "" "ship"; do
   check "invalid mode '$bad': no bind, key not sent alone" "" "$(spooled)"
   end_case
 done
+# ALY-279.1 (AC-01..05, BR-01..03, D-20): long args are tokenized in a fixed 300-code-point window, never dropped by length.
+# lw_case LABEL ARGS EXPECTED: EXPECTED is the bind object json, or empty for no bind (the Skill tool call still spools its tool line).
+lw_case() {
+  local label="$1" args="$2" exp="$3" want_skill want_exp
+  if [ -n "$exp" ]; then
+    want_skill="$(printf '%s\n' '{"type":"tool","tool":"Skill"}' "{\"type\":\"bind\",\"bind\":$exp}" | "$JQ_BIN" -cS .)"
+    want_exp="$(printf '%s\n' "{\"type\":\"bind\",\"bind\":$exp}" | "$JQ_BIN" -cS .)"
+  else
+    want_skill='{"tool":"Skill","type":"tool"}'; want_exp=""
+  fi
+  new_case; mkcred
+  "$JQ_BIN" --arg a "$args" '.tool_input.args = $a' "$FIX/skill-bridge-no-key.json" >"$SB/stdin"; run_hook
+  check "$label (Skill tool call, ${#args} chars)" "$want_skill" "$(spooled)"
+  end_case
+  new_case; mkcred
+  "$JQ_BIN" --arg a "$args" '.command_args = $a' "$FIX/expansion-bridge-no-key.json" >"$SB/stdin"; run_hook
+  check "$label (UserPromptExpansion, ${#args} chars)" "$want_exp" "$(spooled)"
+  end_case
+}
+LW_FILL="$(printf 'lorem ipsum %.0s' $(seq 1 400))"
+LW_MODE='{"source":"skill","role":"bridge","mode":"mission"}'
+LW_SPEC='{"source":"skill","role":"bridge","mode":"mission","spec":"ALY-12"}'
+LW_SP="$(printf '%*s' 400 '')"
+echo "== bridge invocation: long args keep their bind (ALY-279.1) =="
+lw_case "373 chars, mode and key" "mission ALY-12 ${LW_FILL:0:358}" "$LW_SPEC"
+lw_case "4411 chars, mode and key" "mission ALY-12 ${LW_FILL:0:4396}" "$LW_SPEC"
+lw_case "long args, mode only" "mission ${LW_FILL:0:366}" "$LW_MODE"
+lw_case "long args, task key" "mission ALY-12.3 ${LW_FILL:0:400}" '{"source":"skill","role":"bridge","mode":"mission","task":"ALY-12.3"}'
+lw_case "long args, invalid mode still no bind" "ship ALY-12 ${LW_FILL:0:400}" ""
+lw_case "first token straddles the window edge (launchpad cut to launch): no bind" "${LW_SP:0:294}launchpad ALY-12" ""
+lw_case "second token straddles the edge (ALY-1 cut from ALY-123456): mode, no key" "mission${LW_SP:0:288}ALY-123456" "$LW_MODE"
+lw_case "first token ends exactly at the edge, 301 chars: no bind" "${LW_SP:0:293}mission " ""
+lw_case "first token ends one before the edge, 301 chars: bind" "${LW_SP:0:292}mission  " "$LW_MODE"
+lw_case "key ends one before the edge, 299 chars: key" "mission${LW_SP:0:286}ALY-12" "$LW_SPEC"
+lw_case "key ends at the edge, 300 chars: key as today" "mission${LW_SP:0:287}ALY-12" "$LW_SPEC"
+lw_case "key ends one before the edge, 301 chars: key" "mission${LW_SP:0:286}ALY-12 x" "$LW_SPEC"
+lw_case "key ends at the edge, 301 chars: no key" "mission${LW_SP:0:287}ALY-12 " "$LW_MODE"
+lw_case "key ends past the edge, 301 chars: no key" "mission${LW_SP:0:288}ALY-12" "$LW_MODE"
+lw_case "300 chars, first token touches the edge: bind as today" "${LW_SP:0:293}mission" "$LW_MODE"
+for v in skill expansion; do
+  new_case; mkcred
+  if [ "$v" = skill ]; then "$JQ_BIN" --arg a "mission ALY-12 SENT_ZQ_IN ${LW_FILL:0:300} SENT_ZQ_OUT" '.tool_input.args = $a' "$FIX/skill-bridge-no-key.json" >"$SB/stdin"
+  else "$JQ_BIN" --arg a "mission ALY-12 SENT_ZQ_IN ${LW_FILL:0:300} SENT_ZQ_OUT" '.command_args = $a' "$FIX/expansion-bridge-no-key.json" >"$SB/stdin"; fi
+  run_hook
+  check "$v: long args, nothing after the first two tokens is spooled (AC-05)" "0" "$(bind_files | grep -cE 'SENT_ZQ|lorem' || true)"
+  check "$v: long args, the bind itself is spooled (sentinel case is not vacuous)" "1" "$(spooled | grep -c '"spec":"ALY-12"' || true)"
+  end_case
+done
 
 #@group git 51
 echo "== environment: ALLYE_SPEC and ALLYE_TASK at SessionStart =="

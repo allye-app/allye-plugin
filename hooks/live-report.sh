@@ -55,7 +55,8 @@ CFP=""
 
 # ─── ALY-203.2: extract allowlisted events from the payload and spool them ───
 # BR-02: every value is read by the allowlisted jq program below and matched against its pattern or
-# enumeration inside it; a value that fails is DROPPED (never truncated, never sent). Prompts, commands,
+# enumeration inside it; a value that fails is DROPPED (never truncated, never sent; the Bridge args are tokenized inside a
+# fixed 300-code-point window and a token touching the window edge is dropped, ALY-279.1). Prompts, commands,
 # tool inputs and outputs, paths, messages, transcripts and the cwd are never read into the output; the one exception is
 # the activity phrase of ALY-217.6 (an agent-written description or todo form, cleaned and redacted by actphrase in that
 # same jq program before anything is spooled or stashed; off while $CLAUDE_PLUGIN_DATA/live/activity-off exists).
@@ -70,7 +71,9 @@ CFP=""
 #   [A-Za-z0-9_-] is dropped. No other tool_input value is ever read for the tool field.
 # - Bind sources, strongest first: skill(4) mcp(3) env(2) branch(1). skill: Skill tool call or
 #   UserPromptExpansion for `bridge`/`allye:bridge` with args `<mode> [KEY]`: only the mode enumeration and a
-#   key matching the key pattern leave (an invalid mode drops the whole bind, an invalid key only the key).
+#   key matching the key pattern leave (an invalid mode drops the whole bind, an invalid key only the key). Only the first
+#   300 code points of the args are tokenized, whatever their length (ALY-279.1, D-20): in longer args the first two tokens
+#   count only when each ends before the window edge (a touching first token: no bind; a touching second: mode, no key).
 #   mcp: an Allye MCP call whose tool_input.spec / tool_input.task match the key pattern (a task key does NOT
 #   supply a spec part). env: ALLYE_SPEC / ALLYE_TASK of this process, at SessionStart. branch: SessionStart
 #   only, when no bind of rank > 1 was sent for the session, through the one safe git call below. Calls made
@@ -1641,8 +1644,11 @@ def evs:
 def modes: ["launch","mission","blueprint","dispatch","repair","optimize","shield","inspect","survey"];
 def kv($k): if ($k | keyok) then (if ($k | contains(".")) then {task: $k} else {spec: $k} end) else {} end;
 def skillb($name; $args):
-  if ($name | type) == "string" and ($name | IN("bridge","allye:bridge")) and ($args | type) == "string" and ($args | length) <= 300 then
-    [$args | match("[^ \t\r\n]+"; "g").string] as $t
+  if ($name | type) == "string" and ($name | IN("bridge","allye:bridge")) and ($args | type) == "string" then
+    # ALY-279.1 (BR-01, BR-02, D-20): tokenize a fixed window of 300 code points, whatever the total length; when the args are
+    # longer than the window a token must end strictly before its edge (a cut token could be a different valid value).
+    ($args | length) as $n
+    | [$args[0:300] | match("[^ \t\r\n]+"; "g") | select($n <= 300 or (.offset + .length) < 300) | .string] as $t
     | if ($t | length) > 0 and ($t[0] | IN(modes[])) then {source: "skill", role: "bridge", mode: $t[0]} + kv($t[1] // null) | if has("spec") then . + {touch: true} else . end else null end
   else null end;
 # ALY-217.4 (BR-08, D-03, D-22): only the claim-like writes task_start and task_submit (exact, lowercase) bind.

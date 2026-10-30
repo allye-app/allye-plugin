@@ -67,6 +67,9 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   identical. Calls inside a subagent never bind. A task key does not supply a spec part.
 - skill: `Skill` tool call (`bridge`/`allye:bridge`) or `UserPromptExpansion` (`command_name` bridge/allye:bridge) with
   `<mode> [KEY]`. Invalid mode: no bind. Invalid key: the key only is dropped. A key with a dot is `task`, else `spec`.
+  Only the first 300 code points of the args are tokenized, whatever their length (ALY-279.1): in args longer than 300 the
+  first two tokens count only when each ends before the window edge (first touching it: no bind; second: mode, no key).
+  `skillb-long-373` and `skillb-long-4411` are the real-failure regressions (mode and key in 373- and 4,411-character args).
 - mcp: main-session Allye MCP call (server `allye` or `*_allye`) whose `tool_input.action` is exactly `task_start` or
   `task_submit` (ALY-217.4, D-22); `tool_input.spec` / `tool_input.task` each kept only when it matches the key pattern, no
   bind when neither does. Every other action (reads such as `spec_get`, `spec_list`, `task_get`, approvals such as
