@@ -393,7 +393,7 @@ seq_case() {  # LABEL EXPECT-JSON-LINES... (fixtures from $SEQ)
 W='{"type":"state","state":"working"}'; WQ='{"type":"state","state":"waiting_input","code":"asked_question"}'; WP='{"type":"state","state":"waiting_input","code":"permission_prompt"}'
 #@end
 SEQ=(pre-tool-use-ask-user-question pre-tool-use pre-tool-use post-tool-use)
-seq_case "AskUserQuestion then tools: working once, before the first tool; PostToolUse adds no tool event" "$WQ" "$W" '{"type":"tool","tool":"Bash"}' '{"type":"tool","tool":"Bash"}'
+seq_case "AskUserQuestion then tools: working once, before the first tool; PostToolUse adds no tool event" "$WQ" "$W" '{"type":"tool","tool":"Bash","activity":"Run a command"}' '{"type":"tool","tool":"Bash"}'   # ALY-263.13: the first main-session phrase is sent, an equal one right after it is not
 SEQ=(permission-request post-tool-use post-tool-use)
 seq_case "PermissionRequest then PostToolUse: working only, once, no tool event" "$WP" "$W"
 SEQ=(permission-request post-tool-use-subagent post-tool-use-subagent)
@@ -411,13 +411,13 @@ seq_case "permission_prompt then SubagentStart twice: working first, once; the s
 SEQ=(pre-tool-use-ask-user-question pre-tool-use-subagent)
 seq_case "waiting then a subagent tool: working first, then the synthetic sub_start" "$WQ" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Read","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"},"activity":"Read readme.txt"}'
 SEQ=(pre-tool-use-ask-user-question stop pre-tool-use)
-seq_case "waiting then Stop then a tool: Stop leaves waiting, no working" "$WQ" '{"type":"state","state":"idle","code":"turn_ended"}' '{"type":"tool","tool":"Bash"}'
+seq_case "waiting then Stop then a tool: Stop leaves waiting, no working" "$WQ" '{"type":"state","state":"idle","code":"turn_ended"}' '{"type":"tool","tool":"Bash","activity":"Run a command"}'
 SEQ=(pre-tool-use-ask-user-question subagent-stop)
 seq_case "waiting then SubagentStop: no working (not a trigger, nor is its synthetic sub_start)" "$WQ" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_stop","sub":{"id":"agent-abc123","type":"allye:bridge-pilot","outcome":"pass","task":"ALY-1.2"}}'
 SEQ=(pre-tool-use pre-tool-use)
-seq_case "no waiting: no working is inserted" '{"type":"tool","tool":"Bash"}' '{"type":"tool","tool":"Bash"}'
+seq_case "no waiting: no working is inserted" '{"type":"tool","tool":"Bash","activity":"Run a command"}' '{"type":"tool","tool":"Bash"}'
 SEQ=(permission-request pre-tool-use-tool-space pre-tool-use)
-seq_case "a dropped PreToolUse still spools working once; the next tool follows" "$WP" "$W" '{"type":"tool","tool":"Bash"}'
+seq_case "a dropped PreToolUse still spools working once; the next tool follows" "$WP" "$W" '{"type":"tool","tool":"Bash","activity":"Run a command"}'
 
 # ─── ALY-203.3: tool reduction (BR-13) and binding sources (BR-08, AC-06) ───
 #@keepnext
@@ -569,7 +569,8 @@ echo "== strength ordering and repeats =="
 S1='{"type":"tool","tool":"Skill"}'
 BSK='{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"mission","spec":"ALY-203"}}'
 BMC='{"type":"bind","bind":{"source":"mcp","spec":"ALY-203"}}'
-TMC='{"type":"tool","tool":"allye:task_start"}'   # ALY-217.4: only task_start/task_submit bind
+TMC='{"type":"tool","tool":"allye:task_start","activity":"Start a task"}'   # ALY-217.4: only task_start/task_submit bind; ALY-263.13: the half-bad key gives the keyless phrase
+TMC2='{"type":"tool","tool":"allye:task_start"}'   # the same phrase right after TMC: removed by the main-session dedupe
 SEQ=(skill-bridge-spec mcp-allye-task-start-half-bad-key)
 seq_case "skill then mcp: the weaker mcp bind is not sent" "$S1" "$BSK" "$TMC"
 SEQ=(mcp-allye-task-start-half-bad-key skill-bridge-spec)
@@ -577,9 +578,9 @@ seq_case "mcp then skill: the stronger skill bind is sent" "$TMC" "$BMC" "$S1" "
 SEQ=(skill-bridge-spec skill-bridge-spec)
 seq_case "skill twice: the same bind is sent once" "$S1" "$BSK" "$S1"
 SEQ=(mcp-allye-task-start-half-bad-key mcp-allye-task-start-half-bad-key)
-seq_case "mcp twice: the same bind is sent once" "$TMC" "$BMC" "$TMC"
+seq_case "mcp twice: the same bind is sent once" "$TMC" "$BMC" "$TMC2"
 SEQ=(mcp-allye-task-start-half-bad-key mcp-allye-task-start)
-seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{"type":"tool","tool":"allye:task_start"}' '{"type":"bind","bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"}}'
+seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{"type":"tool","tool":"allye:task_start","activity":"Start task ALY-203.3"}' '{"type":"bind","bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"}}'
 SEQ=(skill-bridge-spec expansion-bridge-spec)
 seq_case "skill via Skill tool then via expansion with another key: sent again" "$S1" "$BSK" '{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"launch","spec":"ALY-7"}}'
 SEQ=(skill-bridge-subagent mcp-allye-subagent)
@@ -1278,7 +1279,9 @@ pr_flush_case() {  # LABEL [off]
   run_fixture user-prompt-submit
   check "$1: pr 1..9999999 on a gates event is sent as an integer; an invalid value (0, decimal, string, 10000000, negative, null, boolean) or a pr on another event is dropped and the event stays" \
     "4001:5 4002:- 4003:- 4004:- 4005:- 4006:- 4007:9999999 4008:- 4009:- 4010:- 4011:1" \
-    "$("$JQ_BIN" -r '.events[] | "\(.seq):\(.pr // "-")"' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//')"
+    "$("$JQ_BIN" -r '.events[] | select(.seq < 5000) | "\(.seq):\(.pr // "-")"' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//')"
+  # the fixture's own event (a ms-stamped working line) goes out in the same batch, without a pr
+  check "$1: the fixture's own working event follows the seeded lines, with no pr" "working:-" "$("$JQ_BIN" -r '.events[] | select(.seq >= 5000) | "\(.state):\(.pr // "-")"' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//')"
   check "$1: the sent pr values are JSON integers" "5 9999999 1" "$("$JQ_BIN" -r '.events[] | select(.pr != null) | "\(.pr)"' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//')"
   end_case
 }
@@ -2591,7 +2594,11 @@ check "ten hooks: ten lines, none lost" "10" "$(wc -l <"$SP" | tr -d ' ')"
 check "ten hooks: every line is a whole JSON object (none torn)" "10" "$("$JQ_BIN" -c 'select(type == "object")' "$SP" | wc -l | tr -d ' ')"
 check "ten hooks: seq unique" "10" "$(seqs | sort -u | wc -l | tr -d ' ')"
 check "ten hooks: seq strictly increasing in file order" "yes" "$(seqs | increasing)"
-check "ten hooks: the expected multiset of events (fixture expectations summed)" "$(for f in user-prompt-submit pre-tool-use stop user-prompt-submit pre-tool-use notification-idle-prompt user-prompt-submit pre-tool-use stop user-prompt-submit; do "$JQ_BIN" -cS . "$FIX/$f.expect"; done | sort | tr '\n' ' ')" "$("$JQ_BIN" -cS 'del(.at, .seq)' "$SP" | sort | tr '\n' ' ')"
+check "ten hooks: the expected multiset of events (fixture expectations summed)" "$(SEENP=no; for f in user-prompt-submit pre-tool-use stop user-prompt-submit pre-tool-use notification-idle-prompt user-prompt-submit pre-tool-use stop user-prompt-submit; do
+    # ALY-263.13: of the equal main-session phrases only the first is sent (whichever hook wins the lock); the others lose `activity`
+    if [ "$f" = pre-tool-use ] && [ "$SEENP" = yes ]; then "$JQ_BIN" -cS 'del(.activity)' "$FIX/$f.expect"; else "$JQ_BIN" -cS . "$FIX/$f.expect"; fi
+    [ "$f" != pre-tool-use ] || SEENP=yes
+  done | sort | tr '\n' ' ')" "$("$JQ_BIN" -cS 'del(.at, .seq)' "$SP" | sort | tr '\n' ' ')"
 check "ten hooks: counter equals the largest seq, outputs empty, no lock left" "$(seqs | tail -n 1)||no" "$(cat "$DATA/live/$(test_sha "$RAWSID").seq")|$(cat "$SB"/par.*)|$([ -n "$(find "$DATA/live" -name '*.lock' 2>/dev/null)" ] && echo yes || echo no)"
 end_case
 
