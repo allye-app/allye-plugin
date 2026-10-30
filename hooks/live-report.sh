@@ -332,6 +332,21 @@ spool_trim() {
   [ "$bytes" -le 262144 ] && [ "$lines" -le 500 ] && return 0
   tmp=$(mktemp "$d/.spool.XXXXXX" 2>/dev/null) || return 0
   TMPF="$tmp"
+  # ALY-263.13 (AC-16, D-18): a full spool loses phrase events first: the oldest `sub_tool` events and the main-session `tool` events
+  # that carry an `activity` go before anything else (sub_start, sub_stop, state, bind, gates, label, a tool without a phrase); only when
+  # no such event is left do the oldest other lines go, as before. Order is kept. A jq failure falls back to the plain newest-500 trim.
+  # The type keys are matched on the compact lines the hook writes (`"type":"sub_tool"`): a phrase quote inside a value is escaped, so it
+  # can never spell that key.
+  if jq -Rrn '
+      [inputs] as $l | ($l | length) as $n | ($l | map((utf8bytelength) + 1)) as $b
+      | ($l | map(test("\"type\":\"sub_tool\"") or (test("\"type\":\"tool\"") and test("\"activity\":")))) as $ev
+      | ([range(0; $n) | select($ev[.])] + [range(0; $n) | select($ev[.] | not)]) as $order
+      | (reduce $order[] as $i ({d: {}, n: $n, b: ($b | add // 0)};
+          if .n > 500 or .b > 262144 then .d[($i | tostring)] = true | .n -= 1 | .b -= $b[$i] else . end) | .d) as $d
+      | range(0; $n) | select($d[tostring] | not) | $l[.]' "$f" >"$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+    mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+    return 0
+  fi
   tail -n 500 "$f" >"$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
   bytes=$(wc -c <"$tmp" 2>/dev/null); bytes=${bytes//[[:space:]]/}
   if [[ "$bytes" =~ ^[0-9]+$ ]] && [ "$bytes" -gt 262144 ]; then
@@ -1059,17 +1074,28 @@ LBLIN=null; LBLDUE=0; LBLSTORED=""; LBLMS=""
 label_state_read() {  # sets LBLMS and LBLSTORED from $LBLF, or empties them (absent, not private, oversized or off the shape)
   local l
   LBLMS=""; LBLSTORED=""
-  [ -f "$LBLF" ] && [ ! -L "$LBLF" ] || return 0
-  [ -n "$(find "$LBLF" -prune -type f -user "$UID_NOW" -perm 0600 -size -1025c -print 2>/dev/null)" ] || return 0
+  LBLBAD=0
+  [ -f "$LBLF" ] && [ ! -L "$LBLF" ] || { { [ -e "$LBLF" ] || [ -L "$LBLF" ]; } && ! private_file_ok "$LBLF" && LBLBAD=1; return 0; }
+  # ALY-263.13: LBLBAD marks a file that EXISTS but is not a private regular file: nothing can be written over it, so no due check runs
+  [ -n "$(find "$LBLF" -prune -type f -user "$UID_NOW" -perm 0600 -size -1025c -print 2>/dev/null)" ] || { private_file_ok "$LBLF" || LBLBAD=1; return 0; }
   { IFS= read -r l <"$LBLF"; } 2>/dev/null
   if [[ "$l" =~ ^([0-9]{13})\ (\{.*\})$ ]]; then LBLMS="${BASH_REMATCH[1]}"; LBLSTORED="${BASH_REMATCH[2]}"; fi
 }
 LBLF="$LIVE_DIR/$HASH.label"
 if ! texts_off; then
-  LBLNOW=$(now_ms); label_state_read
+  label_state_read
+  # ALY-263.13: no clock fork when the stored time is plainly recent: bash's own clock decides "not due" (the date shim of the tests
+  # sets a fake clock, so any other case, a stored time ahead of the real clock included, goes through now_ms as before).
+  LBLNOW=""
+  if [[ "$LBLMS" =~ ^[0-9]{13}$ ]] && [[ "${EPOCHREALTIME:-}" =~ ^([0-9]{1,12})[.,]([0-9]{3}) ]]; then
+    LBLNOW="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+    { [ "$LBLNOW" -ge "$LBLMS" ] && [ $((LBLNOW - LBLMS)) -lt 60000 ]; } || LBLNOW=""
+  fi
+  [ -n "$LBLNOW" ] || LBLNOW=$(now_ms)
   LBLTHR=1
   if [[ "$LBLNOW" =~ ^[0-9]{13}$ ]] && [[ "$LBLMS" =~ ^[0-9]{13}$ ]] && [ "$LBLNOW" -ge "$LBLMS" ] && [ $((LBLNOW - LBLMS)) -lt 60000 ]; then LBLTHR=0; fi
   case "$INPUT" in *SessionStart*) LBLMAYBE=1 ;; *) LBLMAYBE=$LBLTHR ;; esac
+  [ "$LBLBAD" = 1 ] && LBLMAYBE=0
   if [ "$LBLMAYBE" = 1 ]; then
     LBP=$(printf '%s' "$INPUT" | jq -c '
       select(.hook_event_name | strings | . != "" and . != "SessionEnd") | select((.agent_id // null) == null)
@@ -1133,12 +1159,26 @@ tk_tried() {  # tk_tried ID: succeeds when $HASH.tkmem holds an entry of ID mark
   local f="$LIVE_DIR/$HASH.tkmem" c
   [ -f "$f" ] && [ ! -L "$f" ] || return 1
   [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ] || return 1
-  c=$(cat "$f" 2>/dev/null) || return 1
+  { IFS= read -r -d '' -N 8192 c <"$f"; } 2>/dev/null; [ -n "$c" ] || return 1   # builtin read: no fork
   [[ "$c" =~ \[\"$1\",\"([A-Z][A-Z0-9]{1,9}-[0-9]+(\.[0-9]+)?)?\",1\] ]]
 }
+# ALY-263.13 (AC-16): the hot path of a subagent tool event is cheap. The project prefix (about ten forks) is computed only where it is
+# used: at a SubagentStart and a SubagentStop (a stash entry may give a task key to a first or synthetic sub_start) and at the PreToolUse
+# of an agent id whose first-tool attempt is not recorded (TKID set). A PreToolUse whose payload holds the literal "agent_id" key
+# exactly once, with an id that matches the pattern and is already recorded as tried, skips the parse and the prefix altogether: the
+# jq read below can only reach the same answer (a single occurrence is either the top-level id or nothing the read would accept).
+TKFAST=0
 if ! texts_off; then
+  case "$INPUT" in *PreToolUse*'"agent_id"'*)
+    if [[ "$INPUT" =~ \"agent_id\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9_-]{1,64})\" ]]; then
+      TKQ="${BASH_REMATCH[1]}"; TKX="${INPUT//\"agent_id\"/}"
+      if [ $(( ${#INPUT} - ${#TKX} )) -eq 10 ] && tk_tried "$TKQ"; then TKFAST=1; fi
+    fi ;;
+  esac
+fi
+if [ "$TKFAST" = 0 ] && ! texts_off; then
+  case "$INPUT" in *SubagentStart*|*SubagentStop*) tk_prefix ;; esac
   case "$INPUT" in *SubagentStart*|*'"agent_id"'*)
-    tk_prefix
     case "$INPUT" in *PreToolUse*)
       TRF=$(printf '%s' "$INPUT" | jq -c '
         select(.hook_event_name == "PreToolUse") | select((.agent_id | strings | test("\\A[A-Za-z0-9_-]{1,64}\\z")) // false)
@@ -1147,7 +1187,7 @@ if ! texts_off; then
       if [ -n "$TRF" ]; then
         TKI=$(printf '%s' "$TRF" | jq -r '.i' 2>/dev/null) || TKI=""
         if [[ "$TKI" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && ! tk_tried "$TKI"; then
-          TKID="$TKI"
+          TKID="$TKI"; tk_prefix
           [[ "$RD_END" =~ ^[0-9]{13}$ ]] || RD_END="$(( $(now_ms) + 2000 ))"
           if MDP=$(agent_file_of meta.json) && TKDESC=$(meta_description "$MDP"; printf x); then TKDESC="${TKDESC%x}"; else TKDESC=""; fi
         fi
@@ -1473,7 +1513,7 @@ def toolev:
   redtool as $t
   | if (.agent_id // null) != null then
     (subof) as $s | if $s != null and $t != null then toolphrase as $a | [{type: "sub_tool", tool: $t, sub: $s} | withact($a)] else trig end
-  elif $t != null then actof as $m | [{type: "tool", tool: $t} | withact($m)]
+  elif $t != null then toolphrase as $m | [{type: "tool", tool: $t} | withact($m)]
   else trig end;
 def failcode: .error as $x | if ($x | type) == "string" and (["rate_limit","authentication_failed","billing_error","invalid_request","server_error","max_output_tokens"] | index($x)) != null then "cli_error_" + $x else "cli_error_unknown" end;
 def endcode: .reason as $x | if ($x | type) == "string" and (["clear","resume","logout","prompt_input_exit"] | index($x)) != null then "end_" + $x else "end_other" end;
@@ -1616,8 +1656,8 @@ def actdd($e):
   if $actok != "1" then {out: $e, st: null}
   else
     reduce $e[] as $ev ({out: [], s: actseen, ch: false};
-      if $ev.type == "sub_tool" and ($ev.activity | type) == "string" then
-        ($ev.sub.id) as $i | ((.s | map(select(.[0] == $i)) | .[0][1]) // null) as $p
+      if ($ev.type == "sub_tool" or $ev.type == "tool") and ($ev.activity | type) == "string" then
+        ($ev.sub.id // "_main_") as $i | ((.s | map(select(.[0] == $i)) | .[0][1]) // null) as $p
         | if $p == $ev.activity then .out += [$ev | del(.activity)]
           else .out += [$ev] | .s = (((.s | map(select(.[0] != $i))) + [[$i, $ev.activity]]) | .[-16:]) | .ch = true end
       else .out += [$ev] end)

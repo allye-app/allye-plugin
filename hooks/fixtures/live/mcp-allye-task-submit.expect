@@ -1,2 +1,2 @@
-{"type":"tool","tool":"allye:task_submit"}
+{"type":"tool","tool":"allye:task_submit","activity":"Submit task ALY-203.4"}
 {"type":"bind","bind":{"source":"mcp","task":"ALY-203.4"}}

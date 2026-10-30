@@ -1922,11 +1922,41 @@ for fl in activity-off detailed-off; do
   check "BR-03: $fl: the sub_tool events still go on" "2" "$(lines_of '.type == "sub_tool"' | grep -c . || true)"
   end_case
 done
-# the main session keeps its phrase path until slice .13: a Read there has no phrase
+# ALY-263.13 (AC-17): the main session's tool event takes the SAME D-08 grammar and gates as a subagent's (toolphrase).
+# This replaces the check of slice .9 that pinned the main-session event to "no phrase": the change is intended.
+mainp() { "$JQ_BIN" --arg t "$1" --argjson i "$2" 'del(.agent_id, .agent_type) | .tool_name = $t | .tool_input = $i' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+# main_acts: the activities of the main-session tool events in spool order, "-" for an event without one, one line.
+main_acts() { lines_of '.type == "tool"' | "$JQ_BIN" -r '.activity // "-"' | tr '\n' '|'; }
 new_case; mkcred
-"$JQ_BIN" 'del(.agent_id, .agent_type) | .tool_name = "Read" | .tool_input = {file_path: "/p/a.ts"}' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
-check "D-08: the main-session tool event is not changed by this slice (no template yet)" '{"tool":"Read","type":"tool"}' "$(lines_of '.type == "tool"' | "$JQ_BIN" -cS . | tail -n 1)"
+mainp Read '{"file_path":"/p/a.ts"}'
+check "AC-17: a main-session Read sends the D-08 template (was: no phrase)" '{"activity":"Read a.ts","tool":"Read","type":"tool"}' "$(lines_of '.type == "tool"' | "$JQ_BIN" -cS . | tail -n 1)"
+mainp Edit '{"file_path":"/p/.env.local"}'; mainp Grep '{"pattern":"MARKER_ARGS"}'; mainp Glob '{}'; mainp Bash '{"command":"FOO=MARKER_ARGS npm test"}'
+mainp Skill '{"skill":"allye:bridge-pilot"}'; mainp mcp__github__create_issue '{"title":"MARKER_ARGS"}'; mainp WebFetch '{"url":"https://MARKER_ARGS"}'
+check "AC-17: the same grammar: denylist fallback, Grep, Glob, Bash class, crew Skill; other MCP and unknown tools: no phrase" "Read a.ts|Edit a file|Search the code|Find files|Run tests|Load the pilot skill|-|-|" "$(main_acts)"
+check "AC-17: nothing of the tool input leaves (no marker in the spool or any file)" "0" "$(grep -rl 'MARKER_ARGS' "$DATA" 2>/dev/null | grep -c . || true)"
+mainp mcp__plugin_allye_allye__tasks '{"action":"task_start","task":"ALY-263.13"}'
+check "AC-17: an Allye MCP call of the main session: the template with its key" "Start task ALY-263.13" "$(lines_of '.type == "tool" and .activity != null' | "$JQ_BIN" -r '.activity' | tail -n 1)"
 end_case
+# a description wins over the template, through the cleaner, like a subagent
+new_case; mkcred
+"$JQ_BIN" 'del(.agent_id, .agent_type) | .tool_input.description = "Run the first unit tests now"' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "AC-17: the description path of the main session is unchanged" "Run the first unit tests now|" "$(main_acts)"
+end_case
+# consecutive duplicates: a phrase equal to the main session's previous one is skipped (the event goes on), a changed one is sent
+new_case; mkcred
+mainp Read '{"file_path":"/a/x.ts"}'; mainp Read '{"file_path":"/b/x.ts"}'; mainp Grep '{}'; mainp Read '{"file_path":"/b/x.ts"}'
+check "AC-17: an equal phrase of the main session right after its previous one is skipped" "Read x.ts|-|Search the code|Read x.ts|" "$(main_acts)"
+mainp Read '{"file_path":"/p/a.ts"}'; subact m1 "Run the first unit tests now"; subact m1 "Run the first unit tests now"
+check "AC-17: the main memory is separate from the subagents' (a subagent phrase does not reset it nor the reverse)" "Read x.ts|-|Search the code|Read x.ts|Read a.ts|" "$(main_acts)"
+end_case
+# texts off: no main phrase is spooled or remembered
+for fl in activity-off detailed-off; do
+  new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  mainp Read '{"file_path":"/p/MARKERFILE.ts"}'; mainp Bash '{"command":"npm test"}'
+  check "AC-17: $fl: no main-session phrase reaches the spool or any file" "0" "$(grep -rlE 'MARKERFILE|Run tests|Read a file' "$DATA" 2>/dev/null | grep -c . || true)"
+  check "AC-17: $fl: the tool events still go on" "2" "$(lines_of '.type == "tool"' | grep -c . || true)"
+  end_case
+done
 
 echo "== text cleaner: shared vectors, cap 140, nested allowlist and marker scan (ALY-258.1 AC-06, AC-07, D-33, NFR-01) =="
 VEC="$FIX/vectors/agent-run-text-vectors.json"
@@ -2342,6 +2372,46 @@ end_case
 new_case; mkcred; fill 5 0; run_fixture user-prompt-submit
 check "a small spool is left alone" "6 1" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.idx' "$SPF" | head -n 1)"; end_case
 
+echo "== spool eviction: phrases go first when the spool is full (ALY-263.13 AC-16, D-18, BR-03) =="
+# fillm LINES PAD TYPEEXPR: a private spool of LINES contract lines marked by idx; TYPEEXPR is a jq expression over the index that gives the
+# object merged into each line (the type and its fields). The cap is the existing one: 500 lines and 262144 bytes.
+fillm() {
+  local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+  SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"
+  "$JQ_BIN" -nc --argjson n "$1" --arg pad "$pad" 'range(1; $n + 1) | . as $i | {seq: $i, at: "2026-01-01T00:00:00Z", idx: $i, pad: $pad} + ($i | '"$3"')' >"$SPF"
+}
+IMPORTANT_T='if . <= 20 then (if . % 2 == 0 then {type: "sub_start", sub: {id: "a", type: "t"}} else {type: "sub_stop", sub: {id: "a", type: "t", outcome: "pass"}} end) else {type: "sub_tool", tool: "Bash", sub: {id: "a", type: "t"}, activity: "Run tests"} end'
+new_case; mkcred; fillm 520 0 "$IMPORTANT_T"; run_fixture user-prompt-submit
+check "D-18: a full spool of phrases and a new state: 500 lines, the new state is last" "500 working" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.state // empty' "$SPF" | tail -n 1)"
+check "D-18: every sub_start and sub_stop (idx 1..20) is kept, the oldest sub_tools went first (21..41), order preserved" "20 42 yes" "$("$JQ_BIN" -r 'select(.type == "sub_start" or .type == "sub_stop") | .idx' "$SPF" | wc -l | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "sub_tool") | .idx' "$SPF" | head -n 1) $("$JQ_BIN" -s '[.[] | .seq] as $s | ($s == ($s | sort))' "$SPF" | sed 's/true/yes/;s/false/no/')"
+end_case
+# a new sub_stop arriving into a spool full of sub_tool events is kept
+new_case; mkcred; fillm 500 0 '{type: "sub_tool", tool: "Read", sub: {id: "a", type: "t"}, activity: "Read a file"}'; cp "$FIX/subagent-stop.json" "$SB/stdin"; run_hook
+check "D-18/AC-16: a spool full of sub_tool + a sub_stop arrives: the oldest sub_tools went (the stop brings its synthetic start), the stop is kept last" "500 3 sub_stop" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "sub_tool") | .idx' "$SPF" | head -n 1) $("$JQ_BIN" -r '.type' "$SPF" | tail -n 1)"
+end_case
+# the other event kinds are never lost to phrases: state, bind, gates, label (and a tool without a phrase); main-session phrases are evictable
+KINDS_T='if . % 5 == 0 then {type: "bind", bind: {spec: "ALY-1"}} elif . % 5 == 1 then {type: "gates", gates: {}} elif . % 5 == 2 then {type: "label", label: {text: "x"}} elif . % 5 == 3 then {type: "state", state: "working"} else {type: "tool", tool: "Read"} end'
+new_case; mkcred; fillm 300 0 "$KINDS_T"
+"$JQ_BIN" -nc 'range(301; 421) | {seq: ., at: "2026-01-01T00:00:00Z", idx: ., type: (if . % 2 == 0 then "tool" else "sub_tool" end), tool: "Read", activity: "Read a file", sub: {id: "a", type: "t"}}' >>"$SPF"
+"$JQ_BIN" -nc 'range(421; 521) | {seq: ., at: "2026-01-01T00:00:00Z", idx: ., type: "sub_stop", sub: {id: "b", type: "t", outcome: "pass"}}' >>"$SPF"
+run_fixture user-prompt-submit
+check "D-18: state, bind, gates, label and a tool without phrase are kept (300), sub_stop kept (100), phrases of sub_tool and tool evicted oldest first" "300 100 301+21=yes" "$("$JQ_BIN" -r 'select(.idx != null and .idx <= 300) | .idx' "$SPF" | wc -l | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "sub_stop") | .idx' "$SPF" | wc -l | tr -d ' ') 301+21=$("$JQ_BIN" -s '[.[] | select(.activity != null) | .idx] as $i | ($i | length) == 99 and ($i[0] == 322)' "$SPF" | sed 's/true/yes/;s/false/no/')"
+end_case
+# only important events: the oldest go, as before
+new_case; mkcred; fillm 600 0 '{type: "sub_stop", sub: {id: "a", type: "t", outcome: "pass"}}'; run_fixture user-prompt-submit
+check "D-18: a spool of only important events evicts the oldest, as before" "500 102 working" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.idx' "$SPF" | head -n 1) $("$JQ_BIN" -r '.state' "$SPF" | tail -n 1)"
+end_case
+# the byte cap: phrases first as well
+new_case; mkcred; fillm 400 1000 'if . % 2 == 0 then {type: "sub_tool", tool: "Read", sub: {id: "a", type: "t"}, activity: "Read a file"} else {type: "sub_stop", sub: {id: "a", type: "t", outcome: "pass"}} end'; run_fixture user-prompt-submit
+check "D-18: over the byte cap: at most 262144 bytes, every sub_stop (200) kept, only sub_tools dropped" "yes 200 yes" "$([ "$(wc -c <"$SPF" | tr -d ' ')" -le 262144 ] && echo yes || echo no) $("$JQ_BIN" -r 'select(.type == "sub_stop") | .idx' "$SPF" | wc -l | tr -d ' ') $([ "$("$JQ_BIN" -r 'select(.type == "sub_tool") | .idx' "$SPF" | wc -l | tr -d ' ')" -lt 200 ] && echo yes || echo no)"
+end_case
+# texts off: unchanged (no phrase exists to evict, the cap holds)
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"
+fillm 600 0 '{type: "sub_tool", tool: "Read", sub: {id: "a", type: "t"}}'; run_fixture user-prompt-submit
+check "D-18: texts off: the cap is kept and the new line is last" "500 working" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.state // empty' "$SPF" | tail -n 1)"
+end_case
+
 echo "== torn spool tail (SHD-03) =="
 new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"
 printf '{"seq":1,"type":"sta' >"$SPF"; chmod 600 "$SPF"; run_fixture user-prompt-submit
@@ -2429,6 +2499,20 @@ at 1; run_fixture sub-tool-unseen
 check "AC-35: the next sub_tool of that id is not important (waits for the 2 s interval)" "2 1" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
 end_case
 
+#@always
+# helpers of the failure sections that the `^spool` selection of the accepted verify needs (same bodies as above; redefining them is harmless)
+T0=1800000000
+at() { RUN_ENV=("SHIM_DATE_NOW=$((T0 + $1))"); }
+new7() { new_case; mkcred; SHIMD="$SHIMS"; }
+spn() { if [ -f "$(spool_of "$RAWSID")" ]; then wc -l <"$(spool_of "$RAWSID")" | tr -d ' '; else echo 0; fi; }
+nowiso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+nbodies() { if [ -f "$SB/api/ingest-bodies.log" ]; then wc -l <"$SB/api/ingest-bodies.log" | tr -d ' '; else echo 0; fi; }
+lines_of() { spooled | "$JQ_BIN" -c "select($1)"; }
+fill6() {  # LINES PADBYTES: contract-shaped lines with seq 1..N; PAD makes the code field long
+  local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"
+  "$JQ_BIN" -nc --argjson n "$1" --arg pad "$pad" --arg at "$(nowiso)" 'range(1; $n + 1) | {seq: ., at: $at, type: "state", state: "working"} + (if $pad == "" then {} else {code: $pad} end)' >"$SPF"
+}
 echo "== batches of at most 50 events and 16384 bytes =="
 fill6() {  # LINES PADBYTES: contract-shaped lines with seq 1..N; PAD makes the code field long
   local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
@@ -3694,6 +3778,60 @@ rs_new; rs_cycle; { rs_hb "status: failed
 summary: second round was rejected
 $(head -c 60000 /dev/zero | tr '\0' b)"; } >>"$TDIR/agent-r1.jsonl"; rs_main
 check "a 60 KB newest handback report is parsed through a file, not argv" "fail" "$(rs_stops r1 | tail -n 1 | "$JQ_BIN" -r '.sub.outcome')"; rs_ok "big report"; end_case
+
+# ─── ALY-263.13 (AC-16): the ALY-260-style sequence replayed through the current script, FUNCTIONAL checks only ──────────────────────────
+# No assertion here bounds elapsed time (architecture guard ALY-54). The measured p95 added per tool event is printed by the non-gating
+# helper hooks/test/measure-latency.sh, which replays hooks/fixtures/live/latency/sequence.json against the frozen v2.12.0 script and this one.
+echo "== latency: the fixture sequence of ALY-260 replayed, flush rules and fail-quiet reads (ALY-263.13 AC-16) =="
+LATSEQ="$FIX/latency/sequence.json"
+lat_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TDIR="$PROJ/$RAWSID/subagents"; mkdir -p "$TDIR"; LATN=$("$JQ_BIN" 'length' "$LATSEQ"); }
+# lat_tool INDEX [AGENT]: tool event INDEX of the sequence, by subagent AGENT or (no agent) by the main session.
+lat_tool() { "$JQ_BIN" --argjson i "$1" --arg sid "$RAWSID" --arg tp "$PROJ/t.jsonl" --arg a "${2:-}" '.[$i] | {session_id: $sid, transcript_path: $tp, cwd: "/tmp", hook_event_name: "PreToolUse", tool_name, tool_input, tool_use_id: ("toolu_" + ($i | tostring))} + (if $a != "" then {agent_id: $a, agent_type: "allye:bridge-pilot"} else {} end)' "$LATSEQ" >"$SB/stdin"; run_hook; }
+lat_new
+check "the sequence fixture has the ALY-260 mix (Bash without description, Read, Grep, Edit, Skill, Allye MCP, an unknown MCP)" "yes" "$("$JQ_BIN" '[.[].tool_name] | (index("Bash") != null and index("Read") != null and index("Grep") != null and index("Edit") != null and index("Skill") != null and (map(select(startswith("mcp__plugin_allye"))) | length) > 0 and (map(select(startswith("mcp__github"))) | length) > 0)' "$LATSEQ" | sed 's/true/yes/;s/false/no/')"
+BADRC=0; BADERR=""
+for i in $(seq 0 $((LATN - 1))); do lat_tool "$i" lat1; [ "$RC" = 0 ] || BADRC=1; BADERR="$BADERR$ERR$OUT"; done
+check "replay as a subagent: every event exits 0 and prints nothing" "0|" "$BADRC|$BADERR"
+check "replay as a subagent: one sub_tool per tool event (the tool without a name in the allowlist included), one synthetic start first" "$LATN 1" "$(lines_of '.type == "sub_tool"' | grep -c . || true) $(lines_of '.type == "sub_start"' | grep -c . || true)"
+check "replay as a subagent: seq strictly increasing in spool order, every line valid JSON" "yes" "$("$JQ_BIN" -s '[.[].seq] as $s | ($s == ($s | sort) and ($s | unique | length) == ($s | length))' "$(spool_of "$RAWSID")" | sed 's/true/yes/;s/false/no/')"
+check "replay as a subagent: the phrases are the D-08 templates in order, none for the unknown MCP tool" "Load the pilot skill|Start task ALY-260.4|Read spec ALY-260|Read module1.ts" "$(lines_of '.type == "sub_tool" and .activity != null' | "$JQ_BIN" -r '.activity' | head -n 4 | paste -sd'|')"
+check "replay as a subagent: no marker of the tool input left the machine" "0" "$(grep -rl 'MARKER_PATTERN' "$DATA" 2>/dev/null | grep -c . || true)"
+end_case
+lat_new
+BADRC=0; BADERR=""
+for i in $(seq 0 $((LATN - 1))); do lat_tool "$i"; [ "$RC" = 0 ] || BADRC=1; BADERR="$BADERR$ERR$OUT"; done
+check "replay as the main session: every event exits 0 and prints nothing" "0|" "$BADRC|$BADERR"
+check "replay as the main session: one tool event per tool, never a sub_tool" "$LATN 0" "$(lines_of '.type == "tool"' | grep -c . || true) $(lines_of '.type == "sub_tool"' | grep -c . || true)"
+end_case
+# the flush rules, unchanged: an important event at once, the others after 2 s (the fake clock of the flush policy section)
+T0=1800000000
+latat() { RUN_ENV=("SHIM_DATE_NOW=$((T0 + $1))"); }
+lat_new; SHIMD="$SHIMS"
+latat 0; run_fixture user-prompt-submit; fake_wait_on
+check "flush rules: the first state change is sent at once" "1" "$(nbodies)"
+latat 1; lat_tool 3 lat1
+check "flush rules: the first tool of an unseen subagent is important (its synthetic start): sent at once" "2 sub_start,sub_tool" "$(nbodies) $("$JQ_BIN" -r '[.events[].type] | join(",")' "$SB/api/ingest-bodies.log" | tail -n 1)"
+latat 1; lat_tool 4 lat1; latat 1; lat_tool 5 lat1
+check "flush rules: the next tools of that subagent wait inside 2 s (nothing sent, both spooled)" "2 2" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+latat 3; lat_tool 6 lat1
+check "flush rules: 2 s after the last flush the waiting phrases go out in one request, in order" "3 3 0" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tail -n 1) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+end_case
+# a corrupt metadata file and a missing transcript: exit 0, nothing on stderr or stdout, the sub_tool still sent
+lat_new; printf '{"description": "Truncated MARKER_DESC here' >"$TDIR/agent-lat1.meta.json"
+lat_tool 3 lat1
+check "a corrupt metadata file: exit 0, no stderr, no stdout" "0||" "$RC|$ERR|$OUT"
+check "a corrupt metadata file: the sub_tool event is still spooled" "1" "$(lines_of '.type == "sub_tool"' | grep -c . || true)"
+end_case
+lat_new; "$JQ_BIN" -nc '{description: 7}' >"$TDIR/agent-lat1.meta.json"; lat_tool 3 lat1
+check "a metadata file with a non-string description: exit 0, no stderr, no stdout" "0||" "$RC|$ERR|$OUT"; end_case
+lat_new
+"$JQ_BIN" -nc --arg sid "$RAWSID" --arg tp "$PROJ/does-not-exist.jsonl" '{session_id: $sid, transcript_path: $tp, cwd: "/tmp", hook_event_name: "SubagentStop", agent_id: "lat1", agent_type: "allye:bridge-pilot", last_assistant_message: "no report here"}' >"$SB/stdin"; run_hook
+check "a SubagentStop with a missing transcript: exit 0, no stderr, no stdout" "0||" "$RC|$ERR|$OUT"
+check "a SubagentStop with a missing transcript: the outcome is unknown as today" "unknown" "$(lines_of '.type == "sub_stop"' | "$JQ_BIN" -r '.sub.outcome' | tail -n 1)"
+end_case
+lat_new
+"$JQ_BIN" -nc --arg sid "$RAWSID" '{session_id: $sid, cwd: "/tmp", hook_event_name: "SubagentStop", agent_id: "lat1", agent_type: "allye:bridge-pilot", agent_transcript_path: "/nonexistent/dir/agent-lat1.jsonl", last_assistant_message: ""}' >"$SB/stdin"; run_hook
+check "a SubagentStop whose transcript path names nothing: exit 0, no stderr, no stdout" "0||" "$RC|$ERR|$OUT"; end_case
 
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
 check "AC-39: every case ended with no final flusher still running under the sandbox" "0" "$(finals_under "$ROOT_TMP")"
