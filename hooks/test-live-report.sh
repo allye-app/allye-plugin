@@ -1852,6 +1852,17 @@ for fl in activity-off detailed-off; do
 done
 tk_new; tk_agent "Implement ALY-263.3 for the slice"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"; tk_start t1
 check "detailed-off: the start sends no key either (as before)" "-|" "$(tk_starts t1)"; end_case
+# ALY-281 AC-01 unfixed: characterization of the 2-word Pilot description "Pilot ALY-280.1" on the UNFIXED hook. Today the step stays unkeyed
+# while running: no sub.task and no sub.desc on the start, none on the first tool, and the tried entry "" in the memory. ALY-281.2 flips these.
+tk_sdesc() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_start" and .sub.id == $id) | (.sub | has("desc")) as $d | (.sub | has("task")) as $t | "desc=\($d) task=\($t)"' | tr '\n' '|'; }
+tk_ttask() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_tool" and .sub.id == $id) | (.sub | has("task")) | tostring' | tr '\n' '|'; }
+tk_new; tk_agent "Pilot ALY-280.1"; tk_start t1; tk_meta t1 "Pilot ALY-280.1"; tk_tool t1
+check "ALY-281 AC-01 unfixed: start path, the spooled sub_start has no desc and no task" "desc=false task=false|" "$(tk_sdesc t1)"
+check "ALY-281 AC-01 unfixed: first tool path, the sub_tool sends no task" "false|" "$(tk_ttask t1)"
+check "ALY-281 AC-01 unfixed: the memory entry for the agent id is tried and empty" '["t1",""]' "$("$JQ_BIN" -c '[.[] | select(.[0] == "t1")][0][0:2]' "$(TKMEM)")"; end_case
+tk_new; tk_meta t1 "Pilot ALY-280.1"; tk_tool t1
+check "ALY-281 AC-01 unfixed: metadata path alone, no task on the first tool" "false|" "$(tk_ttask t1)"
+check "ALY-281 AC-01 unfixed: metadata path alone, the memory entry is tried and empty" '["t1",""]' "$("$JQ_BIN" -c '[.[] | select(.[0] == "t1")][0][0:2]' "$(TKMEM)")"; end_case
 
 #@group synth 50
 echo "== synthetic sub_start for unseen subagents (ALY-217.7 AC-35, AC-36, D-26) =="
