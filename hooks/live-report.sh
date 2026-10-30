@@ -25,6 +25,14 @@ command -v jq >/dev/null 2>&1 || exit 0
 command -v curl >/dev/null 2>&1 || exit 0
 have_sha || exit 0
 UID_NOW=$(id -u 2>/dev/null) || exit 0
+# ALY-263.13 (AC-16): DATE_REAL=1 when `date` on the PATH is the system tool (the first PATH hit is /usr/bin/date or /bin/date) and bash has
+# EPOCHREALTIME: the clock is then read from bash itself (same instant, no fork). Any other `date` (the fake clock shim of the tests) is called.
+DATE_REAL=0
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _dl=""; IFS=: read -ra _dp <<<"$PATH"
+  for _dq in "${_dp[@]}"; do [ -x "${_dq:-.}/date" ] && [ ! -d "${_dq:-.}/date" ] && { _dl="${_dq:-.}/date"; break; }; done
+  case "$_dl" in /usr/bin/date|/bin/date) DATE_REAL=1 ;; esac
+fi
 load_live_credential "$DIR" || exit 0
 
 LIVE_DIR="$DIR/live"
@@ -105,6 +113,38 @@ CFP=""
 private_file_ok() {
   { [ ! -e "$1" ] && [ ! -L "$1" ]; } && return 0
   [ -n "$(find "$1" -prune -type f -user "$UID_NOW" -perm 0600 -print 2>/dev/null)" ]
+}
+# ALY-263.13 (AC-16): the private-file checks of the main hook path run as ONE find per scan instead of one find per file (a find costs
+# about as much as a jq call). priv_scan NAME... checks $LIVE_DIR (a real directory, user, 0700) and each $LIVE_DIR/$HASH.NAME (a regular
+# file, no symlink, user, mode 0600) with the very tests of private_file_ok; a file whose name has a size cap (label 1024, tkmem and subs
+# 8192, acts, agents and rsm 16384 bytes) is printed a second time when it is also under that cap. PS_OUT keeps the lines (newline-framed),
+# PS_NAMES the paths scanned. pfc PATH is private_file_ok answered from the scan (absent = ok); pfcap PATH is "private and under the
+# cap". A path the scan did not cover goes through private_file_ok. The scan is repeated under the state lock before the state files are used.
+PS_OUT=""; PS_NAMES=""
+priv_scan() {
+  local a n
+  a=("$LIVE_DIR"); PS_NAMES=$'\n'"$LIVE_DIR"$'\n'
+  for n in "$@"; do a[${#a[@]}]="$LIVE_DIR/$HASH.$n"; PS_NAMES="$PS_NAMES$LIVE_DIR/$HASH.$n"$'\n'; done
+  PS_OUT=$(find "${a[@]}" -prune -user "$UID_NOW" \( \( -type d -perm 0700 \) -o \( -type f -perm 0600 \) \) -print \
+    \( \( -name "$HASH.label" -size -1025c \) -o \( -name "$HASH.tkmem" -size -8193c \) -o \( -name "$HASH.subs" -size -8193c \) \
+       -o \( -name "$HASH.acts" -size -16385c \) -o \( -name "$HASH.agents" -size -16385c \) -o \( -name "$HASH.rsm" -size -16385c \) \) -print 2>/dev/null)
+  PS_OUT=$'\n'"$PS_OUT"$'\n'
+  return 0
+}
+pfc() {
+  case "$PS_NAMES" in *$'\n'"$1"$'\n'*) ;; *) private_file_ok "$1"; return ;; esac
+  { [ ! -e "$1" ] && [ ! -L "$1" ]; } && return 0
+  case "$PS_OUT" in *$'\n'"$1"$'\n'*) return 0 ;; esac
+  return 1
+}
+pfcap() { case "$PS_OUT" in *$'\n'"$1"$'\n'"$1"$'\n'*) return 0 ;; esac; return 1; }
+# live_dir_scan_ok: live_dir_ok for the main path, with the first scan (the directory and the files read before the lock).
+live_dir_scan_ok() {
+  [ -L "$LIVE_DIR" ] && return 1
+  [ -e "$LIVE_DIR" ] || mkdir -m 700 "$LIVE_DIR" 2>/dev/null || [ -d "$LIVE_DIR" ] || return 1   # parallel first hooks race here
+  priv_scan label tkmem rsm
+  case "$PS_OUT" in *$'\n'"$LIVE_DIR"$'\n'*) return 0 ;; esac
+  return 1
 }
 # The live directory: a real directory owned by the user, mode 0700 (SHD-01); created 0700 when absent.
 live_dir_ok() {
@@ -254,7 +294,7 @@ lock_take() {
   while :; do
     # mkdir alone does not decide: uutils coreutils (Ubuntu 25.10+) can report success to several concurrent callers, so
     # the lock is the exclusive (noclobber, O_EXCL) creation of DIR/t; a mkdir "winner" that loses that claim has not got it.
-    if mkdir "$d" 2>/dev/null && ( set -C; if [ -n "${3:-}" ]; then pidlock_rec "$3" >"$d/p"; else printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t"; fi ) 2>/dev/null; then return 0; fi
+    if mkdir "$d" 2>/dev/null && ( set -C; if [ -n "${3:-}" ]; then pidlock_rec "$3" >"$d/p"; elif [ "${DATE_REAL:-0}" = 1 ]; then printf '%s %s' "${EPOCHREALTIME%%[.,]*}" "$LOCK_TOKEN" >"$d/t"; else printf '%s %s' "$(date +%s 2>/dev/null)" "$LOCK_TOKEN" >"$d/t"; fi ) 2>/dev/null; then return 0; fi
     if lock_is_stale "$d"; then
       # Only one breaker at a time (a second mkdir lock, itself broken after a minute), so nobody can replace the
       # lock between the verdict and the rename; the renamed lock is judged once more as a safety net.
@@ -321,7 +361,7 @@ lock_drop() {
 # wall_ms [EPOCHREALTIME value]: wall-clock Unix ms from bash's EPOCHREALTIME (bash 5; never the date shim), else now_ms.
 wall_ms() { local t="${1-${EPOCHREALTIME:-}}"; if [[ "$t" =~ ^([0-9]{1,12})[.,]([0-9]{3}) ]]; then printf '%s' "${BASH_REMATCH[1]}${BASH_REMATCH[2]}"; else now_ms; fi; }
 # uutils coreutils (Ubuntu 25.10+) ignores the width in %3N and prints nanoseconds: keep seconds + the first 3 digits.
-now_ms() { local m; m=$(date +%s%3N 2>/dev/null); [[ "$m" =~ ^[0-9]{13,19}$ ]] && m=${m:0:13} || m="$(date +%s 2>/dev/null)000"; printf '%s' "$m"; }
+now_ms() { local m; if [ "${DATE_REAL:-0}" = 1 ] && [[ "${EPOCHREALTIME:-}" =~ ^([0-9]{1,12})[.,]([0-9]{3}) ]]; then printf '%s' "${BASH_REMATCH[1]}${BASH_REMATCH[2]}"; return 0; fi; m=$(date +%s%3N 2>/dev/null); [[ "$m" =~ ^[0-9]{13,19}$ ]] && m=${m:0:13} || m="$(date +%s 2>/dev/null)000"; printf '%s' "$m"; }
 # spool_trim FILE DIR: bounded growth when sending never succeeds (SHD-03): keep the newest 500 lines and at most
 # 262144 bytes; a line cut by the byte limit is dropped whole. Called under the state lock.
 spool_trim() {
@@ -1025,11 +1065,14 @@ meta_description() {
 }
 HBC=-1; HBK=""
 {
-  TRF=$(printf '%s' "$INPUT" | jq -c '
+  # ALY-263.13 (AC-16): the stop read below can only select a payload that names SubagentStop; a payload without that text, and without a
+  # backslash (a JSON escape could spell the name), skips the jq call
+  TRF=""
+  case "$INPUT" in *SubagentStop*|*\\*) TRF=$(printf '%s' "$INPUT" | jq -c '
     select(.hook_event_name == "SubagentStop")
     | {a: ((.agent_transcript_path | strings) // ""), t: ((.transcript_path | strings) // ""), s: ((.session_id | strings) // ""), i: ((.agent_id | strings) // ""),
        ns: ([(.last_assistant_message | strings | split("\n") | .[] | sub("\r\\z"; "") | select(test("\\Astatus:[ \t]*[^ \t]")))] | length == 0)}
-    | select([.a, .t, .s, .i | test("\n")] | any | not)' 2>/dev/null) || TRF=""
+    | select([.a, .t, .s, .i | test("\n")] | any | not)' 2>/dev/null) || TRF="" ;; esac
   if [ -n "$TRF" ]; then
     RD_END="$(( $(now_ms) + 2000 ))"   # the one deadline of this invocation, set here in the main shell (never in a $(...))
     # One read of the subagent transcript tail at every stop (ALY-263.11): the report when the message has no status line, and the
@@ -1054,7 +1097,7 @@ STATEF="$LIVE_DIR/$HASH.state"
 # The live directory is checked before the first read or write (SHD-01), then every read-modify-write of this
 # session (state, bind, gates, seq, spool) runs under one lock, so parallel hooks of a session are consistent.
 # A hook that cannot get the lock within about 10 seconds gives up and drops its events (it exits 0, silent).
-live_dir_ok || exit 0
+live_dir_scan_ok || exit 0
 HAVE_LOCK=0; LOCKD="$LIVE_DIR/$HASH.lock"
 TMPF=""
 # EFTOK: the flush lock held by this hook's own SessionEnd send (never the lock of a flusher it detached).
@@ -1075,9 +1118,9 @@ label_state_read() {  # sets LBLMS and LBLSTORED from $LBLF, or empties them (ab
   local l
   LBLMS=""; LBLSTORED=""
   LBLBAD=0
-  [ -f "$LBLF" ] && [ ! -L "$LBLF" ] || { { [ -e "$LBLF" ] || [ -L "$LBLF" ]; } && ! private_file_ok "$LBLF" && LBLBAD=1; return 0; }
+  [ -f "$LBLF" ] && [ ! -L "$LBLF" ] || { { [ -e "$LBLF" ] || [ -L "$LBLF" ]; } && ! pfc "$LBLF" && LBLBAD=1; return 0; }
   # ALY-263.13: LBLBAD marks a file that EXISTS but is not a private regular file: nothing can be written over it, so no due check runs
-  [ -n "$(find "$LBLF" -prune -type f -user "$UID_NOW" -perm 0600 -size -1025c -print 2>/dev/null)" ] || { private_file_ok "$LBLF" || LBLBAD=1; return 0; }
+  pfcap "$LBLF" || { pfc "$LBLF" || LBLBAD=1; return 0; }
   { IFS= read -r l <"$LBLF"; } 2>/dev/null
   if [[ "$l" =~ ^([0-9]{13})\ (\{.*\})$ ]]; then LBLMS="${BASH_REMATCH[1]}"; LBLSTORED="${BASH_REMATCH[2]}"; fi
 }
@@ -1158,7 +1201,7 @@ tk_prefix() {  # sets TKPFX
 tk_tried() {  # tk_tried ID: succeeds when $HASH.tkmem holds an entry of ID marked tried (a private regular file of at most 8192 bytes)
   local f="$LIVE_DIR/$HASH.tkmem" c
   [ -f "$f" ] && [ ! -L "$f" ] || return 1
-  [ -n "$(find "$f" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ] || return 1
+  pfcap "$f" || return 1
   { IFS= read -r -d '' -N 8192 c <"$f"; } 2>/dev/null; [ -n "$c" ] || return 1   # builtin read: no fork
   [[ "$c" =~ \[\"$1\",\"([A-Z][A-Z0-9]{1,9}-[0-9]+(\.[0-9]+)?)?\",1\] ]]
 }
@@ -1218,7 +1261,7 @@ case "$INPUT" in
     if [[ "$RSD" =~ ^[0-9]{1,16}$ ]]; then
       if [ -n "${EPOCHREALTIME:-}" ]; then RSNOW="${EPOCHREALTIME/[.,]/}"; RSNOW="${RSNOW:0:13}"; else RSNOW=$(now_ms); fi
       if [[ "$RSNOW" =~ ^[0-9]{13}$ ]] && { [ "$RSNOW" -ge "$RSD" ] || [ $((RSD - RSNOW)) -gt 120000 ]; } \
-         && [ -n "$(find "$LIVE_DIR/$HASH.rsm" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then
+         && pfcap "$LIVE_DIR/$HASH.rsm"; then
         RSH=""; { IFS= read -r -d '' -N 16384 RSH <"$LIVE_DIR/$HASH.rsm"; } 2>/dev/null
         RSH="${RSH#*$'\n'}"
         RSDUE=$(printf '%s' "$RSH" | jq -r --argjson now "$RSNOW" '
@@ -1260,11 +1303,13 @@ FLOCK="$LIVE_DIR/$HASH.flush.lock"; WAITD="$LIVE_DIR/$HASH.flush.wait"; FTOK="";
 FINALD="$LIVE_DIR/$HASH.final.lock"
 
 LAST=""
-if [ -f "$STATEF" ] && [ ! -L "$STATEF" ] && private_file_ok "$STATEF"; then
+priv_scan state agents acts tkmem rsm label subs spool cred seq
+if [ -f "$STATEF" ] && [ ! -L "$STATEF" ] && pfc "$STATEF"; then
   LAST=$(cat "$STATEF" 2>/dev/null) || LAST=""
   case "$LAST" in started|working|waiting_input|idle|error|ended) ;; *) LAST="" ;; esac
 fi
-AT=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || exit 0
+if [ "$DATE_REAL" = 1 ]; then TZ=UTC printf -v AT '%(%Y-%m-%dT%H:%M:%SZ)T' "${EPOCHREALTIME%%[.,]*}" 2>/dev/null || exit 0
+else AT=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || exit 0; fi
 
 # One program per event (D-06). Output: first line the new last state, then one compact JSON event per line.
 JQ_PROG='
@@ -1792,8 +1837,8 @@ AGENTSF="$LIVE_DIR/$HASH.agents"; STASHSRC=/dev/null; AGOK=0
 if [ "$ACT" = 0 ] && { [ -L "$AGENTSF" ] || { [ -f "$AGENTSF" ] && [ -n "$(find "$AGENTSF" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; }; then rm -f "$AGENTSF" 2>/dev/null; fi
 if [ "$ACT" = 1 ]; then
   if [ ! -e "$AGENTSF" ] && [ ! -L "$AGENTSF" ]; then AGOK=1
-  elif [ ! -L "$AGENTSF" ] && [ -n "$(find "$AGENTSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then AGOK=1; STASHSRC="$AGENTSF"
-  elif private_file_ok "$AGENTSF"; then AGOK=1; fi
+  elif pfcap "$AGENTSF"; then AGOK=1; STASHSRC="$AGENTSF"
+  elif pfc "$AGENTSF"; then AGOK=1; fi
 fi
 # ALY-217.7 (D-26): the seen sub ids $HASH.subs, read under the state lock like the stash: through --rawfile, the file
 # itself when it is private and at most 8192 bytes. Absent: an empty set. An oversized private file is rewritten. Any
@@ -1804,29 +1849,29 @@ ACTSF="$LIVE_DIR/$HASH.acts"; ACTSRC=/dev/null; ACTOK=0
 if [ "$ACT" = 0 ]; then
   if [ -L "$ACTSF" ] || { [ -f "$ACTSF" ] && [ -n "$(find "$ACTSF" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; then rm -f "$ACTSF" 2>/dev/null; fi
 elif [ ! -e "$ACTSF" ] && [ ! -L "$ACTSF" ]; then ACTOK=1
-elif [ ! -L "$ACTSF" ] && [ -n "$(find "$ACTSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then ACTOK=1; ACTSRC="$ACTSF"
-elif private_file_ok "$ACTSF"; then ACTOK=1; fi
+elif pfcap "$ACTSF"; then ACTOK=1; ACTSRC="$ACTSF"
+elif pfc "$ACTSF"; then ACTOK=1; fi
 # ALY-263.10: the task memory $HASH.tkmem (ids, task keys, 0/1; no text), read like the phrase memory: the private file itself when at most
 # 8192 bytes, absent = empty, any other entry (symlink, foreign owner or mode) = neither used nor written. With texts off it is not used.
 TKF="$LIVE_DIR/$HASH.tkmem"; TKSRC=/dev/null; TKOK=0
 if [ "$ACT" = 1 ]; then
   if [ ! -e "$TKF" ] && [ ! -L "$TKF" ]; then TKOK=1
-  elif [ ! -L "$TKF" ] && [ -n "$(find "$TKF" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ]; then TKOK=1; TKSRC="$TKF"
-  elif private_file_ok "$TKF"; then TKOK=1; fi
+  elif pfcap "$TKF"; then TKOK=1; TKSRC="$TKF"
+  elif pfc "$TKF"; then TKOK=1; fi
 fi
 # ALY-263.11: the resume state $HASH.rsm (ids, types, counts, markers, times; no text, so it is kept with texts off too), read like the task
 # memory: the private file itself when at most 16384 bytes, absent = empty, any other entry (symlink, foreign owner or mode) = neither used nor written.
 RSMF="$LIVE_DIR/$HASH.rsm"; RSMSRC=/dev/null; RSOK=0
 if [ ! -e "$RSMF" ] && [ ! -L "$RSMF" ]; then RSOK=1
-elif [ ! -L "$RSMF" ] && [ -n "$(find "$RSMF" -prune -type f -user "$UID_NOW" -perm 0600 -size -16385c -print 2>/dev/null)" ]; then RSOK=1; RSMSRC="$RSMF"
-elif private_file_ok "$RSMF"; then RSOK=1; fi
+elif pfcap "$RSMF"; then RSOK=1; RSMSRC="$RSMF"
+elif pfc "$RSMF"; then RSOK=1; fi
 # ALY-263.6 (BR-03): the label state holds the label text, so like the phrases it exists only while texts are on.
 LBLF="$LIVE_DIR/$HASH.label"
 if [ "$ACT" = 0 ] && { [ -L "$LBLF" ] || { [ -f "$LBLF" ] && [ -n "$(find "$LBLF" -prune -type f -user "$UID_NOW" -print 2>/dev/null)" ]; }; }; then rm -f "$LBLF" 2>/dev/null; fi
 SUBSF="$LIVE_DIR/$HASH.subs"; SUBSRC=/dev/null; SUBOK=0
 if [ ! -e "$SUBSF" ] && [ ! -L "$SUBSF" ]; then SUBOK=1
-elif [ ! -L "$SUBSF" ] && [ -n "$(find "$SUBSF" -prune -type f -user "$UID_NOW" -perm 0600 -size -8193c -print 2>/dev/null)" ]; then SUBOK=1; SUBSRC="$SUBSF"
-elif private_file_ok "$SUBSF"; then SUBOK=1; fi
+elif pfcap "$SUBSF"; then SUBOK=1; SUBSRC="$SUBSF"
+elif pfc "$SUBSF"; then SUBOK=1; fi
 MS=$(now_ms)
 [[ "$MS" =~ ^[1-9][0-9]{0,15}$ ]] || exit 0
 RESULT=$(printf '%s' "$INPUT" | jq -r --arg last "$LAST" --arg at "$AT" --arg txt "$ACT" --rawfile stash "$STASHSRC" --arg subok "$SUBOK" --rawfile subs "$SUBSRC" --arg actok "$ACTOK" --rawfile acts "$ACTSRC" --rawfile lblraw <(printf '%s' "$LBLIN") --arg tkok "$TKOK" --rawfile tkmem "$TKSRC" --arg tkid "$TKID" --rawfile tkdesc <(printf '%s' "$TKDESC") --arg tkpfx "$TKPFX" --arg rsok "$RSOK" --rawfile rsm "$RSMSRC" --argjson hbc "$HBC" --arg hbk "$HBK" --rawfile tcl <(printf '%s' "$TCL") --argjson nowms "$MS" "$JQ_PROG" 2>/dev/null) || exit 0
@@ -2005,7 +2050,7 @@ label_state_write() {  # label_state_write VALUE-JSON: "<ms> <json>", temp 0600 
   return 0
 }
 LBLLINE=""; LBLWRITE=""
-if [ "$LBLDUE" = 1 ] && [ "$ACT" = 1 ] && private_file_ok "$LBLF"; then
+if [ "$LBLDUE" = 1 ] && [ "$ACT" = 1 ] && pfc "$LBLF"; then
   label_state_read
   [ -n "$LBLSTORED" ] || LBLSTORED='{}'
   LBLWRITE=now
@@ -2028,18 +2073,18 @@ rsm_write() {
 }
 # nothing to send: the time of the check is still recorded, but only where the spool and the state are usable (as for any claim)
 if [ -z "$EVENTS" ]; then
-  if [ "$LBLWRITE" = now ] && private_file_ok "$SPOOL" && private_file_ok "$STATEF"; then label_state_write "$LBLSTORED"; fi
-  if [ "$RSMC" != - ] && private_file_ok "$SPOOL" && private_file_ok "$STATEF"; then rsm_write; fi
+  if [ "$LBLWRITE" = now ] && pfc "$SPOOL" && pfc "$STATEF"; then label_state_write "$LBLSTORED"; fi
+  if [ "$RSMC" != - ] && pfc "$SPOOL" && pfc "$STATEF"; then rsm_write; fi
   exit 0
 fi
-private_file_ok "$SPOOL" || exit 0
-private_file_ok "$STATEF" || exit 0
+pfc "$SPOOL" || exit 0
+pfc "$STATEF" || exit 0
 
 # A session whose credential changed since its last event (a re-pair after a 401, a revoke or an expiry) opens with
 # `state started`: the server reopens a run that was ended or revoked only on that state.
 credfp
 CREDOLD=""; CREDNEW=0
-if [ -f "$CREDF" ] && [ ! -L "$CREDF" ] && private_file_ok "$CREDF"; then { IFS= read -r CREDOLD <"$CREDF"; } 2>/dev/null; fi
+if [ -f "$CREDF" ] && [ ! -L "$CREDF" ] && pfc "$CREDF"; then { IFS= read -r CREDOLD <"$CREDF"; } 2>/dev/null; fi
 if [[ "$CREDOLD" =~ ^[0-9a-f]{64}$ ]] && [ "$CREDOLD" != "$CFP" ]; then
   case "$EVENTS" in
     *'"state":"started"'*) ;;   # a SessionStart in this very batch already opens the run
@@ -2054,7 +2099,7 @@ fi
 # lines, so a crash can leave a gap but never a repeated seq.
 SEQF="$LIVE_DIR/$HASH.seq"
 PREV=0   # MS: read once before the jq program (ALY-217.6), shared by the stash times and the seq
-if [ -f "$SEQF" ] && [ ! -L "$SEQF" ] && private_file_ok "$SEQF"; then
+if [ -f "$SEQF" ] && [ ! -L "$SEQF" ] && pfc "$SEQF"; then
   IFS= read -r PREV <"$SEQF" 2>/dev/null
   if [[ "$PREV" =~ ^(0|[1-9][0-9]{0,15})$ ]] && [ "$PREV" -lt 9007199254740991 ] && [ "$PREV" -le $((MS + 86400000)) ]; then :; else PREV=0; fi
 fi
