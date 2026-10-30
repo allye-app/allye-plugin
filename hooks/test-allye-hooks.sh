@@ -38,8 +38,20 @@ absent() {
 has_mode() { [ -n "$(find "$1" -prune -perm "$2" -print 2>/dev/null)" ] && echo yes || echo no; }
 
 ROOT_TMP="$(mktemp -d)"
-APID=""
-cleanup() { [ -z "$APID" ] || kill "$APID" 2>/dev/null; rm -rf "$ROOT_TMP"; }
+# Fake API lifecycle: every started pid is recorded in APIDS and only those pids are ever killed (never by name). The fake API
+# is started with every inherited descriptor above 2 closed (a caller's flock fd must not outlive the run through it); it is
+# killed per case, by the EXIT/INT/TERM trap, and checked once more at the end of the script.
+APID=""; APIDS=()
+fake_start() {  # fake_start NODE FAKE DIR LOG: starts the fake API in the background; sets APID and records it
+  ( for _f in $(ls "/proc/$BASHPID/fd" 2>/dev/null); do [ "$_f" -gt 2 ] && eval "exec $_f>&-"; done; exec "$1" "$2" "$3" >"$4" 2>&1 ) &
+  APID=$!; APIDS+=("$APID")
+}
+fake_stop() { local p="$APID"; APID=""; [ -z "$p" ] || { kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; }; return 0; }
+fake_survivors() {  # prints how many recorded pids are still alive (each is killed); call fake_stop first
+  local n=0 p; for p in ${APIDS[@]+"${APIDS[@]}"}; do kill -0 "$p" 2>/dev/null && { kill -9 "$p" 2>/dev/null; n=$((n + 1)); }; done; echo "$n"
+}
+trap 'exit 130' INT; trap 'exit 143' TERM
+cleanup() { fake_stop; rm -rf "$ROOT_TMP"; }
 trap cleanup EXIT
 
 # Real tools, linked into a bin dir the shims call into. node and stat are deliberately absent.
@@ -68,13 +80,12 @@ new_case() {
   DATA="$SB/plugindata"
   RUN_ENV=(); REAL="$REALBIN"; SHIMD="$SHIMS"
   : >"$SB/api/requests.log"
-  "$NODE_BIN" "$FAKE" "$SB/api" >"$SB/api/node.log" 2>&1 &
-  APID=$!
+  fake_stop; fake_start "$NODE_BIN" "$FAKE" "$SB/api" "$SB/api/node.log"
   local i; for i in $(seq 1 100); do [ -s "$SB/api/port" ] && break; sleep 0.05; done
   PORT=$(cat "$SB/api/port"); API="http://127.0.0.1:$PORT"
   RUN_ENV=("ALLYE_API_URL=$API")
 }
-end_case() { [ -z "$APID" ] || { kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null; APID=""; }; }
+end_case() { fake_stop; }
 api_mode() { printf '%s' "$1" >"$SB/api/mode"; [ -z "${2:-}" ] || printf '%s' "$2" >"$SB/api/status"; printf '%s' "${3:-}" >"$SB/api/code"; }
 
 # run_script ARGS...: runs the script in the sandbox; sets OUT, ERR, RC. Per-run extras go in RUN_ENV.
@@ -649,6 +660,8 @@ run_script live off "$DATA"; check "off when the API answers 5xx: the flag is se
 new_case; mkcred; SHIMD="$SHIMS"; sessions3; HX=$(sha_of SESS-X-0009)
 printf 'agent-1\n' >"$(LV $HA.subs)"; printf '[]' >"$(LV $HA.agents)"; printf 'agent-2\n' >"$(LV $HX.subs)"; chmod 600 "$(LV $HA.subs)" "$(LV $HA.agents)" "$(LV $HX.subs)"
 printf '[]' >"$(LV $HB.agents)"; chmod 644 "$(LV $HB.agents)"
+printf '[["a","x"]]' >"$(LV $HA.acts)"; chmod 600 "$(LV $HA.acts)"; printf 'KEEPACTS' >"$SB/outacts.txt"; chmod 600 "$SB/outacts.txt"; ln -s "$SB/outacts.txt" "$(LV $HB.acts)"
+printf '1800000000000 {"text":"MARKER_LBL a label"}' >"$(LV $HA.label)"; chmod 600 "$(LV $HA.label)"; printf 'KEEPLABEL' >"$SB/outlabel.txt"; chmod 600 "$SB/outlabel.txt"; ln -sf "$SB/outlabel.txt" "$(LV $HB.label)"
 printf 'KEEP\n' >"$SB/outside.txt"; chmod 600 "$SB/outside.txt"; ln -s "$SB/outside.txt" "$(LV $HB.subs)"
 mkdir -p "$SB/outdir"; ln -s "$SB/outdir" "$(LV $HC.final.lock)"
 sh -c ':' & DEADP=$!; wait "$DEADP"
@@ -659,6 +672,10 @@ run_script live off "$DATA"
 check "off deletes the subs and agents files of every session (also one with no other file), whatever their mode, exit 0" "0 no no no no" \
   "$RC $([ -e "$(LV $HA.subs)" ] && echo yes || echo no) $([ -e "$(LV $HA.agents)" ] && echo yes || echo no) $([ -e "$(LV $HX.subs)" ] && echo yes || echo no) $([ -e "$(LV $HB.agents)" ] && echo yes || echo no)"
 check "off never deletes through a symlink: the subs link stays and its target keeps its content" "yes KEEP" "$([ -L "$(LV $HB.subs)" ] && echo yes || echo no) $(cat "$SB/outside.txt")"
+check "off deletes the last-phrase memory (acts) and never goes through a symlink: the link stays, its target keeps its content" "no yes KEEPACTS" \
+  "$([ -e "$(LV $HA.acts)" ] && echo yes || echo no) $([ -L "$(LV $HB.acts)" ] && echo yes || echo no) $(cat "$SB/outacts.txt")"
+check "off deletes the session label state (label) and never goes through a symlink: the link stays, its target keeps its content (ALY-263.6)" "no yes KEEPLABEL" \
+  "$([ -e "$(LV $HA.label)" ] && echo yes || echo no) $([ -L "$(LV $HB.label)" ] && echo yes || echo no) $(cat "$SB/outlabel.txt")"
 check "off removes a final.lock whose holder is gone, keeps one whose holder runs and a symlinked one" "no yes yes yes" \
   "$([ -e "$(LV $HA.final.lock)" ] && echo yes || echo no) $([ -d "$(LV $HB.final.lock)" ] && echo yes || echo no) $([ -L "$(LV $HC.final.lock)" ] && echo yes || echo no) $([ -d "$SB/outdir" ] && echo yes || echo no)"
 kill "$LIVEP" 2>/dev/null; wait "$LIVEP" 2>/dev/null
@@ -729,6 +746,8 @@ check "tells the user what off does and that status makes no network call" "yes 
 check "allowed-tools line is unchanged" "allowed-tools: Bash(\${CLAUDE_PLUGIN_ROOT}/hooks/allye-hooks.sh:*), mcp__plugin_allye_allye__hooks" "$(printf '%s\n' "$CMD_TEXT" | grep '^allowed-tools:')"
 
 
+fake_stop
+check "no fake API process survives the run" "0" "$(fake_survivors)"
 echo
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

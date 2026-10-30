@@ -80,6 +80,8 @@ next: watcher|pilot-correction|mothership
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 `SHIELD_CLEAR` only in `final`, with no open CRITICAL/HIGH, no scope violation, and an explicit disposition for every other finding. `accepted-by-human` is set only when the Mothership passes a recorded human decision. Any later change to the diff invalidates the gate.
 
 ## Limits

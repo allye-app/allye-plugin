@@ -40,7 +40,19 @@ check() {
 contains() { case "$2" in *"$1"*) echo yes ;; *) echo no ;; esac; }
 
 ROOT_TMP="$(mktemp -d)"
-APID=""
+# Fake API lifecycle: every started pid is recorded in APIDS and only those pids are ever killed (never by name). The fake API
+# is started with every inherited descriptor above 2 closed (a caller's flock fd must not outlive the run through it); it is
+# killed per case, by the EXIT/INT/TERM trap, and checked once more at the end of the script.
+APID=""; APIDS=()
+fake_start() {  # fake_start NODE FAKE DIR LOG: starts the fake API in the background; sets APID and records it
+  ( for _f in $(ls "/proc/$BASHPID/fd" 2>/dev/null); do [ "$_f" -gt 2 ] && eval "exec $_f>&-"; done; exec "$1" "$2" "$3" >"$4" 2>&1 ) &
+  APID=$!; APIDS+=("$APID")
+}
+fake_stop() { local p="$APID"; APID=""; [ -z "$p" ] || { kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; }; return 0; }
+fake_survivors() {  # prints how many recorded pids are still alive (each is killed); call fake_stop first
+  local n=0 p; for p in ${APIDS[@]+"${APIDS[@]}"}; do kill -0 "$p" 2>/dev/null && { kill -9 "$p" 2>/dev/null; n=$((n + 1)); }; done; echo "$n"
+}
+trap 'exit 130' INT; trap 'exit 143' TERM
 FAKE_WAIT_PID=""
 # TRACK (ALY-217): "<pid> <start>" of every fake owner and watcher a case started; at exit each is killed only while that
 # pid still has that start time (never by name), so a failing run leaves no process behind.
@@ -52,7 +64,7 @@ cleanup() {
     [[ "$p" =~ ^[0-9]+$ ]] && [[ "$s" =~ ^[0-9]+$ ]] && [ "$(pstart "$p")" = "$s" ] && kill "$p" 2>/dev/null
   done
   for e in "$ROOT_TMP"/case*/plugindata; do final_reap "$e"; done
-  [ -z "$APID" ] || kill "$APID" 2>/dev/null; [ -z "$FAKE_WAIT_PID" ] || kill "$FAKE_WAIT_PID" 2>/dev/null; rm -rf "$ROOT_TMP"
+  fake_stop; [ -z "$FAKE_WAIT_PID" ] || kill "$FAKE_WAIT_PID" 2>/dev/null; rm -rf "$ROOT_TMP"
 }
 trap cleanup EXIT
 
@@ -90,13 +102,12 @@ new_case() {
   DATA="$SB/plugindata"; CRED="$DATA/hook-credential.json"
   REAL="$REALBIN"; SHIMD="$SHIMS_STUB"; RUN_ENV=(); DATA_ENV="$DATA"
   : >"$SB/api/requests.log"
-  "$NODE_BIN" "$FAKE" "$SB/api" >"$SB/api/node.log" 2>&1 &
-  APID=$!
+  fake_stop; fake_start "$NODE_BIN" "$FAKE" "$SB/api" "$SB/api/node.log"
   local i; for i in $(seq 1 100); do [ -s "$SB/api/port" ] && break; sleep 0.05; done
   PORT=$(cat "$SB/api/port"); API="http://127.0.0.1:$PORT"
   printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"sess-0001","cwd":"/tmp/x"}' >"$SB/stdin"
 }
-end_case() { fake_wait_off; final_reap "$DATA"; [ -z "$APID" ] || { kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null; APID=""; }; }
+end_case() { fake_wait_off; final_reap "$DATA"; fake_stop; }
 # final_reap DATADIR (ALY-217.7): a final flusher still running under DATADIR is killed by the pid its final.lock records,
 # only while that pid has the recorded start time (never by name); it removes its own lock on the way out.
 final_reap() {
@@ -270,7 +281,9 @@ test_sha() { if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sh
 DEFAULT_SID="sess-0001"
 spool_of() { echo "$DATA/live/$(test_sha "$1").spool"; }
 # spooled SID: the spool lines without their `at` and `seq`, compact, one per line ("" when no spool).
-spooled() { local f; f=$(spool_of "${1:-$RAWSID}"); [ -f "$f" ] && "$JQ_BIN" -cS 'del(.at, .seq)' "$f" || true; }
+spooled_all() { local f; f=$(spool_of "${1:-$RAWSID}"); [ -f "$f" ] && "$JQ_BIN" -cS 'del(.at, .seq)' "$f" || true; }
+# `spooled` leaves out the label events (ALY-263.6): a SessionStart in a real directory adds one; the section "label" reads them with labels.
+spooled() { spooled_all "$@" | grep -v '"type":"label"' || true; }
 # run_fixture NAME...: feeds each fixture in order on stdin (same session), sets OUT/ERR/RC of the last.
 run_fixture() { local n; for n in "$@"; do cp "$FIX/$n.json" "$SB/stdin"; run_hook; done; }
 expected_of() { local n; for n in "$@"; do cat "$FIX/$n.expect"; done; }
@@ -388,7 +401,7 @@ seq_case "waiting then a subagent PreToolUse with a bad id: working spooled, eve
 SEQ=(notification-permission-prompt subagent-start subagent-start)
 seq_case "permission_prompt then SubagentStart twice: working first, once; the second start of the id is not spooled (AC-36)" "$WP" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
 SEQ=(pre-tool-use-ask-user-question pre-tool-use-subagent)
-seq_case "waiting then a subagent tool: working first, then the synthetic sub_start" "$WQ" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Read","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+seq_case "waiting then a subagent tool: working first, then the synthetic sub_start" "$WQ" "$W" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Read","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"},"activity":"Read readme.txt"}'
 SEQ=(pre-tool-use-ask-user-question stop pre-tool-use)
 seq_case "waiting then Stop then a tool: Stop leaves waiting, no working" "$WQ" '{"type":"state","state":"idle","code":"turn_ended"}' '{"type":"tool","tool":"Bash"}'
 SEQ=(pre-tool-use-ask-user-question subagent-stop)
@@ -552,7 +565,7 @@ seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{
 SEQ=(skill-bridge-spec expansion-bridge-spec)
 seq_case "skill via Skill tool then via expansion with another key: sent again" "$S1" "$BSK" '{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"launch","spec":"ALY-7"}}'
 SEQ=(skill-bridge-subagent mcp-allye-subagent)
-seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}'
+seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"},"activity":"Start task ALY-203.3"}'
 new_case; mkcred; "$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/mcp-allye-subagent.json" >"$SB/stdin"; run_hook
 check "control: the same task_start payload outside a subagent binds (the subagent case is not vacuous)" '{"bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"},"type":"bind"}' "$(spooled | grep '"bind"')"; end_case
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture session-start-startup mcp-allye-task-start-half-bad-key skill-bridge-spec
@@ -575,6 +588,69 @@ check "symlinked bind state: nothing bound, link target untouched" "0" "$(spoole
 end_case
 new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'garbage' >"$DATA/live/$(test_sha "$RAWSID").bind"; chmod 600 "$DATA/live/$(test_sha "$RAWSID").bind"; run_fixture skill-bridge-spec
 check "garbage in the bind state is treated as no binding" "$(printf '%s\n' "$S1" "$BSK" | "$JQ_BIN" -cS .)" "$(spooled)"; end_case
+
+echo "== bind: spec_context, spec_get and launch keys report a touch (ALY-263.5) =="
+# touch_run ACTION SPEC [AGENT]: a main-session (or subagent) call of the Allye specs tool; the other tool_input fields hold a marker.
+touch_run() {
+  "$JQ_BIN" --arg a "$1" --arg s "$2" --arg ag "${3:-}" '.tool_input = {action: $a, spec: $s, content: "MARKER_CMD", query: "MARKER_ARGS"} | if $ag != "" then . + {agent_id: $ag, agent_type: "allye:bridge-pilot"} else . end' "$FIX/mcp-allye-spec-get.json" >"$SB/stdin"; run_hook
+}
+binds() { spooled | grep '"type":"bind"' || true; }
+TF() { echo "$DATA/live/$(test_sha "$RAWSID").touch"; }
+BTC='{"bind":{"source":"mcp","spec":"ALY-203"},"type":"bind"}'
+BSK='{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"mission","spec":"ALY-203"}}'
+BTC2='{"bind":{"source":"mcp","spec":"ALY-9"},"type":"bind"}'
+for act in spec_context spec_get; do
+  new_case; mkcred; touch_run "$act" ALY-203
+  check "$act of the main session binds its key" "$BTC" "$(binds)"
+  check "$act: only the key leaves (no marker in any file, log or request)" "0" "$( { grep -rhF -e MARKER_CMD -e MARKER_ARGS "$DATA/live" "$SB/out" "$SB/err" "$SB/log" 2>/dev/null || true; } | wc -l | tr -d ' ')"
+  check "$act: touch state is 0600" "600" "$(find "$(TF)" -printf '%m' 2>/dev/null)"
+  end_case
+done
+for k in aly-203 ABCDEFGHIJK-1 ALY- ALY-203x "ALY-203 extra" ALY-203.3 A-1 "ALY-203
+ALY-5" 1ALY-2; do
+  new_case; mkcred; touch_run spec_context "$k"
+  check "spec_context with the key '$(printf '%s' "$k" | tr '\n' '~')': no bind" "" "$(binds)"
+  end_case
+done
+for act in spec_list spec_validate spec_approve spec_update; do
+  new_case; mkcred; touch_run "$act" ALY-203
+  check "$act never binds" "" "$(binds)"
+  end_case
+done
+new_case; mkcred; touch_run spec_context ALY-203 agent-abc123
+check "a subagent's spec_context never binds" "" "$(binds)"
+touch_run spec_get ALY-203
+check "control: the same call in the main session binds" "$BTC" "$(binds)"
+end_case
+new_case; mkcred; run_fixture skill-bridge-spec; BF="$DATA/live/$(test_sha "$RAWSID").bind"; BEFOREB=$(cat "$BF")
+touch_run spec_context ALY-9
+check "a weaker mcp touch after a held skill binding is still sent" "$(printf '%s\n' "$BSK" "$BTC2" | "$JQ_BIN" -cS .)" "$(binds)"
+check "the held binding is unchanged" "$BEFOREB" "$(cat "$BF")"
+end_case
+new_case; mkcred; touch_run spec_context ALY-203; touch_run spec_get ALY-203
+check "the same key again within a minute is sent once" "$BTC" "$(binds)"
+touch_run spec_context ALY-9
+check "a different key within the minute is sent" "$(printf '%s\n' "$BTC" "$BTC2" | "$JQ_BIN" -cS .)" "$(binds)"
+sed -i 's/ [0-9]*$/ 1000000000000/' "$(TF)"
+touch_run spec_context ALY-203
+check "the same key after the minute is sent again" "3" "$(binds | wc -l | tr -d ' ')"
+end_case
+new_case; mkcred; run_fixture skill-bridge-spec; run_fixture skill-bridge-spec
+check "a launch with the same key and content within a minute is sent once" "1" "$(binds | wc -l | tr -d ' ')"
+sed -i 's/ [0-9]*$/ 1000000000000/' "$(TF)"; run_fixture skill-bridge-spec
+check "a launch with the key after the minute is sent again" "2" "$(binds | wc -l | tr -d ' ')"
+end_case
+new_case; mkcred; for i in $(seq 1 20); do touch_run spec_context "ALY-$i"; done
+check "every distinct key within the minute is sent" "20" "$(binds | wc -l | tr -d ' ')"
+check "the touch state is bounded" "yes" "$([ "$(wc -l <"$(TF)" | tr -d ' ')" -le 16 ] && echo yes || echo no)"
+end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'garbage\n\x01' >"$(TF)"; chmod 600 "$(TF)"; touch_run spec_context ALY-203
+check "a corrupt touch state is ignored: the bind is sent" "$BTC" "$(binds)"
+check "the corrupt touch state is replaced by a valid one" "yes" "$(grep -qE '^ALY-203 [0-9]{13}$' "$(TF)" && [ "$(wc -l <"$(TF)" | tr -d ' ')" = 1 ] && echo yes || echo no)"
+end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$SB/target"; ln -s "$SB/target" "$(TF)"; touch_run spec_context ALY-203
+check "a symlinked touch state: nothing written through it" "0" "$(wc -c <"$SB/target" | tr -d ' ')"
+end_case
 
 echo "== markers in bindings =="
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-203" "ALLYE_TASK=MARKER_ABCDEF"); mkrepo "bridge/aly-203-MARKER_BRANCH"
@@ -599,11 +675,18 @@ stop_case() {
   end_case
 }
 SUBP='"id":"agent-abc123","type":"allye:bridge-pilot"'
-for st in passed approved ready; do
-  stop_case "status $st -> pass" "MARKER_LASTMSG
+stop_case "status passed -> pass" "MARKER_LASTMSG
 role: pilot
-status: $st" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+status: passed" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+for st in approved ready; do
+  stop_case "status $st -> pass with code $st (ALY-263.12 AC-14)" "MARKER_LASTMSG
+role: pilot
+status: $st" "{\"type\":\"sub_stop\",\"code\":\"$st\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
 done
+stop_case "indented status ready -> pass without the code (column 0 only)" "  status: ready" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "status ready twice -> pass without the code (once per report)" "status: ready
+status: ready" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "status READY (uppercase) -> unknown/returned" "status: READY" "{\"type\":\"sub_stop\",\"code\":\"returned\",\"sub\":{$SUBP,\"outcome\":\"unknown\"}}"
 stop_case "status advisory -> pass with code advisory" "status: advisory" "{\"type\":\"sub_stop\",\"code\":\"advisory\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
 stop_case "status failed -> fail" "status: failed" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"fail\"}}"
 for st in blocked needs-input escalate; do
@@ -653,6 +736,152 @@ new_case; mkcred
 "$JQ_BIN" --arg m "status: failed
 $HUGE" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
 check "status line inside the first 64 KB of a huge message counts" "{\"sub\":{\"id\":\"agent-abc123\",\"outcome\":\"fail\",\"type\":\"allye:bridge-pilot\"},\"type\":\"sub_stop\"}|0||" "$(stopped)|$RC|$OUT|$ERR"; end_case
+
+# ─── ALY-263.1: crew result from the subagent transcript (AC-01, AC-02, AC-03, BR-01, BR-02, D-10, D-16) ──────
+# The transcript is synthetic: one JSON object per line, the real shape ends with a SubagentHandback tool_use whose input.message is the
+# report and no text block. Foreign owner is not tested: a file of another user needs root (the owner check is `find -user`, as in
+# private_file_ok, whose tests cover the same primitive).
+echo "== subagent outcome from the transcript (ALY-263.1 AC-01, AC-02, AC-03, BR-01, BR-02) =="
+tr_hb() { "$JQ_BIN" -nc --arg m "$1" '{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}'; }
+tr_tx() { "$JQ_BIN" -nc --arg m "$1" '{type:"assistant",message:{content:[{type:"text",text:$m}]}}'; }
+tr_res() { "$JQ_BIN" -nc --arg m "$1" '{type:"user",message:{content:[{type:"tool_result",tool_use_id:"t1",content:$m}]}}'; }
+tr_blob() { "$JQ_BIN" -nc --arg m "$1" '{type:"api-request-blob",request:{messages:[{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}]}}'; }
+tr_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TDIR="$PROJ/$RAWSID/subagents"; mkdir -p "$TDIR"; AF="$TDIR/agent-agent-abc123.jsonl"; }
+# tr_run LABEL EXPECTED(pass|fail|unknown) [JQ-FILTER] [MESSAGE]: the payload names $AF and carries MESSAGE as last_assistant_message.
+tr_run() {
+  local exp
+  case "$2" in pass) exp="{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}" ;; fail) exp="{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"fail\"}}" ;; *) exp="$UNK" ;; esac
+  "$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" --arg m "${4-closing words}" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = $m' "$FIX/subagent-stop.json" | "$JQ_BIN" "${3:-.}" >"$SB/stdin"
+  run_hook
+  check "$1" "$(printf '%s\n' "$exp" | "$JQ_BIN" -cS .)|0||" "$(stopped)|$RC|$OUT|$ERR"
+}
+tr_new; { tr_hb "role: pilot
+status: failed"; } >"$AF"; tr_run "handback only (the real shape): its status is used" fail; end_case
+tr_new; { tr_hb "status: failed"; tr_res "ok"; tr_hb "status: passed"; } >"$AF"; tr_run "several handbacks: the last one wins" pass; end_case
+tr_new; { tr_hb "status: passed"; tr_hb "no report here"; } >"$AF"; tr_run "last handback without a status is not replaced by an earlier one" unknown; end_case
+tr_new; { tr_hb "status: failed"; tr_tx "status: passed"; } >"$AF"; tr_run "handback followed by closing text: the handback wins" fail; end_case
+tr_new; { tr_hb "nothing to report"; tr_tx "status: passed"; } >"$AF"; tr_run "handback without a status: the last text block is the next candidate" pass; end_case
+tr_new; { tr_tx "status: passed"; tr_tx "all done, nothing else"; } >"$AF"; tr_run "markers in an earlier turn are not read" unknown; end_case
+tr_new; { tr_tx "status: passed"; tr_tx "status: failed"; } >"$AF"; tr_run "the last text block, never a join of blocks" fail; end_case
+tr_new; { tr_hb "status: passed
+status: failed"; } >"$AF"; tr_run "two status lines in the handback: rejected" unknown; end_case
+tr_new; { tr_hb "status: passed
+summary: one thing here
+summary: another thing here"; } >"$AF"; tr_run "two summary lines in the handback: rejected" unknown; end_case
+tr_new; { tr_hb "  status: passed
+ status: passed"; } >"$AF"; tr_run "indented status lines are not column-0: rejected" unknown; end_case
+tr_new; { tr_res "status: passed"; } >"$AF"; tr_run "status inside a tool_result is not read" unknown; end_case
+tr_new; { tr_blob "status: passed"; } >"$AF"; tr_run "an assistant line inside a blob is not read" unknown; end_case
+tr_new; printf 'not json at all\n%s\n{"type":"assistant",\n' "$(tr_hb "status: passed")" >"$AF"; tr_run "invalid JSON lines are skipped" pass; end_case
+tr_new; printf '%s' "$(tr_hb "status: passed")" >"$AF"; tr_run "an unterminated last line is dropped" unknown; end_case
+tr_new; { tr_hb "status: ready
+phase: publish"; } >"$AF"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = "closing words"' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "ALY-263.12: the transcript report carries code ready and phase publish" '{"code":"ready","phase":"publish"}' "$(stopped | "$JQ_BIN" -cS '{code: .code, phase: .sub.phase}')"; end_case
+tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "a status already in the message: the transcript is not read" pass . "status: passed"; end_case
+tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "an indented status in the message is not column-0: the transcript is read" fail . "  status: passed"; end_case
+tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "a status line without a value: the transcript is read" fail . "status:"; end_case
+# a derived path when the payload has no agent_transcript_path
+tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "no agent_transcript_path: the path is derived from the ids" fail 'del(.agent_transcript_path)'; end_case
+# size: the tail rule
+tr_new; { tr_hb "status: passed"; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$(head -c 1200000 /dev/zero | tr '\0' a)"; } >"$AF"; tr_run "a handback earlier than the last 1 MB is not read" unknown; end_case
+tr_new; "$JQ_BIN" -nc --rawfile pad <(head -c 300000 /dev/zero | tr '\0' a) '{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:("status: passed\n" + $pad)}}]}}' >"$AF"; tr_run "a line larger than 256 KB widens the read once to 1 MB" pass; end_case
+tr_new; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%s\\nstatus: passed"}]}}\n' "$(head -c 104857600 /dev/zero | tr '\0' a)" >"$AF"; tr_run "a single 100 MB line fails closed" unknown; rm -f "$AF"; end_case
+# hostile paths
+tr_new; mkdir -p "$PROJ/other"; { tr_hb "status: passed"; } >"$PROJ/other/real.jsonl"; ln -s "$PROJ/other/real.jsonl" "$AF"; tr_run "a symlinked transcript file reads nothing" unknown; end_case
+tr_new; rm -rf "$PROJ/$RAWSID"; mkdir -p "$PROJ/elsewhere/subagents"; { tr_hb "status: passed"; } >"$PROJ/elsewhere/subagents/agent-agent-abc123.jsonl"; ln -s "$PROJ/elsewhere" "$PROJ/$RAWSID"; tr_run "a symlinked parent directory reads nothing" unknown; end_case
+tr_new; mkfifo "$AF"; tr_run "a FIFO reads nothing and does not hang" unknown; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "a .. component reads nothing" unknown ".agent_transcript_path = \"$TDIR/../subagents/agent-agent-abc123.jsonl\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "a newline in the path reads nothing" unknown ".agent_transcript_path = \"$AF\" + \"\\n\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "a newline inside a directory name reads nothing" unknown ".agent_transcript_path = \"$PROJ/\\n/$RAWSID/subagents/agent-agent-abc123.jsonl\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "a basename outside the pattern reads nothing" unknown ".agent_transcript_path = \"$TDIR/notes.jsonl\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; mkdir -p "$SB/elsewhere"; cp "$AF" "$SB/elsewhere/agent-x.jsonl"; tr_run "a file outside the Claude projects directory reads nothing" unknown ".agent_transcript_path = \"$SB/elsewhere/agent-x.jsonl\""; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; tr_run "an environment of another home: the payload cannot move the root" unknown '.agent_transcript_path = "/etc/passwd"'; end_case
+tr_new; { tr_hb "status: passed"; } >"$AF"; mkdir -p "$SB/altcfg/projects"; RUN_ENV=("CLAUDE_CONFIG_DIR=$SB/altcfg"); tr_run "CLAUDE_CONFIG_DIR moves the root: a file under HOME is outside" unknown; end_case
+tr_new; mkdir -p "$SB/altcfg/projects/p/$RAWSID/subagents"; { tr_hb "status: passed"; } >"$SB/altcfg/projects/p/$RAWSID/subagents/agent-agent-abc123.jsonl"; RUN_ENV=("CLAUDE_CONFIG_DIR=$SB/altcfg"); PROJ="$SB/altcfg/projects/p"; AF="$PROJ/$RAWSID/subagents/agent-agent-abc123.jsonl"; tr_run "CLAUDE_CONFIG_DIR is honored" pass; end_case
+tr_new; { tr_hb "status: passed MARKER_LASTMSG"; } >"$AF"; tr_run "only the parsed fields leave: the report text is not stored" unknown . ""; check "no report text in any file" "0" "$(grep -rlF MARKER_LASTMSG "$DATA" "$SB/log" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+
+# SHD-04: a `gate:` line taken from a transcript only sets the sub.gate display field (the same parser as today); it never makes a gates event
+tr_new; { tr_hb "status: passed
+gate: SHIELD_CLEAR"; } >"$AF"
+"$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = "closing words" | .agent_type = "allye:bridge-shield"' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "a gate line from the transcript sets sub.gate only" "{\"sub\":{\"gate\":\"SHIELD_CLEAR\",\"id\":\"agent-abc123\",\"outcome\":\"pass\",\"type\":\"allye:bridge-shield\"},\"type\":\"sub_stop\"}|0" "$(stopped)|$(spooled | grep -c '"type":"gates"' || true)"; end_case
+# The shared 2 s budget (SHD-01, SHD-02), proven on the deadline value with a fake clock: no elapsed-time bound is asserted.
+tr_new; { tr_hb "status: passed"; } >"$AF"
+RDSRC=$(sed -n '/^RD_END=""$/,/^# transcript_report FILE:/p' "$HOOK" | sed '$d')
+rd_unit() {  # rd_unit SCRIPT: runs SCRIPT with the budget functions, a fake clock (FAKE_NOW, ms) and the sandbox HOME
+  env -i HOME="$SB/home" PATH="$REAL" BASH="$BASH_BIN" "$BASH_BIN" -c 'UID_NOW=$(id -u); now_ms() { printf "%s" "$FAKE_NOW"; }; '"$RDSRC"'
+'"$1" 2>&1
+}
+T0=1800000000000
+check "no deadline set: the budget is spent" "rc=1" "$(rd_unit 'FAKE_NOW='$T0'; x=$(rd_left); echo "$x rc=$?" | sed "s/^ //"')"
+check "deadline passed: rd_left fails and a valid file reads nothing" "rc=1 rc=1 out=" "$(rd_unit 'FAKE_NOW='$T0'; RD_END='$T0'; rd_left >/dev/null; a=$?; o=$(claude_safe_tail "'"$AF"'" 262144); echo "rc=$a rc=$? out=$o"')"
+check "budget left is read from the deadline" "1.500 0.800" "$(rd_unit 'RD_END='$((T0 + 1500))'; FAKE_NOW='$T0'; a=$(rd_left); FAKE_NOW='$((T0 + 700))'; b=$(rd_left); echo "$a $b"')"
+check "the deadline survives a command substitution (the second read sees less)" "$((T0 + 2000)) rc=0 rc=1" "$(rd_unit 'RD_END='$((T0 + 2000))'; FAKE_NOW='$T0'; o=$(claude_safe_tail "'"$AF"'" 262144); a=$?; FAKE_NOW='$((T0 + 2500))'; o2=$(claude_safe_tail "'"$AF"'" 262144); echo "$RD_END rc=$a rc=$?"')"
+check "a read within the budget returns the tail" "full" "$(rd_unit 'RD_END='$((T0 + 2000))'; FAKE_NOW='$T0'; claude_safe_tail "'"$AF"'" 262144 | head -1')"
+# a stat step that hangs (a find stub) is killed by the timeout child: the read fails, whatever the time it takes
+mkdir -p "$SB/hangbin"; printf '#!%s\nexec %s 5\n' "$BASH_BIN" "$(type -P sleep)" >"$SB/hangbin/find"; chmod +x "$SB/hangbin/find"
+check "a hanging find is cut by the budget: nothing is read" "failed" "$(env -i HOME="$SB/home" PATH="$SB/hangbin:$REALBIN" BASH="$BASH_BIN" "$BASH_BIN" -c 'UID_NOW=$(id -u); now_ms() { date +%s%3N; }; '"$RDSRC"'
+RD_END=$(( $(now_ms) + 1000 )); o=$(claude_safe_tail "'"$AF"'" 262144); [ $? -ne 0 ] && [ -z "$o" ] && echo failed' 2>&1)"
+end_case
+
+# ─── ALY-263.4: dispatch description from the subagent metadata file at SubagentStop (AC-07, AC-02, BR-02, BR-03, D-03, D-14) ──────
+# The metadata file has no id key in real sessions (spike ALY-263.8): the link is the filename agent-<hook agent_id>.meta.json.
+echo "== subagent outcome: desc from the metadata file (ALY-263.4 AC-07, AC-02, BR-02, BR-03, D-03, D-14) =="
+# md_new: a case with the transcript layout of tr_new and MF, the metadata file of the agent.
+md_new() { tr_new; MF="$TDIR/agent-agent-abc123.meta.json"; }
+# md_run LABEL EXPECTED-DESC ("" = no desc key) [JQ-FILTER over the payload]: the stop of a "status: passed" report.
+md_run() {
+  local exp
+  if [ -n "$2" ]; then exp="{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\",\"desc\":$("$JQ_BIN" -n --arg d "$2" '$d')}}"; else exp="{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"; fi
+  "$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = "status: passed"' "$FIX/subagent-stop.json" | "$JQ_BIN" "${3:-.}" >"$SB/stdin"
+  run_hook
+  check "$1" "$(printf '%s\n' "$exp" | "$JQ_BIN" -cS .)|0||" "$(stopped)|$RC|$OUT|$ERR"
+}
+MDESC='Implement the metadata description for ALY-263.4'
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{agentType:"allye:bridge-pilot",description:$d,toolUseId:"toolu_MARKER_TUID",spawnDepth:1,extra:"MARKER_EXTRA"}' >"$MF"
+md_run "metadata present: its description is sent as desc on sub_stop" "$MDESC"
+check "toolUseId and the other keys of the file are not stored or sent" "0" "$(grep -rlF -e MARKER_TUID -e MARKER_EXTRA "$DATA" "$SB/log" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "no agent_transcript_path: the path is derived from the ids" "$MDESC" 'del(.agent_transcript_path)'; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "the payload cannot carry its own meta_desc" "$MDESC" '.meta_desc = "MARKER_PAYLOAD_DESC injected from the payload"'; end_case
+md_new; md_run "no metadata file: nothing extra, exit 0, silent" ""; end_case
+md_new; md_run "no metadata file and a payload meta_desc: nothing" "" '.meta_desc = "MARKER_PAYLOAD_DESC injected from the payload"'; end_case
+md_new; printf '{"description": "Truncated MARKER_DESC here' >"$MF"; md_run "corrupt JSON: nothing" ""; end_case
+md_new; printf '["description","Implement the metadata description"]' >"$MF"; md_run "JSON that is not an object: nothing" ""; end_case
+for dv in 7 null true '["Implement the metadata description"]' '{"a":"Implement the metadata description"}'; do
+  md_new; printf '{"description":%s}' "$dv" >"$MF"; md_run "description $dv is not a string: nothing" ""; end_case
+done
+md_new; printf '{"description":""}' >"$MF"; md_run "empty description: nothing" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" --rawfile pad <(head -c 70000 /dev/zero | tr '\0' a) '{description:$d,pad:$pad}' >"$MF"; md_run "oversize file (over 64 KB): nothing" ""; end_case
+md_new; "$JQ_BIN" -nc '{description:"Review the change with sk-live12345abcdef and ghp_0123456789abcdefghij"}' >"$MF"; md_run "secrets in the description are dropped by the cleaner" "Review the change with and"; end_case
+md_new; "$JQ_BIN" -nc '{description:"/etc/MARKER_PATH/x.txt"}' >"$MF"; md_run "a description that is only a path is dropped whole" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$(for i in $(seq 1 100); do printf 'word '; done)" '{description:$d}' >"$MF"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = "status: passed"' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "a long description: at most 140 code points with the ellipsis" "yes" "$(stopped | "$JQ_BIN" -r '.sub.desc | if (length <= 140 and endswith("…")) then "yes" else "no" end')"; end_case
+# id mismatch
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{agentId:"agent-other",description:$d}' >"$MF"; md_run "an agentId key that differs from the hook agent id: dropped" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{agent_id:"agent-other",description:$d}' >"$MF"; md_run "an agent_id key that differs from the hook agent id: dropped" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{agentId:"agent-abc123",description:$d}' >"$MF"; md_run "an agentId key equal to the hook agent id: kept" "$MDESC"; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; cp "$MF" "$TDIR/agent-other.meta.json"; rm -f "$MF"; md_run "the file of another agent id is not read" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "payload path that does not name the hook agent id: the metadata file is not read" "" ".agent_transcript_path = \"$TDIR/agent-zzz.jsonl\""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" '.transcript_path = $tp | .agent_id = "a/b" | del(.agent_transcript_path) | .last_assistant_message = "status: passed"' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "an agent id with a slash builds no path and sends no event" "|0||" "$(stopped)|$RC|$OUT|$ERR"; end_case
+# hostile paths (the helpers of the transcript section)
+md_new; mkdir -p "$PROJ/other"; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$PROJ/other/real.json"; ln -s "$PROJ/other/real.json" "$MF"; md_run "a symlinked metadata file reads nothing" ""; end_case
+md_new; rm -rf "$PROJ/$RAWSID"; mkdir -p "$PROJ/elsewhere/subagents"; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$PROJ/elsewhere/subagents/agent-agent-abc123.meta.json"; ln -s "$PROJ/elsewhere" "$PROJ/$RAWSID"; md_run "a symlinked parent directory reads nothing" ""; end_case
+md_new; mkfifo "$MF"; md_run "a FIFO metadata file reads nothing and does not hang" ""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "a .. component reads nothing" "" ".agent_transcript_path = \"$TDIR/../subagents/agent-agent-abc123.jsonl\""; end_case
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "a newline in the path reads nothing" "" ".agent_transcript_path = \"$AF\" + \"\\n\""; end_case
+# display text: off flags
+for fl in activity-off detailed-off; do
+  md_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  "$JQ_BIN" -nc '{description:"Implement the MARKER_DESC description for the task"}' >"$MF"; md_run "$fl: no desc in the spool" ""
+  check "$fl: the description is on no disk file" "0" "$(grep -rlF MARKER_DESC "$DATA" "$SB/log" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+done
+md_new; "$JQ_BIN" -nc '{description:"Implement the MARKER_DESC description for the task"}' >"$MF"; md_run "texts on: the description is in the spool (control for the off cases)" "Implement the MARKER_DESC description for the task"; end_case
+# a status in the message and a metadata file: both work, the transcript is not needed
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"; md_run "a report in the message: desc still comes from the file" "$MDESC" 'del(.agent_transcript_path) | .transcript_path = "'"$PROJ"'/t.jsonl"'; end_case
+# the shared budget: a spent deadline reads nothing
+md_new; "$JQ_BIN" -nc --arg d "$MDESC" '{description:$d}' >"$MF"
+check "a spent deadline reads no metadata" "rc=1 out=" "$(rd_unit 'FAKE_NOW='$T0'; RD_END='$T0'; o=$(claude_safe_tail "'"$MF"'" 65536); echo "rc=$? out=$o"')"; end_case
 
 # ─── ALY-258.2: summary and chips from the crew report (AC-03, AC-04, AC-05, AC-11, AC-12, AC-15, AC-17, BR-01, BR-04, D-05) ──────
 echo "== report lines: summary, attempt, next, gate, checks and severity counts (ALY-258.2 AC-04, AC-05, AC-15, AC-17, BR-01, BR-04) =="
@@ -735,6 +964,44 @@ next: reviewers
 gate: WATCHER_APPROVED
 checks: ok=2 run=2
 severity_counts: critical=0 high=0 medium=0 low=0 info=1" "{\"task\":\"ALY-258.2\",\"summary\":\"$RLSUM\",\"attempt\":1,\"next\":\"reviewers\",\"gate\":\"WATCHER_APPROVED\",\"checks\":{\"ok\":2,\"run\":2},\"findings\":{\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"info\":1}}" allye:bridge-watcher
+# ALY-263.12 (AC-14): phase stage|publish and the codes ready|approved; the codes are top-level on the sub_stop, so a dedicated helper
+# rc_case LABEL MESSAGE EXPECTED-SUB-EXTRAS-JSON EXPECTED-CODE(or "") [off] [OUTCOME, default pass]
+rc_case() {
+  new_case; mkcred; [ "${5:-}" = off ] && { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"; }
+  "$JQ_BIN" --arg m "$2" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+  check "$1" "$("$JQ_BIN" -cS -n --argjson x "$3" --arg c "$4" --arg o "${6:-pass}" '{type: "sub_stop", sub: ({id: "agent-abc123", type: "allye:bridge-pilot", outcome: $o} + $x)} + (if $c != "" then {code: $c} else {} end)')" "$(stopped)"
+  check "$1: exit 0, silent" "0||" "$RC|$OUT|$ERR"
+  end_case
+}
+rc_case "phase stage with status passed (Navigator): outcome pass and phase" "${P}phase: stage" '{"phase":"stage"}' ""
+rc_case "phase publish" "${P}phase: publish" '{"phase":"publish"}' ""
+rc_case "phase with CRLF" "$(printf 'status: passed\r\nphase: stage\r\n')" '{"phase":"stage"}' ""
+rc_case "phase other value sends nothing" "${P}phase: review" '{}' ""
+rc_case "phase uppercase value sends nothing" "${P}phase: STAGE" '{}' ""
+rc_case "phase twice sends nothing" "${P}phase: stage
+phase: stage" '{}' ""
+rc_case "phase twice with different values sends nothing" "${P}phase: stage
+phase: publish" '{}' ""
+rc_case "phase indented / bold / list / capital sends nothing" "${P}  phase: stage
+**phase:** stage
+- phase: stage
+Phase: stage
+PHASE: publish" '{}' ""
+rc_case "phase with trailing junk sends nothing" "${P}phase: stage MARKER_PROSE" '{}' ""
+rc_case "status ready with phase: both" "status: ready
+phase: publish" '{"phase":"publish"}' "ready"
+rc_case "status approved: code approved, outcome pass" "status: approved" '{}' "approved"
+rc_case "status needs-input: blocked, no new code" "status: needs-input" '{}' "" "" blocked
+rc_case "status escalate: blocked, no new code" "status: escalate" '{}' "" "" blocked
+rc_case "texts off still sends the enums (phase and code)" "status: approved
+phase: stage
+summary: $RLSUM" '{"phase":"stage"}' "approved" off
+# the closed enum at flush: a spooled phase outside stage|publish is dropped from the nested object, the event and the valid phase stay
+new_case; mkcred; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"
+"$JQ_BIN" -nc --arg at "$(nowiso)" '{seq: 1, at: $at, type: "sub_stop", sub: {id: "agent-p1", type: "allye:bridge-navigator", outcome: "pass", phase: "stage"}}, {seq: 2, at: $at, type: "sub_stop", sub: {id: "agent-p2", type: "allye:bridge-navigator", outcome: "pass", phase: "bogus"}}, {seq: 3, at: $at, type: "sub_stop", sub: {id: "agent-p3", type: "allye:bridge-navigator", outcome: "pass", phase: "STAGE"}}, {seq: 4, at: $at, type: "sub_stop", sub: {id: "agent-p4", type: "allye:bridge-navigator", outcome: "pass", phase: "publish"}}' >"$SPF"; chmod 600 "$SPF"
+run_fixture user-prompt-submit; for i in $(seq 1 100); do [ -s "$SB/api/ingest-bodies.log" ] && break; sleep 0.05; done; wait_idle
+check "phase at flush: stage and publish are sent, any other value is dropped, the events stay" "agent-p1:stage agent-p2:- agent-p3:- agent-p4:publish" "$("$JQ_BIN" -r '.events[] | select(.type == "sub_stop") | "\(.sub.id):\(.sub.phase // "-")"' "$SB/api/ingest-bodies.log" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+end_case
 # AC-12: a report with none of the new lines gives the previous event; the code of an unknown status stays
 rl_case "legacy report (none of the new lines, prose around): exactly the previous sub_stop" "MARKER_LASTMSG role: pilot
 summary text here is prose, attempt 1, next steps: none
@@ -797,7 +1064,7 @@ end_case
 
 # ─── ALY-203.4: mission gates (BR-10, AC-08, AC-16) ─────────────────────────
 #@group gates 25
-echo "== mission gates from the journal (AC-08, AC-16) =="
+echo "== gates: the journal Gates line (AC-08, AC-16) =="
 SHA1=GATESHA1MARKER; SHA2=GATESHA2MARKER
 gates_line() {  # S W C M: values (use - for the dash)
   local v; v() { [ "$1" = "-" ] && printf '\xe2\x80\x94' || printf '%s' "$1"; }
@@ -859,6 +1126,134 @@ check "gate state with a wrong mode: nothing sent" "3" "$(gevn)"
 rm -f "$GF"; ln -s "$SB/stdin" "$GF"; fire Write
 check "symlinked gate state: nothing sent, target untouched" "3|yes" "$(gevn)|$([ -s "$SB/stdin" ] && echo yes || echo no)"
 end_case
+
+# ─── ALY-263.15: the PR number on the gates event (AC-18, D-20, D-21, BR-01) ───
+echo "== gates: the PR line of the verified log (ALY-263.15 AC-18) =="
+prs() { gev | "$JQ_BIN" -r '(.pr // "-" | tostring)' | tr '\n' ' ' | sed 's/ $//'; }   # the pr of every gates event, "-" when absent
+GFILE() { echo "$DATA/live/$(test_sha sess-gate-1).gates"; }
+new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #123"; fire Write
+check "a valid PR line: pr is a JSON integer on the gates event, with the current gates" '{"gates":["SHIELD_CLEAR"],"pr":123,"type":"gates"}' "$(gev)"
+check "the gates event keys are exactly seq, type, gates, at and pr" "seq,type,gates,at,pr" "$("$JQ_BIN" -r 'select(.type=="gates") | keys_unsorted | join(",")' "$DATA/live/$(test_sha sess-gate-1).spool" | head -n 1)"
+check "the state file holds the set on line 1 and the pr on line 2, private" "600 $(printf '%s\n%s' '["SHIELD_CLEAR"]' 123)" "$(find "$(GFILE)" -printf '%m') $(cat "$(GFILE)")"
+check "nothing else of the log leaves: no marker, path or slug in a file, a log or an output" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find '; } | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|missions|m-1' || true)"
+end_case
+new_case; mkcred; mklog m-1 "- PR: #7"; fire Write
+check "a PR line without a Gates line: one gates event with the empty set and the pr" '{"gates":[],"pr":7,"type":"gates"}' "$(gev)"; end_case
+new_case; mkcred; mklog m-1 "- PR: #11" "- PR: #12"; fire Write
+check "the first PR line wins" "11" "$(prs)"; end_case
+new_case; mkcred; mklog m-1 "- PR: #5 merged" "- PR: #8"; fire Write
+check "a first line that does not match is skipped: the first MATCHING line wins" "8" "$(prs)"; end_case
+for ok in "- PR: #9999999" "- PR: #1" "- PR: #5 " "- PR: #5"$'\t'" " "- PR: #5"$'\r'; do
+  new_case; mkcred; mklog m-1 "$ok"; fire Write
+  check "valid PR line '$(printf '%s' "$ok" | od -An -c | tr -s ' ' | sed 's/^ //')' sends a pr" "yes" "$([[ "$(prs)" =~ ^[1-9][0-9]{0,6}$ ]] && echo yes || echo no)"; end_case
+done
+for bad in "- PR: #5 merged" "- PR: #5x" "- PR: #5 #6" "- PR: #0" "- PR: #00" "- PR: #01" "- PR: #12345678" "- PR: #-5" "- PR: #5.0" "- PR: #5,1" "- PR: #" "- PR: 5" "- PR:#5" "- PR:  #5" "  - PR: #5" " - PR: #5" "- pr: #5" "- Pr: #5" "-- PR: #5" "* PR: #5" "- PR:"$'\t'"#5" "- PR: #5"$'\v' "- PR: ##5" "PR: #5" "- PR: #５"; do
+  new_case; mkcred; mklog m-1 "$bad"; fire Write
+  check "malformed or indented PR line '$(printf '%s' "$bad" | od -An -c | tr -s ' ' | sed 's/^ //')' sends nothing" "0" "$(gevn)"; end_case
+done
+new_case; mkcred; mklog m-1 "- Notes: - PR: #5" "text - PR: #6"; fire Write
+check "a PR text inside another line counts for nothing" "0" "$(gevn)"; end_case
+
+echo "== gates: pr only on change, with the set (ALY-263.15 D-21) =="
+new_case; mkcred
+mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #10"; fire Write
+fire Edit
+mklog m-1 "$(gates_line "$SHA2" - - -)" "- PR: #10"; fire Write
+check "pr unchanged (and the same set): not resent" "1|10" "$(gevn)|$(prs)"
+mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #11"; fire Edit
+check "pr changed, same set: one more gates event with the new pr and the current set" "2|10 11|$(printf '%s' '{"gates":["SHIELD_CLEAR"],"pr":11,"type":"gates"}')" "$(gevn)|$(prs)|$(gev | tail -n 1)"
+mklog m-1 "$(gates_line "$SHA1" "$SHA1" - -)" "- PR: #11"; fire Edit
+check "set changed, pr unchanged: the gates event carries no pr" "3|10 11 -" "$(gevn)|$(prs)"
+mklog m-1 "$(gates_line "$SHA1" "$SHA1" - -)"; fire Edit
+check "the PR line removed from the log sends nothing" "3" "$(gevn)"
+mklog m-1 "$(gates_line "$SHA1" "$SHA1" - -)" "- PR: #11"; fire Edit
+check "the same pr back after a removal is not resent (the last value kept)" "3" "$(gevn)"
+mklog m-1 "- PR: #12"; fire Edit
+check "a PR line without a Gates line later: the last set sent is carried, not emptied" '{"gates":["SHIELD_CLEAR","WATCHER_APPROVED"],"pr":12,"type":"gates"}' "$(gev | tail -n 1)"
+check "the state file now holds the last set and pr 12" "$(printf '%s\n%s' '["SHIELD_CLEAR","WATCHER_APPROVED"]' 12)" "$(cat "$(GFILE)")"
+end_case
+new_case; mkcred
+mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write
+mklog m-1 "$(gates_line "$SHA2" - - -)" "- PR: #20"; fire Write
+check "gates unchanged and a pr added: exactly one more gates event, with the pr" "2|- 20" "$(gevn)|$(prs)"; end_case
+new_case; mkcred
+mklog m-1 "- PR: #20"; fire Write; mklog m-1 "- PR: #20"; fire Write
+check "a PR line alone twice: one event" "1" "$(gevn)"; end_case
+# an old state file (the array alone, written before the pr existed) reads clean
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' '["SHIELD_CLEAR"]' >"$(GFILE)"; chmod 600 "$(GFILE)"
+mklog m-1 "$(gates_line "$SHA1" - - -)"; fire Write
+check "old state file, same set, no PR line: nothing resent" "0" "$(gevn)"
+mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #30"; fire Write
+check "old state file, then a PR line: one gates event with the set and the pr" '{"gates":["SHIELD_CLEAR"],"pr":30,"type":"gates"}' "$(gev)"
+end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' '["SHIELD_CLEAR"]' >"$(GFILE)"; chmod 600 "$(GFILE)"
+mklog m-1 "$(gates_line "$SHA1" "$SHA1" - -)"; fire Write
+check "old state file, set changed: one event, no pr key, and the file is rewritten without a pr line" "1|-|$(printf '%s' '["SHIELD_CLEAR","WATCHER_APPROVED"]')" "$(gevn)|$(prs)|$(cat "$(GFILE)")"; end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s\n%s' '["SHIELD_CLEAR"]' 'garbage' >"$(GFILE)"; chmod 600 "$(GFILE)"
+mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #31"; fire Write
+check "a state file with a corrupt second line reads as no pr: the pr is sent once, the set is not" '{"gates":["SHIELD_CLEAR"],"pr":31,"type":"gates"}' "$(gev)"; end_case
+# the private-file checks of the state apply to the pr too
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$(GFILE)"; chmod 644 "$(GFILE)"
+mklog m-1 "- PR: #40"; fire Write
+check "a gate state file with a wrong mode: no pr sent either" "0" "$(gevn)"
+rm -f "$(GFILE)"; ln -s "$SB/stdin" "$(GFILE)"; fire Write
+check "a symlinked gate state: no pr sent, target untouched" "0|yes" "$(gevn)|$([ -s "$SB/stdin" ] && echo yes || echo no)"; end_case
+
+echo "== gates: pr, unverified or unreadable logs and hostile lines send nothing (ALY-263.15 BR-01) =="
+no_pr() { check "$1: no gates event, no pr" "0|" "$(gevn)|$(prs)"; }
+new_case; mkcred; mklog m-1 "- PR: #50"; fire Read; no_pr "tool Read"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"; fire Bash; no_pr "tool Bash"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"; cp "$SB/proj/.allye/missions/m-1/log.md" "$SB/proj/.allye/missions/m-1/notes.md"; fire Write "$SB/proj/.allye/missions/m-1/notes.md"; no_pr "a PR line in notes.md (not the verified log)"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"; mkdir -p "$SB/proj/other"; cp "$SB/proj/.allye/missions/m-1/log.md" "$SB/proj/other/log.md"; fire Write "$SB/proj/other/log.md"; no_pr "a PR line in log.md of another directory"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"; fire Write "$SB/proj/.allye/missions/m-1/crew/shield.md"; no_pr "a PR line, write of a crew file"; end_case
+new_case; mkcred; mklog m-1 "- PR: #50"
+"$JQ_BIN" -n --arg f "$SB/proj/.allye/missions/m-1/log.md" --arg c "$SB/proj" '{session_id:"sess-gate-1",hook_event_name:"PostToolUse",cwd:$c,tool_name:"Write",agent_id:"agent-x",agent_type:"allye:bridge-pilot",tool_input:{file_path:$f,content:"- PR: #50"},tool_response:{}}' >"$SB/stdin"; run_hook
+no_pr "a write made inside a subagent"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1/log.md"; fire Write; no_pr "log.md is a directory (read failure)"; end_case
+new_case; mkcred; fire Write; no_pr "log.md missing (read failure)"; end_case
+new_case; mkcred; mklog real "- PR: #50"; mkdir -p "$SB/proj/.allye/missions/m-1"; ln -s "$SB/proj/.allye/missions/real/log.md" "$SB/proj/.allye/missions/m-1/log.md"; fire Write; no_pr "symlinked log.md"; end_case
+if [ "$(id -u)" != 0 ]; then   # root reads a mode 000 file: the case needs a normal user
+  new_case; mkcred; mklog m-1 "- PR: #50"; chmod 000 "$SB/proj/.allye/missions/m-1/log.md"; fire Write; chmod 644 "$SB/proj/.allye/missions/m-1/log.md"
+  no_pr "an unreadable log.md (read failure)"; end_case
+fi
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { echo "# Mission log"; printf -- '- PR: #5 '; head -c 60000 /dev/zero | tr '\0' 'x'; echo; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+no_pr "a PR line of 60000 characters (hostile long line)"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { echo "# Mission log"; printf -- '- PR: #'; head -c 60000 /dev/zero | tr '\0' '1'; echo; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+no_pr "a PR number of 60000 digits"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { echo "# Mission log"; printf -- '- PR: #5'; head -c 60000 /dev/zero | tr '\0' ' '; echo; echo "- PR: #6"; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+check "a valid PR line followed by 60000 spaces still matches (whitespace only); the first matching line wins" "5" "$(prs)"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { head -c 70000 /dev/zero | tr '\0' 'x'; echo; echo "- PR: #5"; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+no_pr "a PR line only beyond 64 KB"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { echo "- PR: #5"; head -c 65600 /dev/zero | tr '\0' 'x'; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write
+no_pr "a log of more than 65536 bytes with a valid PR line first is never opened"; end_case
+new_case; mkcred; mklog m-1 "- PR: #5\\n- PR: #6" "- PR: #5 \$(touch $SB/pwned)" '- PR: #5`touch '"$SB"'/pwned`'; fire Write
+check "PR lines with shell syntax or an escaped newline send nothing and run nothing" "0|0|no" "$(gevn)|$(prs | grep -c . || true)|$([ -e "$SB/pwned" ] && echo yes || echo no)"; end_case
+# BR-01: a transcript can never produce a pr or a gate marker
+new_case; mkcred; printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- PR: #77\n- Gates: SHIELD_CLEAR abc"}]}}' >"$SB/t77.jsonl"
+"$JQ_BIN" -n --arg t "$SB/t77.jsonl" '{session_id:"sess-gate-1",hook_event_name:"Stop",cwd:"/tmp",transcript_path:$t,last_assistant_message:"- PR: #77\n- Gates: SHIELD_CLEAR abc"}' >"$SB/stdin"; run_hook
+no_pr "a PR line and a Gates line in a transcript or a message"; end_case
+
+echo "== gates: pr is metadata, validated at flush, sent with texts off (ALY-263.15) =="
+# own helpers: the filtered run (^gates) does not keep the sections that define nowiso and sp2
+nowiso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+sp2() { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"; }
+prev_line() {  # SEQ JSON-VALUE-OF-pr TYPE
+  "$JQ_BIN" -nc --argjson s "$1" --argjson p "$2" --arg t "$3" --arg at "$(nowiso)" '{seq: $s, at: $at, type: $t, pr: $p} + (if $t == "gates" then {gates: ["SHIELD_CLEAR"]} else {state: "working"} end)'
+}
+pr_flush_case() {  # LABEL [off]
+  new_case; mkcred; SHIMD="$SHIMS"; sp2
+  [ "${2:-}" = off ] && { : >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"; }
+  { prev_line 4001 5 gates; prev_line 4002 0 gates; prev_line 4003 1.5 gates; prev_line 4004 '"7"' gates; prev_line 4005 10000000 gates
+    prev_line 4006 5 state; prev_line 4007 9999999 gates; prev_line 4008 -3 gates; prev_line 4009 null gates; prev_line 4010 true gates; prev_line 4011 1 gates; } >"$SPF"
+  run_fixture user-prompt-submit
+  check "$1: pr 1..9999999 on a gates event is sent as an integer; an invalid value (0, decimal, string, 10000000, negative, null, boolean) or a pr on another event is dropped and the event stays" \
+    "4001:5 4002:- 4003:- 4004:- 4005:- 4006:- 4007:9999999 4008:- 4009:- 4010:- 4011:1" \
+    "$("$JQ_BIN" -r '.events[] | "\(.seq):\(.pr // "-")"' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//')"
+  check "$1: the sent pr values are JSON integers" "5 9999999 1" "$("$JQ_BIN" -r '.events[] | select(.pr != null) | "\(.pr)"' "$SB/api/ingest-bodies.log" | tr '\n' ' ' | sed 's/ $//')"
+  end_case
+}
+pr_flush_case "texts on"
+pr_flush_case "texts off (activity-off)" off
 
 echo "== gates: other files, tools and paths send nothing (AC-08, AC-16) =="
 no_gates() {  # LABEL, after the event(s) have fired
@@ -963,12 +1358,12 @@ for m in "${MARKERS[@]}"; do check "marker $m absent from every file, filename, 
 check "spool is non-empty (not vacuous)" "yes" "$([ "$(cat "$DATA"/live/*.spool | wc -l | tr -d ' ')" -gt 20 ] && echo yes || echo no)"
 check "raw session id absent from every file, filename, shim log and request" "0" "$(grep -cF -- "$RAWSID" "$ALLTXT" || true)"
 final_reap "$DATA"; for i in $(seq 1 200); do [ -e "$DATA/live/$(test_sha "$RAWSID").final.lock" ] || break; sleep 0.05; done   # the SessionEnd fixtures' final flusher (stub curl)
-check "files are keyed by sha256(session id): bind, cred, flushed, seq, spool, state and subs (no lock left behind)" "$(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
+check "files are keyed by sha256(session id): acts, bind, cred, flushed, label, rsm, seq, spool, state, subs, tkmem and touch (no lock left behind)" "$(test_sha "$RAWSID").acts $(test_sha "$RAWSID").bind $(test_sha "$RAWSID").cred $(test_sha "$RAWSID").flushed $(test_sha "$RAWSID").label $(test_sha "$RAWSID").rsm $(test_sha "$RAWSID").seq $(test_sha "$RAWSID").spool $(test_sha "$RAWSID").state $(test_sha "$RAWSID").subs $(test_sha "$RAWSID").tkmem $(test_sha "$RAWSID").touch" "$(cd "$DATA/live" && ls | tr '\n' ' ' | sed 's/ $//')"
 check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/err")"
-check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
-check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","pr","activity","label"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
-check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","ready","approved","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 end_case
 
 # ─── ALY-217.6: activity phrases (BR-10..BR-13, AC-27..AC-33) ────────────────
@@ -1033,7 +1428,7 @@ new_case; mkcred
 agent 0 Agent allye:bridge-pilot "Implement ALY-258.1 cleaner for the slice"; sstart 1 agent-t1 allye:bridge-pilot
 check "AC-03: the first dotted task key of the description goes on sub_start as sub.task" '{"desc":"Implement ALY-258.1 cleaner for the slice","id":"agent-t1","task":"ALY-258.1","type":"allye:bridge-pilot"}' "$(sub_of agent-t1)"
 agent 2 Agent allye:bridge-pilot "Do ALY-258.1 then ALY-258.2 later today"; sstart 3 agent-t2 allye:bridge-pilot
-check "AC-03: two keys: the first wins" "ALY-258.1" "$(sub_of agent-t2 | "$JQ_BIN" -r .task)"
+check "AC-03: two different keys are ambiguous: nothing (ALY-263.10 D-07)" "null" "$(sub_of agent-t2 | "$JQ_BIN" -r .task)"
 agent 4 Agent allye:bridge-pilot "Work on the spec ALY-258 as a whole"; sstart 5 agent-t3 allye:bridge-pilot
 check "AC-03: a spec key without the dotted task part is not a task: desc only" '{"desc":"Work on the spec ALY-258 as a whole","id":"agent-t3","type":"allye:bridge-pilot"}' "$(sub_of agent-t3)"
 agent 6 Agent allye:bridge-pilot "Work on aly-258.1 in lower case please"; sstart 7 agent-t4 allye:bridge-pilot
@@ -1119,6 +1514,137 @@ new_case; mkcred
 for i in $(seq 1 20); do agent "$i" Agent allye:bridge-pilot "Pilot launch number $(printf '%02d' "$i") here"; done
 check "the stash keeps at most 16 entries (the oldest dropped)" "16 Pilot launch number 05 here" "$("$JQ_BIN" 'length' "$(AGF)") $("$JQ_BIN" -r '.[0].a' "$(AGF)")"
 end_case
+
+# ─── ALY-263.10: sub.task from the dispatch description (AC-10, D-07, D-14, BR-02) ──────────────────────────────────────────────────
+# Rule (documented in docs/live-reporting.md): over the CLEANED description, (1) every full `KEY-N.M` (project `[A-Z][A-Z0-9]{1,9}`, N 1-4 digits,
+# M 1-3 digits, not glued to a letter, digit, `-`, `_`, `.` before it nor to a letter, digit or `.digit` after it); (2) only when there is no full key,
+# every bare `N.M` (`^\d{1,4}\.\d{1,3}$`, same borders, a `-` before it is a border too so `aly-263.3` yields nothing) completed with the project
+# prefix of the strongest binding. Exactly one distinct candidate wins; two distinct ones are ambiguous and give nothing. A bare key needs exactly one
+# bound project (the held binding and the touched spec keys); no binding or several projects give nothing. A full key of another project than the one
+# bound project gives nothing. Roles that carry no task key (dispatcher, recon, strategist, architect, armorer) give nothing. At the first sub_tool
+# of an agent id the metadata file is read ONCE (the attempt is recorded whether or not it worked, in $HASH.tkmem, 64 ids, 0600): a failure is never
+# retried, so "unreadable then readable" keeps no key. sub.task goes on the sub_tool only when it differs from the value already sent for the agent.
+echo "== taskkey: sub.task from the dispatch description, at the start and at the first tool (ALY-263.10 AC-10, D-07, D-14) =="
+tk_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TDIR="$PROJ/$RAWSID/subagents"; mkdir -p "$TDIR"; }
+tk_bind() { local k; for k in "$@"; do "$JQ_BIN" --arg s "$k" '.tool_input.spec = $s' "$FIX/mcp-allye-spec-get.json" >"$SB/stdin"; run_hook; done; }
+tk_meta() { "$JQ_BIN" -nc --arg d "$2" '{agentType:"allye:bridge-pilot",description:$d}' >"$TDIR/agent-$1.meta.json"; }
+tk_tool() { "$JQ_BIN" --arg id "$1" --arg ty "${2:-allye:bridge-pilot}" --arg tp "$PROJ/t.jsonl" '.agent_id = $id | .agent_type = $ty | .transcript_path = $tp | .tool_input.description = "Run the unit tests now"' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+tk_agent() { "$JQ_BIN" -n --arg d "$1" --arg ty "${2:-allye:bridge-pilot}" --arg s "$RAWSID" '{session_id: $s, cwd: "/work/MARKER_CWD", hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: {description: $d, subagent_type: $ty, prompt: "MARKER_PROMPT_xyz"}, tool_use_id: "toolu_tk"}' >"$SB/stdin"; run_hook; }
+tk_start() { "$JQ_BIN" -n --arg id "$1" --arg ty "${2:-allye:bridge-pilot}" --arg s "$RAWSID" '{session_id: $s, cwd: "/work/MARKER_CWD", hook_event_name: "SubagentStart", agent_id: $id, agent_type: $ty}' >"$SB/stdin"; run_hook; }
+tk_tasks() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_tool" and .sub.id == $id) | .sub.task // "-"' | tr '\n' '|'; }
+tk_starts() { spooled | "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_start" and .sub.id == $id) | .sub.task // "-"' | tr '\n' '|'; }
+TKMEM() { echo "$DATA/live/$(test_sha "$RAWSID").tkmem"; }
+# tk_unit LABEL DESCRIPTION EXPECTED [BOUND-SPEC-KEY...]: the unit table, through the metadata file at the first tool AND through the stash at the start.
+tk_unit() {
+  local label="$1" desc="$2" exp="$3"; shift 3
+  tk_new; [ $# -eq 0 ] || tk_bind "$@"
+  tk_meta t1 "$desc"; tk_tool t1
+  check "$label (first tool)" "$exp|" "$(tk_tasks t1)"; end_case
+  tk_new; [ $# -eq 0 ] || tk_bind "$@"
+  tk_agent "$desc"; tk_start t1
+  check "$label (start)" "$exp|" "$(tk_starts t1)"; end_case
+}
+tk_unit "full key" "Implement ALY-263.3 for the slice" ALY-263.3
+tk_unit "full key, same project bound" "Implement ALY-263.3 for the slice" ALY-263.3 ALY-263
+tk_unit "the same full key twice" "Implement ALY-263.3 then recheck ALY-263.3 again" ALY-263.3
+tk_unit "bare key completed from the one bound project" "Implement 263.3 for the slice" ALY-263.3 ALY-263
+tk_unit "bare key, several specs of one project bound" "Implement 263.3 for the slice" ALY-263.3 ALY-263 ALY-9
+tk_unit "bare key with no binding" "Implement 263.3 for the slice" -
+tk_unit "bare key with two projects bound" "Implement 263.3 for the slice" - ALY-263 XYZ-5
+tk_unit "bare key with the other project bound last" "Implement 263.3 for the slice" - XYZ-5 ALY-263
+tk_unit "no key" "Implement the whole slice now" - ALY-263
+tk_unit "spec key only (a task key needs the dotted form)" "Final review of ALY-263 for gaps" - ALY-263
+tk_unit "two different full keys: ambiguous, nothing" "Do ALY-263.3 and ALY-263.4 together" -
+tk_unit "two different bare keys: ambiguous, nothing" "Do 263.3 and 263.4 together" - ALY-263
+tk_unit "a full key and a bare key: the full key" "Do ALY-263.3 and also 4.1 later" ALY-263.3 ALY-263
+tk_unit "prefix mismatch: a full key of another project than the one bound" "Implement XYZ-5.1 for the slice" - ALY-263
+tk_unit "full key of another project when several projects are bound" "Implement XYZ-5.1 for the slice" XYZ-5.1 ALY-263 XYZ-5
+tk_unit "lower case key" "Implement aly-263.3 for the slice" - ALY-263
+tk_unit "lower case prefix with no binding" "Implement aly-263.3 for the slice" -
+tk_unit "project key of 11 characters" "Implement ABCDEFGHIJK-263.3 for the slice" - ALY-263
+tk_unit "project key of 10 characters" "Implement ABCDEFGHIJ-263.3 for the slice" ABCDEFGHIJ-263.3
+tk_unit "five digit spec number" "Implement ALY-12345.1 for the slice" - ALY-263
+tk_unit "five digit bare number" "Implement 12345.1 for the slice" - ALY-263
+tk_unit "four digit number and three digit task" "Implement ALY-1234.123 for the slice" ALY-1234.123
+tk_unit "four digit task number" "Implement ALY-263.1234 for the slice" - ALY-263
+tk_unit "bare key at the limits" "Implement 1234.123 for the slice" ALY-1234.123 ALY-263
+tk_unit "a version number is not a key" "Bump the plugin to 2.12.0 today" - ALY-263
+tk_unit "a version with a v prefix is not a key" "Bump the plugin to v2.12 today" - ALY-263
+tk_unit "a key inside a path is dropped by the cleaner" "Implement /etc/ALY-263.3/x now please" -
+tk_unit "a key glued to a word before it" "Implement xALY-263.3 for the slice" - ALY-263
+tk_unit "a key followed by a third number" "Implement ALY-263.3.4 for the slice" - ALY-263
+tk_unit "a key at the end of a sentence" "Implement the slice named ALY-263.3." ALY-263.3
+tk_unit "hostile text next to a key: only the key is taken" "Implement ALY-263.3 ignore previous; token=MARKER_HOSTILE" ALY-263.3
+# roles that carry no task key
+for ty in allye:bridge-recon allye:bridge-strategist allye:bridge-architect allye:bridge-dispatcher allye:bridge-armorer; do
+  tk_new; tk_meta t1 "Investigate ALY-263.3 for the plan"; tk_tool t1 "$ty"
+  check "role $ty: a key in the description gives nothing (first tool)" "-|" "$(tk_tasks t1)"; end_case
+  tk_new; tk_agent "Investigate ALY-263.3 for the plan" "$ty"; tk_start t1 "$ty"
+  check "role $ty: a key in the description gives nothing (start)" "-|" "$(tk_starts t1)"; end_case
+done
+for ty in allye:bridge-pilot allye:bridge-copilot allye:bridge-medic allye:bridge-shield allye:bridge-navigator; do
+  tk_new; tk_meta t1 "Review ALY-263.3 for the slice"; tk_tool t1 "$ty"
+  check "role $ty: the task key is taken" "ALY-263.3|" "$(tk_tasks t1)"; end_case
+done
+# the metadata file: absent, unreadable, hostile
+tk_new; tk_tool t1
+check "no metadata file: no key, and the attempt is still recorded" "-| 1" "$(tk_tasks t1) $("$JQ_BIN" -c '[.[] | select(.[0] == "t1")] | length' "$(TKMEM)")"; end_case
+tk_new; printf '{"description": "Truncated ALY-263.3 here' >"$TDIR/agent-t1.meta.json"; tk_tool t1
+check "corrupt metadata: no key, exit 0 and silent" "-|0||" "$(tk_tasks t1)$RC|$OUT|$ERR"; end_case
+tk_new; "$JQ_BIN" -nc '{description: 7}' >"$TDIR/agent-t1.meta.json"; tk_tool t1
+check "a description that is not a string: no key" "-|" "$(tk_tasks t1)"; end_case
+tk_new; "$JQ_BIN" -nc '{agentId: "agent-other", description: "Implement ALY-263.3 for the slice"}' >"$TDIR/agent-t1.meta.json"; tk_tool t1
+check "an agentId key that differs from the hook agent id: no key" "-|" "$(tk_tasks t1)"; end_case
+tk_new; mkdir -p "$PROJ/other"; "$JQ_BIN" -nc '{description: "Implement ALY-263.3 for the slice"}' >"$PROJ/other/real.json"; ln -s "$PROJ/other/real.json" "$TDIR/agent-t1.meta.json"; tk_tool t1
+check "a symlinked metadata file: no key" "-|" "$(tk_tasks t1)"; end_case
+tk_new; mkfifo "$TDIR/agent-t1.meta.json"; tk_tool t1
+check "a FIFO metadata file: no key, no hang" "-|" "$(tk_tasks t1)"; end_case
+tk_new; rm -rf "${PROJ:?}/${RAWSID:?}"; mkdir -p "$PROJ/elsewhere/subagents"; "$JQ_BIN" -nc '{description: "Implement ALY-263.3 for the slice"}' >"$PROJ/elsewhere/subagents/agent-t1.meta.json"; ln -s "$PROJ/elsewhere" "$PROJ/$RAWSID"; tk_tool t1
+check "a symlinked parent directory: no key" "-|" "$(tk_tasks t1)"; end_case
+tk_new; tk_meta t1 "Implement ALY-263.3 for the slice"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" '.agent_id = "a/b" | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "an agent id with a slash builds no path: no event with a key" "0" "$(spooled | grep -c 'ALY-263.3' || true)"; end_case
+# read once per agent id; a failure is final
+tk_new; tk_tool t1; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1; tk_tool t1
+check "unreadable then readable: the first attempt is final for that agent id (no retry per tool)" "-|-|-|" "$(tk_tasks t1)"
+tk_meta t2 "Implement ALY-263.4 for the slice"; tk_tool t2; tk_tool t2
+check "another agent id has its own single read" "ALY-263.4|-|" "$(tk_tasks t2)"; end_case
+tk_new; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1; tk_meta t1 "Implement ALY-263.9 for the slice"; tk_tool t1; tk_tool t1
+check "readable once: the key goes on the first tool only, a changed file is not read again" "ALY-263.3|-|-|" "$(tk_tasks t1)"
+check "the memory is 0600 and holds ids and keys only" "600 yes" "$(find "$(TKMEM)" -printf '%m') $("$JQ_BIN" -e 'type == "array" and all(.[]; length == 3)' "$(TKMEM)" >/dev/null && echo yes || echo no)"
+check "no description text in any file" "0" "$(grep -rlF -e 'for the slice' "$DATA" 2>/dev/null | grep -v '/hook-credential' | wc -l | tr -d ' ')"; end_case
+# not resent when the start already sent the same value; a different value is sent
+tk_new; tk_agent "Implement ALY-263.3 for the slice"; tk_start t1; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+check "the start sent the key: the first tool does not send the same value again" "ALY-263.3| -|" "$(tk_starts t1) $(tk_tasks t1)"; end_case
+tk_new; tk_agent "Implement ALY-263.3 for the slice"; tk_start t1; tk_meta t1 "Implement ALY-263.4 for the slice"; tk_tool t1
+check "the start sent a key: a different key from the file goes on the first tool" "ALY-263.3| ALY-263.4|" "$(tk_starts t1) $(tk_tasks t1)"; end_case
+tk_new; tk_agent "Implement the slice completely now"; tk_start t1; tk_meta t1 "Implement ALY-263.4 for the slice"; tk_tool t1
+check "no key at the start (the race lost): the file gives it at the first tool" "-| ALY-263.4|" "$(tk_starts t1) $(tk_tasks t1)"; end_case
+tk_new; tk_bind ALY-263; tk_meta t1 "Implement 263.3 for the slice"; tk_tool t1
+check "the first tool: a bare key is completed from the binding made earlier" "ALY-263.3|" "$(tk_tasks t1)"; end_case
+# the main session never reads the file
+tk_new; tk_meta t1 "Implement ALY-263.3 for the slice"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" 'del(.agent_id, .agent_type) | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "a main-session tool sends no key and records nothing" "0 no" "$(spooled | grep -c 'ALY-263.3' || true) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+# old and hostile state files
+tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+check "no state file at all (an old install): the first tool still works" "ALY-263.3|" "$(tk_tasks t1)"; end_case
+for bad in 'not json' '{"a":1}' '[["t1"]]' '[["t1","not a key",1]]' '[[7,"",1]]'; do
+  tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' "$bad" >"$(TKMEM)"; chmod 600 "$(TKMEM)"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+  check "a corrupt state file ($bad) counts as empty" "ALY-263.3|" "$(tk_tasks t1)"; end_case
+done
+tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '[["t1","",1]]' >"$(TKMEM)"; chmod 600 "$(TKMEM)"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+check "an entry that says tried: the file is not read" "-|" "$(tk_tasks t1)"; end_case
+tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '[["t1","",1]]' >"$SB/real.tkmem"; ln -s "$SB/real.tkmem" "$(TKMEM)"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+check "a symlinked state file: nothing read or written through it" '-||[["t1","",1]]' "$(tk_tasks t1)|$(cat "$SB/real.tkmem")"; end_case
+# bounded to 64 ids
+tk_new; for i in $(seq 1 70); do tk_tool "w$i"; done
+check "the memory keeps the newest 64 ids" "64 w70" "$("$JQ_BIN" -r 'length' "$(TKMEM)") $("$JQ_BIN" -r '.[-1][0]' "$(TKMEM)")"; end_case
+# texts off: the key is not sent and no state is written
+for fl in activity-off detailed-off; do
+  tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"; tk_meta t1 "Implement ALY-263.3 for the slice"; tk_tool t1
+  check "$fl: no key and no state file" "-| no" "$(tk_tasks t1) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+done
+tk_new; tk_agent "Implement ALY-263.3 for the slice"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"; tk_start t1
+check "detailed-off: the start sends no key either (as before)" "-|" "$(tk_starts t1)"; end_case
 
 echo "== synthetic sub_start for unseen subagents (ALY-217.7 AC-35, AC-36, D-26) =="
 SUBF() { echo "$DATA/live/$H6.subs"; }
@@ -1345,6 +1871,266 @@ run_fixture user-prompt-submit; wait_idle
 check "AC-14: ack true over a symlinked flag removes the link only" "no keep" "$([ -e "$(DOFF)" ] || [ -L "$(DOFF)" ] && echo yes || echo no) $(cat "$SB/elsewhere/target")"
 end_case
 
+echo "== activity: one sub_tool per subagent tool, per-agent duplicates, order and the texts-off gate (ALY-263.3 AC-05, BR-03, D-02, D-18) =="
+# subact ID DESC [TOOL]: a subagent Bash PreToolUse of agent ID whose description is DESC (the phrase source until the classifier).
+subact() { "$JQ_BIN" --arg id "$1" --arg d "$2" '.agent_id = $id | .tool_input.description = $d' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+# sub_acts ID: the activities of the sub_tool events of ID in spool order, "-" for an event without one, one line.
+sub_acts() { lines_of ".type == \"sub_tool\" and .sub.id == \"$1\"" | "$JQ_BIN" -r '.activity // "-"' | tr '\n' '|'; }
+new_case; mkcred
+subact a1 "Run the first unit tests now"
+check "AC-05: a subagent tool with a description: one sub_tool with sub.id and activity" '{"activity":"Run the first unit tests now","sub":{"id":"a1","type":"allye:bridge-pilot"},"tool":"Bash","type":"sub_tool"}' "$(lines_of '.type == "sub_tool"' | "$JQ_BIN" -cS . | tail -n 1)"
+subact a1 "Run the first unit tests now"
+check "AC-05: the same phrase again by the same agent: the event goes on, the phrase is skipped" "Run the first unit tests now|-|" "$(sub_acts a1)"
+subact a2 "Run the first unit tests now"
+check "AC-05: another agent with the same phrase still sends it" "Run the first unit tests now|" "$(sub_acts a2)"
+subact a1 "Run the first unit tests now"
+check "AC-05: the other agent's phrase did not reset the per-agent memory" "Run the first unit tests now|-|-|" "$(sub_acts a1)"
+subact a1 "Lint the changed scripts first"; subact a1 "Run the first unit tests now"
+check "AC-05: a different phrase is sent and the old one is sent again once it is no longer the previous" "Run the first unit tests now|-|-|Lint the changed scripts first|Run the first unit tests now|" "$(sub_acts a1)"
+check "D-18: the per-agent memory is a private file (0600) in the live directory" "600" "$(find "$DATA/live" -maxdepth 1 -name '*.acts' -printf '%m')"
+for i in $(seq 1 20); do subact "bulk$i" "Run the first unit tests now"; done
+check "D-18: the per-agent memory is bounded (the newest 16 agents)" "yes" "$("$JQ_BIN" -e 'length == 16' "$DATA/live/$(test_sha "$RAWSID").acts" >/dev/null && echo yes || echo no)"
+end_case
+
+new_case; mkcred
+subact b1 "Login with token=MARKER_ARGS and password: MARKER_ARGS then API_KEY=x for the user"
+check "AC-05: a phrase with a secret is dropped by the cleaner: no secret leaves the cleaner, in the spool or the memory" "0" "$(cat "$(spool_of "$RAWSID")" "$DATA"/live/*.acts 2>/dev/null | grep -c 'MARKER_ARGS' || true)"
+"$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "AC-05: no agent_id: a tool event, never a sub_tool" "tool 1" "$(lines_of '.type == "tool" or .type == "sub_tool"' | "$JQ_BIN" -r '.type' | tail -n 1) $(lines_of '.type == "sub_tool"' | grep -c . || true)"
+end_case
+
+ack3 ""
+subact c1 "Read the first spec carefully"; subact c1 "Edit the second script carefully"; subact c1 "Run the third check carefully"; subact c2 "Run the third check carefully"
+wait_idle
+check "AC-05: a batch of several phrases is sent whole and in order, none collapsed to the latest" "Read the first spec carefully|Edit the second script carefully|Run the third check carefully|Run the third check carefully|" "$(sent_evs | "$JQ_BIN" -r 'select(.type == "sub_tool" and .activity != null) | .activity' | tr '\n' '|')"
+end_case
+
+# texts off: no phrase is spooled or remembered on disk, whatever the flag kind
+for fl in activity-off detailed-off; do
+  new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+  subact d1 "Run the MARKERONE unit tests now"
+  : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  subact d1 "Run the MARKERTWO unit tests now"
+  check "BR-03: $fl: no phrase reaches the spool or any file after the flag appears" "0" "$(grep -rl 'MARKERTWO' "$DATA" 2>/dev/null | grep -c . || true)"
+  check "BR-03: $fl: the memory of the phrases is removed" "0" "$(find "$DATA/live" -maxdepth 1 -name '*.acts' | grep -c . || true)"
+  check "BR-03: $fl: the sub_tool event itself still goes on" "2" "$(lines_of '.type == "sub_tool"' | grep -c . || true)"
+  end_case
+done
+# SHD-03: 16 phrases of 140 multibyte code points (about 9 KB of memory) are still remembered, so their repeats are skipped
+new_case; mkcred
+mbp() { "$JQ_BIN" -rn --arg i "$1" '"\ud83d\ude00" as $e | ($i + ($e * 44)) + " " + ($e * 46) + " " + ($e * 46)'; }
+check "SHD-03: the test phrase has 140 code points and about 560 bytes" "140 yes" "$(mbp 10 | "$JQ_BIN" -R 'length' | tr -d '\n') $([ "$(mbp 10 | wc -c)" -gt 540 ] && echo yes || echo no)"
+for i in $(seq 10 25); do subact "mb$i" "$(mbp $i)"; done
+subact mb10 "$(mbp 10)"; subact mb25 "$(mbp 25)"
+check "SHD-03: the memory holds 16 multibyte phrases above 8 KB and is still read: their repeats are skipped" "yes - -" "$([ "$(wc -c <"$DATA/live/$(test_sha "$RAWSID").acts")" -gt 8192 ] && echo yes || echo no) $(lines_of '.type == "sub_tool" and .sub.id == "mb10"' | "$JQ_BIN" -r '.activity // "-"' | tail -n 1) $(lines_of '.type == "sub_tool" and .sub.id == "mb25"' | "$JQ_BIN" -r '.activity // "-"' | tail -n 1)"
+end_case
+# SHD-05: the ack detailed:false removes the memory of every session
+ack3 false; SHIMD="$SHIMS_STUB"; subact f1 "Run the MARKERFOUR unit tests now"
+check "setup: the memory exists before the ack" "yes" "$([ -f "$DATA/live/$(test_sha "$RAWSID").acts" ] && echo yes || echo no)"
+SHIMD="$SHIMS"; run_fixture user-prompt-submit; wait_idle
+check "SHD-05: an ack with detailed:false removes the last-phrase memory" "no" "$([ -e "$DATA/live/$(test_sha "$RAWSID").acts" ] && echo yes || echo no)"
+end_case
+# a spool that already holds the phrase when the flag flips: stripped at flush, the outbox gets none
+ack3 ""; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+printf '5xx' >"$SB/api/ingest-mode"; subact e1 "Run the MARKERTHREE unit tests now"; wait_idle
+check "setup: the phrase is in the spool before the flag" "1" "$(grep -c MARKERTHREE "$(spool_of "$RAWSID")" || true)"
+: >"$(DOFF)"; chmod 600 "$(DOFF)"; printf 'ok' >"$SB/api/ingest-mode"; : >"$SB/api/ingest-bodies.log"; run_fixture user-prompt-submit; wait_idle
+check "BR-03: the flag flips with the phrase already in the spool: the request carries no phrase, the sub_tool does" "0 1" "$(grep -c MARKERTHREE "$SB/api/ingest-bodies.log" || true) $(sent_evs | "$JQ_BIN" -c 'select(.type == "sub_tool")' | grep -c . || true)"
+end_case
+
+echo "== classifier: constant D-08 templates with one allowlisted slot, nothing else of the tool input (ALY-263.9 AC-05, AC-06, AC-13, BR-01, BR-04, D-08) =="
+# clsub TOOL INPUT_JSON: a subagent PreToolUse of TOOL with INPUT_JSON as tool_input (a fresh agent id each time, so the per-agent
+# duplicate rule never hides a phrase). cls_act prints the activity of the last sub_tool event, "<none>" without one, "<no event>" without an event.
+CLN=0
+clsub() { CLN=$((CLN + 1)); "$JQ_BIN" --arg id "cls$CLN" --arg t "$1" --argjson i "$2" '.agent_id = $id | .tool_name = $t | .tool_input = $i' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+cls_act() { local l; l=$(lines_of '.type == "sub_tool"' | tail -n 1); if [ -z "$l" ]; then echo "<no event>"; else printf '%s' "$l" | "$JQ_BIN" -r '.activity // "<none>"'; fi; }
+cls() { clsub "$1" "$2"; check "$3" "$4" "$(cls_act)"; }
+new_case; mkcred
+cls Read '{"file_path":"/home/u/proj/src/index.ts"}' "AC-13: Read of a file: the verb and the basename" "Read index.ts"
+cls Edit '{"file_path":"/p/a/app.js","old_string":"MARKER_ARGS","new_string":"x"}' "AC-13: Edit: the verb and the basename, never the strings" "Edit app.js"
+cls MultiEdit '{"file_path":"/p/a/app.js","edits":[{"old_string":"MARKER_ARGS"}]}' "AC-13: MultiEdit says Edit" "Edit app.js"
+cls Write '{"file_path":"/p/a/notes.md","content":"MARKER_ARGS"}' "AC-13: Write: the verb Write" "Write notes.md"
+cls NotebookEdit '{"notebook_path":"/p/a/model.ipynb","new_source":"MARKER_ARGS"}' "AC-13: NotebookEdit reads notebook_path and says Edit" "Edit model.ipynb"
+cls Read '{}' "AC-13: Read without a path: the constant" "Read a file"
+cls Read '{"file_path":["/a/b.ts"]}' "AC-13: Read with a non-string path: the constant" "Read a file"
+cls Edit '{"notebook_path":"/a/b.ts"}' "AC-13: Edit ignores notebook_path: the constant" "Edit a file"
+cls Write '{"file_path":"/a/.env"}' "AC-13: Write of a denied name: the Edit constant (D-08)" "Edit a file"
+cls Grep '{"pattern":"MARKER_ARGS","path":"/p"}' "D-08: Grep" "Search the code"
+cls Glob '{"pattern":"**/MARKER_ARGS*"}' "D-08: Glob" "Find files"
+cls WebFetch '{"url":"https://example.com/MARKER_ARGS"}' "D-08: an unknown tool: the event goes on with no phrase" "<none>"
+# the 30 hostile basenames: each yields the allowed basename or the constant, in Read and Edit
+hostile() { # PATH EXPECTED_BASENAME_OR_EMPTY
+  local want="$2"
+  local r="Read a file" e="Edit a file"
+  if [ -n "$want" ]; then r="Read $want"; e="Edit $want"; fi
+  cls Read "$("$JQ_BIN" -cn --arg p "$1" '{file_path: $p}')" "AC-13: hostile basename [$(printf '%s' "$1" | tr '\n' '~' | cut -c1-40)] Read" "$r"
+  cls Edit "$("$JQ_BIN" -cn --arg p "$1" '{file_path: $p}')" "AC-13: hostile basename [$(printf '%s' "$1" | tr '\n' '~' | cut -c1-40)] Edit" "$e"
+}
+hostile "/p/.env" ""
+hostile "/p/.env.local" ""
+hostile "/p/.ENV" ""
+hostile "/p/id_rsa" ""
+hostile "/p/id_ed25519.pub" ""
+hostile "/p/id_ecdsa" ""
+hostile "/p/server.pem" ""
+hostile "/p/private.key" ""
+hostile "/p/cert.p12" ""
+hostile "/p/cert.pfx" ""
+hostile "/p/.npmrc" ""
+hostile "/p/.netrc" ""
+hostile "/p/kubeconfig" ""
+hostile "/p/my-secrets.json" ""
+hostile "/p/credentials.json" ""
+hostile "/p/hook-credential.json" ""
+hostile "/p/pairing-1.json" ""
+hostile "/p/terraform.tfstate" ""
+hostile "/p/x.kdbx" ""
+hostile "/p/service-account.json" ""
+hostile "/p/app.keystore" ""
+hostile "/p/PASSWORDS.txt" ""
+hostile "/p/api-token.txt" ""
+hostile "/p/name with space.ts" ""
+hostile "/p/ünïcode.ts" ""
+hostile "/p/.." ""
+hostile "/p/12345.67" ""
+hostile "/p/dir/" ""
+hostile "/p/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.ts" ""
+hostile "/p/0123456789abcdef0123.ts" ""
+hostile "/p/a
+b.ts
+" ""
+hostile "/p/ok-file_1.test.ts" "ok-file_1.test.ts"
+hostile "/p/./README.md" "README.md"
+hostile "rel/Makefile" "Makefile"
+hostile "/p/q/Dockerfile.dev" "Dockerfile.dev"
+end_case
+
+new_case; mkcred
+cls Bash '{"command":"vitest run --reporter dot"}' "D-08: vitest" "Run vitest"
+cls Bash '{"command":"npx vitest run src/a.test.ts"}' "D-08: npx vitest" "Run vitest"
+cls Bash '{"command":"jest --ci"}' "D-08: jest" "Run jest"
+cls Bash '{"command":"npm test"}' "D-08: npm test" "Run tests"
+cls Bash '{"command":"npm run test -- --maxWorkers=4"}' "D-08: npm run test" "Run tests"
+cls Bash '{"command":"node --test --test-concurrency=4 test/"}' "D-08: node --test" "Run tests"
+cls Bash '{"command":"bun test"}' "D-08: bun test" "Run tests"
+cls Bash '{"command":"npx eslint ."}' "D-08: npx eslint" "Lint"
+cls Bash '{"command":"npm run lint"}' "D-08: npm run lint" "Lint"
+cls Bash '{"command":"eslint src --fix"}' "D-08: eslint" "Lint"
+cls Bash '{"command":"tsc --noEmit"}' "D-08: tsc" "Typecheck"
+cls Bash '{"command":"npm run typecheck"}' "D-08: npm run typecheck" "Typecheck"
+cls Bash '{"command":"tsc -b"}' "D-08: tsc -b is a build" "Build"
+cls Bash '{"command":"npm run build"}' "D-08: npm run build" "Build"
+cls Bash '{"command":"make build"}' "D-08: make build" "Build"
+cls Bash '{"command":"git diff HEAD~1 -- secret.txt"}' "D-08: git diff" "Read the diff"
+cls Bash '{"command":"git status --short"}' "D-08: git status" "Check git status"
+cls Bash '{"command":"git push origin main"}' "D-08: another git subcommand" "Run a command"
+cls Bash '{"command":"ls -la /home/u"}' "D-08: any other command" "Run a command"
+cls Bash '{"command":"cd /repo && npm test"}' "D-08: the class is decided on argv0 only" "Run a command"
+cls Bash '{"command":"./node_modules/.bin/vitest run"}' "D-08: argv0 is its basename" "Run vitest"
+cls Bash '{"command":"npm install left-pad"}' "D-08: npm install is not a test" "Run a command"
+cls Bash '{"command":""}' "D-08: an empty command" "Run a command"
+cls Bash '{}' "D-08: no command" "Run a command"
+cls Bash '{"command":["npm","test"]}' "D-08: a non-string command" "Run a command"
+cls Bash '{"command":"TOKEN=abc123MARKER_ARGS curl -H \"Authorization: Bearer sk-live0123456789abcdef0123456789\" https://api.example.com/MARKER_ARGS"}' "AC-13: a command holding a secret yields exactly the constant" "Run a command"
+cls Bash '{"command":"API_KEY=MARKER_ARGS FOO=bar vitest run"}' "AC-13: leading VAR=value words are discarded unread, the class is kept" "Run vitest"
+cls Bash '{"command":"A=1 B=2 C=3 git status"}' "AC-13: several leading VAR=value words" "Check git status"
+cls Bash '{"command":"MARKER_ARGS=1"}' "AC-13: only assignments: the constant" "Run a command"
+cls Bash '{"command":"npm test","description":"Run the unit tests of the hooks"}' "D-08: a description wins over the class" "Run the unit tests of the hooks"
+cls Bash '{"command":"npm test","description":"Run"}' "D-08: a description the cleaner drops (3-word minimum) falls back to the class" "Run tests"
+cls Bash '{"command":"vitest","description":"deploy with password=MARKER_ARGS and token=MARKER_ARGS now"}' "BR-04: a description with secrets leaves only what the cleaner keeps (the secrets are cut), the class is not used" "deploy with and now"
+check "BR-01: no marker of any tool input reached the spool or a file" "0" "$(grep -rl 'MARKER_ARGS\|abc123' "$DATA" 2>/dev/null | grep -c . || true)"
+end_case
+
+new_case; mkcred
+cls Skill '{"skill":"allye:bridge-pilot"}' "D-08: an Allye crew skill with the plugin prefix" "Load the pilot skill"
+cls Skill '{"skill":"bridge-watcher","args":"MARKER_ARGS"}' "D-08: a crew skill without the prefix" "Load the watcher skill"
+for r in armorer architect copilot dispatcher medic navigator optimizer pilot recon shield strategist watcher; do
+  cls Skill "{\"skill\":\"allye:bridge-$r\"}" "D-08: crew role $r" "Load the $r skill"
+done
+cls Skill '{"skill":"allye:bridge"}' "D-08: the Mothership skill is not a crew role: no phrase" "<none>"
+cls Skill '{"skill":"allye:bridge-hacker"}' "D-08: an unknown role: no phrase" "<none>"
+cls Skill '{"skill":"frontend-design"}' "D-08: a non-Allye skill: no phrase" "<none>"
+cls Skill '{"skill":"other:bridge-pilot"}' "D-08: a foreign prefix: no phrase" "<none>"
+cls Skill '{"skill":"bridge-pilot MARKER_ARGS"}' "D-08: trailing text: no phrase" "<none>"
+cls Skill '{}' "D-08: no skill name: no phrase" "<none>"
+M=mcp__plugin_allye_allye
+cls ${M}__tasks '{"action":"task_start","task":"ALY-263.9"}' "D-08: task_start with a task key" "Start task ALY-263.9"
+cls ${M}__tasks '{"action":"task_submit","task":"ALY-263.9","branch_name":"MARKER_ARGS"}' "D-08: task_submit" "Submit task ALY-263.9"
+cls ${M}__tasks '{"action":"task_complete","task":"ALY-1.2"}' "D-08: task_complete" "Complete task ALY-1.2"
+cls ${M}__tasks '{"action":"task_start","task":"aly-263.9"}' "D-08: a lowercase key: the keyless form" "Start a task"
+cls ${M}__tasks '{"action":"task_submit","task":"ALY-263.9 MARKER_ARGS"}' "D-08: a key with trailing text: the keyless form" "Submit a task"
+cls ${M}__tasks '{"action":"task_complete"}' "D-08: no key: the keyless form" "Complete a task"
+cls ${M}__tasks '{"action":"task_update","task":"ALY-1.2","notes":"MARKER_ARGS"}' "D-08: another tasks action: no phrase" "<none>"
+cls ${M}__specs '{"action":"spec_get","spec":"ALY-263"}' "D-08: spec_get" "Read spec ALY-263"
+cls ${M}__specs '{"action":"spec_context","spec":"ALY-263"}' "D-08: spec_context" "Read spec ALY-263"
+cls ${M}__specs '{"action":"spec_context","spec":"not a key"}' "D-08: spec_context with a bad key: keyless" "Read a spec"
+cls ${M}__specs '{"action":"spec_approve","spec":"ALY-263"}' "D-08: spec_approve: no phrase" "<none>"
+cls ${M}__kb '{"action":"kb_read","path":"MARKER_ARGS"}' "D-08: kb_read" "Read a KB page"
+cls ${M}__kb '{"action":"kb_search","query":"MARKER_ARGS"}' "D-08: kb_search" "Read a KB page"
+cls ${M}__kb '{"action":"kb_tree"}' "D-08: kb_tree" "Read a KB page"
+cls ${M}__kb '{"action":"kb_update","content":"MARKER_ARGS"}' "D-08: kb_update" "Update a KB page"
+cls ${M}__kb '{"action":"kb_section"}' "D-08: kb_section" "Update a KB page"
+cls ${M}__kb '{"action":"kb_create"}' "D-08: kb_create" "Update a KB page"
+cls ${M}__kb '{"action":"kb_delete"}' "D-08: another kb action: no phrase" "<none>"
+cls ${M}__intelligence '{"action":"memory_search","query":"MARKER_ARGS"}' "D-08: another Allye MCP tool: no phrase" "<none>"
+cls ${M}__tasks '{"action":["task_start"],"task":"ALY-1.2"}' "D-08: a non-string action: no phrase" "<none>"
+cls mcp__other__tasks '{"action":"task_start","task":"ALY-1.2"}' "D-08: a foreign MCP server with the same suffix: no phrase" "<none>"
+cls mcp__github__create_issue '{"title":"MARKER_ARGS"}' "D-08: another MCP server: no phrase, not even mcp" "<none>"
+check "BR-01: no marker of any tool input reached the spool or a file" "0" "$(grep -rl 'MARKER_ARGS' "$DATA" 2>/dev/null | grep -c . || true)"
+clsub Bash '{"command":"npm test"}'
+check "AC-05: the phrase is at most 140 characters and the event shape is unchanged" '{"activity":"Run tests","sub":{"id":"cls'"$CLN"'","type":"allye:bridge-pilot"},"tool":"Bash","type":"sub_tool"}' "$(lines_of '.type == "sub_tool"' | "$JQ_BIN" -cS . | tail -n 1)"
+end_case
+
+new_case; mkcred
+# the same agent id twice: the second identical template is skipped, a different one is sent
+cls1() { "$JQ_BIN" --arg t "$1" --argjson i "$2" '.agent_id = "same1" | .tool_name = $t | .tool_input = $i' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+cls1 Read '{"file_path":"/a/x.ts"}'; cls1 Read '{"file_path":"/b/x.ts"}'; cls1 Grep '{}'; cls1 Read '{"file_path":"/b/x.ts"}'
+check "AC-05: an equal template of the same agent is skipped, a changed one is sent again" "Read x.ts|-|Search the code|Read x.ts|" "$(sub_acts same1)"
+end_case
+# texts off: no template is spooled or remembered
+for fl in activity-off detailed-off; do
+  new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  clsub Read '{"file_path":"/p/MARKERFILE.ts"}'; clsub Bash '{"command":"npm test"}'
+  check "BR-03: $fl: no template phrase reaches the spool or any file" "0" "$(grep -rlE 'MARKERFILE|Run tests|Read a file' "$DATA" 2>/dev/null | grep -c . || true)"
+  check "BR-03: $fl: the sub_tool events still go on" "2" "$(lines_of '.type == "sub_tool"' | grep -c . || true)"
+  end_case
+done
+# ALY-263.13 (AC-17): the main session's tool event takes the SAME D-08 grammar and gates as a subagent's (toolphrase).
+# This replaces the check of slice .9 that pinned the main-session event to "no phrase": the change is intended.
+mainp() { "$JQ_BIN" --arg t "$1" --argjson i "$2" 'del(.agent_id, .agent_type) | .tool_name = $t | .tool_input = $i' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+# main_acts: the activities of the main-session tool events in spool order, "-" for an event without one, one line.
+main_acts() { lines_of '.type == "tool"' | "$JQ_BIN" -r '.activity // "-"' | tr '\n' '|'; }
+new_case; mkcred
+mainp Read '{"file_path":"/p/a.ts"}'
+check "AC-17: a main-session Read sends the D-08 template (was: no phrase)" '{"activity":"Read a.ts","tool":"Read","type":"tool"}' "$(lines_of '.type == "tool"' | "$JQ_BIN" -cS . | tail -n 1)"
+mainp Edit '{"file_path":"/p/.env.local"}'; mainp Grep '{"pattern":"MARKER_ARGS"}'; mainp Glob '{}'; mainp Bash '{"command":"FOO=MARKER_ARGS npm test"}'
+mainp Skill '{"skill":"allye:bridge-pilot"}'; mainp mcp__github__create_issue '{"title":"MARKER_ARGS"}'; mainp WebFetch '{"url":"https://MARKER_ARGS"}'
+check "AC-17: the same grammar: denylist fallback, Grep, Glob, Bash class, crew Skill; other MCP and unknown tools: no phrase" "Read a.ts|Edit a file|Search the code|Find files|Run tests|Load the pilot skill|-|-|" "$(main_acts)"
+check "AC-17: nothing of the tool input leaves (no marker in the spool or any file)" "0" "$(grep -rl 'MARKER_ARGS' "$DATA" 2>/dev/null | grep -c . || true)"
+mainp mcp__plugin_allye_allye__tasks '{"action":"task_start","task":"ALY-263.13"}'
+check "AC-17: an Allye MCP call of the main session: the template with its key" "Start task ALY-263.13" "$(lines_of '.type == "tool" and .activity != null' | "$JQ_BIN" -r '.activity' | tail -n 1)"
+end_case
+# a description wins over the template, through the cleaner, like a subagent
+new_case; mkcred
+"$JQ_BIN" 'del(.agent_id, .agent_type) | .tool_input.description = "Run the first unit tests now"' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "AC-17: the description path of the main session is unchanged" "Run the first unit tests now|" "$(main_acts)"
+end_case
+# consecutive duplicates: a phrase equal to the main session's previous one is skipped (the event goes on), a changed one is sent
+new_case; mkcred
+mainp Read '{"file_path":"/a/x.ts"}'; mainp Read '{"file_path":"/b/x.ts"}'; mainp Grep '{}'; mainp Read '{"file_path":"/b/x.ts"}'
+check "AC-17: an equal phrase of the main session right after its previous one is skipped" "Read x.ts|-|Search the code|Read x.ts|" "$(main_acts)"
+mainp Read '{"file_path":"/p/a.ts"}'; subact m1 "Run the first unit tests now"; subact m1 "Run the first unit tests now"
+check "AC-17: the main memory is separate from the subagents' (a subagent phrase does not reset it nor the reverse)" "Read x.ts|-|Search the code|Read x.ts|Read a.ts|" "$(main_acts)"
+end_case
+# texts off: no main phrase is spooled or remembered
+for fl in activity-off detailed-off; do
+  new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  mainp Read '{"file_path":"/p/MARKERFILE.ts"}'; mainp Bash '{"command":"npm test"}'
+  check "AC-17: $fl: no main-session phrase reaches the spool or any file" "0" "$(grep -rlE 'MARKERFILE|Run tests|Read a file' "$DATA" 2>/dev/null | grep -c . || true)"
+  check "AC-17: $fl: the tool events still go on" "2" "$(lines_of '.type == "tool"' | grep -c . || true)"
+  end_case
+done
+
 echo "== text cleaner: shared vectors, cap 140, nested allowlist and marker scan (ALY-258.1 AC-06, AC-07, D-33, NFR-01) =="
 VEC="$FIX/vectors/agent-run-text-vectors.json"
 # The cleaner is replayed straight from the reporter's own jq program: the definitions up to the activity switch are cut
@@ -1426,6 +2212,178 @@ for i in $(seq 1 100); do [ -s "$SB/api/ingest-bodies.log" ] && break; sleep 0.0
 check "AC-11: the nested allowlist keeps id, type, desc, task and drops any other key of sub" '{"desc":"Review the spec for gaps","id":"agent-k1","task":"ALY-258.1","type":"allye:bridge-pilot"}' "$("$JQ_BIN" -cS '.events[] | select(.seq == 1) | .sub' "$SB/api/ingest-bodies.log" 2>/dev/null)"
 check "AC-11: the dropped nested keys are in no request body" "0" "$(grep -cE 'MARKER_ABCDEF|MARKER_PROMPT_xyz' "$SB/api/ingest-bodies.log" || true)"
 end_case
+
+# ─── ALY-263.6: the session label and the working directory basename (AC-09, AC-02, BR-03, D-04, D-17) ──────
+echo "== label: env, custom title, ai title and the working directory basename (ALY-263.6 AC-09, AC-02, BR-03, D-04, D-17) =="
+# lb_new: a case with the transcript layout of the session (<projects>/p/<session id>.jsonl, TP) and a real working directory WD.
+lb_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TP="$PROJ/$RAWSID.jsonl"; WD="$SB/work/myproj"; mkdir -p "$WD"; }
+lb_ct() { "$JQ_BIN" -nc --arg t "$1" '{type:"custom-title",customTitle:$t,sessionId:"s"}'; }
+lb_ai() { "$JQ_BIN" -nc --arg t "$1" '{type:"ai-title",aiTitle:$t,sessionId:"s"}'; }
+lb_msg() { "$JQ_BIN" -nc '{type:"user",message:{content:"hello"}}'; }
+# lb_pay NAME [JQ-FILTER]: the fixture NAME with the transcript path and cwd of the case.
+lb_pay() { "$JQ_BIN" --arg tp "$TP" --arg cwd "$WD" '.transcript_path = $tp | .cwd = $cwd' "$FIX/$1.json" | "$JQ_BIN" "${2:-.}" >"$SB/stdin"; }
+lb_start() { lb_pay session-start-startup "${1:-.}"; run_hook; }
+lb_event() { lb_pay user-prompt-submit "${1:-.}"; run_hook; }
+labels() { spooled_all | grep '"type":"label"' || true; }
+LF() { echo "$DATA/live/$(test_sha "$RAWSID").label"; }
+lbl() { "$JQ_BIN" -cS -n --arg t "$1" --arg s "$2" --arg c "$3" '{type:"label", label: ({text:$t, source:$s} + (if $c != "" then {cwd:$c} else {} end))}'; }
+# the sources and their order
+lb_new; RUN_ENV=("ALLYE_SESSION_LABEL=Fix the login flow"); lb_start
+check "env label: explicit, with the working directory basename" "$(lbl "Fix the login flow" explicit myproj)" "$(labels)"
+check "the label event is nested: only type and label (text, source, cwd); the state file is 0600" "label,type cwd,source,text 600" "$("$JQ_BIN" -r 'select(.type == "label") | (keys - ["seq","at"] | join(",")) + " " + (.label | keys | join(","))' "$(spool_of "$RAWSID")") $(find "$(LF)" -printf '%m')"
+end_case
+lb_new; { lb_msg; lb_ai "Refactor the billing module"; lb_ct "Billing refactor session"; } >"$TP"; RUN_ENV=("ALLYE_SESSION_LABEL=Env wins here"); lb_start
+check "env beats the custom title, which beats the ai title" "$(lbl "Env wins here" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_msg; lb_ai "Refactor the billing module"; lb_ct "Billing refactor session"; } >"$TP"; lb_start
+check "custom title beats the ai title: source explicit" "$(lbl "Billing refactor session" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_msg; lb_ai "Refactor the billing module"; } >"$TP"; lb_start
+check "only an ai title: source ai" "$(lbl "Refactor the billing module" ai myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "First custom name"; lb_msg; lb_ct "Second custom name"; lb_ai "First ai name here"; lb_ai "Second ai name here"; } >"$TP"; lb_start
+check "the last custom-title entry wins" "$(lbl "Second custom name" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_ai "First ai name here"; lb_msg; lb_ai "Second ai name here"; } >"$TP"; lb_start
+check "the last ai-title entry wins" "$(lbl "Second ai name here" ai myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Real custom name"; "$JQ_BIN" -nc '{type:"ai-title",customTitle:"Not a custom name",aiTitle:7}'; "$JQ_BIN" -nc '{type:"user",customTitle:"Also not custom"}'; } >"$TP"; lb_start
+check "only an entry of type custom-title and its customTitle make an explicit label" "$(lbl "Real custom name" explicit myproj)" "$(labels)"; end_case
+lb_new; { "$JQ_BIN" -nc '{type:"ai-title",customTitle:"Only the wrong key here"}'; lb_msg; } >"$TP"; lb_start
+check "customTitle on an ai-title entry never produces a label" "" "$(labels)"; end_case
+lb_new; { lb_ai "Good ai name here"; printf 'not json at all\n{"type":"custom-title","customTitle":"cut off\n'; } >"$TP"; lb_start
+check "invalid JSON lines are skipped" "$(lbl "Good ai name here" ai myproj)" "$(labels)"; end_case
+lb_new; { lb_ai "Older ai name here"; "$JQ_BIN" -nc --rawfile pad <(head -c 300000 /dev/zero | tr '\0' a) '{type:"user",pad:$pad}'; } >"$TP"; lb_start
+check "a title older than the last 256 KB is not found" "" "$(labels)"; end_case
+lb_new; { lb_ai "Cut first name"; printf '{"type":"ai-title","aiTitle":"Cut last name"}'; } >"$TP"; lb_start
+check "an unterminated last line is dropped" "$(lbl "Cut first name" ai myproj)" "$(labels)"; end_case
+# nothing to say
+lb_new; lb_start
+check "no title and no env, a SessionStart: nothing, not even the basename" "" "$(labels)"; end_case
+lb_new; lb_event
+check "no title and no env, another event: nothing" "" "$(labels)"; check "the check is recorded (state file)" "yes" "$([ -f "$(LF)" ] && echo yes || echo no)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_event
+check "a title found at another event than a SessionStart: sent, with the basename" "$(lbl "Named by hand" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_event '. + {agent_id: "agent-abc123", agent_type: "allye:bridge-pilot"}'
+check "an event of a subagent checks nothing" "" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_pay session-end-clear; run_hook
+check "SessionEnd checks nothing" "" "$(labels)"; end_case
+# cleaning
+lbt() {  # lbt LABEL TITLE EXPECTED-TEXT ("" = none)
+  lb_new; { lb_ct "$2"; } >"$TP"; lb_start
+  check "$1" "$([ -n "$3" ] && lbl "$3" explicit myproj || true)" "$(labels)"; end_case
+}
+lbt "a short title (one word) is kept" "Billing" "Billing"
+lbt "a secret in the title is dropped by the cleaner" "Rotate ghp_0123456789abcdefghij today" "Rotate today"
+lbt "a URL in the title is dropped" "Review https://evil.example/x?k=1 now please" "Review now please"
+lbt "a path in the title is dropped" "Fix /etc/MARKER_PATH/passwd handling" "Fix handling"
+lbt "invisible and bidi characters are removed" "Fix$(printf '​') the$(printf '‮') login" "Fix the login"
+lbt "a title that is only a URL leaves no label" "https://evil.example/MARKER_PATH" ""
+lbt "a key=value secret leaves no value" "Use api_key=abcd1234efgh5678 for the build" "Use for the build"
+lbt "backticked spans are removed" 'Run `rm -rf /` in the sandbox' "Run in the sandbox"
+lb_new; { lb_ct "$(for i in $(seq 1 40); do printf 'word '; done)"; } >"$TP"; lb_start
+check "a long title is capped at 60 characters with an ellipsis" "yes" "$(labels | "$JQ_BIN" -r '.label.text | if (length <= 60 and endswith("…") and length > 8) then "yes" else "no" end')"; end_case
+lb_new; { lb_ct "abcde abcde abcde abcde abcde abcde abcde abcde abcde abcdef"; } >"$TP"; lb_start
+check "a title of exactly 60 characters is kept whole" "60" "$(labels | "$JQ_BIN" -r '.label.text | length')"; end_case
+lb_new; { lb_ct "$(printf 'é%.0s' $(seq 1 30)) $(printf 'ü%.0s' $(seq 1 40))"; } >"$TP"; lb_start
+check "the cap counts characters, not bytes" "yes" "$(labels | "$JQ_BIN" -r '.label.text | if (length <= 60 and length > 10) then "yes" else "no" end')"; end_case
+lb_new; RUN_ENV=("ALLYE_SESSION_LABEL=https://evil.example/MARKER_PATH"); { lb_ai "Falls back to the ai name"; } >"$TP"; lb_start
+check "an env label the cleaner empties falls through to the next source" "$(lbl "Falls back to the ai name" ai myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Billing MARKER_TITLE_LBL session"; } >"$TP"; lb_start
+check "the label is the only text in the spool; no raw session id on disk" "0" "$(grep -rlF -e "$RAWSID" "$DATA" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+# the working directory basename
+lbd() {  # lbd NAME EXPECTED ("" = none): a real directory with this name
+  lb_new; mkdir -p "$SB/work/$1"; WD="$SB/work/$1"; { lb_ct "Named by hand"; } >"$TP"; lb_start
+  check "cwd basename '$(printf '%s' "$1" | tr '\n' '~')': $([ -n "$2" ] && echo sent || echo dropped)" "$(lbl "Named by hand" explicit "$2")" "$(labels)"; end_case
+}
+lbd "my-proj_1.x" "my-proj_1.x"
+lbd "Project" "Project"
+for d in .env .env.local .ENV id_rsa id_ed25519 id_ecdsa.pub .npmrc .netrc credentials my-secret-dir token-cache passwords private-keys server.pem server.key client.p12 client.pfx kubeconfig pairing-files hook-credential service-account-prod my.keystore terraform.tfstate vault.kdbx "with space" "naïve-ü" 0123456789abcdef0123 "$(printf 'a%.0s' $(seq 1 61))" "$(printf 'n%.0s' $(seq 1 24))" "tab	tab"; do lbd "$d" ""; done
+lbw() {  # lbw LABEL WD EXPECTED-CWD ("" = the label without cwd): a title is there, the working directory is odd
+  lb_new; { lb_ct "Named by hand"; } >"$TP"; WD="$2"; [ "$2" != BASE ] || WD="$SB/work/myproj"; lb_start
+  check "$1" "$(lbl "Named by hand" explicit "$3")" "$(labels)"; end_case
+}
+lbw "cwd basename '..': the label goes out without cwd" "$SB/work/myproj/.." ""
+lbw "cwd basename '.': the label goes out without cwd" "$SB/work/myproj/." ""
+lbw "a trailing slash is not a component" "$SB/work/myproj/" myproj
+lbw "a directory that does not exist sends no cwd" "$SB/work/missing-dir" ""
+lbw "the root directory has no basename" "/" ""
+lbw "a relative cwd sends no cwd" "relative/dir" ""
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start 'del(.cwd)'
+check "no cwd in the payload: the label goes out without cwd" "$(lbl "Named by hand" explicit "")" "$(labels)"; end_case
+lb_new; lb_start
+check "the cwd is never sent without a label text (no title: nothing at all)" "" "$(spooled_all | grep -c '"cwd"' | grep -v '^0$' || true)"; end_case
+# only on change, at most once a minute
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start; lb_start
+check "an unchanged value is not sent again at the next SessionStart" "1" "$(labels | wc -l | tr -d ' ')"
+{ lb_ct "Renamed by hand"; } >>"$TP"; lb_start
+check "a SessionStart sees the new title at once" "$(printf '%s\n' "$(lbl "Named by hand" explicit myproj)" "$(lbl "Renamed by hand" explicit myproj)")" "$(labels)"; end_case
+lb_new; { lb_ai "Auto named here"; } >"$TP"; lb_event; { lb_ct "Renamed by hand"; } >>"$TP"; lb_event
+check "within the minute the transcript is not read again" "$(lbl "Auto named here" ai myproj)" "$(labels)"
+check "the state file holds the time of the check and the value sent" "yes" "$(grep -qE '^[0-9]{13} \{"text":"Auto named here","source":"ai","cwd":"myproj"\}$' "$(LF)" && echo yes || echo no)"
+sed -i 's/^[0-9]*/1000000000000/' "$(LF)"; lb_event
+check "after the minute the new title is sent" "$(printf '%s\n' "$(lbl "Auto named here" ai myproj)" "$(lbl "Renamed by hand" explicit myproj)")" "$(labels)"
+lb_event
+check "and the check is throttled again" "2" "$(labels | wc -l | tr -d ' ')"
+BEFORE_L=$(cut -d' ' -f2- "$(LF)"); sed -i 's/^[0-9]*/1000000000000/' "$(LF)"; lb_event
+check "a check that finds the same value sends nothing but records its time" "2 yes yes" "$(labels | wc -l | tr -d ' ') $([ "$(cut -d' ' -f2- "$(LF)")" = "$BEFORE_L" ] && echo yes || echo no) $(grep -qE '^1[0-9]{12} ' "$(LF)" && ! grep -q '^1000000000000 ' "$(LF)" && echo yes || echo no)"
+printf '%s' "9999999999999 {}" >"$(LF)"; { lb_ct "A newer name here"; } >>"$TP"; lb_event
+check "a state time from the future counts as due" "3" "$(labels | wc -l | tr -d ' ')"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'garbage \x01' >"$(LF)"; chmod 600 "$(LF)"; lb_event
+check "a corrupt state file is ignored and replaced" "1 yes" "$(labels | wc -l | tr -d ' ') $(grep -qE '^[0-9]{13} \{' "$(LF)" && echo yes || echo no)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$SB/target"; ln -s "$SB/target" "$(LF)"; lb_start
+check "a symlinked state file: nothing sent, nothing written through it" "0 0" "$(labels | wc -l | tr -d ' ') $(wc -c <"$SB/target" | tr -d ' ')"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '1000000000000 {}' >"$(LF)"; chmod 644 "$(LF)"; lb_start
+check "a state file that is not private: nothing sent" "0" "$(labels | wc -l | tr -d ' ')"; end_case
+# the safe read: a hostile transcript path reads nothing (no title, so nothing goes out)
+lbh() {  # lbh LABEL SETUP-COMMAND [PAYLOAD-FILTER]
+  lb_new; { lb_ct "Named by hand"; } >"$TP.real"; eval "$2"; lb_start "${3:-.}"
+  check "$1" "" "$(labels)"; end_case
+}
+lbh "a symlinked transcript file reads nothing" 'ln -s "$TP.real" "$TP"'
+lbh "a transcript in a symlinked directory reads nothing" 'mkdir -p "$PROJ/elsewhere"; cp "$TP.real" "$PROJ/elsewhere/$RAWSID.jsonl"; rm -rf "$PROJ/q"; ln -s "$PROJ/elsewhere" "$PROJ/q"; TP="$PROJ/q/$RAWSID.jsonl"'
+lbh "a FIFO transcript reads nothing and does not hang" 'mkfifo "$TP"'
+lbh "a transcript with another name than <session id>.jsonl reads nothing" 'cp "$TP.real" "$PROJ/other.jsonl"; TP="$PROJ/other.jsonl"'
+lbh "a transcript outside the Claude projects directory reads nothing" 'mkdir -p "$SB/elsewhere"; cp "$TP.real" "$SB/elsewhere/$RAWSID.jsonl"; TP="$SB/elsewhere/$RAWSID.jsonl"'
+lbh "a .. component reads nothing" 'cp "$TP.real" "$TP"; mkdir -p "$PROJ/d"; TP="$PROJ/d/../$RAWSID.jsonl"'
+lbh "a newline in the path reads nothing" 'cp "$TP.real" "$TP"; TP="$TP"$'"'"'\n'"'"'"'
+lbh "a relative transcript path reads nothing" 'cp "$TP.real" "$TP"; TP="p/$RAWSID.jsonl"'
+lbh "an environment of another config dir: the payload cannot move the root" 'cp "$TP.real" "$TP"; mkdir -p "$SB/altcfg/projects"; RUN_ENV=("CLAUDE_CONFIG_DIR=$SB/altcfg")'
+lb_new; mkdir -p "$SB/altcfg/projects/p"; PROJ="$SB/altcfg/projects/p"; TP="$PROJ/$RAWSID.jsonl"; { lb_ct "Named by hand"; } >"$TP"; RUN_ENV=("CLAUDE_CONFIG_DIR=$SB/altcfg"); lb_start
+check "CLAUDE_CONFIG_DIR is honored" "$(lbl "Named by hand" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; "$JQ_BIN" -nc --arg tp "$TP" --arg cwd "$WD" '{session_id:"bad id/x", hook_event_name:"SessionStart", source:"startup", transcript_path:$tp, cwd:$cwd}' >"$SB/stdin"; run_hook
+check "a session id that fails its pattern spools nothing" "0" "$(find "$DATA" -name '*.spool' | wc -l | tr -d ' ')"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start 'del(.transcript_path)'
+check "no transcript_path: no title, nothing" "" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start '.transcript_path = 7'
+check "a non-string transcript_path: no title, nothing" "" "$(labels)"; end_case
+lb_new; RUN_ENV=("ALLYE_SESSION_LABEL=Env label stays"); ln -s "$SB/none" "$TP"; lb_start
+check "a failed safe read with an env label: the env label still goes out" "$(lbl "Env label stays" explicit myproj)" "$(labels)"; end_case
+lb_new; { lb_ct "Named by hand"; } >"$TP"; lb_start; check "silent, exit 0" "0||" "$RC|$OUT|$ERR"; end_case
+# display text: the flags
+for fl in activity-off detailed-off; do
+  lb_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"
+  { lb_ct "Named MARKER_LBLTXT by hand"; } >"$TP"; RUN_ENV=("ALLYE_SESSION_LABEL=Env MARKER_LBLTXT label"); lb_start; lb_event
+  check "$fl: no label event, no basename" "" "$(labels)"
+  check "$fl: no label state file and no label text on any disk file" "no 0" "$([ -e "$(LF)" ] && echo yes || echo no) $(grep -rlF --exclude=environ.log MARKER_LBLTXT "$DATA" "$SB/log" 2>/dev/null | wc -l | tr -d ' ')"; end_case   # the shims log the whole environment of each call: that file holds the env label by design
+done
+lb_new; { lb_ct "Named MARKER_LBLTXT by hand"; } >"$TP"; lb_start
+check "texts on: the label is in the spool and the state file (control for the off cases)" "1 1" "$(labels | wc -l | tr -d ' ') $(grep -rlF MARKER_LBLTXT "$DATA" | grep -c label || true)"
+: >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"; lb_event
+check "the activity-off flag appearing later deletes the label state at the next hook" "no" "$([ -e "$(LF)" ] && echo yes || echo no)"
+rm -f "$DATA/live/activity-off"; end_case
+lb_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"; : >"$SB/lblt"; chmod 600 "$SB/lblt"; ln -s "$SB/lblt" "$(LF)"; printf 'KEEP' >"$SB/lblt"; { lb_ct "Named by hand"; } >"$TP"; lb_start
+check "texts off: a symlink at the state name is removed as the link only" "no KEEP" "$([ -e "$(LF)" ] || [ -L "$(LF)" ] && echo yes || echo no) $(cat "$SB/lblt")"; end_case
+# flush: a label spooled before the flag existed is not sent while texts are off, the other events go on
+lb_sent() { [ -f "$SB/api/ingest-bodies.log" ] && "$JQ_BIN" -c '.events[]' "$SB/api/ingest-bodies.log" || true; }
+lb_new; { lb_ct "Named MARKER_LBLTXT by hand"; } >"$TP"; lb_start
+check "setup: the label is spooled, not sent (stub curl)" "1 0" "$(labels | wc -l | tr -d ' ') $(reqs)"
+: >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"; SHIMD="$SHIMS"; lb_event; wait_idle
+check "detailed-off at flush: no label event leaves, the state events do" "0 yes" "$(lb_sent | grep -c '"type":"label"' || true) $(lb_sent | grep -q '"type":"state"' && echo yes || echo no)"
+check "detailed-off at flush: no label text in any request" "0" "$(grep -c MARKER_LBLTXT "$SB/api/ingest-bodies.log" "$SB/api/requests.log" 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')"; end_case
+lb_new; { lb_ct "Named MARKER_LBLTXT by hand"; } >"$TP"; SHIMD="$SHIMS"; lb_start; wait_idle
+check "texts on: the label event is sent in the batch with its fields" "$(lbl "Named MARKER_LBLTXT by hand" explicit myproj)" "$(lb_sent | "$JQ_BIN" -cS 'select(.type == "label") | del(.seq, .at)')"; end_case
+# a label event that is off the contract is dropped at flush
+lb_new; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+AT_NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ); SPF=$(spool_of "$RAWSID")
+{ for ev in '{"type":"label","label":{"text":"Good name here","source":"explicit","cwd":"proj"}}' '{"type":"label","label":{"text":"Bad source","source":"admin"}}' '{"type":"label","label":{"text":"x","source":"ai","cwd":"has space"}}' '{"type":"label"}' '{"type":"label","label":{"text":7,"source":"ai"}}' '{"type":"label","label":{"cwd":"proj"}}' '{"type":"label","label":{"text":"Extra key","source":"ai","extra":"MARKER_EXTRA"}}' '{"type":"label","label":"MARKER_STR"}' '{"type":"label","text":"Flat shape","source":"ai"}'; do printf '%s\n' "$ev" | "$JQ_BIN" -c --arg at "$AT_NOW" --argjson s "$((1000000000001 + RANDOM))" '. + {seq: $s, at: $at}'; done; } >"$SPF"; chmod 600 "$SPF"
+run_fixture user-prompt-submit; wait_idle
+check "only well-formed nested label events are sent" '{"label":{"cwd":"proj","source":"explicit","text":"Good name here"},"type":"label"}' "$(lb_sent | "$JQ_BIN" -cS 'select(.type == "label") | del(.seq, .at)' | sort | paste -sd'|')"; end_case
 
 #@group seq 60
 echo "== a payload that is not JSON, or a session id that fails its pattern =="
@@ -1589,6 +2547,46 @@ end_case
 new_case; mkcred; fill 5 0; run_fixture user-prompt-submit
 check "a small spool is left alone" "6 1" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.idx' "$SPF" | head -n 1)"; end_case
 
+echo "== spool eviction: phrases go first when the spool is full (ALY-263.13 AC-16, D-18, BR-03) =="
+# fillm LINES PAD TYPEEXPR: a private spool of LINES contract lines marked by idx; TYPEEXPR is a jq expression over the index that gives the
+# object merged into each line (the type and its fields). The cap is the existing one: 500 lines and 262144 bytes.
+fillm() {
+  local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+  SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"
+  "$JQ_BIN" -nc --argjson n "$1" --arg pad "$pad" 'range(1; $n + 1) | . as $i | {seq: $i, at: "2026-01-01T00:00:00Z", idx: $i, pad: $pad} + ($i | '"$3"')' >"$SPF"
+}
+IMPORTANT_T='if . <= 20 then (if . % 2 == 0 then {type: "sub_start", sub: {id: "a", type: "t"}} else {type: "sub_stop", sub: {id: "a", type: "t", outcome: "pass"}} end) else {type: "sub_tool", tool: "Bash", sub: {id: "a", type: "t"}, activity: "Run tests"} end'
+new_case; mkcred; fillm 520 0 "$IMPORTANT_T"; run_fixture user-prompt-submit
+check "D-18: a full spool of phrases and a new state: 500 lines, the new state is last" "500 working" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.state // empty' "$SPF" | tail -n 1)"
+check "D-18: every sub_start and sub_stop (idx 1..20) is kept, the oldest sub_tools went first (21..41), order preserved" "20 42 yes" "$("$JQ_BIN" -r 'select(.type == "sub_start" or .type == "sub_stop") | .idx' "$SPF" | wc -l | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "sub_tool") | .idx' "$SPF" | head -n 1) $("$JQ_BIN" -s '[.[] | .seq] as $s | ($s == ($s | sort))' "$SPF" | sed 's/true/yes/;s/false/no/')"
+end_case
+# a new sub_stop arriving into a spool full of sub_tool events is kept
+new_case; mkcred; fillm 500 0 '{type: "sub_tool", tool: "Read", sub: {id: "a", type: "t"}, activity: "Read a file"}'; cp "$FIX/subagent-stop.json" "$SB/stdin"; run_hook
+check "D-18/AC-16: a spool full of sub_tool + a sub_stop arrives: the oldest sub_tools went (the stop brings its synthetic start), the stop is kept last" "500 3 sub_stop" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "sub_tool") | .idx' "$SPF" | head -n 1) $("$JQ_BIN" -r '.type' "$SPF" | tail -n 1)"
+end_case
+# the other event kinds are never lost to phrases: state, bind, gates, label (and a tool without a phrase); main-session phrases are evictable
+KINDS_T='if . % 5 == 0 then {type: "bind", bind: {spec: "ALY-1"}} elif . % 5 == 1 then {type: "gates", gates: {}} elif . % 5 == 2 then {type: "label", label: {text: "x"}} elif . % 5 == 3 then {type: "state", state: "working"} else {type: "tool", tool: "Read"} end'
+new_case; mkcred; fillm 300 0 "$KINDS_T"
+"$JQ_BIN" -nc 'range(301; 421) | {seq: ., at: "2026-01-01T00:00:00Z", idx: ., type: (if . % 2 == 0 then "tool" else "sub_tool" end), tool: "Read", activity: "Read a file", sub: {id: "a", type: "t"}}' >>"$SPF"
+"$JQ_BIN" -nc 'range(421; 521) | {seq: ., at: "2026-01-01T00:00:00Z", idx: ., type: "sub_stop", sub: {id: "b", type: "t", outcome: "pass"}}' >>"$SPF"
+run_fixture user-prompt-submit
+check "D-18: state, bind, gates, label and a tool without phrase are kept (300), sub_stop kept (100), phrases of sub_tool and tool evicted oldest first" "300 100 301+21=yes" "$("$JQ_BIN" -r 'select(.idx != null and .idx <= 300) | .idx' "$SPF" | wc -l | tr -d ' ') $("$JQ_BIN" -r 'select(.type == "sub_stop") | .idx' "$SPF" | wc -l | tr -d ' ') 301+21=$("$JQ_BIN" -s '[.[] | select(.activity != null) | .idx] as $i | ($i | length) == 99 and ($i[0] == 322)' "$SPF" | sed 's/true/yes/;s/false/no/')"
+end_case
+# only important events: the oldest go, as before
+new_case; mkcred; fillm 600 0 '{type: "sub_stop", sub: {id: "a", type: "t", outcome: "pass"}}'; run_fixture user-prompt-submit
+check "D-18: a spool of only important events evicts the oldest, as before" "500 102 working" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.idx' "$SPF" | head -n 1) $("$JQ_BIN" -r '.state' "$SPF" | tail -n 1)"
+end_case
+# the byte cap: phrases first as well
+new_case; mkcred; fillm 400 1000 'if . % 2 == 0 then {type: "sub_tool", tool: "Read", sub: {id: "a", type: "t"}, activity: "Read a file"} else {type: "sub_stop", sub: {id: "a", type: "t", outcome: "pass"}} end'; run_fixture user-prompt-submit
+check "D-18: over the byte cap: at most 262144 bytes, every sub_stop (200) kept, only sub_tools dropped" "yes 200 yes" "$([ "$(wc -c <"$SPF" | tr -d ' ')" -le 262144 ] && echo yes || echo no) $("$JQ_BIN" -r 'select(.type == "sub_stop") | .idx' "$SPF" | wc -l | tr -d ' ') $([ "$("$JQ_BIN" -r 'select(.type == "sub_tool") | .idx' "$SPF" | wc -l | tr -d ' ')" -lt 200 ] && echo yes || echo no)"
+end_case
+# texts off: unchanged (no phrase exists to evict, the cap holds)
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-off"; chmod 600 "$DATA/live/detailed-off"
+fillm 600 0 '{type: "sub_tool", tool: "Read", sub: {id: "a", type: "t"}}'; run_fixture user-prompt-submit
+check "D-18: texts off: the cap is kept and the new line is last" "500 working" "$(wc -l <"$SPF" | tr -d ' ') $("$JQ_BIN" -r '.state // empty' "$SPF" | tail -n 1)"
+end_case
+
 echo "== torn spool tail (SHD-03) =="
 new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"
 printf '{"seq":1,"type":"sta' >"$SPF"; chmod 600 "$SPF"; run_fixture user-prompt-submit
@@ -1677,6 +2675,20 @@ at 1; run_fixture sub-tool-unseen
 check "AC-35: the next sub_tool of that id is not important (waits for the 2 s interval)" "2 1" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
 end_case
 
+#@always
+# helpers of the failure sections that the `^spool` selection of the accepted verify needs (same bodies as above; redefining them is harmless)
+T0=1800000000
+at() { RUN_ENV=("SHIM_DATE_NOW=$((T0 + $1))"); }
+new7() { new_case; mkcred; SHIMD="$SHIMS"; }
+spn() { if [ -f "$(spool_of "$RAWSID")" ]; then wc -l <"$(spool_of "$RAWSID")" | tr -d ' '; else echo 0; fi; }
+nowiso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+nbodies() { if [ -f "$SB/api/ingest-bodies.log" ]; then wc -l <"$SB/api/ingest-bodies.log" | tr -d ' '; else echo 0; fi; }
+lines_of() { spooled | "$JQ_BIN" -c "select($1)"; }
+fill6() {  # LINES PADBYTES: contract-shaped lines with seq 1..N; PAD makes the code field long
+  local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"; : >"$SPF"; chmod 600 "$SPF"
+  "$JQ_BIN" -nc --argjson n "$1" --arg pad "$pad" --arg at "$(nowiso)" 'range(1; $n + 1) | {seq: ., at: $at, type: "state", state: "working"} + (if $pad == "" then {} else {code: $pad} end)' >"$SPF"
+}
 echo "== batches of at most 50 events and 16384 bytes =="
 fill6() {  # LINES PADBYTES: contract-shaped lines with seq 1..N; PAD makes the code field long
   local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
@@ -2666,9 +3678,335 @@ check "SessionStart has the two existing entries plus the reporter's" "3" "$(rep
 check "the command resolves to an existing executable file in this plugin" "yes" "$(p="${REPORTER_CMD/\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"; [ -f "$p" ] && [ -x "$p" ] && echo yes || echo no)"
 check "the other commands also resolve to executable files" "yes" "$(for c in session-start.sh session-preferences.sh; do [ -x "$PLUGIN_ROOT/hooks/$c" ] || echo no; done | grep -c no | sed 's/^0$/yes/')"
 
+echo "== spike: SubagentStart/Stop on a resume, hook agent_id vs metadata id, metadata at the first tool (ALY-263.8 AC-12, D-14, D-19) =="
+# Recorded facts live in fixtures/live/spike-facts.txt (PROVEN/UNPROVEN with the evidence kind). What the real hook sends on a
+# SendMessage resume is UNPROVEN, so the three plausible shapes are replayed against the script. ALY-263.11 flips the expectations of
+# this section KNOWINGLY (same replays, same intent: what the script does with each shape): the seen-set still drops a repeated
+# sub_start, and the first sub_tool or sub_stop of an id after the plugin sent its sub_stop now carries sub.resumed: true, once per
+# resume cycle. The section "resume" below covers the state, the bounds and the transcript-tail close.
+SPK='"id":"spk0a1b2c3d4e5f6","type":"allye:bridge-pilot"'
+SPK_START="{\"type\":\"sub_start\",\"sub\":{$SPK}}"
+SPK_TOOL="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK},\"activity\":\"Read readme.txt\"}"
+SPK_TOOL_R="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK,\"resumed\":true}}"  # the same phrase again: slice .3 skips the duplicate; the resume flag stays
+SPK_TOOL_RA="{\"type\":\"sub_tool\",\"tool\":\"Read\",\"sub\":{$SPK,\"resumed\":true},\"activity\":\"Read readme.txt\"}"  # no earlier phrase of the agent in memory
+SPK_STOP="{\"type\":\"sub_stop\",\"sub\":{$SPK,\"outcome\":\"pass\",\"task\":\"ALY-1.2\"}}"
+spike_case() {  # LABEL FIXTURES-CSV EXPECTED-FLAGGED-COUNT EXPECT-JSON-LINES...
+  local label="$1" seqs="$2" nres="$3"; shift 3
+  new_case; mkcred; run_fixture ${seqs//,/ }
+  check "$label" "$(printf "%s\n" "$@" | "$JQ_BIN" -cS .)" "$(spooled)"
+  check "$label: silent, exits 0" "0||" "$RC|$OUT|$ERR"
+  check "$label: events carrying a resumed flag" "$nres" "$(spooled | grep -c '"resumed":true' || true)"
+  end_case
+}
+spike_case "baseline: start, tool, stop" spike-start,spike-tool,spike-stop 0 "$SPK_START" "$SPK_TOOL" "$SPK_STOP"
+spike_case "resume shape 1 (Start fires again): the second sub_start is dropped by the seen-set, the first tool after the stop is flagged, the second stop closes the segment unflagged" \
+  spike-start,spike-tool,spike-stop,spike-start,spike-tool,spike-stop 1 "$SPK_START" "$SPK_TOOL" "$SPK_STOP" "$SPK_TOOL_R" "$SPK_STOP"
+spike_case "resume shape 2 (no Start, no Stop on the resume): the tool after the stop is flagged" \
+  spike-start,spike-stop,spike-tool 1 "$SPK_START" "$SPK_STOP" "$SPK_TOOL_RA"
+spike_case "resume shape 3 (tool events only, then a second Stop): the tool is flagged, the second stop is not" \
+  spike-start,spike-stop,spike-tool,spike-stop 1 "$SPK_START" "$SPK_STOP" "$SPK_TOOL_RA" "$SPK_STOP"
+# the recorded facts: every key present exactly once, with the status the spike reached
+SPKF="$FIX/spike-facts.txt"
+spkf() { grep -E "^$1=" "$SPKF" | sed -E "s/^$1=([A-Z]+) .*/\1/"; }
+check "fact a: SubagentStart on a resume is UNPROVEN" "UNPROVEN" "$(spkf a_start_fires_on_resume)"
+check "fact a: SubagentStop on a resume is UNPROVEN" "UNPROVEN" "$(spkf a_stop_fires_on_resume)"
+check "fact a: a resume reuses the agent id and its files is PROVEN from transcripts" "PROVEN" "$(spkf a_resume_reuses_id_and_files)"
+check "fact b: transcript agentId equals the filename id is PROVEN" "PROVEN" "$(spkf b_transcript_agentId_equals_filename_id)"
+check "fact b: the metadata file pairs with the transcript by filename is PROVEN" "PROVEN" "$(spkf b_meta_pairs_with_transcript_by_filename)"
+check "fact b: the hook agent_id equals the filename id is UNPROVEN" "UNPROVEN" "$(spkf b_hook_agent_id_equals_filename_id)"
+check "fact b: the metadata file holds no id key is PROVEN" "PROVEN" "$(spkf b_meta_has_no_id_key)"
+check "fact c: metadata readable at the first tool is UNPROVEN" "UNPROVEN" "$(spkf c_meta_exists_at_first_tool)"
+check "the facts file holds no path, home directory or real id" "0" "$(grep -cE '/home/|/Users/|[0-9a-f]{8}-[0-9a-f]{4}-' "$SPKF" || true)"
+
+echo "== resume: sub.resumed on the first event after a stop, and the transcript-tail close (ALY-263.11 AC-12, D-05, D-19) =="
+# State: $HASH.rsm, JSON [[id, type, handbacks at the last stop (-1 unknown), "s" stopped | "r" resumed and open, ms of the last tail check]], at most
+# 64 ids (newest kept), 0600, no text. Rule: the first sub_tool or sub_stop of an id whose entry is "s" carries sub.resumed: true; a tool
+# makes the entry "r", a stop makes it "s" again (re-armed), so only the FIRST event after each stop is flagged. The tail close runs only while
+# an entry is "r": at a later hook event of the session (not a SubagentStop, not SessionEnd) at most once per id per minute and for at most
+# 2 ids, it reads the subagent transcript tail and, when the SubagentHandback count is higher than the one recorded, spools one sub_stop
+# parsed from the newest handback and records the new count, so a real SubagentStop that fires later is the only extra stop.
+rs_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TDIR="$PROJ/$RAWSID/subagents"; mkdir -p "$TDIR"; }
+rs_hb() { "$JQ_BIN" -nc --arg m "$1" '{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:$m}}]}}'; }
+RSM_F() { echo "$DATA/live/$(test_sha "$RAWSID").rsm"; }
+rs_start() { "$JQ_BIN" -n --arg id "$1" --arg s "$RAWSID" '{session_id: $s, cwd: "/work/MARKER_CWD", hook_event_name: "SubagentStart", agent_id: $id, agent_type: "allye:bridge-pilot"}' >"$SB/stdin"; run_hook; }
+rs_tool() { "$JQ_BIN" --arg id "$1" --arg tp "$PROJ/t.jsonl" '.agent_id = $id | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+rs_stop() {  # rs_stop ID [MESSAGE]
+  "$JQ_BIN" --arg id "$1" --arg tp "$PROJ/t.jsonl" --arg ap "$TDIR/agent-$1.jsonl" --arg m "${2-status: passed}" '.agent_id = $id | .transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook; }
+rs_main() { "$JQ_BIN" --arg tp "$PROJ/t.jsonl" 'del(.agent_id, .agent_type) | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook; }
+# rs_seq ID: "tool:flag" / "stop:flag" per sub_tool and sub_stop of the id, in order ("-" when the flag is absent)
+rs_seq() { spooled | "$JQ_BIN" -r --arg id "$1" 'select((.type == "sub_tool" or .type == "sub_stop") and .sub.id == $id) | "\(.type[4:]):\(.sub.resumed // "-")"' | tr '\n' ' ' | sed 's/ $//'; }
+rs_ok() { check "$1: silent, exits 0" "0||" "$RC|$OUT|$ERR"; }
+rs_seed() { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; }
+rs_edit() {  # rs_edit LINE1 JQ-FILTER: rewrite the state file with a new first line and the filter applied to its JSON (compact)
+  local f; f=$(RSM_F); { printf '%s\n' "$1"; tail -n +2 "$f" | "$JQ_BIN" -c "$2"; } >"$SB/rsm.tmp" && cat "$SB/rsm.tmp" >"$f"; }
+rs_hbi() { "$JQ_BIN" -nc --arg id "$1" --arg m "$2" '{type:"assistant",message:{content:[{type:"tool_use",id:$id,name:"SubagentHandback",input:{message:$m}}]}}'; }
+
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "the first tool after the stop is flagged" "tool:- stop:- tool:true" "$(rs_seq r1)"; rs_ok "tool after stop"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_stop r1
+check "a second stop with no tool in between is flagged" "tool:- stop:- stop:true" "$(rs_seq r1)"; rs_ok "stop after stop"; end_case
+rs_new; rs_start r1; rs_stop r1; rs_tool r1; rs_stop r1
+check "the tool after the stop is flagged, the stop that closes the resumed segment is not" "stop:- tool:true stop:-" "$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1; rs_tool r1; rs_tool r1
+check "events after the flagged one carry no flag" "tool:- stop:- tool:true tool:- tool:-" "$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1; rs_stop r1; rs_tool r1; rs_tool r1; rs_stop r1
+check "two resume cycles: the first event after each stop is flagged, the stops re-arm" "tool:- stop:- tool:true stop:- tool:true tool:- stop:-" "$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_tool r1
+check "an id that never stopped is never flagged" "tool:- tool:-" "$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_start r2; rs_tool r2; rs_tool r1
+check "the flag is per agent id: another id's events are not flagged" "tool:-|tool:- stop:- tool:true" "$(rs_seq r2)|$(rs_seq r1)"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_start r1
+check "a repeated sub_start stays dropped by the seen-set" "1" "$(spooled | grep -c '"type":"sub_start"')"; end_case
+# no text in the state, a private file
+rs_new; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "the state file is a private regular file holding the id, the type, the count and the marker" "600 [[\"r1\",\"allye:bridge-pilot\",-1,\"r\",0" "$(stat -c %a "$(RSM_F)") $(tail -n +2 "$(RSM_F)" | head -c 36)"
+check "no marker text is in the state file" "0" "$(grep -c MARKER "$(RSM_F)" || true)"; end_case
+# the bound: 64 ids, the newest kept
+rs_new; rs_seed
+"$JQ_BIN" -nc '[range(0; 64) | ["o\(.)", "allye:bridge-pilot", -1, "s", 0]]' >"$(RSM_F)"; chmod 600 "$(RSM_F)"
+rs_start n65; rs_tool n65; rs_stop n65; rs_tool o0; rs_tool o1
+check "a 65th id evicts the oldest: o0 is no longer known, o1 still is" "tool:-|tool:true" "$(rs_seq o0)|$(rs_seq o1)"
+check "the state keeps at most 64 ids" "64" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" 'length')"; end_case
+# old and corrupt state
+rs_new; rs_seed; printf 'r1\nr2\n' >"$DATA/live/$(test_sha "$RAWSID").subs"; chmod 600 "$DATA/live/$(test_sha "$RAWSID").subs"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "a session with an old seen-set and no resume state works and flags the resume" "tool:- stop:- tool:true" "$(rs_seq r1)"; rs_ok "old state"; end_case
+rs_new; rs_seed; printf '[["r1","allye:bridge-pilot","s"],["r2"],"x",["bad id","allye:bridge-pilot",1,"s",0],["r3","allye:bridge-pilot",1,"q",0]]' >"$(RSM_F)"; chmod 600 "$(RSM_F)"
+rs_tool r1; rs_tool r3
+check "entries off the shape count as empty (old short entries, a bad id, a bad marker)" "tool:-|tool:-" "$(rs_seq r1)|$(rs_seq r3)"; rs_ok "old shape"; end_case
+rs_new; rs_seed; printf '{not json' >"$(RSM_F)"; chmod 600 "$(RSM_F)"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "a corrupt state file counts as empty and is rewritten by the stop" "tool:- stop:- tool:true" "$(rs_seq r1)"; rs_ok "corrupt state"; end_case
+rs_new; rs_seed; : >"$SB/real.rsm"; chmod 600 "$SB/real.rsm"; ln -s "$SB/real.rsm" "$(RSM_F)"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "a symlinked state file is neither used nor written through" "tool:- stop:- tool:-|0" "$(rs_seq r1)|$(wc -c <"$SB/real.rsm" | tr -d ' ')"; rs_ok "symlinked state"; end_case
+rs_new; rs_seed; printf '[["r1","allye:bridge-pilot",-1,"s",0]]' >"$(RSM_F)"; chmod 644 "$(RSM_F)"
+rs_tool r1
+check "a state file that is not private is not used" "tool:-" "$(rs_seq r1)"; end_case
+# ids that fail the id regex
+rs_new; rs_start r1; rs_stop 'bad id'; rs_tool 'bad id'; rs_tool 'bad/../id'
+check "ids failing the id pattern send no sub event" "0" "$(spooled | grep -c 'bad' || true)"
+check "no state entry for a bad id" "0" "$( [ -f "$(RSM_F)" ] && grep -c bad "$(RSM_F)" || echo 0)"; rs_ok "bad ids"; end_case
+# texts off: the flag is metadata and unchanged
+rs_new; rs_seed; : >"$DATA/live/detailed-off"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "texts off: the flag still goes, no phrase does" "tool:- stop:- tool:true|0" "$(rs_seq r1)|$(spooled | grep -c '"activity"' || true)"; rs_ok "texts off"; end_case
+rs_new; rs_seed; : >"$DATA/live/activity-off"
+rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1
+check "activity off: the flag still goes" "tool:- stop:- tool:true" "$(rs_seq r1)"; end_case
+
+# the flag reaches the request body (the batch builder's nested allowlist keeps it, and only the value true)
+rs_new; SHIMD="$SHIMS"; rs_start r1; rs_tool r1; rs_stop r1; rs_tool r1; rs_stop r1; rs_stop r1; wait_idle
+check "sub.resumed: true is sent on the first sub_tool and the first sub_stop after a stop" '["sub_tool",true] ["sub_stop",true]' "$("$JQ_BIN" -rc '.events[] | select(.sub.resumed != null) | [.type, .sub.resumed]' "$SB/api/ingest-bodies.log" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"; end_case
+rs_new; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; H=$(test_sha "$RAWSID"); SPF="$DATA/live/$H.spool"
+"$JQ_BIN" -nc --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{seq: 1, at: $at, type: "sub_tool", tool: "Read", sub: {id: "r1", type: "allye:bridge-pilot", resumed: "yes"}}, {seq: 2, at: $at, type: "sub_stop", sub: {id: "r1", type: "allye:bridge-pilot", outcome: "pass", resumed: false}}' >"$SPF"; chmod 600 "$SPF"
+rs_start r9; wait_idle
+check "a resumed value that is not the boolean true is dropped at flush" "0" "$("$JQ_BIN" -rc '.events[] | select(.sub.resumed != null)' "$SB/api/ingest-bodies.log" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+
+# ─── the transcript-tail close ───
+rs_stops() { spooled | "$JQ_BIN" -c --arg id "$1" 'select(.type == "sub_stop" and .sub.id == $id)'; }
+rs_nstops() { rs_stops "$1" | wc -l | tr -d ' '; }
+rs_cycle() {  # a stopped, resumed id r1 whose transcript holds the first handback only (recorded at the stop)
+  rs_start r1; rs_tool r1; { rs_hb "status: passed"; } >"$TDIR/agent-r1.jsonl"; rs_stop r1 ""; rs_tool r1
+}
+rs_new; rs_cycle
+{ rs_hb "status: approved
+phase: stage
+attempt: 1"; } >>"$TDIR/agent-r1.jsonl"
+rs_main
+check "ALY-263.12: the tail-close stop carries phase and the approved code" '{"code":"approved","phase":"stage"}' "$(rs_stops r1 | tail -n 1 | "$JQ_BIN" -cS '{code: .code, phase: .sub.phase}')"; end_case
+rs_new; rs_cycle
+{ rs_hb "status: failed
+summary: second round was rejected
+attempt: 1
+next: pilot_correction"; } >>"$TDIR/agent-r1.jsonl"
+rs_main
+check "a resumed id whose transcript holds one more handback: one sub_stop from the newest report, not flagged" '{"sub":{"attempt":1,"id":"r1","next":"pilot_correction","outcome":"fail","summary":"second round was rejected","type":"allye:bridge-pilot"},"type":"sub_stop"}' "$(rs_stops r1 | tail -n 1)"
+check "the first segment's stop and the synthesized one: two stops" "2" "$(rs_nstops r1)"
+rs_ok "tail close"
+rs_main
+check "a second hook event adds no second stop for the same handback" "2" "$(rs_nstops r1)"
+rs_stop r1 "status: failed"
+check "a late real SubagentStop for the handback the tail close already reported is dropped (no duplicate, no spurious segment)" "2" "$(rs_nstops r1)"
+end_case
+rs_new; rs_cycle
+rs_main
+check "equal handback count: nothing is synthesized" "1" "$(rs_nstops r1)"; rs_ok "equal count"; end_case
+rs_new; rs_start r1; rs_tool r1; rs_stop r1 "status: passed"; rs_tool r1
+{ rs_hb "status: failed"; } >"$TDIR/agent-r1.jsonl"; rs_main
+check "a stop whose transcript could not be read records an unknown count: no tail close" "1" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle
+{ rs_hb "status: failed
+summary: second round was rejected"; } >>"$TDIR/agent-r1.jsonl"
+rs_stop r1 "status: failed"
+rs_main
+check "the real SubagentStop of the resume arrives first: the tail close does not duplicate it" "2" "$(rs_nstops r1)"; end_case
+# bounded: once a minute per id, the check is recorded even when nothing was closed
+rs_new; rs_cycle; rs_main
+{ rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a second check inside the minute does not read again (a handback added meanwhile waits)" "1" "$(rs_nstops r1)"
+check "the time of the check is recorded in the state" "true" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" '.[0][4] > 0')"
+check "line 1 of the state file holds the next check time (a minute after the check)" "true" "$(l=$(head -n 1 "$(RSM_F)"); c=$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" '.[0][4]'); [ "$l" -eq $((c + 60000)) ] && echo true)"
+rs_edit 0 '.[0][4] = 1'; rs_main
+check "a check older than a minute reads again and closes the segment" "2" "$(rs_nstops r1)"; end_case
+# the stop of another id never runs it
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"
+rs_start r2; rs_tool r2; rs_stop r2
+check "a SubagentStop of another id does not run the tail close" "1" "$(rs_nstops r1)"; end_case
+# no resumed entry open: no read at all
+rs_new; rs_start r1; rs_tool r1; rs_stop r1 "status: passed"; { rs_hb "status: failed"; } >"$TDIR/agent-r1.jsonl"; rs_main; rs_main
+check "an id that is stopped and not resumed is never read" "1" "$(rs_nstops r1)"; end_case
+# a handback without a usable report: the count rises, outcome unknown, still one stop
+rs_new; rs_cycle; { rs_hb "no report here"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a handback without a status closes the segment with outcome unknown (as a real stop would)" '{"code":"returned","sub":{"id":"r1","outcome":"unknown","type":"allye:bridge-pilot"},"type":"sub_stop"}' "$(rs_stops r1 | tail -n 1)"; end_case
+# texts off: the synthesized stop carries no summary text
+rs_new; rs_seed; : >"$DATA/live/detailed-off"; rs_cycle
+{ rs_hb "status: failed
+summary: second round was rejected
+attempt: 1"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "texts off: the synthesized stop has the outcome and chips but no summary" '{"sub":{"attempt":1,"id":"r1","outcome":"fail","type":"allye:bridge-pilot"},"type":"sub_stop"}' "$(rs_stops r1 | tail -n 1)"; end_case
+# only the allowed whole-line fields leave
+rs_new; rs_cycle; { rs_hb "status: passed
+MARKER_MSG free text the parser does not allow
+summary: the round is done now"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "free text of the report does not leave" "0" "$(grep -rl MARKER_MSG "$DATA" 2>/dev/null | wc -l | tr -d ' ')"; end_case
+# hostile transcripts: nothing, exit 0, silent
+rs_hostile() {  # LABEL: the transcript was prepared after the stop; one main event
+  rs_main
+  check "$1: nothing synthesized" "1" "$(rs_nstops r1)"; rs_ok "$1"
+}
+rs_new; rs_cycle; mkdir -p "$PROJ/other"; { rs_hb "status: failed"; rs_hb "status: failed"; } >"$PROJ/other/real.jsonl"; rm -f "$TDIR/agent-r1.jsonl"; ln -s "$PROJ/other/real.jsonl" "$TDIR/agent-r1.jsonl"; rs_hostile "a symlinked transcript"; end_case
+rs_new; rs_cycle; rm -f "$TDIR/agent-r1.jsonl"; mkfifo "$TDIR/agent-r1.jsonl"; rs_hostile "a FIFO transcript"; end_case
+rs_new; rs_cycle; printf '{"type":"assistant","message":{"content":[{"type":"text","text":"%s\\nstatus: passed"}]}}\n' "$(head -c 104857600 /dev/zero | tr '\0' a)" >>"$TDIR/agent-r1.jsonl"; rs_hostile "a single 100 MB line"; rm -f "$TDIR/agent-r1.jsonl"; end_case
+rs_new; rs_cycle; "$JQ_BIN" -nc '{type:"user",message:{content:[{type:"tool_result",tool_use_id:"t1",content:"status: passed"}]}}' >>"$TDIR/agent-r1.jsonl"; "$JQ_BIN" -nc '{type:"api-request-blob",request:{messages:[{type:"assistant",message:{content:[{type:"tool_use",name:"SubagentHandback",input:{message:"status: passed"}}]}}]}}' >>"$TDIR/agent-r1.jsonl"; rs_hostile "status inside a tool_result and a handback inside a blob"; end_case
+rs_new; rs_cycle; rm -f "$TDIR/agent-r1.jsonl"; rs_hostile "a missing transcript"; end_case
+rs_new; rs_cycle; mv "$PROJ/$RAWSID" "$PROJ/real-sid"; ln -s "$PROJ/real-sid" "$PROJ/$RAWSID"; { rs_hb "status: failed"; } >>"$PROJ/real-sid/subagents/agent-r1.jsonl"; rs_hostile "a symlinked parent directory"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; "$JQ_BIN" --arg tp "$PROJ/../t.jsonl" 'del(.agent_id, .agent_type) | .transcript_path = $tp' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "a transcript_path with .. reads nothing" "1" "$(rs_nstops r1)"; rs_ok "dotdot"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; "$JQ_BIN" 'del(.agent_id, .agent_type) | .transcript_path = "/etc/t.jsonl"' "$FIX/activity-bash-subagent.json" >"$SB/stdin"; run_hook
+check "a transcript_path of another tree reads nothing" "1" "$(rs_nstops r1)"; rs_ok "other tree"; end_case
+
+# ─── SHD-01 (identity), SHD-02 (no forks when not due), SHD-05 (unusable state) of the correction round ───
+rs_new; rs_cycle
+{ rs_hb "status: failed
+summary: second round was rejected"; } >>"$TDIR/agent-r1.jsonl"
+rs_edit 0 '.[0][5] = ""'; rs_main
+check "an unknown identity recorded at the stop never closes" "1" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle; rs_edit 0 '.[0][2] = 0'; rs_main
+check "the recorded count read before the last handback was flushed (N-1) with the same newest identity: nothing" "1" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle; rs_edit 0 '.[0][2] = 5'; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a new identity but a lower count than recorded: nothing (a window slid)" "1" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle
+"$JQ_BIN" -nc --rawfile pad <(head -c 300000 /dev/zero | tr '\0' a) '{type:"assistant",message:{content:[{type:"tool_use",id:"toolu_w",name:"SubagentHandback",input:{message:("status: failed\n" + $pad)}}]}}' >>"$TDIR/agent-r1.jsonl"
+rs_main
+check "a read widened to 1 MB gives an unknown count and identity: nothing, even with a new handback" "1" "$(rs_nstops r1)"; rs_ok "widened"; end_case
+rs_new; rs_start r1; rs_tool r1; { rs_hbi toolu_A "status: passed"; } >"$TDIR/agent-r1.jsonl"; rs_stop r1 ""; rs_tool r1
+check "the identity recorded at the stop is the tool_use id (no text in the state)" "iA" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" -r '.[0][5]' | sed 's/^itoolu_/i/')"
+{ rs_hbi toolu_B "status: failed
+summary: second round was rejected"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a genuinely new handback (a new tool_use id): one synthesized stop" "2" "$(rs_nstops r1)"
+check "the state holds the new identity and the closed marker" "itoolu_B c" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" -r '.[0] | "\(.[5]) \(.[3])"')"
+rs_tool r1
+check "after a tail close a tool of the id is flagged again (the id is re-armed)" "true" "$(rs_seq r1 | grep -q 'tool:true$' && echo true)"; end_case
+rs_new; rs_start r1; rs_tool r1; { rs_hb "status: passed"; } >"$TDIR/agent-r1.jsonl"; rs_stop r1 ""; rs_tool r1
+check "an identity without a tool_use id is 16 hex of a sha256 of the report (the report text is not stored)" "1 0" "$(tail -n +2 "$(RSM_F)" | "$JQ_BIN" -r '.[0][5] | test("^h[0-9a-f]{16}$")' | sed 's/true/1/; s/false/0/' | tr '\n' ' ' | sed 's/ $//') $(grep -c 'status: passed' "$(RSM_F)" || true)"; end_case
+# old-format entries read clean and do not close
+rs_new; rs_seed; printf '[["r1","allye:bridge-pilot",1,"s",0]]' >"$(RSM_F)"; chmod 600 "$(RSM_F)"; rs_tool r1
+check "an entry of the former five fields still flags the resume" "tool:true" "$(rs_seq r1)"; rs_ok "old five fields"; end_case
+rs_new; rs_start r1; rs_tool r1; { rs_hb "status: passed"; } >"$TDIR/agent-r1.jsonl"; rs_seed; printf '[["r1","allye:bridge-pilot",1,"r",0]]' >"$(RSM_F)"; chmod 600 "$(RSM_F)"
+{ rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; rs_main; rs_main
+check "an old entry (no identity, open) never closes and is not read (no check time set)" "0" "$(rs_nstops r1)"; rs_ok "old open entry"; end_case
+# no fork when not due: line 1 in the future (within 2 minutes) skips every check; line 1 reached runs it
+rs_new; rs_cycle; { rs_hb "status: failed
+summary: second round was rejected"; } >>"$TDIR/agent-r1.jsonl"
+rs_edit $(( $(date +%s) * 1000 + 50000 )) '.'
+rs_main
+check "line 1 in the future: the event is not due, no check, no stop" "1" "$(rs_nstops r1)"
+rs_edit 0 '.'; rs_main
+check "line 1 reached: the check runs and closes the segment" "2" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"
+rs_edit $(( $(date +%s) * 1000 + 900000 )) '.'; rs_main
+check "line 1 absurdly far in the future (more than 2 minutes) counts as due" "2" "$(rs_nstops r1)"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"
+rs_edit 0 '.'; chmod 644 "$(RSM_F)"; B1=$(cksum <"$(RSM_F)"); rs_main
+check "a state file that is not private is not read or rewritten: nothing closes" "1 $B1" "$(rs_nstops r1) $(cksum <"$(RSM_F)")"; rs_ok "unusable state"; end_case
+rs_new; rs_cycle; { rs_hb "status: failed"; } >>"$TDIR/agent-r1.jsonl"; rs_edit 0 '.'; mv "$(RSM_F)" "$SB/real.rsm"; ln -s "$SB/real.rsm" "$(RSM_F)"; rs_main
+check "a symlinked state file: nothing closes" "1" "$(rs_nstops r1)"; rs_ok "symlinked state at the tail close"; end_case
+# at most 2 ids per event
+rs_new
+for i in a1 a2 a3; do rs_start $i; rs_tool $i; { rs_hb "status: passed"; } >"$TDIR/agent-$i.jsonl"; rs_stop $i ""; rs_tool $i; done
+for i in a1 a2 a3; do { rs_hb "status: failed"; } >>"$TDIR/agent-$i.jsonl"; done
+rs_edit 0 'map(.[4] = 0)'
+rs_main
+check "three due ids: only two are read and closed by one event" "2" "$(spooled | "$JQ_BIN" -c 'select(.type == "sub_stop" and (.sub.id | test("^a[123]$")))' | grep -c 'failed\|"outcome":"fail"')"
+rs_main
+check "the next event closes the third" "3" "$(spooled | "$JQ_BIN" -c 'select(.type == "sub_stop" and .sub.outcome == "fail")' | wc -l | tr -d ' ')"; end_case
+# the newest report body never goes through argv: a 60 KB report is carried whole
+rs_new; rs_cycle; { rs_hb "status: failed
+summary: second round was rejected
+$(head -c 60000 /dev/zero | tr '\0' b)"; } >>"$TDIR/agent-r1.jsonl"; rs_main
+check "a 60 KB newest handback report is parsed through a file, not argv" "fail" "$(rs_stops r1 | tail -n 1 | "$JQ_BIN" -r '.sub.outcome')"; rs_ok "big report"; end_case
+
+# ─── ALY-263.13 (AC-16): the ALY-260-style sequence replayed through the current script, FUNCTIONAL checks only ──────────────────────────
+# No assertion here bounds elapsed time (architecture guard ALY-54). The measured p95 added per tool event is printed by the non-gating
+# helper hooks/test/measure-latency.sh, which replays hooks/fixtures/live/latency/sequence.json against the frozen v2.12.0 script and this one.
+echo "== latency: the fixture sequence of ALY-260 replayed, flush rules and fail-quiet reads (ALY-263.13 AC-16) =="
+LATSEQ="$FIX/latency/sequence.json"
+lat_new() { new_case; mkcred; PROJ="$(mkdir -p "$SB/home/.claude/projects/p" && cd -P "$SB/home/.claude/projects/p" && pwd -P)"; TDIR="$PROJ/$RAWSID/subagents"; mkdir -p "$TDIR"; LATN=$("$JQ_BIN" 'length' "$LATSEQ"); }
+# lat_tool INDEX [AGENT]: tool event INDEX of the sequence, by subagent AGENT or (no agent) by the main session.
+lat_tool() { "$JQ_BIN" --argjson i "$1" --arg sid "$RAWSID" --arg tp "$PROJ/t.jsonl" --arg a "${2:-}" '.[$i] | {session_id: $sid, transcript_path: $tp, cwd: "/tmp", hook_event_name: "PreToolUse", tool_name, tool_input, tool_use_id: ("toolu_" + ($i | tostring))} + (if $a != "" then {agent_id: $a, agent_type: "allye:bridge-pilot"} else {} end)' "$LATSEQ" >"$SB/stdin"; run_hook; }
+lat_new
+check "the sequence fixture has the ALY-260 mix (Bash without description, Read, Grep, Edit, Skill, Allye MCP, an unknown MCP)" "yes" "$("$JQ_BIN" '[.[].tool_name] | (index("Bash") != null and index("Read") != null and index("Grep") != null and index("Edit") != null and index("Skill") != null and (map(select(startswith("mcp__plugin_allye"))) | length) > 0 and (map(select(startswith("mcp__github"))) | length) > 0)' "$LATSEQ" | sed 's/true/yes/;s/false/no/')"
+BADRC=0; BADERR=""
+for i in $(seq 0 $((LATN - 1))); do lat_tool "$i" lat1; [ "$RC" = 0 ] || BADRC=1; BADERR="$BADERR$ERR$OUT"; done
+check "replay as a subagent: every event exits 0 and prints nothing" "0|" "$BADRC|$BADERR"
+check "replay as a subagent: one sub_tool per tool event (the tool without a name in the allowlist included), one synthetic start first" "$LATN 1" "$(lines_of '.type == "sub_tool"' | grep -c . || true) $(lines_of '.type == "sub_start"' | grep -c . || true)"
+check "replay as a subagent: seq strictly increasing in spool order, every line valid JSON" "yes" "$("$JQ_BIN" -s '[.[].seq] as $s | ($s == ($s | sort) and ($s | unique | length) == ($s | length))' "$(spool_of "$RAWSID")" | sed 's/true/yes/;s/false/no/')"
+check "replay as a subagent: the phrases are the D-08 templates in order, none for the unknown MCP tool" "Load the pilot skill|Start task ALY-260.4|Read spec ALY-260|Read module1.ts" "$(lines_of '.type == "sub_tool" and .activity != null' | "$JQ_BIN" -r '.activity' | head -n 4 | paste -sd'|')"
+check "replay as a subagent: no marker of the tool input left the machine" "0" "$(grep -rl 'MARKER_PATTERN' "$DATA" 2>/dev/null | grep -c . || true)"
+end_case
+lat_new
+BADRC=0; BADERR=""
+for i in $(seq 0 $((LATN - 1))); do lat_tool "$i"; [ "$RC" = 0 ] || BADRC=1; BADERR="$BADERR$ERR$OUT"; done
+check "replay as the main session: every event exits 0 and prints nothing" "0|" "$BADRC|$BADERR"
+check "replay as the main session: one tool event per tool, never a sub_tool" "$LATN 0" "$(lines_of '.type == "tool"' | grep -c . || true) $(lines_of '.type == "sub_tool"' | grep -c . || true)"
+end_case
+# the flush rules, unchanged: an important event at once, the others after 2 s (the fake clock of the flush policy section)
+T0=1800000000
+latat() { RUN_ENV=("SHIM_DATE_NOW=$((T0 + $1))"); }
+lat_new; SHIMD="$SHIMS"
+latat 0; run_fixture user-prompt-submit; fake_wait_on
+check "flush rules: the first state change is sent at once" "1" "$(nbodies)"
+latat 1; lat_tool 3 lat1
+check "flush rules: the first tool of an unseen subagent is important (its synthetic start): sent at once" "2 sub_start,sub_tool" "$(nbodies) $("$JQ_BIN" -r '[.events[].type] | join(",")' "$SB/api/ingest-bodies.log" | tail -n 1)"
+latat 1; lat_tool 4 lat1; latat 1; lat_tool 5 lat1
+check "flush rules: the next tools of that subagent wait inside 2 s (nothing sent, both spooled)" "2 2" "$(nbodies) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+latat 3; lat_tool 6 lat1
+check "flush rules: 2 s after the last flush the waiting phrases go out in one request, in order" "3 3 0" "$(nbodies) $("$JQ_BIN" -r '.events | length' "$SB/api/ingest-bodies.log" | tail -n 1) $(wc -l <"$(spool_of "$RAWSID")" | tr -d ' ')"
+end_case
+# a corrupt metadata file and a missing transcript: exit 0, nothing on stderr or stdout, the sub_tool still sent
+lat_new; printf '{"description": "Truncated MARKER_DESC here' >"$TDIR/agent-lat1.meta.json"
+lat_tool 3 lat1
+check "a corrupt metadata file: exit 0, no stderr, no stdout" "0||" "$RC|$ERR|$OUT"
+check "a corrupt metadata file: the sub_tool event is still spooled" "1" "$(lines_of '.type == "sub_tool"' | grep -c . || true)"
+end_case
+lat_new; "$JQ_BIN" -nc '{description: 7}' >"$TDIR/agent-lat1.meta.json"; lat_tool 3 lat1
+check "a metadata file with a non-string description: exit 0, no stderr, no stdout" "0||" "$RC|$ERR|$OUT"; end_case
+lat_new
+"$JQ_BIN" -nc --arg sid "$RAWSID" --arg tp "$PROJ/does-not-exist.jsonl" '{session_id: $sid, transcript_path: $tp, cwd: "/tmp", hook_event_name: "SubagentStop", agent_id: "lat1", agent_type: "allye:bridge-pilot", last_assistant_message: "no report here"}' >"$SB/stdin"; run_hook
+check "a SubagentStop with a missing transcript: exit 0, no stderr, no stdout" "0||" "$RC|$ERR|$OUT"
+check "a SubagentStop with a missing transcript: the outcome is unknown as today" "unknown" "$(lines_of '.type == "sub_stop"' | "$JQ_BIN" -r '.sub.outcome' | tail -n 1)"
+end_case
+lat_new
+"$JQ_BIN" -nc --arg sid "$RAWSID" '{session_id: $sid, cwd: "/tmp", hook_event_name: "SubagentStop", agent_id: "lat1", agent_type: "allye:bridge-pilot", agent_transcript_path: "/nonexistent/dir/agent-lat1.jsonl", last_assistant_message: ""}' >"$SB/stdin"; run_hook
+check "a SubagentStop whose transcript path names nothing: exit 0, no stderr, no stdout" "0||" "$RC|$ERR|$OUT"; end_case
+
 #@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
 check "AC-39: every case ended with no final flusher still running under the sandbox" "0" "$(finals_under "$ROOT_TMP")"
+
+fake_stop
+check "no fake API process survives the run" "0" "$(fake_survivors)"
 
 #@tally
 echo

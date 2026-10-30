@@ -64,6 +64,8 @@ next: mothership|human-decision
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 `blocked` only when complexity objectively violates the spec or its scope (e.g. a non-goal implemented); the Mothership reclassifies such a finding and decides the gate. In `challenge`, an open CRITICAL/HIGH scope finding blocks the challenge round until resolved or turned into an open `[Q-NN]`.
 
 ## Limits

@@ -95,6 +95,8 @@ filesChanged: []
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 `passed` in `plan` requires an acyclic DAG, every AC traced (by server tasks or `proposedTasks`), stable keys/titles, no overlapping writers in a frontier, and every command either `resolved` to an inspected script or CI target (with `ciOnly: true` and its reason when it cannot run locally) or listed as `unresolved` for the user's decision. `passed` in `challenge` requires no open CRITICAL/HIGH; it is input to the challenge round, never an implementation gate.
 
 ## Limits

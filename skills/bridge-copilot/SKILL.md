@@ -80,6 +80,8 @@ next: reviewers|pilot-correction|mothership
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 `passed` requires: every accepted command rerun with exit 0 (or the declared expected code) as `proof: local`, except plan-declared `ciOnly` commands recorded as `proof: ci-only` (pending CI, not passed), no out-of-scope or forbidden path, no undeclared command, and the verdict tied to the exact `HEAD` + tree state above. Any later change to the slice invalidates it.
 
 ## Limits

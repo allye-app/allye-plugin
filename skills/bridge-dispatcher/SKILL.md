@@ -122,6 +122,8 @@ filesChanged: [<docs/code-guide.md and approved git docs in guide mode, else emp
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 ## Limits
 
 Never create multi-app decompositions, branches, commits, PRs or product code, or an epic the confirmed list does not include; never make an Allye write outside `publish` mode or beyond the confirmed list, create, rename or overwrite an Allye docs page, call any other API, read credentials, make a product or architecture decision for the user, or edit any file except, in `guide` mode, `docs/code-guide.md` and, only after the user's OK through the Mothership, README.md, AGENTS.md, CLAUDE.md and docs/ARCHITECTURE.md. You have no crew file.

@@ -79,6 +79,8 @@ next: shield|pilot-correction|mothership
 
 Report lines (`summary:` and the chip lines) follow `../bridge/references/delegation.md` → Common output.
 
+Bash call descriptions (verb-first, at most 60 characters, no paths) follow `../bridge/references/delegation.md` → Common output.
+
 `passed` (slice/global) requires zero `blocking` regressions and every in-scope criterion `covered` or `ci-pending` (listed in `ciPending`, pending CI and never counted as proven locally). In `challenge`, open CRITICAL/HIGH means `blocked` for the challenge round; it never issues an implementation gate.
 
 ## Limits
