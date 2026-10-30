@@ -12,4 +12,4 @@ if [ -n "${SHIM_DATE_NOW:-}" ]; then
     +*) exec "${SHIM_REAL:?}/date" -u -d "@$SHIM_DATE_NOW" "$fmt" ;;
   esac
 fi
-exec "$(dirname "$0")/_wrap.sh" date "$@"
+exec "${0%/*}/_wrap.sh" date "$@"

@@ -8,7 +8,10 @@
 # no `node` and a failing `stat`. Tokens are throwaway fakes; no real credential is ever read.
 set -u
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="${PT_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# Runner (hooks/test/README.md): the sections run in groups, at most 4 workers; --serial, --group ID, --only REGEX, --list.
+PT_FINAL_FMT='Passed: %s  Failed: %s'
+. "$SCRIPT_DIR/test/parallel.sh"; pt_dispatch "$@"
 HOOK="$SCRIPT_DIR/session-preferences.sh"
 HOOKS_JSON="$SCRIPT_DIR/hooks.json"
 SHIMS="$SCRIPT_DIR/test/shims"
@@ -78,7 +81,7 @@ new_case() {
   REAL="$REALBIN"; SHIMD="$SHIMS"; RUN_ENV=(); DATA_ENV="$DATA"
   : >"$SB/api/requests.log"
   fake_stop; fake_start "$NODE_BIN" "$FAKE" "$SB/api" "$SB/api/node.log"
-  local i; for i in $(seq 1 100); do [ -s "$SB/api/port" ] && break; sleep 0.05; done
+  local i; for i in $(seq 1 1000); do [ -s "$SB/api/port" ] && break; sleep 0.01; done
   PORT=$(cat "$SB/api/port"); API="http://127.0.0.1:$PORT"
 }
 end_case() { fake_stop; }
@@ -123,11 +126,13 @@ expect_hint() {
   check "$1: one-line hint" "$2" "$(ctx)"
 }
 
+#@group s01 1
 echo "== environment =="
 check "node is not on the hook PATH" "" "$(env -i PATH="$SHIMS:$REALBIN" "$BASH_BIN" -c 'command -v node')"
 check "the hook is executable" "yes" "$([ -x "$HOOK" ] && echo yes || echo no)"
 
 # ─── hooks.json (AC-12) ─────────────────────────────────────────────────────
+#@group s02 1
 echo "== hooks.json =="
 check "SessionStart holds the two ALY-195 entries (the Live reporter's own entry is not counted)" "2" "$("$JQ_BIN" '[.hooks.SessionStart[] | select(.hooks[0].command | endswith("/live-report.sh") | not)] | length' "$HOOKS_JSON")"
 check "exactly one Live reporter SessionStart entry, after the two ALY-195 entries" "1|live-report.sh" "$("$JQ_BIN" -r '[.hooks.SessionStart | to_entries[] | select(.value.hooks[0].command | endswith("/live-report.sh")) | .key] | "\(length)|\(if length == 1 and .[0] == 2 then "live-report.sh" else "misplaced" end)"' "$HOOKS_JSON")"
@@ -137,6 +142,7 @@ check "second entry: command is session-preferences.sh" '${CLAUDE_PLUGIN_ROOT}/h
 check "second entry: timeout 5, type command" "command 5" "$("$JQ_BIN" -r '.hooks.SessionStart[1].hooks[0] | "\(.type) \(.timeout)"' "$HOOKS_JSON")"
 
 # ─── success (AC-05, BR-03, BR-06, D-46) ────────────────────────────────────
+#@group s03 1
 echo "== 200 with items =="
 new_case; mkcred
 run_hook
@@ -180,6 +186,7 @@ check "curl config: noproxy = \"*\"" "yes" "$(contains 'noproxy = "*"' "$(cat "$
 end_case
 
 # Stored URL outside the exact-origin list: nothing sent, fix hint (BR-08, AC-16, AC-09).
+#@group s04 1
 echo "== stored apiUrl outside the list =="
 new_case
 for bad in "http://example.com" "https://evil.com" "https://api.allye.app.evil.com" "https://api.allye.app/" "https://api.allye.app/path" "https://api.allye.app?x=1" "https://user:pw@api.allye.app" \
@@ -206,6 +213,7 @@ done
 end_case
 
 # ─── nothing to say (AC-08, BR-05) ──────────────────────────────────────────
+#@group s05 1
 echo "== silent cases =="
 for m in empty shape not-json; do
   new_case; mkcred; api_mode "$m"
@@ -255,6 +263,7 @@ check "jq missing: nothing sent" "0" "$(reqs)"
 end_case
 
 # ─── 401 (AC-07, BR-05) ─────────────────────────────────────────────────────
+#@group s06 1
 echo "== 401 =="
 new_case; mkcred; api_mode err 401 HOOK_CREDENTIAL_INVALID
 run_hook
@@ -280,6 +289,7 @@ for code in USER_INACTIVE MEMBERSHIP_INACTIVE TENANT_INACTIVE; do
 done
 
 # ─── unsafe or damaged files (AC-09, BR-06) ─────────────────────────────────
+#@group s07 1
 echo "== unsafe or damaged =="
 unsafe_case() {  # LABEL: expects the fix hint and no request
   run_hook
@@ -313,6 +323,7 @@ absent "off-format token never printed" "OFFFORMAT" "$SB/out" "$SB/err"
 end_case
 
 # ─── hostile and large content (AC-05, AC-14, BR-04) ────────────────────────
+#@group s08 1
 echo "== hostile content =="
 new_case; mkcred; api_mode hostile
 run_hook
@@ -359,6 +370,7 @@ check "stored http://localhost:<port> is accepted and used" "yes" "$(contains 'P
 check "stored http://localhost:<port>: url line" "url = \"http://localhost:$PORT/api/memories/preferences\"" "$(grep '^url' "$SB/log/curl-config.log")"
 end_case
 
+#@group s09 1
 echo "== 9000 boundary =="
 new_case; mkcred; api_mode pad; printf 1 >"$SB/api/pad"
 run_hook
@@ -379,6 +391,7 @@ for delta in 0 1; do
 done
 end_case
 
+#@group s10 1
 echo "== huge bodies (AC-08) =="
 for m in huge1 huge2 huge3; do
   new_case; mkcred; api_mode "$m"
@@ -401,6 +414,7 @@ end_case
 
 fake_stop
 check "no fake API process survives the run" "0" "$(fake_survivors)"
+#@tally
 echo
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

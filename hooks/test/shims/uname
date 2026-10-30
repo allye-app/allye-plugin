@@ -1,2 +1,1 @@
-#!/bin/bash
-exec "$(dirname "$0")/_wrap.sh" uname "$@"
+_wrap.sh

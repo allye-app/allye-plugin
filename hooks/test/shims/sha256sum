@@ -1,2 +1,1 @@
-#!/bin/bash
-exec "$(dirname "$0")/_wrap.sh" sha256sum "$@"
+_wrap.sh

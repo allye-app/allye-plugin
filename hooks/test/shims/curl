@@ -1,4 +1,4 @@
 #!/bin/bash
 # curl is special: its config arrives on stdin, so the shim reads it, refuses non-loopback hosts
 # and logs a redacted copy (url and limits only; header and data lines may hold secrets).
-exec "$(dirname "$0")/_wrap.sh" curl "$@"
+exec "${0%/*}/_wrap.sh" curl "$@"
