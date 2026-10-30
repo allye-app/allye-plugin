@@ -1,3 +1,15 @@
+# [2.15.0](https://github.com/allye-app/allye-plugin/compare/v2.14.0...v2.15.0) (2026-10-30)
+
+
+### Bug Fixes
+
+* **hooks:** tokenize a fixed args window in skillb instead of dropping long args (ALY-279.1) ([1695121](https://github.com/allye-app/allye-plugin/commit/1695121b4b9ecaeef3dc7ab76abaece5ebfeabc7))
+
+
+### Features
+
+* **hooks:** send role and mode from the mission log line when the stored bind has no mode (ALY-279.2) ([4572bc9](https://github.com/allye-app/allye-plugin/commit/4572bc91376846220eeaafa37ffa7eef70a0dc0c))
+
 # [2.14.0](https://github.com/allye-app/allye-plugin/compare/v2.13.0...v2.14.0) (2026-10-30)
 
 
