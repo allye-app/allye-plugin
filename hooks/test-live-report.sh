@@ -4340,6 +4340,330 @@ lat_new
 "$JQ_BIN" -nc --arg sid "$RAWSID" '{session_id: $sid, cwd: "/tmp", hook_event_name: "SubagentStop", agent_id: "lat1", agent_type: "allye:bridge-pilot", agent_transcript_path: "/nonexistent/dir/agent-lat1.jsonl", last_assistant_message: ""}' >"$SB/stdin"; run_hook
 check "a SubagentStop whose transcript path names nothing: exit 0, no stderr, no stdout" "0||" "$RC|$ERR|$OUT"; end_case
 
+# ─── ALY-269.3: the answer client hooks/live-answer.sh (AC-05, AC-06, AC-12, AC-14, AC-16, AC-17, BR-02, D-07, D-08, D-15, D-16) ─────
+# The script runs under `env -i` with a PATH of the real tools only (no shims: the curl process must be the real one, so /proc shows its
+# argv) and no node. The API is the loopback stub hooks/fixtures/live/answer-stub-server.sh (node, outside the sandbox PATH, started with
+# every descriptor above 2 closed). Counts of stub hits and recorded exit statuses decide everything: no assertion bounds elapsed time (ALY-54);
+# LIVE_ANSWER_BUDGET_S (test-only) shortens the budget.
+#@group answer 45
+#@always
+ANS="$SCRIPT_DIR/live-answer.sh"; STUBSH="$SCRIPT_DIR/fixtures/live/answer-stub-server.sh"
+LAST_STUB=""; BGPID=""; BGKILL=()
+# stub_launch DIR: starts a stub (every inherited descriptor above 2 closed), sets LAST_STUB and records the pid like the fake API's
+stub_launch() {
+  ( for _f in $(ls "/proc/$BASHPID/fd" 2>/dev/null); do [ "$_f" -gt 2 ] && eval "exec $_f>&-"; done; exec "$BASH_BIN" "$STUBSH" "$NODE_BIN" "$1" >"$1/node.log" 2>&1 ) &
+  LAST_STUB=$!; APIDS+=("$LAST_STUB")
+}
+stub_port() { local i; for i in $(seq 1 1000); do [ -s "$1/port" ] && break; sleep 0.01; done; cat "$1/port"; }
+# ans_case: sandbox, stub on 127.0.0.1, paired credential, default payload (a Bash permission request)
+ans_case() {
+  N=$((N + 1)); SB="$ROOT_TMP/case$N"
+  mkdir -p "$SB/home" "$SB/config" "$SB/cache" "$SB/log" "$SB/api" "$SB/proj"
+  DATA="$SB/plugindata"; CRED="$DATA/hook-credential.json"; REAL="$REALBIN"; RUN_ENV=(); MARK="m$N-$RANDOM"
+  : >"$SB/api/requests.log"
+  fake_stop; stub_launch "$SB/api"; APID="$LAST_STUB"
+  PORT=$(stub_port "$SB/api"); API="http://127.0.0.1:$PORT"
+  mkcred
+  ans_payload sess-0001 Bash '{"description":"d","command":"echo hi"}'
+}
+ans_payload() {  # SESSION_ID TOOL INPUT_JSON
+  "$JQ_BIN" -nc --arg s "$1" --arg t "$2" --argjson i "$3" --arg c "$SB/proj" '{hook_event_name: "PermissionRequest", session_id: $s, cwd: $c, tool_name: $t, tool_input: $i}' >"$SB/stdin"
+}
+ans_env() {  # the sandbox environment of the script, one word per line
+  printf '%s\n' "HOME=$SB/home" "XDG_CONFIG_HOME=$SB/config" "XDG_CACHE_HOME=$SB/cache" "CLAUDE_PLUGIN_DATA=$DATA" "PATH=$REAL" "ANS_MARK=$MARK"
+}
+ans_run() {  # runs the script with $SB/stdin; sets RC, OUT, ERR; RUN_T0/RUN_T1 = the clock (s) before and after, for loose bounds
+  RUN_T0=$(date +%s)
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$REAL" ANS_MARK="$MARK" \
+    ${RUN_ENV[@]+"${RUN_ENV[@]}"} "$BASH_BIN" "$ANS" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
+  RC=$?; RUN_T1=$(date +%s); OUT=$(cat "$SB/out"); ERR=$(cat "$SB/err")
+}
+ans_bg() {  # as ans_run, in the background with job control (default signal dispositions, as when Claude Code spawns it); sets BGPID
+  set -m
+  env -i HOME="$SB/home" XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$REAL" ANS_MARK="$MARK" \
+    ${RUN_ENV[@]+"${RUN_ENV[@]}"} "$BASH_BIN" "$ANS" <"$SB/stdin" >"$SB/out" 2>"$SB/err" &
+  BGPID=$!; BGKILL+=("$BGPID")
+  set +m
+}
+ans_bg_end() { wait "$BGPID" 2>/dev/null; RC=$?; BGPID=""; OUT=$(cat "$SB/out"); ERR=$(cat "$SB/err"); }
+smode() { printf '%s' "$2" >"$SB/api/$1"; }       # smode open|wait|cancel|ack|expires-in VALUE
+slog() { cat "$SB/api/requests.log" 2>/dev/null || true; }
+scount() { slog | "$JQ_BIN" -s --arg m "$1" --arg p "$2" '[.[] | select(.method == $m and (.path | test($p)))] | length'; }   # METHOD PATH-REGEX
+sopen() { scount POST '^/api/live/requests$'; }
+swaits() { scount GET '/wait$'; }
+scancels() { scount POST '/cancel$'; }
+sacks() { scount POST '/ack$'; }
+swait_hits() {  # PATTERN-count N: waits (events, not time) until the stub logged N waits
+  local i; for i in $(seq 1 3000); do [ "$(swaits)" -ge "$1" ] && return 0; sleep 0.01; done; return 1
+}
+sopen_hits() { local i; for i in $(seq 1 3000); do [ "$(sopen)" -ge "$1" ] && return 0; sleep 0.01; done; return 1; }
+marked() {  # processes whose environment holds this case's ANS_MARK
+  local f n=0; for f in /proc/[0-9]*; do { tr '\0' '\n' <"$f/environ" | grep -qx "ANS_MARK=$MARK"; } 2>/dev/null && n=$((n + 1)); done; echo "$n"
+}
+live_left() { ls -A "$DATA/live" 2>/dev/null | tr '\n' ' '; }
+quiet() { check "$1: exit 0, stdout and stderr empty" "0||" "$RC|$OUT|$ERR"; }
+end_case_ans() { fake_stop; ans_cleanup_bg; }
+ans_cleanup_bg() { local p; for p in ${BGKILL[@]+"${BGKILL[@]}"}; do kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null; done; return 0; }
+TOKFP=$(printf '%s' "$TOKEN" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)
+#@end
+
+echo "== answer client static: exit 0 only, no set -e, curl flags, default budget (AC-16, AC-17, AC-06 ALY-269.3) =="
+ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
+check "the script exists and is executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
+check "no set -e, no errexit option" "0" "$(printf '%s\n' "$ACODE" | grep -cE 'set +-[A-Za-z]*e|errexit' || true)"
+check "no exit with a non-zero code, a variable or no code" "0" "$(printf '%s\n' "$ACODE" | grep -E '(^|[^A-Za-z_.-])exit' | grep -vcE "exit 0([^0-9]|$)" || true)"
+check "the top-level ERR trap ends with exit 0" "1" "$(printf '%s\n' "$ACODE" | grep -c "^trap 'exit 0' ERR$" || true)"
+check "the default budget is 110, set once" "1" "$(printf '%s\n' "$ACODE" | grep -c '^ANSWER_BUDGET_DEFAULT=110$' || true)"
+check "curl gets --proto (https default, loopback http only for the paired development origin)" "1 1" "$(printf '%s\n' "$ACODE" | grep -c "PROTO=(--proto '=https')" || true) $(printf '%s\n' "$ACODE" | grep -c "http://\*) PROTO=(--proto '=http')" || true)"
+check "curl gets --max-redirs 0 and -K -" "1 1" "$(printf '%s\n' "$ACODE" | grep -c -- '--max-redirs 0' || true) $(printf '%s\n' "$ACODE" | grep -c -- ' -K - ' || true)"
+check "curl never follows redirects (no -L, no --location)" "0" "$(printf '%s\n' "$ACODE" | grep -cE -- '--location|curl .* -L ' || true)"
+check "the body is a config line from a private file, not argv (no --data on a command line)" "1 0" "$(printf '%s\n' "$ACODE" | grep -c 'data-binary = "@%s"' || true) $(printf '%s\n' "$ACODE" | grep -cE '(curl|--data)[^|]*(--data|-d )' || true)"
+check "curl runs with the TLS environment unset (env -u ...)" "1" "$(printf '%s\n' "$ACODE" | grep -c 'env -u CURL_CA_BUNDLE -u SSL_CERT_FILE -u SSL_CERT_DIR -u SSLKEYLOGFILE -u CURL_HOME -u CURL_SSL_BACKEND curl ' || true)"
+check "the origin is not read from the environment or settings" "0" "$(printf '%s\n' "$ACODE" | grep -cE 'ALLYE_API|ANTHROPIC|CLAUDE_PROJECT_DIR|settings\.json' || true)"
+check "no tu is ever sent" "0" "$(printf '%s\n' "$ACODE" | grep -cE '\btu\b' || true)"
+
+echo "== answer client open: body, hash vectors, session hash, answerable (AC-05, AC-06, D-08, ALY-269.3) =="
+VEC1=cb849cc1afccaaee6ac77370f8db2f40d8c1736adbbfed6de716bcadc140df0a
+VEC2=82a468e179ecb140f091484cfea7e342b4505f089443ac047467c66058152dc9
+SH1=70e4ea6b2d85d6bc12757223c762a95b8327ac9c1003956cc27b898bf1802b8d   # sha256 of "sess-0001" with no newline, as the reporter's HASH
+ans_case; smode wait terminal; ans_run
+quiet "a Bash permission request"
+check "one open call, one wait call" "1 1" "$(sopen) $(swaits)"
+OB=$(slog | "$JQ_BIN" -c 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson')
+check "the open body is exactly {session_hash, kind, hash, risk, tool}: no run_id, no tu" '["hash","kind","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
+check "hash is the known answer of the canonical array (V1)" "$VEC1" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.hash')"
+check "session_hash is sha256 of the session id (known answer), like the reporter's HASH" "$SH1 $(test_sha sess-0001)" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.session_hash') $SH1"
+check "kind permission, risk normal, tool Bash" "permission normal Bash" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.kind) \(.risk) \(.tool)"')"
+check "the credential reached the API on every call" "true" "$(slog | "$JQ_BIN" -s 'all(.[]; .auth)')"
+check "the open call is JSON" "application/json" "$(slog | "$JQ_BIN" -r 'select(.method == "POST" and .path == "/api/live/requests") | .ctype')"
+check "nothing is left in the live directory after a normal run" "" "$(live_left)"
+check "no process of the run survives" "0" "$(marked)"
+ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"Which?","header":"H","options":[{"label":"A","description":"a"},{"label":"B","description":"b"}],"multiSelect":false}]}'
+: >"$SB/api/requests.log"; ans_run
+check "an AskUserQuestion payload is hashed over the questions array alone (V2)" "$VEC2" "$(slog | "$JQ_BIN" -r 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson | .hash')"
+quiet "the question payload"
+ans_payload sess-0001 Bash '{"command":"echo hi","description":"d"}'; : >"$SB/api/requests.log"; ans_run
+check "key order of the input does not change the hash" "$VEC1" "$(slog | "$JQ_BIN" -r 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson | .hash')"
+smode open unanswerable; : >"$SB/api/requests.log"; ans_run
+quiet "answerable false"
+check "answerable false: one open, no wait, no cancel" "1 0 0" "$(sopen) $(swaits) $(scancels)"
+smode open ok
+for qi in '{}' '{"questions":"nope"}' '{"questions":{"a":1}}' '{"questions":null}'; do
+  ans_payload sess-0001 AskUserQuestion "$qi"; : >"$SB/api/requests.log"; ans_run
+  check "AskUserQuestion without a questions array ($qi): no hash, no open, exit 0, silent" "0|0|" "$(sopen)|$RC|$OUT$ERR"
+done
+ans_payload sess-0001 Bash '{"description":"d","command":"echo hi"}'
+for bad in '{"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"Bash","tool_input":{}}' '{"hook_event_name":"PermissionRequest","session_id":"bad id","tool_name":"Bash","tool_input":{}}' '{"hook_event_name":"PermissionRequest","session_id":"s1","tool_name":"Bash","tool_input":"x"}' '{"hook_event_name":"PermissionRequest","session_id":"s1","tool_input":{}}'; do
+  printf '%s' "$bad" >"$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+  check "an event or payload that does not qualify opens nothing: $(printf '%s' "$bad" | cut -c1-60)" "0|0|" "$(sopen)|$RC|$OUT$ERR"
+done
+end_case_ans
+
+echo "== answer client expiresAt forms, TLS environment (AC-06, AC-17 ALY-269.3 correction) =="
+ans_case; smode wait terminal; smode expires-at "$(date -u -d '+100 seconds' +%Y-%m-%dT%H:%M:%S.123456+00:00)"; ans_run
+quiet "expiresAt with fractional seconds and +00:00"
+check "+00:00 with fractions parses: one open, one wait, no cancel, no backoff" "1 1 0 " "$(sopen) $(swaits) $(scancels) $(live_left)"
+end_case_ans
+for bx in "1969-12-31T23:59:50Z" "not a date" "9999-12-31T00:00:00Z" "$(date -u -d '+100 seconds' +%Y-%m-%dT%H:%M:%S)+02:00" "$(date -u -d '-100 seconds' +%Y-%m-%dT%H:%M:%SZ)"; do
+  ans_case; smode wait terminal; smode expires-at "$bx"; ans_run
+  quiet "expiresAt $bx"
+  check "expiresAt '$bx' is not a sane future time: the open request is cancelled at once, no wait, no backoff" "1 0 1 " "$(sopen) $(swaits) $(scancels) $(live_left)"
+  end_case_ans
+done
+ans_case; smode wait terminal
+printf 'HOSTILE' >"$SB/ca.pem"; mkdir -p "$SB/hostile-dir" "$SB/hostile-home"
+RUN_ENV=("CURL_CA_BUNDLE=$SB/ca.pem" "SSL_CERT_FILE=$SB/ca.pem" "SSL_CERT_DIR=$SB/hostile-dir" "SSLKEYLOGFILE=$SB/keylog" "CURL_HOME=$SB/hostile-home" "CURL_SSL_BACKEND=nonexistent")
+printf 'url = "http://127.0.0.1:1/never"\n' >"$SB/hostile-home/.curlrc"
+ans_run
+quiet "hostile TLS environment"
+check "hostile TLS variables change nothing: one open, one wait; the key log file is never created" "1 1 no" "$(sopen) $(swaits) $([ -e "$SB/keylog" ] && echo yes || echo no)"
+end_case_ans
+
+echo "== answer client wait: statuses, no_audience by hit count, deadline, expiresAt (AC-06, D-04, ALY-269.3) =="
+for st in allow deny question terminal expired no_audience; do
+  ans_case; smode wait "$st"; ans_run
+  quiet "wait status $st"
+  check "wait status $st: one wait call, no cancel, nothing printed" "1 0 1" "$(swaits) $(scancels) $(sopen)"
+  check "wait status $st: nothing left behind" "0 " "$(marked) $(live_left)"
+  end_case_ans
+done
+ans_case; smode wait "pending terminal"; ans_run
+quiet "pending then terminal"
+check "pending continues the poll, terminal ends it: two waits, no cancel" "2 0" "$(swaits) $(scancels)"
+end_case_ans
+for m in malformed unknown 500 404 429 redirect notjson killmid; do
+  ans_case; smode wait "$m"; ans_run
+  quiet "wait answer $m"
+  check "wait answer $m: one wait call, no cancel, no backoff file" "1 0 " "$(swaits) $(scancels) $(live_left)"
+  check "wait answer $m: the redirect target is never requested" "0" "$(scount GET '^/redirect-target')"
+  end_case_ans
+done
+ans_case; smode wait slow; RUN_ENV=(LIVE_ANSWER_BUDGET_S=4); ans_run
+quiet "deadline reached"
+check "at the deadline the request is still pending: at least one wait, one best-effort cancel" "yes 1" "$([ "$(swaits)" -ge 1 ] && echo yes || echo no) $(scancels)"
+check "the deadline run leaves nothing behind" "0 " "$(marked) $(live_left)"
+end_case_ans
+ans_case; smode wait slow; smode expires-in 2; ans_run
+quiet "expiresAt before the budget"
+check "the smaller of 110 s and expiresAt wins: only a few chunks, then cancel" "yes 1" "$([ "$(swaits)" -le 3 ] && echo yes || echo no) $(scancels)"
+end_case_ans
+ans_case; smode wait hold; RUN_ENV=(LIVE_ANSWER_BUDGET_S=3); ans_run
+quiet "a stub that holds the wait connection"
+check "held wait: the chunk times out at the budget, one cancel, no leftovers" "1 1 0 " "$(swaits) $(scancels) $(marked) $(live_left)"
+end_case_ans
+
+echo "== answer client backoff: 60 s, 10 min, none after 429, honoured without network (AC-12 ALY-269.3) =="
+bo_until() { local u; { read -r u _ <"$DATA/live/answer-backoff"; } 2>/dev/null; echo "${u:-0}"; }
+bo_check() {  # LABEL LOW HIGH: until is at least (clock before the run)+LOW and at most (clock after the run)+HIGH+5; this credential; mode 600
+  local u f; u=$(bo_until); f=""; { read -r _ f <"$DATA/live/answer-backoff"; } 2>/dev/null
+  check "$1: until is $2..$3 s after the run, for this credential, mode 600" "yes $TOKFP 600" "$([ "$u" -ge $((RUN_T0 + $2)) ] && [ "$u" -le $((RUN_T1 + $3 + 5)) ] && echo yes || echo no) $f $(find "$DATA/live/answer-backoff" -prune -printf '%m' 2>/dev/null)"
+}
+for c in "404 600 610" "405 600 610" "500 60 70" "garbage 60 70" "notjson 60 70" "redirect 60 70" "killmid 60 70"; do
+  set -- $c; ans_case; smode open "$1"; ans_run
+  quiet "open answers $1"
+  check "open answers $1: one open, no wait, no cancel" "1 0 0" "$(sopen) $(swaits) $(scancels)"
+  bo_check "open answers $1" "$2" "$3"
+  check "open answers $1: no temp file left" "answer-backoff " "$(live_left)"
+  check "open answers $1: the redirect target is never requested" "0 0" "$(scount POST '^/redirect-target') $(scount GET '^/redirect-target')" 
+  : >"$SB/api/requests.log"; smode open ok; ans_run
+  quiet "while the backoff lasts ($1)"
+  check "while the backoff lasts ($1): no network call at all" "0" "$(sopen)"
+  end_case_ans
+done
+ans_case; smode open run_not_found; ans_run
+quiet "open answers 404 run_not_found"
+check "404 run_not_found is normal: one open, no wait, no cancel, no backoff file" "1 0 0 " "$(sopen) $(swaits) $(scancels) $(live_left)"
+ans_run
+check "404 run_not_found: the next hook run opens again" "2" "$(sopen)"
+end_case_ans
+ans_case; smode open 429; ans_run
+quiet "open answers 429"
+check "429: no backoff file" "1 " "$(sopen) $(live_left)"
+end_case_ans
+ans_case; smode open hold; ans_run
+quiet "open held by the stub"
+check "a held open ends at its 2 s limit: one open, no wait, backoff 60 s" "1 0 answer-backoff " "$(sopen) $(swaits) $(live_left)"
+bo_check "a held open" 60 70
+end_case_ans
+ans_case; fake_stop; ans_run
+quiet "connect failure"
+bo_check "connect failure" 60 70
+end_case_ans
+ans_case
+mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; now=$(date +%s)
+printf '%s %s' "$((now - 5))" "$TOKFP" >"$DATA/live/answer-backoff"; chmod 600 "$DATA/live/answer-backoff"; smode wait terminal; ans_run
+check "an old timestamp is ignored: the request goes out" "1" "$(sopen)"
+printf '%s %s' "$((now + 300))" "$TOKFP" >"$DATA/live/answer-backoff"; : >"$SB/api/requests.log"; ans_run
+quiet "a new timestamp"
+check "a new timestamp: no network call" "0" "$(sopen)"
+printf '%s %s' "$((now + 300))" "0000000000000000000000000000000000000000000000000000000000000000" >"$DATA/live/answer-backoff"; ans_run
+check "another credential's mark is ignored" "1" "$(sopen)"
+printf '%s %s' "$((now + 300))" "$TOKFP" >"$DATA/live/answer-backoff"; chmod 644 "$DATA/live/answer-backoff"; : >"$SB/api/requests.log"; ans_run
+check "a mark with a foreign mode is ignored" "1" "$(sopen)"
+rm -f "$DATA/live/answer-backoff"; ln -s /nonexistent "$DATA/live/answer-backoff"; : >"$SB/api/requests.log"; ans_run
+check "a symlinked mark is ignored" "1" "$(sopen)"
+rm -f "$DATA/live/answer-backoff"; : >"$DATA/live/off"; : >"$SB/api/requests.log"; ans_run
+check "live switched off: no network call" "0" "$(sopen)"
+end_case_ans
+
+echo "== answer client origin and argv: pairing file only, nothing secret on a command line (AC-17, D-15, D-16 ALY-269.3) =="
+ans_case; WRONG="$SB/wrong"; mkdir -p "$WRONG" "$SB/proj/.claude"; : >"$WRONG/requests.log"
+stub_launch "$WRONG"; WPID="$LAST_STUB"; WPORT=$(stub_port "$WRONG")
+printf '{"env":{"ALLYE_API_URL":"http://127.0.0.1:%s"}}' "$WPORT" >"$SB/proj/.claude/settings.json"
+RUN_ENV=("ALLYE_API_URL=http://127.0.0.1:$WPORT" "ALLYE_URL=http://127.0.0.1:$WPORT" "ALLYE_API=http://127.0.0.1:$WPORT" "CLAUDE_PROJECT_DIR=$SB/proj" "HTTPS_PROXY=http://127.0.0.1:$WPORT" "HTTP_PROXY=http://127.0.0.1:$WPORT" "ALL_PROXY=http://127.0.0.1:$WPORT")
+smode wait terminal; ans_run
+quiet "environment and project settings point elsewhere"
+check "the paired origin got the requests, the wrong origin got none (not even through a proxy variable)" "1 0" "$(sopen) $(wc -l <"$WRONG/requests.log" | tr -d ' ')"
+kill "$WPID" 2>/dev/null; wait "$WPID" 2>/dev/null
+for bad in "http://evil.example.test" "http://127.0.0.1:1/x" "ftp://127.0.0.1:1" "https://api.allye.app/" "http://127.0.0.1"; do
+  RUN_ENV=(); mkcred "$bad"; : >"$SB/api/requests.log"; ans_run
+  check "an unusable paired origin ($bad): nothing sent, exit 0, silent" "0|0|" "$(sopen)|$RC|$OUT$ERR"
+done
+mkcred
+# curl argv and the private temp files while the stub holds a request
+for hold in open wait; do
+  RUN_ENV=(); ans_payload sess-0001 Bash '{"command":"echo SECRETWORDXYZ","description":"d"}'; : >"$SB/api/requests.log"; smode open ok; smode wait pending
+  smode "$hold" hold; ans_bg
+  if [ "$hold" = open ]; then sopen_hits 1; else swait_hits 1; fi
+  CP=""; for c in /proc/$BGPID/task/*/children; do for k in $(<"$c"); do { read -r cm <"/proc/$k/comm"; } 2>/dev/null; [ "$cm" = curl ] && CP="$k"; done; done
+  ARGV=$({ tr '\0' ' ' <"/proc/$CP/cmdline"; } 2>/dev/null)
+  PSOUT=$(ps -o args= -p "$CP" 2>/dev/null || true)
+  check "a curl child exists while the stub holds the $hold call" "yes" "$([ -n "$CP" ] && [ -n "$ARGV" ] && echo yes || echo no)"
+  check "/proc cmdline of curl ($hold): no token, no Bearer, no body text, no hash, no -L" "none" "$(case "$ARGV$PSOUT" in *alyh_*|*Bearer*|*SECRETWORDXYZ*|*echo*|*"$VEC1"*|*"$SH1"*|*" -L "*|*--location*) echo found ;; *) echo none ;; esac)"
+  check "/proc cmdline of curl ($hold): proto, no redirects, config on stdin" "yes" "$(case "$ARGV" in *"--proto =http "*"--max-redirs 0 "*"-K -"*) echo yes ;; *) echo "$ARGV" ;; esac)"
+  BD=$(find "$DATA/live" -maxdepth 1 -name '.answer.*' -type d | head -n 1)
+  check "the temp directory is private (700)" "700" "$(find "$BD" -prune -printf '%m' 2>/dev/null)"
+  [ "$hold" = open ] && check "the body file is private (600) while the open is held" "600" "$(find "$BD/body" -prune -printf '%m' 2>/dev/null)"
+  kill -TERM "$BGPID" 2>/dev/null; ans_bg_end
+  quiet "TERM while the $hold call is held"
+  check "TERM ($hold held): no process and no temp file left" "0 " "$(marked) $(live_left | sed 's/answer-backoff //')"
+  [ "$hold" = wait ] && check "TERM during the wait sends exactly one cancel for the pending request" "1" "$(scancels)"
+  [ "$hold" = open ] && check "TERM during the open: no cancel (no request id yet)" "0" "$(scancels)"
+  rm -f "$DATA/live/answer-backoff"
+done
+end_case_ans
+
+echo "== answer client traps: SIGTERM, SIGINT, SIGHUP mid-wait, cancel only while pending (AC-14 ALY-269.3) =="
+for sig in TERM INT HUP; do
+  ans_case; smode wait hold; ans_bg; swait_hits 1
+  kill -"$sig" "$BGPID" 2>/dev/null; ans_bg_end
+  quiet "SIG$sig mid-wait"
+  check "SIG$sig mid-wait: one cancel, no leftover process, no temp file" "1 0 " "$(scancels) $(marked) $(live_left)"
+  end_case_ans
+done
+ans_case; smode wait hold; smode cancel hold; ans_bg; swait_hits 1
+kill -TERM "$BGPID" 2>/dev/null; ans_bg_end
+quiet "TERM when the cancel is held too"
+check "a held cancel is abandoned after its 1 s limit: one cancel attempt, nothing left" "1 0 " "$(scancels) $(marked) $(live_left)"
+end_case_ans
+ans_case; smode wait "terminal"; ans_run
+check "terminal: no cancel at exit" "0" "$(scancels)"
+end_case_ans
+
+echo "== answer client table: every failure path exits 0 with empty stdout and stderr (AC-16, BR-02 ALY-269.3) =="
+tab() { check "$1: exit status exactly 0, stdout and stderr empty" "0||" "$RC|$OUT|$ERR"; }
+for t in jq curl mktemp sleep; do
+  ans_case; smode wait terminal; REAL="$ROOT_TMP/realbin-no-$t"; make_realbin "$REAL" "$t"; ans_run
+  tab "$t missing from PATH"; check "$t missing: no request" "0" "$(sopen)"
+  end_case_ans
+done
+ans_case; smode wait terminal; ans_run; REAL="$REALBIN_NOSHA"; ans_run
+tab "no sha tool on PATH"; check "no sha tool: no request" "1" "$(sopen)"   # the first run above opened once; the second run added none
+end_case_ans
+ans_case; smode wait terminal; : >"$SB/stdin"; ans_run
+tab "empty stdin"; check "empty stdin: no request" "0" "$(sopen)"
+printf 'this is {not json' >"$SB/stdin"; ans_run
+tab "invalid JSON"; check "invalid JSON: no request" "0" "$(sopen)"
+head -c 1048576 /dev/zero | tr '\0' a >"$SB/big.txt"
+"$JQ_BIN" -nc --rawfile c "$SB/big.txt" --arg s sess-0001 '{hook_event_name: "PermissionRequest", session_id: $s, tool_name: "Bash", tool_input: {command: $c, description: "d"}}' >"$SB/stdin"
+ans_run
+tab "1 MB tool input"
+EXPECT=$("$JQ_BIN" -S -c '[.tool_name, .tool_input]' <"$SB/stdin" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)
+check "1 MB tool input: one open whose hash is the canonical one, and the body stayed small" "1 $EXPECT yes" "$(sopen) $(slog | "$JQ_BIN" -r 'select(.path == "/api/live/requests") | .body | fromjson | .hash') $([ "$(slog | "$JQ_BIN" -r 'select(.path == "/api/live/requests") | .body | length')" -lt 1000 ] && echo yes || echo no)"
+end_case_ans
+for m in "garbage garbage" "notjson notjson" "killmid killmid" "hold hold" "redirect redirect" "500 500" "ok malformed" "ok killmid" "ok redirect"; do
+  set -- $m; ans_case; smode open "$1"; smode wait "$2"; ans_run
+  tab "stub open=$1 wait=$2"
+  end_case_ans
+done
+ans_case; smode wait terminal; ans_run; fake_stop; ans_run
+tab "the stub is gone (connection refused)"
+end_case_ans
+check "no stub process survives the group" "0" "$(fake_survivors)"
+
+echo "== answer client debug log: off by default, 0600, no secrets or texts (AC-17, D-16 ALY-269.3) =="
+ans_case; smode wait terminal; ans_payload sess-0001 Bash '{"command":"echo SECRETWORDXYZ","description":"d"}'; ans_run
+check "without LIVE_ANSWER_DEBUG there is no log file" "" "$(live_left)"
+RUN_ENV=(LIVE_ANSWER_DEBUG=1); ans_run
+quiet "debug on"
+check "the debug log exists with mode 600" "answer-debug.log 600" "$(live_left | tr -d ' ') $(find "$DATA/live/answer-debug.log" -prune -printf '%m' 2>/dev/null)"
+DL=$(cat "$DATA/live/answer-debug.log" 2>/dev/null || true)
+check "the debug log is not empty" "yes" "$([ -n "$DL" ] && echo yes || echo no)"
+check "the debug log holds no credential, nonce, text, hash, session id or decision" "none" "$(case "$DL" in *alyh_*|*"$TOKEN"*|*SECRETWORDXYZ*|*"$VEC1"*|*"$SH1"*|*sess-0001*|*nonce*|*behavior*|*"$TOKFP"*) echo found ;; *) echo none ;; esac)"
+check "stderr stays empty with the debug flag" "" "$ERR"
+end_case_ans
+ans_cleanup_bg
+
 #@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
 # every worker runs these final checks over its own sandboxes; only the worker of the group `final` counts them
