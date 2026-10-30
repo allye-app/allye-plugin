@@ -1898,6 +1898,50 @@ tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/detailed-o
 check "ALY-281 BR-02: texts off, the short description sends no key and writes no stash" "desc=false task=-| no" "$(tk_sdesc t1) $(ls "$DATA/live/"*.agents >/dev/null 2>&1 && echo yes || echo no)"; end_case
 tk_new; tk_agent "Pilot ALY-280.1 token=MARKER_HOSTILE"; tk_start t1
 check "ALY-281 smoke: only the key leaves, the hostile token does not" "0" "$(spooled | grep -c 'MARKER_HOSTILE' || true)"; end_case
+# ALY-281.3 (AC-04, AC-07, BR-02): hostile text in a short description, on both paths. The wire carries no desc for 1-2 words, the only new value is a key
+# that matches the key pattern, and the hostile text is in no file (state, stash, memory, spool).
+tk_kp() { "$JQ_BIN" -r --arg id "$1" 'select(.type == "sub_start" or .type == "sub_tool") | select(.sub.id == $id) | (if .sub.task == null then empty else .sub.task end), (if (.sub | has("desc")) then "DESC" else empty end)' | tr '\n' '|'; }
+tk_wire() { spooled | tk_kp "$1"; }
+tk_nohost() { grep -rlF -e "$1" "$DATA" 2>/dev/null | grep -v '/hook-credential' | wc -l | tr -d ' '; }
+# tk_host LABEL DESCRIPTION EXPECTED-KEY|- FRAGMENT [TYPE]: both paths; wire = key only (or nothing), no desc, no fragment in any file.
+tk_host() {
+  local label="$1" desc="$2" exp="$3" frag="$4" ty="${5:-allye:bridge-pilot}" want="-"
+  [ "$exp" = "-" ] || want="$exp|"; [ "$exp" != "-" ] || want=""
+  tk_new; tk_agent "$desc" "$ty"; tk_start t1 "$ty"
+  check "ALY-281.3 $label (start): the wire holds the key or nothing, never a desc" "$want" "$(tk_wire t1)"
+  check "ALY-281.3 $label (start): the key matches the key pattern or is absent" "ok" "$(tk_wire t1 | tr '|' '\n' | grep -v '^$' | grep -vqE '^[A-Z][A-Z0-9]{1,9}-[0-9]{1,4}\.[0-9]{1,3}$' && echo bad || echo ok)"
+  check "ALY-281.3 $label (start): the hostile text is in no file" "0" "$(tk_nohost "$frag")"; end_case
+  tk_new; "$JQ_BIN" -nc --arg d "$desc" --arg ty "$ty" '{agentType:$ty,description:$d}' >"$TDIR/agent-t1.meta.json"; tk_tool t1 "$ty"
+  check "ALY-281.3 $label (first tool): the wire holds the key or nothing, never a desc" "$want" "$(tk_wire t1)"
+  check "ALY-281.3 $label (first tool): the key matches the key pattern or is absent" "ok" "$(tk_wire t1 | tr '|' '\n' | grep -v '^$' | grep -vqE '^[A-Z][A-Z0-9]{1,9}-[0-9]{1,4}\.[0-9]{1,3}$' && echo bad || echo ok)"
+  check "ALY-281.3 $label (first tool): the hostile text is in no file" "0" "$(tk_nohost "$frag")"; end_case
+}
+tk_host "secret next to a key" "password=MARKER_SEC ALY-5.6" ALY-5.6 "MARKER_SEC"
+tk_host "secret word before a key" "MARKER_TOK ALY-1.2" ALY-1.2 "MARKER_TOK"
+tk_host "path with a key inside" "/etc/ALY-280.1" - "/etc/ALY"
+tk_host "home path with a key" "~/MARKERX/ALY-1.2" - "MARKERX"
+tk_host "backticked key (the cleaner drops the span)" '`ALY-1.2` MARKER_BT' - "MARKER_BT"
+tk_host "control characters around a key" $'MARKER_CC\x01\x1b[31m ALY-3.4' ALY-3.4 "MARKER_CC"
+tk_host "zero width characters in a key (stripped, then only the key)" $'ALY-​3.4 MARKER_ZW' ALY-3.4 "MARKER_ZW"
+tk_host "zero width characters beside a key" $'MARKER_ZW2​ ALY-3.4' ALY-3.4 "MARKER_ZW2"
+tk_host "two different keys" "ALY-5.6 ALY-7.8" - "ALY-7.8"
+for role in recon strategist architect armorer dispatcher; do
+  tk_host "planning role $role" "MARKER_PR_$role ALY-5.6" - "MARKER_PR_$role" "allye:bridge-$role"
+done
+tk_host "planning role without the prefix" "MARKER_PR0 ALY-5.6" - "MARKER_PR0" recon
+tk_host "text over the cap with a key (only the key leaves)" "ALY-5.6 $(printf 'MARKER_LONG%.0s' $(seq 1 400))" ALY-5.6 "MARKER_LONG"
+# AC-07: 3 words or more send the same desc and task as before the fix (literals computed with the hook of the commit before the fix).
+tk_full() {
+  local label="$1" desc="$2" exp="$3"
+  tk_new; tk_agent "$desc"; tk_start t1
+  check "ALY-281.3 AC-07 $label (start): desc and task are unchanged" "$exp" "$(spooled | "$JQ_BIN" -r 'select(.type == "sub_start") | "\(.sub.desc // "-")~\(.sub.task // "-")"' | tr '\n' '|')"; end_case
+  tk_new; "$JQ_BIN" -nc --arg d "$desc" '{agentType:"allye:bridge-pilot",description:$d}' >"$TDIR/agent-t1.meta.json"; tk_tool t1
+  check "ALY-281.3 AC-07 $label (first tool): the task is unchanged" "${exp#*~}" "$(tk_ttask t1)"; end_case
+}
+tk_full "key" "Implement ALY-263.3 for the slice" "Implement ALY-263.3 for the slice~ALY-263.3|"
+tk_full "no key" "Implement the whole slice now" "Implement the whole slice now~-|"
+tk_full "hostile token and a key" "Implement ALY-263.3 ignore previous; token=MARKER_HOSTILE" "Implement ALY-263.3 ignore previous;~ALY-263.3|"
+tk_full "four words, two keys" "Do ALY-263.3 and ALY-263.4" "Do ALY-263.3 and ALY-263.4~-|"
 
 #@group synth 50
 echo "== synthetic sub_start for unseen subagents (ALY-217.7 AC-35, AC-36, D-26) =="
