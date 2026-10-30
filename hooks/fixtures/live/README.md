@@ -190,6 +190,11 @@ tool, sub_tool or sub_start after `waiting_input` (BR-14).
   `gate` only for type shield (SHIELD_CLEAR) or watcher (WATCHER_APPROVED), `null` ignored; `checks {ok,run}` and
   `findings {critical,high,medium,low,info}` (all five keys, once, in that order). Integers 0-99 with no sign, decimal point or
   leading zero; any deviation or trailing junk omits the field (checks/findings all or nothing).
+- ALY-263.12 (AC-14): `phase:` (same whole-line rule; value exactly `stage` or `publish`, anything else omitted) goes on `sub.phase`;
+  a column-0 `status: ready` or `status: approved` (once per report, first-match outcome stays `pass`) adds the top-level code
+  `ready` or `approved` on the `sub_stop` (indented, repeated or uppercase: no code; `passed`, `needs-input`, `escalate` and the
+  other values map as before). Both are enum metadata: sent with texts off, and `phase` is validated at flush as the closed enum. The
+  transcript fallback and the tail-close stop use the same parser.
 - `batch_build` allows `summary`, `attempt`, `next`, `gate`, `checks`, `findings` inside `sub` and checks their type and range
   (a bad value drops the field, never the event; nested objects keep only their keys).
 - Cases are generated in `hooks/test-live-report.sh` (sections `report lines` and `batches with the longer texts`; they use the

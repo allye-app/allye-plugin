@@ -85,6 +85,9 @@ CFP=""
 #   fail; blocked|needs-input|escalate -> blocked; anything else, or no such line -> unknown + code returned. The
 #   first line `task: <KEY>` (same layout) contributes the task when it matches the key pattern. The message text
 #   is never copied: only the mapped enumeration, the code and a valid key leave.
+#   ALY-263.12 (AC-14): report lines `phase: stage|publish` (sub.phase) and a column-0, once-per-report `status: ready|approved`
+#   (code ready|approved, outcome stays pass) follow the whole-line rules of the other report lines (column 0, exact lowercase
+#   key, once; any other value sends nothing). Both are enum metadata, sent even with texts off; `phase` is validated at flush.
 # - gates: after a PostToolUse of tool Write or Edit in the MAIN session (never inside a subagent) whose
 #   tool_input.file_path is textually `<cwd>/.allye/missions/<slug>/log.md` (cwd absolute without control
 #   characters, `.`/`..`/`//` segments refused, slug ^[a-z0-9-]{1,80}$). The cwd is resolved physically
@@ -366,9 +369,10 @@ jq_valid_def() {
       elif .key == "checks" then (.value | type == "object" and (pick(["ok","run"]) != null))
       elif .key == "findings" then (.value | type == "object" and (pick(["critical","high","medium","low","info"]) != null))
       elif .key == "resumed" then (.value == true)
+      elif .key == "phase" then (.value | IN("stage","publish"))
       else true end;
     def keep: with_entries(select(.key | IN("seq","at","type","state","tool","code","sub","bind","gates","activity","label")))
-      | (if (.sub | type) == "object" then .sub |= (with_entries(select(.key | IN("id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed")) | select(subfld))
+      | (if (.sub | type) == "object" then .sub |= (with_entries(select(.key | IN("id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed","phase")) | select(subfld))
           | (if has("checks") then .checks |= pick(["ok","run"]) else . end)
           | (if has("findings") then .findings |= pick(["critical","high","medium","low","info"]) else . end)) else . end);
     def ok: type == "object" and (.seq | type == "number" and . == floor and . >= 1) and (.at | type == "string")
@@ -1382,6 +1386,7 @@ def newfields($ty):
   | (chipline("attempt"; "(?<v>[012])")) as $at
   | (chipline("next"; "(?<v>[A-Za-z_-]{1,20})")) as $nx
   | (chipline("gate"; "(?<v>SHIELD_CLEAR|WATCHER_APPROVED)")) as $gt
+  | (chipline("phase"; "(?<v>stage|publish)")) as $ph
   | (chipline("checks"; "ok=(?<ok>" + n99 + ") run=(?<run>" + n99 + ")")) as $ck
   | (chipline("severity_counts"; "critical=(?<critical>" + n99 + ") high=(?<high>" + n99 + ") medium=(?<medium>" + n99 + ") low=(?<low>" + n99 + ") info=(?<info>" + n99 + ")")) as $sv
   | {}
@@ -1389,13 +1394,16 @@ def newfields($ty):
   + (if $at != null then {attempt: ($at.v | int99)} else {} end)
   + (if $nx != null then ($nx.v | ascii_downcase | gsub("-"; "_")) as $t | (if $t | IN("reviewers","pilot_correction","mothership","watcher","done") then {next: $t} else {} end) else {} end)
   + (if $gt != null and (($gt.v == "SHIELD_CLEAR" and ($ty | test("\\A(allye:)?(bridge-)?shield\\z"))) or ($gt.v == "WATCHER_APPROVED" and ($ty | test("\\A(allye:)?(bridge-)?watcher\\z")))) then {gate: $gt.v} else {} end)
+  + (if $ph != null then {phase: $ph.v} else {} end)
   + (if $ck != null then {checks: ($ck | map_values(int99))} else {} end)
   + (if $sv != null then {findings: ($sv | map_values(int99))} else {} end);
 # ALY-263.4 (AC-07): meta_desc is set only by the shell from the metadata file; cleaned like the other texts, nothing while texts are off.
 def metadesc: if $txt == "1" then ((.meta_desc | if type == "string" then actphrase(actcap) else null end) as $d | if $d != null then {desc: $d} else {} end) else {} end;
-def substop: outcome as $r | (tkline // null) as $t
+# ALY-263.12 (AC-14): the code ready|approved only from a status line at column 0, once per report, whose first-match outcome is pass.
+def statuscode: (chipline("status"; "(?<v>ready|approved)")) as $sc | if $sc != null and (stline | IN("ready","approved")) and stline == $sc.v then $sc.v else null end;
+def substop: outcome as $r | (statuscode // $r.c) as $cd | (tkline // null) as $t
   | {type: "sub_stop", sub: (subof + {outcome: $r.o} + (if ($t | keyok) then {task: $t} else {} end) + newfields(subof.type) + metadesc)}
-    + (if $r.c != null then {code: $r.c} else {} end);
+    + (if $cd != null then {code: $cd} else {} end);
 def withact($a): if $a != null then . + {activity: $a} else . end;
 # ALY-263.3, ALY-263.9 (AC-05, AC-06, AC-13, D-08, D-12): the one phrase builder of a subagent tool call (slice .13 moves the main session
 # to it): (a) the description path (actof, free text: the cleaner keeps its 3-word minimum), else (b) a CONSTANT template of the

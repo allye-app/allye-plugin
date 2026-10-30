@@ -633,11 +633,18 @@ stop_case() {
   end_case
 }
 SUBP='"id":"agent-abc123","type":"allye:bridge-pilot"'
-for st in passed approved ready; do
-  stop_case "status $st -> pass" "MARKER_LASTMSG
+stop_case "status passed -> pass" "MARKER_LASTMSG
 role: pilot
-status: $st" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+status: passed" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+for st in approved ready; do
+  stop_case "status $st -> pass with code $st (ALY-263.12 AC-14)" "MARKER_LASTMSG
+role: pilot
+status: $st" "{\"type\":\"sub_stop\",\"code\":\"$st\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
 done
+stop_case "indented status ready -> pass without the code (column 0 only)" "  status: ready" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "status ready twice -> pass without the code (once per report)" "status: ready
+status: ready" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
+stop_case "status READY (uppercase) -> unknown/returned" "status: READY" "{\"type\":\"sub_stop\",\"code\":\"returned\",\"sub\":{$SUBP,\"outcome\":\"unknown\"}}"
 stop_case "status advisory -> pass with code advisory" "status: advisory" "{\"type\":\"sub_stop\",\"code\":\"advisory\",\"sub\":{$SUBP,\"outcome\":\"pass\"}}"
 stop_case "status failed -> fail" "status: failed" "{\"type\":\"sub_stop\",\"sub\":{$SUBP,\"outcome\":\"fail\"}}"
 for st in blocked needs-input escalate; do
@@ -725,6 +732,9 @@ tr_new; { tr_res "status: passed"; } >"$AF"; tr_run "status inside a tool_result
 tr_new; { tr_blob "status: passed"; } >"$AF"; tr_run "an assistant line inside a blob is not read" unknown; end_case
 tr_new; printf 'not json at all\n%s\n{"type":"assistant",\n' "$(tr_hb "status: passed")" >"$AF"; tr_run "invalid JSON lines are skipped" pass; end_case
 tr_new; printf '%s' "$(tr_hb "status: passed")" >"$AF"; tr_run "an unterminated last line is dropped" unknown; end_case
+tr_new; { tr_hb "status: ready
+phase: publish"; } >"$AF"; "$JQ_BIN" --arg tp "$PROJ/t.jsonl" --arg ap "$AF" '.transcript_path = $tp | .agent_transcript_path = $ap | .last_assistant_message = "closing words"' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+check "ALY-263.12: the transcript report carries code ready and phase publish" '{"code":"ready","phase":"publish"}' "$(stopped | "$JQ_BIN" -cS '{code: .code, phase: .sub.phase}')"; end_case
 tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "a status already in the message: the transcript is not read" pass . "status: passed"; end_case
 tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "an indented status in the message is not column-0: the transcript is read" fail . "  status: passed"; end_case
 tr_new; { tr_hb "status: failed"; } >"$AF"; tr_run "a status line without a value: the transcript is read" fail . "status:"; end_case
@@ -912,6 +922,44 @@ next: reviewers
 gate: WATCHER_APPROVED
 checks: ok=2 run=2
 severity_counts: critical=0 high=0 medium=0 low=0 info=1" "{\"task\":\"ALY-258.2\",\"summary\":\"$RLSUM\",\"attempt\":1,\"next\":\"reviewers\",\"gate\":\"WATCHER_APPROVED\",\"checks\":{\"ok\":2,\"run\":2},\"findings\":{\"critical\":0,\"high\":0,\"medium\":0,\"low\":0,\"info\":1}}" allye:bridge-watcher
+# ALY-263.12 (AC-14): phase stage|publish and the codes ready|approved; the codes are top-level on the sub_stop, so a dedicated helper
+# rc_case LABEL MESSAGE EXPECTED-SUB-EXTRAS-JSON EXPECTED-CODE(or "") [off] [OUTCOME, default pass]
+rc_case() {
+  new_case; mkcred; [ "${5:-}" = off ] && { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/activity-off"; chmod 600 "$DATA/live/activity-off"; }
+  "$JQ_BIN" --arg m "$2" '.last_assistant_message = $m' "$FIX/subagent-stop.json" >"$SB/stdin"; run_hook
+  check "$1" "$("$JQ_BIN" -cS -n --argjson x "$3" --arg c "$4" --arg o "${6:-pass}" '{type: "sub_stop", sub: ({id: "agent-abc123", type: "allye:bridge-pilot", outcome: $o} + $x)} + (if $c != "" then {code: $c} else {} end)')" "$(stopped)"
+  check "$1: exit 0, silent" "0||" "$RC|$OUT|$ERR"
+  end_case
+}
+rc_case "phase stage with status passed (Navigator): outcome pass and phase" "${P}phase: stage" '{"phase":"stage"}' ""
+rc_case "phase publish" "${P}phase: publish" '{"phase":"publish"}' ""
+rc_case "phase with CRLF" "$(printf 'status: passed\r\nphase: stage\r\n')" '{"phase":"stage"}' ""
+rc_case "phase other value sends nothing" "${P}phase: review" '{}' ""
+rc_case "phase uppercase value sends nothing" "${P}phase: STAGE" '{}' ""
+rc_case "phase twice sends nothing" "${P}phase: stage
+phase: stage" '{}' ""
+rc_case "phase twice with different values sends nothing" "${P}phase: stage
+phase: publish" '{}' ""
+rc_case "phase indented / bold / list / capital sends nothing" "${P}  phase: stage
+**phase:** stage
+- phase: stage
+Phase: stage
+PHASE: publish" '{}' ""
+rc_case "phase with trailing junk sends nothing" "${P}phase: stage MARKER_PROSE" '{}' ""
+rc_case "status ready with phase: both" "status: ready
+phase: publish" '{"phase":"publish"}' "ready"
+rc_case "status approved: code approved, outcome pass" "status: approved" '{}' "approved"
+rc_case "status needs-input: blocked, no new code" "status: needs-input" '{}' "" "" blocked
+rc_case "status escalate: blocked, no new code" "status: escalate" '{}' "" "" blocked
+rc_case "texts off still sends the enums (phase and code)" "status: approved
+phase: stage
+summary: $RLSUM" '{"phase":"stage"}' "approved" off
+# the closed enum at flush: a spooled phase outside stage|publish is dropped from the nested object, the event and the valid phase stay
+new_case; mkcred; SHIMD="$SHIMS"; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; SPF="$DATA/live/$(test_sha "$RAWSID").spool"
+"$JQ_BIN" -nc --arg at "$(nowiso)" '{seq: 1, at: $at, type: "sub_stop", sub: {id: "agent-p1", type: "allye:bridge-navigator", outcome: "pass", phase: "stage"}}, {seq: 2, at: $at, type: "sub_stop", sub: {id: "agent-p2", type: "allye:bridge-navigator", outcome: "pass", phase: "bogus"}}, {seq: 3, at: $at, type: "sub_stop", sub: {id: "agent-p3", type: "allye:bridge-navigator", outcome: "pass", phase: "STAGE"}}, {seq: 4, at: $at, type: "sub_stop", sub: {id: "agent-p4", type: "allye:bridge-navigator", outcome: "pass", phase: "publish"}}' >"$SPF"; chmod 600 "$SPF"
+run_fixture user-prompt-submit; for i in $(seq 1 100); do [ -s "$SB/api/ingest-bodies.log" ] && break; sleep 0.05; done; wait_idle
+check "phase at flush: stage and publish are sent, any other value is dropped, the events stay" "agent-p1:stage agent-p2:- agent-p3:- agent-p4:publish" "$("$JQ_BIN" -r '.events[] | select(.type == "sub_stop") | "\(.sub.id):\(.sub.phase // "-")"' "$SB/api/ingest-bodies.log" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+end_case
 # AC-12: a report with none of the new lines gives the previous event; the code of an unknown status stays
 rl_case "legacy report (none of the new lines, prose around): exactly the previous sub_stop" "MARKER_LASTMSG role: pilot
 summary text here is prose, attempt 1, next steps: none
@@ -1143,7 +1191,7 @@ check "stdout and stderr were empty for every payload" "" "$(cat "$SB/out" "$SB/
 check "every spool line holds only contract fields (seq included)" "0" "$("$JQ_BIN" -c 'select((keys - ["seq","at","type","state","tool","code","sub","bind","gates","activity","label"]) | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every spool line holds only permitted nested sub keys (ALY-258.1 nested allowlist)" "0" "$("$JQ_BIN" -c 'select((.sub // {} | keys) - ["id","type","outcome","task","desc","summary","attempt","next","gate","checks","findings","resumed"] | length > 0)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 check "every state value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.state != null) | .state | select(IN("started","working","waiting_input","idle","error","ended") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
-check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
+check "every code value is in the contract enumeration" "0" "$("$JQ_BIN" -r 'select(.code != null) | .code | select(IN("turn_ended","asked_question","permission_prompt","advisory","returned","ready","approved","cli_error_rate_limit","cli_error_authentication_failed","cli_error_billing_error","cli_error_invalid_request","cli_error_server_error","cli_error_max_output_tokens","cli_error_unknown","end_clear","end_resume","end_logout","end_prompt_input_exit","end_live_off","end_other") | not)' "$DATA"/live/*.spool | wc -l | tr -d ' ')"
 end_case
 
 # ─── ALY-217.6: activity phrases (BR-10..BR-13, AC-27..AC-33) ────────────────
@@ -3509,6 +3557,12 @@ rs_nstops() { rs_stops "$1" | wc -l | tr -d ' '; }
 rs_cycle() {  # a stopped, resumed id r1 whose transcript holds the first handback only (recorded at the stop)
   rs_start r1; rs_tool r1; { rs_hb "status: passed"; } >"$TDIR/agent-r1.jsonl"; rs_stop r1 ""; rs_tool r1
 }
+rs_new; rs_cycle
+{ rs_hb "status: approved
+phase: stage
+attempt: 1"; } >>"$TDIR/agent-r1.jsonl"
+rs_main
+check "ALY-263.12: the tail-close stop carries phase and the approved code" '{"code":"approved","phase":"stage"}' "$(rs_stops r1 | tail -n 1 | "$JQ_BIN" -cS '{code: .code, phase: .sub.phase}')"; end_case
 rs_new; rs_cycle
 { rs_hb "status: failed
 summary: second round was rejected
