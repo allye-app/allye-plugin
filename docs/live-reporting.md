@@ -2,7 +2,7 @@
 
 Part of the [Allye plugin](../README.md).
 
-When this install is paired (see "Pinned preferences" in the [README](../README.md)), the plugin also tells Allye what your Claude Code sessions are doing, so a run shows up live next to its spec: the session state, which tool is in use, which subagents run and how they ended. It sends labels and keys, plus short agent-written texts, each at most 140 characters (60 for the session label) and cleaned on your machine (the dispatch description of a subagent, an activity phrase for each tool call, the `summary:` line of a crew report and the session label; see "Agent texts"), never your prompts, commands or files. It is sent by asynchronous hooks that never block or print anything, and it does nothing when the install is not paired. It needs `curl`, `jq` and a SHA-256 tool (`sha256sum` or `shasum`).
+When this install is paired (see "Pinned preferences" in the [README](../README.md)), the plugin also tells Allye what your Claude Code sessions are doing, so a run shows up live next to its spec: the session state, which tool is in use, which subagents run and how they ended. It sends labels and keys, plus short agent-written texts, each at most 140 characters (60 for the session label) and cleaned on your machine (the dispatch description of a subagent, an activity phrase for each tool call, the `summary:` line of a crew report and the session label; see "Agent texts"), never your prompts, commands or files. It is sent by asynchronous hooks that never block or print anything (the one blocking hook, the answer hook of "Answering from Allye", is separate), and it does nothing when the install is not paired. It needs `curl`, `jq` and a SHA-256 tool (`sha256sum` or `shasum`).
 
 ```
 /allye:hooks live status   # on or off, local sessions, spooled events, last result; no network call
@@ -13,7 +13,7 @@ When this install is paired (see "Pinned preferences" in the [README](../README.
 
 ## Events
 
-`hooks/hooks.json` registers `hooks/live-report.sh` for 12 events. Every line it sends also carries `seq` (an increasing number) and `at` (UTC time); every request carries the client kind (`claude-code`) and the session as a SHA-256 hash, never the session id.
+`hooks/hooks.json` registers `hooks/live-report.sh` for 13 events (all asynchronous except `SessionEnd`) and, besides it, the blocking `hooks/live-answer.sh` on `PermissionRequest` (see "Answering from Allye"). Every line it sends also carries `seq` (an increasing number) and `at` (UTC time); every request carries the client kind (`claude-code`) and the session as a SHA-256 hash, never the session id.
 
 | Hook event | Sends |
 |---|---|
@@ -21,7 +21,8 @@ When this install is paired (see "Pinned preferences" in the [README](../README.
 | `UserPromptSubmit` | `state` `working` |
 | `UserPromptExpansion` | nothing but a `bind` when the command is `/bridge <mode> [KEY]` |
 | `PreToolUse` | `tool` (tool name), or `sub_tool` (tool name plus `sub` id and type) inside a subagent, each with an `activity` phrase (at most 140 characters) by the grammar of "Activity phrases" (one event per tool call of the main session or of a subagent, never several phrases collapsed into the latest); the first `sub_tool` of an agent id may also carry `sub.task` (see "Task key") and, after a stop, `sub.resumed` (see "Resumed agents"); `state` `waiting_input` with code `asked_question` for AskUserQuestion; `bind` from the Bridge skill, an Allye MCP call or a spec read (see "Binding a session to a spec"); `label` at most once a minute when the title changed |
-| `PostToolUse` | no tool line; `state` `working` after a wait; `gates` (the set of gate markers and, when the log has one, the integer `pr`) after the Bridge journal was written |
+| `PostToolUse` | no tool line; `cmd_end` with `ok` true (see "Answering from Allye"); `state` `working` after a wait; `gates` (the set of gate markers and, when the log has one, the integer `pr`) after the Bridge journal was written |
+| `PostToolUseFailure` | `cmd_end` with `ok` false (the response is never read); nothing else |
 | `PermissionRequest` | `state` `waiting_input`, code `permission_prompt` |
 | `Notification` | `waiting_input` / `permission_prompt` for a permission prompt, `state` `idle` for an idle prompt; any other type is dropped |
 | `SubagentStart` | `sub_start` with `sub` id and type, plus `sub.desc` (the cleaned dispatch description) and `sub.task` (the task key found in it) when exactly one stashed Agent/Task call of that type matches (see "Agent texts"); there is no separate `sub_tool` event for the Agent call |
@@ -50,6 +51,18 @@ Who sees them and for how long (decided by the Allye API, not by this plugin): t
 The session is linked to a spec or task by the strongest of four sources: the Bridge skill (`/bridge <mode> [KEY]` or the Skill tool) over an Allye MCP call whose arguments name a spec or task (the `task_start` and `task_submit` actions), over `ALLYE_SPEC` / `ALLYE_TASK` at session start, over a branch name at session start such as `bridge/aly-203-...`. A new bind is sent only when it is stronger than the last one, or equal with different content. Calls made inside a subagent never bind.
 
 **Bind touches.** A `spec_context` or `spec_get` call of the main session with a key matching `^[A-Z][A-Z0-9]{1,9}-\d+$`, and a `/bridge` launch with a key, are also sent as a bind when they are weaker than the held binding or identical to it, so Allye can tell which spec the session touched last (its "working on"). Such a touch is limited to one per key per minute (`<hash>.touch`, up to 16 `KEY ms` lines) and never changes the held binding stored locally. `spec_list`, validations and anything inside a subagent never touch. Reading an old spec for reference does move "working on", which is intended; the Allye API decides whether the key is readable.
+
+## Answering from Allye (return channel)
+
+Besides the reporter, `hooks/hooks.json` registers a blocking `PermissionRequest` hook, `hooks/live-answer.sh` (timeout 120 s). It lets the owner of the session answer a question (`AskUserQuestion`) or allow once / deny a normal-risk permission from Allye. It is the opposite of the rest of this page: it waits, and it can print a decision, but only a strictly validated one. The terminal keeps the last word: the dialog stays usable while the hook waits, and the hook exits 0 with no output on any doubt. Nothing is ever "always allow", and the tool input is never edited except by adding the answers to a question.
+
+What it sends to open a request: the session hash, the kind (`permission` or `question`), the hash of the call, the risk class (`normal` or `high`), the tool name (another server's MCP tools as `mcp`), the activity phrase of "Activity phrases" (left out when texts are off), for a question the cleaned header, question, option label and description texts (at most 4 questions with 4 options; nothing is sent and nothing is opened when Detailed Live or activity is off) and, when readable, the `after` number (the reporter's last `seq`). Never the command, path, prompt or tool input. The hash is the SHA-256 of `jq -S -c` over `[tool_name, tool_input]` (for `AskUserQuestion`, over `tool_input.questions`). The reporter adds `tu` (the hook call id) to `tool` and `sub_tool` events and a `cmd_end` event `{tu, h, seq, at, ok}` on `PostToolUse` and `PostToolUseFailure`, where `h` is the same hash; this is how Allye learns that you answered in the terminal.
+
+Risk is raised only by the plugin, never lowered. High: `Bash`, unknown tools, every MCP tool other than the Allye plugin server, any Allye action that writes, and any path tool whose path is outside the project or protected. The project root is `CLAUDE_PROJECT_DIR`; when it is unset, every path tool is high. Protected paths are dotfiles and dot-directories, `scripts/` directories, manifests, lockfiles and build or CI files. Only Allye's read-only actions are normal. High requests can only be denied from Allye (or answered in the terminal). Accepted limitation: a repository `.mcp.json` server named `plugin_allye_allye` cannot be told from the plugin's server by name, so its read-looking actions count as normal; the API recomputes the risk and keeps any higher one.
+
+The wait: up to 110 s (the hook timeout is 120 s), polling the API in chunks of at most 30 s. It ends at once on `terminal`, `expired`, `no_audience` or `answerable` false, and cancels the request on exit while it is still pending. A Yes or an answer in the terminal does not stop the hook: it ends when Allye ends the request (from `cmd_end`) or at the deadline. A decision or a question answer is printed once, after checks (decision texts are stripped of control and invisible characters and capped at 200 code points for a message and 500 for an `other` answer; NFC only when `uconv` is installed).
+
+It does nothing, with no network call, when reporting is off (`/allye:hooks live off`), disabled, unpaired or the credential is missing. The API origin comes only from the pairing file. After an open fails the hook backs off without calling the network: 60 s after a connect failure, timeout, 5xx or other error, 10 minutes after a 404 (other than `run_not_found`) or a 405, none after a 429 or `run_not_found`. When an ingest answers 400 to a batch with `tu` or `cmd_end`, the reporter leaves them out for 10 minutes.
 
 ## Self-reported, informational
 
@@ -170,7 +183,7 @@ The per-event cost of the hook is measured, not asserted: `hooks/test/measure-la
 
 ## Test-only settings
 
-`ALLYE_LIVE_WATCH` (`0` disables the watcher), `ALLYE_LIVE_WATCH_INTERVAL` (poll seconds, 1 to 20), `ALLYE_LIVE_WATCH_CAP` (run limit in seconds) and `ALLYE_LIVE_FINAL_DELAYS` (retry delays of the final flusher) exist for the automated tests only. Do not set them in normal use; the defaults above are the supported behaviour.
+`ALLYE_LIVE_WATCH` (`0` disables the watcher), `ALLYE_LIVE_WATCH_INTERVAL` (poll seconds, 1 to 20), `ALLYE_LIVE_WATCH_CAP` (run limit in seconds) and `ALLYE_LIVE_FINAL_DELAYS` (retry delays of the final flusher) and `LIVE_ANSWER_BUDGET_S` (lowers the 110 s wait of the answer hook) exist for the automated tests only. Do not set them in normal use; the defaults above are the supported behaviour.
 
 ## Release order
 
