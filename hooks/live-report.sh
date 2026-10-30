@@ -55,7 +55,8 @@ CFP=""
 
 # ─── ALY-203.2: extract allowlisted events from the payload and spool them ───
 # BR-02: every value is read by the allowlisted jq program below and matched against its pattern or
-# enumeration inside it; a value that fails is DROPPED (never truncated, never sent). Prompts, commands,
+# enumeration inside it; a value that fails is DROPPED (never truncated, never sent; the Bridge args are tokenized inside a
+# fixed 300-code-point window and a token touching the window edge is dropped, ALY-279.1). Prompts, commands,
 # tool inputs and outputs, paths, messages, transcripts and the cwd are never read into the output; the one exception is
 # the activity phrase of ALY-217.6 (an agent-written description or todo form, cleaned and redacted by actphrase in that
 # same jq program before anything is spooled or stashed; off while $CLAUDE_PLUGIN_DATA/live/activity-off exists).
@@ -70,7 +71,9 @@ CFP=""
 #   [A-Za-z0-9_-] is dropped. No other tool_input value is ever read for the tool field.
 # - Bind sources, strongest first: skill(4) mcp(3) env(2) branch(1). skill: Skill tool call or
 #   UserPromptExpansion for `bridge`/`allye:bridge` with args `<mode> [KEY]`: only the mode enumeration and a
-#   key matching the key pattern leave (an invalid mode drops the whole bind, an invalid key only the key).
+#   key matching the key pattern leave (an invalid mode drops the whole bind, an invalid key only the key). Only the first
+#   300 code points of the args are tokenized, whatever their length (ALY-279.1, D-20): in longer args the first two tokens
+#   count only when each ends before the window edge (a touching first token: no bind; a touching second: mode, no key).
 #   mcp: an Allye MCP call whose tool_input.spec / tool_input.task match the key pattern (a task key does NOT
 #   supply a spec part). env: ALLYE_SPEC / ALLYE_TASK of this process, at SessionStart. branch: SessionStart
 #   only, when no bind of rank > 1 was sent for the session, through the one safe git call below. Calls made
@@ -106,7 +109,13 @@ CFP=""
 #   tokens whose value is neither empty nor the em dash is sent as {type:gates,gates:[...]}, the empty set
 #   included, only when it differs from the last set sent ($HASH.gates, same owner/mode/symlink checks; absent
 #   means the empty set, so a first all-dash journal sends nothing). No Gates line: nothing. Nothing about the
-#   file (path, other lines, sha values) leaves.
+#   file (path, other lines, sha values) leaves, except the mode token below.
+#   ALY-279.2 (D-21, D-22): the same read also takes the first column-0 line starting `- Mode:`; it counts only when it is
+#   `- Mode: <enum>` with the enum of skillb `modes`, optionally followed by a blank and anything (`launchpad`, an indented line,
+#   an unknown value or a later valid line after an invalid first one send nothing). That token alone leaves, as the bind
+#   {source:"skill",role:"bridge",mode} with no spec or task, when the stored bind has no mode (missing bind file = none; present
+#   but unreadable, corrupt or a symlink = nothing) and $HASH.logmode (the last mode sent, 0600, same checks) differs. The stored
+#   bind is never rewritten.
 #   ALY-263.15 (AC-18, D-20, D-21): the same verified read also takes the first column-0 line matching
 #   `^- PR: #([1-9][0-9]{0,6})[ \t\r]*$` (any other text on the line, `#0`, `#01`, 8 digits, an indented or lowercase
 #   line match nothing; a non-matching `- PR:` line is skipped, the first MATCHING line wins). Its number leaves only as the
@@ -1641,8 +1650,11 @@ def evs:
 def modes: ["launch","mission","blueprint","dispatch","repair","optimize","shield","inspect","survey"];
 def kv($k): if ($k | keyok) then (if ($k | contains(".")) then {task: $k} else {spec: $k} end) else {} end;
 def skillb($name; $args):
-  if ($name | type) == "string" and ($name | IN("bridge","allye:bridge")) and ($args | type) == "string" and ($args | length) <= 300 then
-    [$args | match("[^ \t\r\n]+"; "g").string] as $t
+  if ($name | type) == "string" and ($name | IN("bridge","allye:bridge")) and ($args | type) == "string" then
+    # ALY-279.1 (BR-01, BR-02, D-20): tokenize a fixed window of 300 code points, whatever the total length; when the args are
+    # longer than the window a token must end strictly before its edge (a cut token could be a different valid value).
+    ($args | length) as $n
+    | [$args[0:300] | match("[^ \t\r\n]+"; "g") | select($n <= 300 or (.offset + .length) < 300) | .string] as $t
     | if ($t | length) > 0 and ($t[0] | IN(modes[])) then {source: "skill", role: "bridge", mode: $t[0]} + kv($t[1] // null) | if has("spec") then . + {touch: true} else . end else null end
   else null end;
 # ALY-217.4 (BR-08, D-03, D-22): only the claim-like writes task_start and task_submit (exact, lowercase) bind.
@@ -2059,7 +2071,7 @@ fi
 
 # ─── ALY-203.4: gates (BR-10). Every check must pass before the file is opened. ───
 GATEF="$LIVE_DIR/$HASH.gates"
-GATELINE=""; GNEW=""; PRNEW=""; PLAST=""; PRSEND=""; GEFF=""; PWRITE=""
+GATELINE=""; GNEW=""; PRNEW=""; LMNEW=""; LMLINE=""; PLAST=""; PRSEND=""; GEFF=""; PWRITE=""
 mission_log_of() {  # prints the physical log.md path for GFP/GCWD, or fails
   local fp="$1" cwd="$2" phys slug p
   case "$cwd/" in */./*|*/../*|*//*) return 1 ;; esac
@@ -2083,22 +2095,28 @@ mission_log_of() {  # prints the physical log.md path for GFP/GCWD, or fails
 if [ "$GFP" != "-" ] && [ "$GCWD" != "-" ]; then
   GPATH=$(mission_log_of "$GFP" "$GCWD") || GPATH=""
   if [ -n "$GPATH" ]; then
-    # two lines out: the gates array (or -) and the pr digits (or -); nothing else of the file is printed
+    # three lines out: the gates array (or -), the pr digits (or -) and the mode token (or -); nothing else of the file is printed
     GOUT=$(head -c 65536 "$GPATH" 2>/dev/null | jq -Rrs '
       ["SHIELD_CLEAR","WATCHER_APPROVED","MISSION_COMPLETE","CI_PENDING"] as $set
       | split("\n") as $ls
       | ($ls | map(select(test("\\A- Gates:"))) | .[0]) as $l
       | ($ls | map(select(test("\\A- PR: #[1-9][0-9]{0,6}[ \t\r]*\\z"))) | .[0]) as $p
+      | ($ls | map(select(startswith("- Mode:"))) | .[0]) as $m
       | (if $l == null then "-"
          else ([($l | sub("\\A- Gates:"; "") | split("\u00b7")[]
                   | gsub("\\A[ \t]+|[ \t\r]+\\z"; "") | split(" ") | map(select(length > 0)))
                 | select(length >= 2 and .[1] != "\u2014") | .[0]]) as $on
               | [$set[] | select(. as $n | $on | index($n) != null)] | tojson
          end),
-        (if $p == null then "-" else ($p | sub("\\A- PR: #"; "") | gsub("[ \t\r]"; "")) end)' 2>/dev/null) || GOUT=""
-    GNEW=${GOUT%%$'\n'*}; PRNEW=""; case "$GOUT" in *$'\n'*) PRNEW=${GOUT#*$'\n'} ;; esac
+        (if $p == null then "-" else ($p | sub("\\A- PR: #"; "") | gsub("[ \t\r]"; "")) end),
+        # ALY-279.2: the FIRST column-0 `- Mode:` line decides; the enum is that of skillb `modes`, and an invalid first line ends it
+        (if $m != null and ($m | test("\\A- Mode: (launch|mission|blueprint|dispatch|repair|optimize|shield|inspect|survey)([ \t].*)?\\z"))
+         then ($m | capture("\\A- Mode: (?<k>[a-z]+)").k) else "-" end)' 2>/dev/null) || GOUT=""
+    GNEW=${GOUT%%$'\n'*}; PRNEW=""; LMNEW=""
+    case "$GOUT" in *$'\n'*) PRNEW=${GOUT#*$'\n'}; LMNEW=${PRNEW#*$'\n'}; PRNEW=${PRNEW%%$'\n'*} ;; esac
     case "$GNEW" in "["*"]") ;; *) GNEW="" ;; esac
     [[ "$PRNEW" =~ ^[1-9][0-9]{0,6}$ ]] || PRNEW=""
+    case "$LMNEW" in launch|mission|blueprint|dispatch|repair|optimize|shield|inspect|survey) ;; *) LMNEW="" ;; esac
   fi
   GPATH=""
 fi
@@ -2124,6 +2142,43 @@ if [ -n "$GNEW" ] || [ -n "$PRNEW" ]; then
 fi
 if [ -n "$GATELINE" ]; then
   if [ -n "$EVENTS" ]; then EVENTS="$EVENTS"$'\n'"$GATELINE"; else EVENTS="$GATELINE"; fi
+fi
+
+# ─── ALY-279.2 (D-21, D-22, BR-04..07): the mode of the verified log, as a bind without a key. Only when the log gave a valid mode:
+# the stored bind ($BINDF) must have no mode (missing counts as none; present but unreadable, corrupt or a symlink: nothing) and the
+# marker $HASH.logmode (the last mode sent, same private_file_ok; missing counts as none, present but unusable: nothing) must differ.
+# The event is built outside the rank gate and never written to $BINDF, so a later bind with a key keeps its place in the gate.
+LMF="$LIVE_DIR/$HASH.logmode"
+if [ -n "$LMNEW" ]; then
+  LMB=""
+  if [ -e "$BINDF" ] || [ -L "$BINDF" ]; then
+    if [ -f "$BINDF" ] && [ ! -L "$BINDF" ] && private_file_ok "$BINDF"; then
+      { IFS= read -r LMB; } <"$BINDF" 2>/dev/null || true
+      case "$LMB" in
+        [1-4]'|{'*'"mode":"'*) LMNEW="" ;;   # a real bind already carries a mode
+        [1-4]'|{'*) ;;
+        *) LMNEW="" ;;                       # corrupt
+      esac
+    else LMNEW=""; fi
+  fi
+  if [ -n "$LMNEW" ] && { [ -e "$LMF" ] || [ -L "$LMF" ]; }; then
+    LMB=""
+    if [ -f "$LMF" ] && [ ! -L "$LMF" ] && private_file_ok "$LMF"; then
+      { IFS= read -r LMB; } <"$LMF" 2>/dev/null || true
+      case "$LMB" in
+        "$LMNEW") LMNEW="" ;;
+        launch|mission|blueprint|dispatch|repair|optimize|shield|inspect|survey) ;;
+        *) LMNEW="" ;;                       # corrupt
+      esac
+    else LMNEW=""; fi
+  fi
+  if [ -n "$LMNEW" ]; then
+    LMLINE=$(jq -nc --arg m "$LMNEW" --arg at "$AT" '{type: "bind", bind: {source: "skill", role: "bridge", mode: $m}, at: $at}' 2>/dev/null) || LMLINE=""
+    [ -n "$LMLINE" ] || LMNEW=""
+  fi
+fi
+if [ -n "$LMLINE" ]; then
+  if [ -n "$EVENTS" ]; then EVENTS="$EVENTS"$'\n'"$LMLINE"; else EVENTS="$LMLINE"; fi
 fi
 
 # ─── ALY-263.6: the label event (AC-09). The candidate of the jq program is sent only when it differs from the last value sent
@@ -2223,6 +2278,10 @@ if [ "$LBLWRITE" = after ] || [ "$LBLWRITE" = now ]; then label_state_write "$LB
 if [ -n "$GATELINE" ]; then
   TMP=$(mktemp "$LIVE_DIR/.gates.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
   { printf '%s' "$GEFF"; if [ -n "$PWRITE" ]; then printf '\n%s' "$PWRITE"; fi; } >"$TMP" 2>/dev/null && mv -f "$TMP" "$GATEF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+fi
+if [ -n "$LMLINE" ]; then
+  TMP=$(mktemp "$LIVE_DIR/.logmode.XXXXXX" 2>/dev/null) || exit 0; TMPF="$TMP"
+  printf '%s' "$LMNEW" >"$TMP" 2>/dev/null && mv -f "$TMP" "$LMF" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 fi
 # The Agent/Task stash (D-24 b): one atomic write (temp 0600 + mv) when it changed; an emptied stash is removed.
 if [ "$AGT" != "-" ] && [ "$AGOK" = 1 ]; then

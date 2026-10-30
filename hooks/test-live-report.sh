@@ -473,6 +473,54 @@ for bad in "launch2" "LAUNCH" "mission," "" "ship"; do
   check "invalid mode '$bad': no bind, key not sent alone" "" "$(spooled)"
   end_case
 done
+# ALY-279.1 (AC-01..05, BR-01..03, D-20): long args are tokenized in a fixed 300-code-point window, never dropped by length.
+# lw_case LABEL ARGS EXPECTED: EXPECTED is the bind object json, or empty for no bind (the Skill tool call still spools its tool line).
+lw_case() {
+  local label="$1" args="$2" exp="$3" want_skill want_exp
+  if [ -n "$exp" ]; then
+    want_skill="$(printf '%s\n' '{"type":"tool","tool":"Skill"}' "{\"type\":\"bind\",\"bind\":$exp}" | "$JQ_BIN" -cS .)"
+    want_exp="$(printf '%s\n' "{\"type\":\"bind\",\"bind\":$exp}" | "$JQ_BIN" -cS .)"
+  else
+    want_skill='{"tool":"Skill","type":"tool"}'; want_exp=""
+  fi
+  new_case; mkcred
+  "$JQ_BIN" --arg a "$args" '.tool_input.args = $a' "$FIX/skill-bridge-no-key.json" >"$SB/stdin"; run_hook
+  check "$label (Skill tool call, ${#args} chars)" "$want_skill" "$(spooled)"
+  end_case
+  new_case; mkcred
+  "$JQ_BIN" --arg a "$args" '.command_args = $a' "$FIX/expansion-bridge-no-key.json" >"$SB/stdin"; run_hook
+  check "$label (UserPromptExpansion, ${#args} chars)" "$want_exp" "$(spooled)"
+  end_case
+}
+LW_FILL="$(printf 'lorem ipsum %.0s' $(seq 1 400))"
+LW_MODE='{"source":"skill","role":"bridge","mode":"mission"}'
+LW_SPEC='{"source":"skill","role":"bridge","mode":"mission","spec":"ALY-12"}'
+LW_SP="$(printf '%*s' 400 '')"
+echo "== bridge invocation: long args keep their bind (ALY-279.1) =="
+lw_case "373 chars, mode and key" "mission ALY-12 ${LW_FILL:0:358}" "$LW_SPEC"
+lw_case "4411 chars, mode and key" "mission ALY-12 ${LW_FILL:0:4396}" "$LW_SPEC"
+lw_case "long args, mode only" "mission ${LW_FILL:0:366}" "$LW_MODE"
+lw_case "long args, task key" "mission ALY-12.3 ${LW_FILL:0:400}" '{"source":"skill","role":"bridge","mode":"mission","task":"ALY-12.3"}'
+lw_case "long args, invalid mode still no bind" "ship ALY-12 ${LW_FILL:0:400}" ""
+lw_case "first token straddles the window edge (launchpad cut to launch): no bind" "${LW_SP:0:294}launchpad ALY-12" ""
+lw_case "second token straddles the edge (ALY-1 cut from ALY-123456): mode, no key" "mission${LW_SP:0:288}ALY-123456" "$LW_MODE"
+lw_case "first token ends exactly at the edge, 301 chars: no bind" "${LW_SP:0:293}mission " ""
+lw_case "first token ends one before the edge, 301 chars: bind" "${LW_SP:0:292}mission  " "$LW_MODE"
+lw_case "key ends one before the edge, 299 chars: key" "mission${LW_SP:0:286}ALY-12" "$LW_SPEC"
+lw_case "key ends at the edge, 300 chars: key as today" "mission${LW_SP:0:287}ALY-12" "$LW_SPEC"
+lw_case "key ends one before the edge, 301 chars: key" "mission${LW_SP:0:286}ALY-12 x" "$LW_SPEC"
+lw_case "key ends at the edge, 301 chars: no key" "mission${LW_SP:0:287}ALY-12 " "$LW_MODE"
+lw_case "key ends past the edge, 301 chars: no key" "mission${LW_SP:0:288}ALY-12" "$LW_MODE"
+lw_case "300 chars, first token touches the edge: bind as today" "${LW_SP:0:293}mission" "$LW_MODE"
+for v in skill expansion; do
+  new_case; mkcred
+  if [ "$v" = skill ]; then "$JQ_BIN" --arg a "mission ALY-12 SENT_ZQ_IN ${LW_FILL:0:300} SENT_ZQ_OUT" '.tool_input.args = $a' "$FIX/skill-bridge-no-key.json" >"$SB/stdin"
+  else "$JQ_BIN" --arg a "mission ALY-12 SENT_ZQ_IN ${LW_FILL:0:300} SENT_ZQ_OUT" '.command_args = $a' "$FIX/expansion-bridge-no-key.json" >"$SB/stdin"; fi
+  run_hook
+  check "$v: long args, nothing after the first two tokens is spooled (AC-05)" "0" "$(bind_files | grep -cE 'SENT_ZQ|lorem' || true)"
+  check "$v: long args, the bind itself is spooled (sentinel case is not vacuous)" "1" "$(spooled | grep -c '"spec":"ALY-12"' || true)"
+  end_case
+done
 
 #@group git 51
 echo "== environment: ALLYE_SPEC and ALLYE_TASK at SessionStart =="
@@ -1385,6 +1433,103 @@ check "gates event keys are exactly seq, type, gates and at" "seq,type,gates,at"
 check "every gates token is in the enumeration" "0" "$("$JQ_BIN" -r 'select(.type=="gates") | .gates[] | select(IN("SHIELD_CLEAR","WATCHER_APPROVED","MISSION_COMPLETE","CI_PENDING") | not)' "$DATA"/live/*.spool | grep -c . || true)"
 check "no sha, journal text, path or slug in any file or log" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find ' ; } | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|missions|m-1' || true)"
 end_case
+
+# ─── ALY-279.2: the Mode line of the verified log gives role and mode (AC-06..AC-12, BR-04..07, D-21, D-22) ───
+echo "== gates: the Mode line of the verified log sends role and mode once (ALY-279.2) =="
+LMODE='- Mode: launch   Iteration: 1/5'
+LBIND='{"bind":{"mode":"launch","role":"bridge","source":"skill"},"type":"bind"}'
+LBINDM='{"bind":{"mode":"mission","role":"bridge","source":"skill"},"type":"bind"}'
+bev() { spooled sess-gate-1 | grep '"type":"bind"' || true; }
+bevn() { local g; g=$(bev); [ -n "$g" ] && printf '%s\n' "$g" | grep -c . || echo 0; }
+LBF() { echo "$DATA/live/$(test_sha sess-gate-1).bind"; }
+LMF() { echo "$DATA/live/$(test_sha sess-gate-1).logmode"; }
+seedbind() {  # RANK JSON: a stored bind of the session (0600)
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s|%s' "$1" "$2" >"$(LBF)"; chmod 600 "$(LBF)"
+}
+seedmark() {  # CONTENT: a marker of the session (0600)
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' "$1" >"$(LMF)"; chmod 600 "$(LMF)"
+}
+NOMODE_BIND='{"source":"branch","spec":"ALY-203"}'
+new_case; mkcred; mklog m-1 "$LMODE"; fire Write
+check "AC-06: the real line, no bind file: one bind with source, role and mode only" "$LBIND" "$(bev)"
+check "AC-06: the marker holds the mode (0600), the stored bind is not written" "600 launch no" "$(find "$(LMF)" -printf '%m') $(cat "$(LMF)") $([ -e "$(LBF)" ] && echo yes || echo no)"
+check "AC-06: no spec, no task, no log text in the spool" "0" "$(grep -cE 'spec|task|Iteration|MARKER_GATEFILE|launch +Iteration' "$DATA/live/$(test_sha sess-gate-1).spool" || true)"
+end_case
+new_case; mkcred; seedbind 1 "$NOMODE_BIND"; mklog m-1 "$LMODE"; fire Write
+check "AC-06: a stored bind without a mode: one bind" "$LBIND" "$(bev)"
+check "AC-06/BR-06: the stored bind is left untouched" "1|$NOMODE_BIND" "$(cat "$(LBF)")"; end_case
+new_case; mkcred; seedbind 4 '{"source":"skill","role":"bridge","mode":"mission"}'; mklog m-1 "$LMODE"; fire Write
+check "AC-07: the stored bind has a mode: nothing from the log" "0|no" "$(bevn)|$([ -e "$(LMF)" ] && echo yes || echo no)"; end_case
+
+echo "== gates: the Mode line, rejected shapes send nothing (ALY-279.2 AC-08) =="
+badmode() {  # LABEL LINE...
+  local l="$1"; shift
+  new_case; mkcred; mklog m-1 "$@"; fire Write; check "AC-08: $l: no bind, no marker" "0|no" "$(bevn)|$([ -e "$(LMF)" ] && echo yes || echo no)"; end_case
+}
+badmode "indented line" "  - Mode: launch   Iteration: 1/5"
+badmode "unknown enum" "- Mode: ship"
+badmode "uppercase" "- Mode: LAUNCH"
+badmode "suffix launchpad" "- Mode: launchpad"
+badmode "no space after the colon" "- Mode:launch"
+badmode "invalid first, valid after" "- Mode: ship" "- Mode: launch   Iteration: 1/5"
+badmode "no Mode line" "- Gates: nothing"
+new_case; mkcred; mklog m-1 "  - Mode: launch" "- Mode: mission"; fire Write
+check "AC-08: an indented line is not column-0: the first column-0 line is the one read" "$LBINDM" "$(bev)"; end_case
+
+echo "== gates: the Mode line, once per mode value, the stored bind kept (ALY-279.2 AC-09, AC-10) =="
+new_case; mkcred; mklog m-1 "$LMODE"; fire Write; mklog m-1 "$LMODE" "- Notes: more"; fire Edit
+check "AC-09: the same mode written again: nothing more" "1" "$(bevn)"
+mklog m-1 "- Mode: mission   Iteration: 2/5"; fire Write
+check "AC-09: a different mode while the stored bind has no mode: one more bind" "$(printf '%s\n%s\n' "$LBIND" "$LBINDM")" "$(bev)"
+fire Write
+check "AC-09: and not again" "2|mission" "$(bevn)|$(cat "$(LMF)")"; end_case
+new_case; mkcred; mklog m-1 "$LMODE"; fire Write
+"$JQ_BIN" '.session_id = "sess-gate-1"' "$FIX/mcp-allye-task-start.json" >"$SB/stdin"; run_hook
+LOGSIG=$(bev)
+check "AC-10: an mcp bind with a key after the log signal is sent with its key" "$(printf '%s\n%s\n' "$LBIND" '{"bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"},"type":"bind"}')" "$LOGSIG"
+check "AC-10: the stored bind is the mcp one (rank 3)" "3" "$(cut -d'|' -f1 "$(LBF)")"
+"$JQ_BIN" '.session_id = "sess-gate-1" | .tool_input.args = "mission ALY-203"' "$FIX/skill-bridge-spec.json" >"$SB/stdin"; run_hook
+check "AC-10: a skill bind with a key after it is sent as usual" '{"bind":{"mode":"mission","role":"bridge","source":"skill","spec":"ALY-203"},"type":"bind"}' "$(bev | tail -n 1)"
+mklog m-1 "- Mode: repair   Iteration: 1/5"; fire Write
+check "AC-07/AC-10: once the stored bind has a mode, a new log mode sends nothing" "3" "$(bevn)"; end_case
+new_case; mkcred
+"$JQ_BIN" '.session_id = "sess-gate-1"' "$FIX/mcp-allye-task-start.json" >"$SB/stdin"; run_hook
+CTRL=$(bev)
+check "AC-10 control: the same mcp bind without a log signal" '{"bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"},"type":"bind"}' "$CTRL"; end_case
+
+echo "== gates: the Mode line, refused logs send nothing (ALY-279.2 AC-11) =="
+nolog() { check "AC-11: $1: no bind, no marker" "0|no" "$(bevn)|$([ -e "$(LMF)" ] && echo yes || echo no)"; }
+new_case; mkcred; mklog real "$LMODE"; mkdir -p "$SB/proj/.allye/missions/m-1"; ln -s "$SB/proj/.allye/missions/real/log.md" "$SB/proj/.allye/missions/m-1/log.md"; fire Write; nolog "symlinked log.md"; end_case
+new_case; mkcred; mkdir -p "$SB/proj/.allye/missions/m-1"; { echo "$LMODE"; head -c 65600 /dev/zero | tr '\0' 'x'; } >"$SB/proj/.allye/missions/m-1/log.md"; fire Write; nolog "log over 64 KiB"; end_case
+new_case; mkcred; mklog M_1 "$LMODE"; fire Write "$SB/proj/.allye/missions/M_1/log.md"; nolog "bad slug"; end_case
+new_case; mkcred; fire Write; nolog "missing log.md"; end_case
+new_case; mkcred; mklog m-1 "$LMODE"; fire Write "$SB/proj/.allye/missions/m-1/crew/x.md"; nolog "not the log file"; end_case
+new_case; mkcred; mklog m-1 "$LMODE"; fire Read; nolog "tool Read"; end_case
+new_case; mkcred; mklog m-1 "$LMODE"
+"$JQ_BIN" -n --arg f "$SB/proj/.allye/missions/m-1/log.md" --arg c "$SB/proj" '{session_id:"sess-gate-1",hook_event_name:"PostToolUse",cwd:$c,tool_name:"Write",agent_id:"agent-x",agent_type:"allye:bridge-pilot",tool_input:{file_path:$f,content:"x"},tool_response:{}}' >"$SB/stdin"; run_hook
+nolog "a write inside a subagent"; end_case
+
+echo "== gates: the Mode line, a present bind file or marker that is not usable sends nothing (ALY-279.2 AC-12) =="
+new_case; mkcred; seedbind 1 "$NOMODE_BIND"; chmod 644 "$(LBF)"; mklog m-1 "$LMODE"; fire Write
+nolog "bind file with mode 0644"; end_case
+if [ "$(id -u)" != 0 ]; then
+  new_case; mkcred; seedbind 1 "$NOMODE_BIND"; chmod 000 "$(LBF)"; mklog m-1 "$LMODE"; fire Write; chmod 600 "$(LBF)"
+  nolog "unreadable bind file (mode 000)"; end_case
+fi
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf 'garbage' >"$(LBF)"; chmod 600 "$(LBF)"; mklog m-1 "$LMODE"; fire Write
+nolog "corrupt bind file"; end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; ln -s "$SB/stdin" "$(LBF)"; mklog m-1 "$LMODE"; fire Write
+nolog "symlinked bind file"; end_case
+new_case; mkcred; seedmark launch; chmod 644 "$(LMF)"; mklog m-1 "- Mode: mission"; fire Write
+check "AC-12: marker with mode 0644: no bind" "0" "$(bevn)"; end_case
+new_case; mkcred; seedmark bogus; mklog m-1 "$LMODE"; fire Write
+check "AC-12: corrupt marker: no bind" "0" "$(bevn)"; end_case
+new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; ln -s "$SB/stdin" "$(LMF)"; mklog m-1 "$LMODE"; fire Write
+check "AC-12: symlinked marker: no bind, target untouched" "0|yes" "$(bevn)|$([ -s "$SB/stdin" ] && echo yes || echo no)"; end_case
+new_case; mkcred; seedmark mission; mklog m-1 "$LMODE"; fire Write
+check "AC-12: a valid marker of another mode: the new mode is sent" "$LBIND" "$(bev)"; end_case
+new_case; mkcred; seedmark launch; mklog m-1 "$LMODE"; fire Write
+check "AC-12/AC-09: a valid marker of the same mode: nothing" "0" "$(bevn)"; end_case
 
 # ─── AC-02 / AC-14: no marker and no raw session id anywhere ────────────────
 #@group markers 30
