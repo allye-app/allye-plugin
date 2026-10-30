@@ -10,24 +10,12 @@
 # throwaway fakes; no real credential is ever read.
 set -u
 
-# Optional section filter (ALY-258.1): LIVE_TEST_SECTIONS is an extended regex over the section names, i.e. the text of the
-# `echo "== NAME =="` lines. When set, a copy of this file is run holding the setup, the sections whose name matches, the
-# `#@always` blocks (shared helpers) and the final tally. Unset: the whole file runs as always. A selected section may use
-# helpers that an earlier, unselected section defines: select those together (the activity sections share their helpers).
-if [ -n "${LIVE_TEST_SECTIONS:-}" ] && [ -z "${LIVE_TEST_FILTERED:-}" ]; then
-  _self="${BASH_SOURCE[0]}"; _dir="$(cd "$(dirname "$_self")" && pwd)"
-  _tmp=$(mktemp "${TMPDIR:-/tmp}/live-test-filtered.XXXXXX") || exit 1
-  awk -v re="$LIVE_TEST_SECTIONS" '
-    BEGIN { keep = 1 }
-    /^echo "== / { n = $0; sub(/^echo "== /, "", n); sub(/ ==".*$/, "", n); keep = (n ~ re) }
-    /^#@always/ { keep = 1 }
-    /^echo "\$PASS passed/ { keep = 1 }
-    keep { print }' "$_self" >"$_tmp" && [ -s "$_tmp" ] && grep -q '^echo "== ' "$_tmp" || { echo "live test filter: could not build the filtered copy" >&2; rm -f "$_tmp"; exit 1; }
-  LIVE_TEST_FILTERED=1 LIVE_TEST_DIR="$_dir" bash "$_tmp"; _rc=$?
-  rm -f "$_tmp"; exit "$_rc"
-fi
-
-SCRIPT_DIR="${LIVE_TEST_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# Runner (hooks/test/README.md): the sections are grouped (`#@group`) and the groups run in at most 4 parallel workers, each a
+# copy of this file with the other groups cut out. `--serial` runs everything in this process, `--group ID` / `--only REGEX`
+# (or LIVE_TEST_SECTIONS, the section-name regex of ALY-258.1) a slice; a selected section may use helpers that an earlier,
+# unselected section of another group defines, which is why groups exist: select those together.
+SCRIPT_DIR="${PT_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+. "$SCRIPT_DIR/test/parallel.sh"; pt_dispatch "$@"
 HOOK="$SCRIPT_DIR/live-report.sh"
 LIB="$SCRIPT_DIR/lib/credential.sh"
 PAIRHOOK="$SCRIPT_DIR/allye-hooks.sh"
@@ -138,12 +126,31 @@ run_script() {
   [ "$script" != "$HOOK" ] || wait_idle
   OUT=$(cat "$SB/out"); ERR=$(cat "$SB/err")
 }
+# wake_sleepers (FAST_IDLE=1, the default): the delayed-flush sleeper only waits (2 s) and then runs the code a woken
+# sleeper runs; ending its `sleep` child makes it run that code at once, so a case that needs the flush settled does not
+# pay the 2 s. Only the child named `sleep` of the pid a flush.wait records is signalled. Sections that assert real
+# elapsed time set FAST_IDLE=0.
+FAST_IDLE=1
+wake_sleepers() {
+  local w p c k comm
+  for w in "$DATA"/live/*.flush.wait; do
+    [ -e "$w" ] || continue
+    p=""; { read -r p _ <"$w/p"; } 2>/dev/null
+    [[ "$p" =~ ^[0-9]+$ ]] || continue
+    [ -n "$FAKE_WAIT_PID" ] && [ "$p" = "$FAKE_WAIT_PID" ] && continue
+    for c in /proc/$p/task/*/children; do
+      [ -r "$c" ] || continue
+      for k in $(<"$c"); do comm=""; { read -r comm <"/proc/$k/comm"; } 2>/dev/null; [ "$comm" = sleep ] && kill "$k" 2>/dev/null; done
+    done
+  done
+  return 0
+}
 # wait_idle: the flusher and the delayed-flush sleeper (ALY-217) are detached; the flush lock and flush.wait are taken
 # before the hook returns, so "no flush lock and no flush.wait" = done. A flush.wait held by the harness's own fake
 # holder ($FAKE_WAIT_PID) is ignored.
 wait_idle() {
   local i w p busy
-  for i in $(seq 1 400); do
+  for i in $(seq 1 1000); do
     busy=0
     compgen -G "$DATA/live/*.flush.lock" >/dev/null && busy=1
     for w in "$DATA"/live/*.flush.wait; do
@@ -153,7 +160,8 @@ wait_idle() {
       busy=1
     done
     [ "$busy" = 0 ] && return 0
-    sleep 0.05
+    [ "$FAST_IDLE" = 1 ] && wake_sleepers
+    sleep 0.02
   done
 }
 # pstart PID: the start time of PID (field 22 of /proc/PID/stat), as the reporter records it.
@@ -179,6 +187,23 @@ snapshot() {
   find "$1" -type f -exec cksum {} + 2>/dev/null | sort
 }
 
+# fn_body (hoisted so every group has it)
+fn_body() {  # FILE NAME: the text of function NAME (column-0 definition, one-line or up to a column-0 "}")
+  awk -v n="$2" '
+    $0 ~ "^" n "\\(\\)" { print; if ($0 ~ /\}[ \t]*$/) exit; inf = 1; next }
+    inf { print; if ($0 ~ /^\}/) exit }' "$1"
+}
+# finals_under PREFIX: final flushers whose CLAUDE_PLUGIN_DATA starts with PREFIX
+finals_under() {
+  local f c n=0
+  [ -d /proc/self ] || { echo 0; return; }
+  for f in /proc/[0-9]*; do
+    c=$({ tr '\0' ' ' <"$f/cmdline"; } 2>/dev/null) || continue
+    [ "$c" = "$BASH_BIN $HOOK final " ] || continue
+    { tr '\0' '\n' <"$f/environ"; } 2>/dev/null | grep -q "^CLAUDE_PLUGIN_DATA=$1" && n=$((n + 1))
+  done
+  echo "$n"
+}
 # expect_inert LABEL: exit 0, nothing printed, no request, no curl, no change under CLAUDE_PLUGIN_DATA.
 expect_inert() {
   check "$1: exits 0" "0" "$RC"
@@ -190,19 +215,15 @@ expect_inert() {
   check "$1: no live directory" "no" "$([ -e "$DATA/live" ] && echo yes || echo no)"
 }
 
+#@group basic 10
 echo "== environment =="
 check "node is not on the hook PATH" "" "$(env -i PATH="$SHIMS:$REALBIN" "$BASH_BIN" -c 'command -v node')"
 check "the reporter exists and is executable" "yes" "$([ -x "$HOOK" ] && echo yes || echo no)"
 check "the credential helper exists" "yes" "$([ -f "$LIB" ] && echo yes || echo no)"
-for s in "$HOOK" "$LIB" "$0"; do check "bash -n $(basename "$s")" "0" "$("$BASH_BIN" -n "$s" 2>/dev/null; echo $?)"; done
+for s in "$HOOK" "$LIB" "${PT_SELF:-$0}"; do check "bash -n $(basename "$s")" "0" "$("$BASH_BIN" -n "$s" 2>/dev/null; echo $?)"; done
 
 # ─── credential helper lock (D-10) ──────────────────────────────────────────
 echo "== credential helper =="
-fn_body() {  # FILE NAME: the text of function NAME (column-0 definition, one-line or up to a column-0 "}")
-  awk -v n="$2" '
-    $0 ~ "^" n "\\(\\)" { print; if ($0 ~ /\}[ \t]*$/) exit; inf = 1; next }
-    inf { print; if ($0 ~ /^\}/) exit }' "$1"
-}
 for f in valid_dir_arg safe_file have_sha sha_hex valid_api_url; do
   lib_body=$(fn_body "$LIB" "$f")
   check "$f: defined in the helper" "yes" "$([ -n "$lib_body" ] && echo yes || echo no)"
@@ -326,15 +347,19 @@ new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; H=$(test_sha "$
 check "spool not 0600: nothing appended" "0" "$(wc -c <"$DATA/live/$H.spool" | tr -d ' ')"; end_case
 
 # ─── event fixtures (AC-01, BR-15, D-08) ────────────────────────────────────
+#@group fixtures 40 shards=4
 echo "== one fixture per event: exactly the listed events =="
+FXI=0
 for f in "$FIX"/*.json; do
   n=$(basename "$f" .json)
+  FXI=$((FXI + 1)); pt_mine "$FXI" || continue   # PT_SHARD: the fixtures are split over the shards of this group
   [ -f "$FIX/$n.expect" ] || { check "$n: has an .expect file" "yes" "no"; continue; }
   expect_fixture "$n"
 done
-check "every confirmed event of the table has a fixture" "0" "$(for e in SessionStart UserPromptSubmit UserPromptExpansion PreToolUse PostToolUse PermissionRequest Notification SubagentStart SubagentStop Stop StopFailure SessionEnd; do grep -lq "\"hook_event_name\": \"$e\"" "$FIX"/*.json || echo "$e"; done | wc -l | tr -d ' ')"
+pt_mine 0 && check "every confirmed event of the table has a fixture" "0" "$(for e in SessionStart UserPromptSubmit UserPromptExpansion PreToolUse PostToolUse PermissionRequest Notification SubagentStart SubagentStop Stop StopFailure SessionEnd; do grep -lq "\"hook_event_name\": \"$e\"" "$FIX"/*.json || echo "$e"; done | wc -l | tr -d ' ')"
 
 # ─── AC-15 / BR-14: working before the first tool or subagent event after waiting_input ─────
+#@group waiting 20
 echo "== waiting_input then working (AC-15) =="
 seq_case() {  # LABEL EXPECT-JSON-LINES... (fixtures from $SEQ)
   local label="$1"; shift
@@ -343,7 +368,9 @@ seq_case() {  # LABEL EXPECT-JSON-LINES... (fixtures from $SEQ)
   check "$label: silent, exits 0" "0||" "$RC|$OUT|$ERR"
   end_case
 }
+#@always
 W='{"type":"state","state":"working"}'; WQ='{"type":"state","state":"waiting_input","code":"asked_question"}'; WP='{"type":"state","state":"waiting_input","code":"permission_prompt"}'
+#@end
 SEQ=(pre-tool-use-ask-user-question pre-tool-use pre-tool-use post-tool-use)
 seq_case "AskUserQuestion then tools: working once, before the first tool; PostToolUse adds no tool event" "$WQ" "$W" '{"type":"tool","tool":"Bash"}' '{"type":"tool","tool":"Bash"}'
 SEQ=(permission-request post-tool-use post-tool-use)
@@ -372,6 +399,7 @@ SEQ=(permission-request pre-tool-use-tool-space pre-tool-use)
 seq_case "a dropped PreToolUse still spools working once; the next tool follows" "$WP" "$W" '{"type":"tool","tool":"Bash"}'
 
 # ─── ALY-203.3: tool reduction (BR-13) and binding sources (BR-08, AC-06) ───
+#@keepnext
 echo "== tool reduction and binding fixtures =="
 GIT_BIN="$(type -P git)"
 git_calls() { [ -f "$SB/log/calls.log" ] && { grep '^git' "$SB/log/calls.log" || true; } || true; }
@@ -389,6 +417,7 @@ GITARGV_POST="] [branch] [--show-current]"
 SSB='{"state":"started","type":"state"}'
 # the skill-*, expansion-* and mcp-* fixtures are checked by the generic loop below
 
+#@group bridge 9
 echo "== bridge invocation: every mode, with and without a key =="
 for m in launch mission blueprint dispatch repair optimize shield inspect survey; do
   new_case; mkcred
@@ -409,6 +438,7 @@ for bad in "launch2" "LAUNCH" "mission," "" "ship"; do
   end_case
 done
 
+#@group git 70
 echo "== environment: ALLYE_SPEC and ALLYE_TASK at SessionStart =="
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-203" "ALLYE_TASK=ALY-203.3"); run_fixture session-start-startup
 check "env spec and task: bind source env, role session" "$(printf '%s\n' "$SSB" '{"type":"bind","bind":{"source":"env","role":"session","spec":"ALY-203","task":"ALY-203.3"}}' | "$JQ_BIN" -cS .)" "$(spooled)"
@@ -556,6 +586,7 @@ end_case
 
 
 # ─── ALY-203.4: subagent outcome (BR-09, AC-07) ─────────────────────────────
+#@group subagent 42
 echo "== subagent outcome from the structured output only (AC-07) =="
 # stopped: the spooled lines without the synthetic sub_start that precedes the sub_stop of an unseen id (ALY-217.7, D-26).
 stopped() { spooled | grep -v '"type":"sub_start"' || true; }
@@ -765,6 +796,7 @@ check "allowlist: the extra key inside checks and the unknown key of sub are in 
 end_case
 
 # ─── ALY-203.4: mission gates (BR-10, AC-08, AC-16) ─────────────────────────
+#@group gates 25
 echo "== mission gates from the journal (AC-08, AC-16) =="
 SHA1=GATESHA1MARKER; SHA2=GATESHA2MARKER
 gates_line() {  # S W C M: values (use - for the dash)
@@ -922,6 +954,7 @@ check "no sha, journal text, path or slug in any file or log" "0" "$( { GATEFILE
 end_case
 
 # ─── AC-02 / AC-14: no marker and no raw session id anywhere ────────────────
+#@group markers 150
 echo "== markers and the raw session id (AC-02, AC-14) =="
 new_case; mkcred
 for f in "$FIX"/*.json; do cp "$f" "$SB/stdin"; run_hook; [ -z "$OUT$ERR" ] || echo "  (output from $(basename "$f"))"; done
@@ -941,6 +974,7 @@ end_case
 # ─── ALY-217.6: activity phrases (BR-10..BR-13, AC-27..AC-33) ────────────────
 # The fixtures activity-bash*, activity-todowrite* and activity-redact-* (the redaction table of AC-30) are checked by
 # the generic fixture loop above; these cases cover the cap, the Agent/Task stash, the switch and the privacy scan.
+#@group activity 145
 echo "== activity phrases: cap, Agent stash, switch and privacy (ALY-217.6) =="
 H6=$(test_sha "$RAWSID"); AGF() { echo "$DATA/live/$H6.agents"; }
 # bash_act DESC-JSON: a Bash PreToolUse whose description is the JSON string DESC-JSON (escapes allowed).
@@ -1393,6 +1427,7 @@ check "AC-11: the nested allowlist keeps id, type, desc, task and drops any othe
 check "AC-11: the dropped nested keys are in no request body" "0" "$(grep -cE 'MARKER_ABCDEF|MARKER_PROMPT_xyz' "$SB/api/ingest-bodies.log" || true)"
 end_case
 
+#@group seq 60
 echo "== a payload that is not JSON, or a session id that fails its pattern =="
 new_case; mkcred; : >"$SB/stdin"; run_hook
 check "empty stdin: exits 0, silent, nothing spooled, no live dir" "0||0|no" "$RC|$OUT$ERR|$(find "$DATA" -name "*.spool" | wc -l | tr -d " ")|$([ -e "$DATA/live" ] && echo yes || echo no)"; end_case
@@ -1532,6 +1567,7 @@ check "ten hooks: the expected multiset of events (fixture expectations summed)"
 check "ten hooks: counter equals the largest seq, outputs empty, no lock left" "$(seqs | tail -n 1)||no" "$(cat "$DATA/live/$(test_sha "$RAWSID").seq")|$(cat "$SB"/par.*)|$([ -n "$(find "$DATA/live" -name '*.lock' 2>/dev/null)" ] && echo yes || echo no)"
 end_case
 
+#@group spool 8
 echo "== spool cap (SHD-03) =="
 fill() {  # LINES PADBYTES: a private spool of valid contract lines (marked by index), padded by a long tool-free code field
   local pad; pad=$(head -c "$2" /dev/zero | tr '\0' 'a')
@@ -1575,6 +1611,7 @@ check "live dir mode 0755: no lock, seq or any entry created in it" "0" "$(find 
 
 nowiso() { date -u +%Y-%m-%dT%H:%M:%SZ; }   # lines that must pass the 23 h freshness rule carry the real time
 # ─── ALY-203.6: batching, flush lock and sending (BR-04, BR-06, AC-03, AC-04, AC-12) ──────
+#@group flush 170
 echo "== sending: contract body, token only on curl's stdin (AC-03) =="
 nbodies() { if [ -f "$SB/api/ingest-bodies.log" ]; then wc -l <"$SB/api/ingest-bodies.log" | tr -d ' '; else echo 0; fi; }
 sent_seqs() { [ -f "$SB/api/ingest-bodies.log" ] && "$JQ_BIN" -r '.events[].seq' "$SB/api/ingest-bodies.log" || true; }
@@ -1795,16 +1832,6 @@ FL7() { echo "$DATA/live/$(test_sha "$RAWSID").final.lock"; }
 fpid() { local p=""; { read -r p _ <"$(FL7)/p"; } 2>/dev/null; [[ "$p" =~ ^[0-9]+$ ]] && printf '%s' "$p"; }
 # finals_under PREFIX: running final flushers (cmdline `<bash> <live-report.sh> final`) whose CLAUDE_PLUGIN_DATA starts with
 # PREFIX (read-only scan of /proc; the environment is read only for processes with that exact cmdline).
-finals_under() {
-  local f c n=0
-  [ -d /proc/self ] || { echo 0; return; }
-  for f in /proc/[0-9]*; do
-    c=$({ tr '\0' ' ' <"$f/cmdline"; } 2>/dev/null) || continue
-    [ "$c" = "$BASH_BIN $HOOK final " ] || continue
-    { tr '\0' '\n' <"$f/environ"; } 2>/dev/null | grep -q "^CLAUDE_PLUGIN_DATA=$1" && n=$((n + 1))
-  done
-  echo "$n"
-}
 # end_timed [NAME=VALUE...]: SessionEnd (session-end-clear) run directly, without waiting for anything it detached.
 # EMS = its wall time in ms; FP / FPS = the final flusher recorded in final.lock right after it returned ("" when none).
 end_timed() {
@@ -2142,6 +2169,7 @@ end_case
 # waits for go.N files and runs the hook under `env -i` for each (node -> sh -c -> env -> bash live-report.sh); only
 # these cases set ALLYE_LIVE_WATCH=1 (interval 1 s). Every pid is recorded with its start time in TRACK; cleanup kills
 # only the pid recorded in watch.lock (and the fake owner by its recorded pid), after checking that start time.
+#@group watchers 90
 echo "== session watcher start (ALY-217 AC-08..AC-13, AC-24) =="
 SH_BIN="$(type -P sh)"
 FOWNER="$SCRIPT_DIR/test/fake-owner.mjs"
@@ -2547,6 +2575,7 @@ check "AC-13: after the watcher cases no watcher of the harness is left running"
 fi
 
 # ─── fake ingest API (harness self-check) ───────────────────────────────────
+#@group final 5
 echo "== fake ingest API =="
 ingest() {  # MODE [file...]: POST two events with the stored token; sets HTTP and RBODY; extra control files as NAME=VALUE
   local m="$1"; shift; local kv
@@ -2637,11 +2666,13 @@ check "SessionStart has the two existing entries plus the reporter's" "3" "$(rep
 check "the command resolves to an existing executable file in this plugin" "yes" "$(p="${REPORTER_CMD/\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"; [ -f "$p" ] && [ -x "$p" ] && echo yes || echo no)"
 check "the other commands also resolve to executable files" "yes" "$(for c in session-start.sh session-preferences.sh; do [ -x "$PLUGIN_ROOT/hooks/$c" ] || echo no; done | grep -c no | sed 's/^0$/yes/')"
 
+#@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
 check "AC-39: every case ended with no final flusher still running under the sandbox" "0" "$(finals_under "$ROOT_TMP")"
 
+#@tally
 echo
 echo "$PASS passed, $FAIL failed"
 # a filtered run that executed no check (a regex that matches nothing) must not look green
-[ -z "${LIVE_TEST_FILTERED:-}" ] || [ "$((PASS + FAIL))" -gt 0 ] || { echo "live test filter: no check ran"; exit 1; }
+[ -z "${PT_WORKER:-}" ] || [ "$((PASS + FAIL))" -gt 0 ] || { echo "live test filter: no check ran"; exit 1; }
 [ "$FAIL" -eq 0 ]
