@@ -3823,7 +3823,7 @@ check "every reporter timeout is a number between 1 and 60" "0" "$(rep '[.hooks[
 check "the reporter registrations add no matcher (the script filters by itself)" "0" "$(rep '[.hooks[][] | select(.hooks | map(.command) | index($c)) | select(has("matcher"))] | length')"
 check "the existing SessionStart hooks are unchanged (same entries, same order, first)" '[{"hooks":[{"command":"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh","timeout":15,"type":"command"}]},{"hooks":[{"command":"${CLAUDE_PLUGIN_ROOT}/hooks/session-preferences.sh","timeout":5,"type":"command"}],"matcher":"startup|clear|compact"}]' \
   "$("$JQ_BIN" -cS '.hooks.SessionStart[0:2]' "$HJ")"
-check "the existing hooks are the only non-reporter hooks" "session-preferences.sh session-start.sh" "$(rep '[.hooks[][].hooks[].command | select(. != $c) | sub("^.*/"; "")] | sort | join(" ")')"
+check "the existing hooks and the answer client (ALY-269.6) are the only non-reporter hooks" "live-answer.sh session-preferences.sh session-start.sh" "$(rep '[.hooks[][].hooks[].command | select(. != $c) | sub("^.*/"; "")] | sort | join(" ")')"
 check "SessionStart has the two existing entries plus the reporter's" "3" "$(rep '.hooks.SessionStart | length')"
 check "the command resolves to an existing executable file in this plugin" "yes" "$(p="${REPORTER_CMD/\$\{CLAUDE_PLUGIN_ROOT\}/$PLUGIN_ROOT}"; [ -f "$p" ] && [ -x "$p" ] && echo yes || echo no)"
 check "the other commands also resolve to executable files" "yes" "$(for c in session-start.sh session-preferences.sh; do [ -x "$PLUGIN_ROOT/hooks/$c" ] || echo no; done | grep -c no | sed 's/^0$/yes/')"
@@ -5297,6 +5297,50 @@ PF='printf '"'"'%s\n'"'"' "$O"'
 check "the decision is printed by one printf of the jq-built, validated line (permission_answered)" "1" "$(printf '%s\n' "$ACODE" | grep -cF -- "$PF" || true)"
 check "the body carries the phrase on stdin, not argv (no --arg p)" "0" "$(printf '%s\n' "$ACODE" | grep -c -- '--arg p ' || true)"
 check "the script is executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
+
+echo "== answer optout: Live off, disabled, no credential or an unusable origin exit 0 at once, no network, no file (AC-10, BR-02, D-07 ALY-269.6) =="
+# optout_row NAME SETUP: SETUP prepares the case after ans_case; then the script runs on a permission and on a question payload
+optout_row() {
+  local name="$1" want="$2" k
+  for k in permission question; do
+    if [ "$k" = question ]; then qpl; else ans_payload sess-0001 Bash '{"description":"d","command":"echo hi"}'; fi
+    : >"$SB/api/requests.log"; ans_run
+    check "$name ($k): exit 0, stdout and stderr empty" "0||" "$RC|$OUT|$ERR"
+    check "$name ($k): no request reached the API (any route)" "0" "$(slog | wc -l | tr -d ' ')"
+    check "$name ($k): nothing left in the live directory but ${want:-nothing}" "$want" "$(live_left)"
+  done
+}
+ans_case; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/off"; chmod 600 "$DATA/live/off"
+optout_row "live off (the marker of live off)" "off "
+ans_case; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/disabled"; chmod 600 "$DATA/live/disabled"
+optout_row "disabled marker" "disabled "
+ans_case; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; ln -s /nonexistent "$DATA/live/off"
+optout_row "live off as a dangling symlink (fail safe)" "off "
+ans_case; rm -f "$CRED"
+optout_row "credential missing" ""
+check "credential missing: the live directory was not created" "no" "$([ -e "$DATA/live" ] && echo yes || echo no)"
+for bad in "http://evil.example.test" "ftp://127.0.0.1:1" "http://127.0.0.1"; do
+  ans_case; mkcred "$bad"
+  optout_row "unusable origin $bad" ""
+  check "unusable origin $bad: the live directory was not created" "no" "$([ -e "$DATA/live" ] && echo yes || echo no)"
+done
+end_case_ans
+
+echo "== hooks.json: one blocking PermissionRequest hook runs the answer client, the async entries are unchanged (AC-10, D-07 ALY-269.6) =="
+ANSCMD='${CLAUDE_PLUGIN_ROOT}/hooks/live-answer.sh'
+rep2() { "$JQ_BIN" -r --arg c "$REPORTER_CMD" --arg a "$ANSCMD" "$1" "$HJ"; }
+check "the answer client is registered exactly once in the whole file" "1" "$(rep2 '[.hooks[][].hooks[] | select(.command == $a)] | length')"
+check "it is under PermissionRequest only (no PreToolUse or other event runs it)" "PermissionRequest 0" "$(rep2 '[.hooks | to_entries[] | select(.value[].hooks[].command == $a) | .key] | unique | join(",")') $(rep2 '[.hooks.PreToolUse[].hooks[] | select(.command | test("live-answer"))] | length')"
+check "it is a blocking command hook: matcher empty, timeout 120, no async" "command  120 null" "$(rep2 '.hooks.PermissionRequest[] | select(.hooks[].command == $a) | "\(.hooks[0].type) \(.matcher // "") \(.hooks[0].timeout) \(.hooks[0].async // null)"')"
+check "its command path ends with hooks/live-answer.sh" "yes" "$(rep2 '.hooks.PermissionRequest[].hooks[] | select(.command | test("^[$][{]CLAUDE_PLUGIN_ROOT[}]/hooks/live-answer[.]sh$")) | "yes"')"
+check "PermissionRequest has the async reporter entry first and the blocking answer entry second" "$REPORTER_CMD $ANSCMD" "$(rep2 '[.hooks.PermissionRequest[].hooks[0].command] | join(" ")')"
+check "the blocking hooks of the whole file are exactly the four known ones (the sync SessionStart/SessionEnd hooks and the answer client)" "live-answer.sh live-report.sh session-preferences.sh session-start.sh" \
+  "$(rep2 '[.hooks[][].hooks[] | select(.async != true) | .command | sub("^.*/"; "")] | sort | join(" ")')"
+check "the only blocking PermissionRequest/PreToolUse hook is the answer client" "1 0" "$(rep2 '[.hooks.PermissionRequest[].hooks[] | select(.async != true)] | length') $(rep2 '[.hooks.PreToolUse[].hooks[] | select(.async != true)] | length')"
+RENT='{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/hooks/live-report.sh","async":true,"timeout":20}]}'
+check "the 12 async reporter entries are exactly the committed one (hard-pinned, one distinct entry, 12 events)" "1 12 $RENT" \
+  "$("$JQ_BIN" -r --arg c "$REPORTER_CMD" '[.hooks | to_entries[] | select(.key != "SessionEnd") | .value[] | select(.hooks[0].command == $c) | tojson] as $a | "\($a | unique | length) \($a | length) \($a[0])"' "$HJ")"
+check "the SessionEnd reporter entry is exactly the committed one (sync, timeout 2)" '{"hooks":[{"command":"${CLAUDE_PLUGIN_ROOT}/hooks/live-report.sh","timeout":2,"type":"command"}]}' "$("$JQ_BIN" -cS '.hooks.SessionEnd[0]' "$HJ")"
 
 #@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
