@@ -1559,7 +1559,7 @@ def withact($a): if $a != null then . + {activity: $a} else . end;
 #   Allye MCP (server allye / *_allye) by suffix + tool_input.action: __tasks task_start|task_submit|task_complete -> "Start|Submit|Complete task KEY";
 #     __specs spec_get|spec_context -> "Read spec KEY"; __kb kb_read|kb_search|kb_tree -> "Read a KB page", kb_update|kb_section|kb_create -> "Update a KB page";
 #     KEY must match keyok, else the keyless form ("Start a task", "Read a spec"); every other MCP and unknown tool: no phrase
-#   Bash without a description: leading VAR=value words are dropped UNREAD, then by argv0 (basename of the first word) and only a fixed word:
+#   Bash without a description (ALY-285.1: the strict segment classifier bcls_*; the words below, the chain rule and the limits are in the comment of bcls_plain): leading VAR=value words are dropped UNREAD, then by argv0 (basename of the first word) and only a fixed word:
 #     vitest -> "Run vitest"; jest -> "Run jest"; eslint | lint -> "Lint"; tsc | typecheck -> "Typecheck" (tsc -b|--build -> "Build"); build -> "Build";
 #     git diff -> "Read the diff"; git status -> "Check git status"; make build -> "Build"; node --test* -> "Run tests";
 #     npm|pnpm|yarn|bun [run] <script> and npx|bunx|pnpx <tool>: test -> "Run tests", lint, typecheck, build, vitest, jest, eslint, tsc as above;
@@ -1587,18 +1587,73 @@ def mcptpl:
 def bscript($s): if $s == "test" then "Run tests" elif $s == "lint" then "Lint" elif $s == "typecheck" then "Typecheck" elif $s == "build" then "Build"
   elif $s == "vitest" then "Run vitest" elif $s == "jest" then "Run jest" elif $s == "eslint" then "Lint" elif $s == "tsc" then "Typecheck" else null end;
 def dropvars: if length > 0 and (.[0] | test("\\A[A-Za-z_][A-Za-z0-9_]*=")) then (.[1:] | dropvars) else . end;
-def bwcls:
-  (.[0] // "" | sub("\\A.*/"; "")) as $a | (.[1] // "") as $b
-  | if $a == "vitest" then "Run vitest" elif $a == "jest" then "Run jest" elif $a == "eslint" or $a == "lint" then "Lint"
-    elif $a == "tsc" then (if (.[1:] | any(. == "-b" or . == "--build")) then "Build" else "Typecheck" end)
-    elif $a == "typecheck" then "Typecheck" elif $a == "build" then "Build"
-    elif $a == "git" then (if $b == "diff" then "Read the diff" elif $b == "status" then "Check git status" else null end)
-    elif $a == "make" then (if $b == "build" then "Build" else null end)
-    elif $a == "node" then (if $b | startswith("--test") then "Run tests" else null end)
-    elif $a | IN("npm","pnpm","yarn","bun") then bscript(if $b == "run" then (.[2] // "") else $b end)
-    elif $a | IN("npx","bunx","pnpx") then (.[1:] | bwcls)
+# ALY-285.1 (AC-03, AC-06, AC-07, AC-08, BR-02, D-09 to D-12, D-16): the strict Bash segment classifier. Every def is named bcls_*, uses no variable but $txt
+# (none here) and no regex with nested quantifiers; every hit is an error caught once by bcls (try ... catch null), so a hit reads "Run a command".
+# The per-verb table is bcls_entry: it maps the words of a segment (leading VAR=value dropped) to {w: the constant word, f: the flags of that verb that are accepted}
+# or null. Words after the verb are accepted only as a flag of f (the name before an =), a plain word, or one whole quoted word after -m, --message, --title or --body.
+# A quoted word is carried inside the words as the marker \u0001 + s or d + its content (a C0 control cannot occur in an accepted command).
+def bcls_plain: type == "string" and test("\\A[A-Za-z0-9._/@-]{1,100}\\z");
+def bcls_flagbl: test("\\A--(force|delete|amend|hard|admin|mirror|prune|no-verify|kill)") or test("\\A-[dD]\\z") or (test("\\A-[a-z]+\\z") and test("[fk]"));
+def bcls_msgflag: IN("-m","--message","--title","--body");
+def bcls_wordok($f; $prev):
+  if startswith("\u0001") then ($prev | bcls_msgflag) and (.[2:] | test("[\u0022\u0027]") | not)
+  elif startswith("-") then
+    (index("=")) as $i | (if $i == null then . else .[0:$i] end) as $n
+    | (($n | bcls_flagbl) | not) and ($n | IN($f[]))
+      and (if $i == null then true else (.[$i + 1:] | if startswith("\u0001") then ($n | bcls_msgflag) and (.[2:] | test("[\u0022\u0027]") | not) else bcls_plain end) end)
+  else bcls_plain end;
+# runner flags shared by the test, lint, typecheck and build words
+def bcls_rf: ["--","--ci","--run","--maxWorkers","--minWorkers","--test-concurrency","--reporter","--noEmit","--silent","--coverage","--fix","--max-warnings"];
+def bcls_entry:
+  (.[0] | sub("\\A.*/"; "")) as $a | (.[1] // "") as $b
+  | if $a == "vitest" then {w: "Run vitest", f: bcls_rf} elif $a == "jest" then {w: "Run jest", f: bcls_rf}
+    elif $a == "eslint" or $a == "lint" then {w: "Lint", f: bcls_rf}
+    elif $a == "tsc" then {w: (if (.[1:] | any(. == "-b" or . == "--build")) then "Build" else "Typecheck" end), f: (bcls_rf + ["-b","--build","-p","--project"])}
+    elif $a == "typecheck" then {w: "Typecheck", f: bcls_rf} elif $a == "build" then {w: "Build", f: bcls_rf}
+    elif $a == "git" then (if $b == "diff" then {w: "Read the diff", f: ["--","--stat","--cached","--staged","--name-only","--name-status"]}
+      elif $b == "status" then {w: "Check git status", f: ["--","--short","-s","--branch","-b","--porcelain"]} else null end)
+    elif $a == "make" then (if $b == "build" and length == 2 then {w: "Build", f: []} else null end)
+    elif $a == "node" then (if $b == "--test" then {w: "Run tests", f: ["--test","--test-concurrency","--test-reporter","--test-only"]} else null end)
+    elif $a | IN("npm","pnpm","yarn","bun") then (bscript(if $b == "run" then (.[2] // "") else $b end)) as $w | if $w != null then {w: $w, f: bcls_rf} else null end
+    elif $a | IN("npx","bunx","pnpx") then (.[1:] | if length > 0 then bcls_entry else null end)
     else null end;
-def bashtpl: ((.tool_input | objects | .command) | if type == "string" then .[0:4096] | [splits("[ \t\r\n]+") | select(length > 0)] | dropvars | bwcls else null end) // "Run a command";
+def bcls_lex: [match("\u0027[^\u0027]*\u0027|\u0022[^\u0022]*\u0022|&&|\\|\\||;|\n|[ \t]+|[^ \t\n\u0027\u0022&|;]+|."; "g") | .string];
+def bcls_fw: (if .w == null then . else (.n += 1 | if .n > 64 then error("b") else . end | .cur += [.w] | .w = null) end) | .closed = false;
+def bcls_fs: bcls_fw | if (.cur | length) == 0 then error("b") else (.segs += [.cur] | if (.segs | length) > 16 then error("b") else . end | .cur = []) end;
+def bcls_words:
+  reduce bcls_lex[] as $t ({segs: [], cur: [], w: null, n: 0, closed: false};
+    if ($t | test("\\A[ \t]+\\z")) then bcls_fw
+    elif ($t | IN("&&","||",";","\n")) then bcls_fs
+    elif ($t | IN("\u0027","\u0022","|","&")) then error("b")
+    elif ($t | length) >= 2 and ($t[0:1] | IN("\u0027","\u0022")) then
+      ($t[0:1]) as $q | ($t[1:-1]) as $c
+      | if .closed or ($c | test("[;&|\n]")) or ($q == "\u0022" and ($c | contains("\u0027"))) or (.w != null and (.w | test("\\A--[A-Za-z][A-Za-z-]*=\\z") | not)) then error("b")
+        else .w = (.w // "") + "\u0001" + (if $q == "\u0022" then "d" else "s" end) + $c | .closed = true end
+    elif .closed then error("b")
+    else .w = (.w // "") + $t end)
+  | bcls_fw | if (.cur | length) > 0 then (.segs += [.cur] | if (.segs | length) > 16 then error("b") else . end) elif (.segs | length) == 0 then error("b") else . end
+  | .segs;
+def bcls_cmd:
+  . as $w | bcls_entry as $e
+  | if ($w[0] | sub("\\A.*/"; "")) as $a | $a == "eval" or (($a | IN("sh","bash","dash","zsh","ksh")) and ($w | any(. == "-c"))) then error("b")
+    elif $e == null then error("b")
+    elif ([range(0; $w | length) as $i | $w[$i] | bcls_wordok($e.f; (if $i > 0 then $w[$i - 1] else "" end))] | all) then $e.w
+    else error("b") end;
+def bcls_inner: bcls_words | if length != 1 then error("b") else .[0] | dropvars | if length == 0 then error("b") else bcls_cmd end end;
+# a segment gives "" (neutral: nothing after the VAR=value words, or cd <word>), or its constant word; anything else is an error
+def bcls_seg:
+  dropvars as $w
+  | if ($w | length) == 0 then ""
+    elif ($w | length) == 2 and $w[0] == "cd" and ($w[1] | test("\\A[A-Za-z0-9._/-]{1,60}\\z")) and ($w[1] | startswith("-") | not) then ""
+    elif ($w | length) == 7 and $w[0] == "flock" and ($w[1] | test("\\A/tmp/aly-heavy-[A-Za-z0-9._-]{1,60}\\.lock\\z")) and $w[2] == "timeout" and ($w[3] | test("\\A[0-9]{1,5}\\z"))
+      and $w[4] == "bash" and $w[5] == "-c" and ($w[6] | startswith("\u0001s")) then ($w[6][2:] | bcls_inner)
+    else $w | bcls_cmd end;
+def bcls_run:
+  if length > 4096 then error("b")
+  elif test("[\u0001-\u0008\u000b-\u001f]|\\\\|\\$\\(|\\$\\{|`|<|>") then error("b")
+  else bcls_words | map(bcls_seg) | map(select(. != "")) | if length == 0 then error("b") else .[0] end end;
+def bcls: try bcls_run catch null;
+def bashtpl: ((.tool_input | objects | .command) | if type == "string" then bcls else null end) // "Run a command";
 def tooltpl:
   if (.tool_name | type) != "string" then null
   elif .tool_name == "Read" then filetpl("Read"; "Read a file"; "file_path")
