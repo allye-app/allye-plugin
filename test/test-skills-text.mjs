@@ -585,6 +585,14 @@ else {
   if (!bashRule(del)) fail(`${DEL}: must state the Bash descriptions rule (verb-first, at most 60 characters, no paths, advisory, hard cap 140, scrub of BR-04)`);
   const roleLine = (text) => /Bash call descriptions \(verb-first, at most 60 characters, no paths\) follow `\.\.\/bridge\/references\/delegation\.md` → Common output/.test(text);
   for (const r of crew) if (!roleLine(read(`skills/bridge-${r}/SKILL.md`))) fail(`skills/bridge-${r}/SKILL.md: must reference the Bash descriptions rule of delegation.md → Common output`);
+  // ALY-285 [AC-20] [BR-08] [D-03]: the Mothership gives Bash descriptions too, unconditionally.
+  const mothershipLine = (text) => /\*\*Bash descriptions\*\* apply unconditionally to the Mothership and every crew role[^\n]*verb-first[^\n]*at most 60 characters[^\n]*no paths[^\n]*state the purpose, never data: no values, tokens, customer or person names[^\n]*task key first/.test(text);
+  const MS = "skills/bridge/SKILL.md";
+  if (!mothershipLine(read(MS))) fail(`${MS}: must state unconditionally that the Mothership gives verb-first Bash descriptions (at most 60 characters, no paths, purpose never data, task key first)`);
+  if (!/Mothership and every crew role[^\n]*state the purpose, never data: no values, tokens, customer or person names[^\n]*task key first/.test(del)) fail(`${DEL}: the Bash descriptions rule must cover the Mothership, purpose never data, and the task key first`);
+  if (mothershipLine(read(MS).replace("at most 60 characters", "at most 90 characters"))) fail("negative case: a Mothership Bash rule with another limit must fail");
+  if (mothershipLine(read(MS).replace("apply unconditionally", "apply when asked"))) fail("negative case: a Mothership Bash rule that is not unconditional must fail");
+  if (mothershipLine(read(MS).replace("never data", "also data"))) fail("negative case: a Mothership Bash rule without 'never data' must fail");
   const prRule = (text) => /exactly one `- PR: #N` line in the log header[^\n]*right after[^\n]*PR is opened[^\n]*never before/.test(text);
   const SC = "skills/bridge/references/state-contract.md";
   const sc = read(SC);

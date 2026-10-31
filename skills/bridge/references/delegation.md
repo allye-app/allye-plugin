@@ -124,7 +124,7 @@ next: <recommended action>
 - `checks: ok=<n> run=<n>` — Copilot: ok = reruns whose `match` is true, run = reruns executed; Watcher: ok = satisfied ACs, run = total ACs.
 - `severity_counts: critical=<n> high=<n> medium=<n> low=<n> info=<n>` — Medic, Shield, Copilot and Watcher; all five keys once, in that order.
 
-**Bash descriptions.** Every crew role gives each Bash call a verb-first `description` of at most 60 characters with no paths (such as `Run the skills tests`). This is advisory: the hard cap stays 140 and the cleaner and API scrub of BR-04 still apply; the rule only makes the Live phrase come from the agent instead of the classifier.
+**Bash descriptions.** Every crew role gives each Bash call a verb-first `description` of at most 60 characters with no paths (such as `Run the skills tests`). This is advisory: the hard cap stays 140 and the cleaner and API scrub of BR-04 still apply; the rule only makes the Live phrase come from the agent instead of the classifier. The same rule binds the Mothership and every crew role, unconditionally (BR-08): say what and why (such as `Run the full hooks suite before the PR`), and state the purpose, never data: no values, tokens, customer or person names. A heredoc or pipe call without a description falls back to a generic `Run a command` phrase, so the description is what makes the Live view useful. Dispatch descriptions keep the task key first (such as `Pilot PROJ-12.2 · wire the panel`).
 
 Each `<n>` is an integer 0-99 without sign, decimal point or leading zero.
 
