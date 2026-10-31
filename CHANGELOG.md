@@ -1,3 +1,15 @@
+# [2.16.0](https://github.com/allye-app/allye-plugin/compare/v2.15.1...v2.16.0) (2026-10-31)
+
+
+### Features
+
+* **hooks:** constant Live words for git, gh pr, heavy lock and mission log (ALY-285.2) ([8a225ae](https://github.com/allye-app/allye-plugin/commit/8a225aedbc8364fe7aa1e0ae6a4b8247596d0aa7))
+* **hooks:** Live words for Glob, Monitor, SendMessage, memory and task update (ALY-285.3) ([cbf2090](https://github.com/allye-app/allye-plugin/commit/cbf20901ef884ecc50eb42b03586b3a93f674004))
+* **hooks:** mirror the Live phrase grammar in live-answer with a drift test (ALY-285.5) ([756d040](https://github.com/allye-app/allye-plugin/commit/756d04052a9746b9c4b2dac50caa6d560e1c0021))
+* **hooks:** send the task key from a subagent's own task_start call (ALY-285.4) ([10be740](https://github.com/allye-app/allye-plugin/commit/10be740366aa2d0520f7e4c0c8939eb2c890f972))
+* **hooks:** strict conservative Bash segment classifier for Live phrases (ALY-285.1) ([43793fc](https://github.com/allye-app/allye-plugin/commit/43793fc399117864837e114fc2c45b5ad58c4009))
+* **skills:** extend the Bash description rule to the Mothership (ALY-285.6) ([231109d](https://github.com/allye-app/allye-plugin/commit/231109d6db328486304cae40c95838c29790221d))
+
 ## [2.15.1](https://github.com/allye-app/allye-plugin/compare/v2.15.0...v2.15.1) (2026-10-30)
 
 
