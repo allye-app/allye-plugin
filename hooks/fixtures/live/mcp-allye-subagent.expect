@@ -1,2 +1,2 @@
 {"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}
-{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"},"activity":"Start task ALY-203.3"}
+{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot","task":"ALY-203.3"},"activity":"Start task ALY-203.3"}

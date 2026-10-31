@@ -772,6 +772,17 @@ check "the pairing message discloses the three texts, 140 characters, best effor
 # ALY-257/262 retention facts (decided by the Allye API, disclosed here): owner only, 30 days, purge when Detailed Live goes off, Allye scrubs again
 check "the pairing message states who sees the texts, how long Allye keeps them and the purge (owner only, 30 days, Detailed Live off deletes them, Allye scrubs again)" "yes yes yes yes" \
   "$(contains 'Only the owner sees these texts in Allye (a teammate'"'"'s token receives none)' "$PAIRSEC") $(contains 'Allye stores them for 30 days with the run' "$PAIRSEC") $(contains 'turning Detailed Live off deletes them' "$PAIRSEC") $(contains 'Allye scrubs them again' "$PAIRSEC")"
+# ALY-285.7 (AC-21, D-04): the constant-word classes and the "nothing of the call" sentence, in the same words in the pair text and the README
+README_TEXT=$(cat "$SCRIPT_DIR/../README.md" 2>/dev/null)
+README_CONSENT=$(printf '%s\n' "$README_TEXT" | grep 'fixed phrase from a short list' | head -n 1)
+CONSENT_CLASSES=('Commit to git' 'Push to git' 'Merge in git' 'Fetch from git' 'Read the history' 'Open the PR' 'Merge the PR' 'Check the PR' 'Check the heavy lock' 'Update the mission log' 'Search the code' 'Find .<ext> files' 'Send a message' 'Save a memory' 'Update task <KEY>' 'Run a command')
+for pair_src in PAIRSEC README_CONSENT; do
+  txt="${!pair_src}"; got=""
+  for c in "${CONSENT_CLASSES[@]}"; do got="$got $(contains "$c" "$txt")"; done
+  check "$pair_src names the constant-word classes (AC-21)" "yes yes yes yes yes yes yes yes yes yes yes yes yes yes yes yes" "${got# }"
+  check "$pair_src states that no argument, branch, remote, message, path or flag value of a command is sent, and that a description wins (AC-21)" "yes yes yes" "$(contains 'no argument, branch, remote, message, path or flag value of a command is ever sent' "$txt") $(contains 'an agent-written description' "$txt") $(contains 'task_start' "$txt")"
+done
+check "neither consent text claims the command is sent" "no no" "$(contains 'the command is sent' "$PAIRSEC") $(contains 'the command is sent' "$README_CONSENT")"
 check "the consent text no longer says 48 characters or the old 'activity line'" "no no" "$(contains '48' "$CMD_TEXT") $(contains 'activity line' "$CMD_TEXT")"
 LIVESEC=$(printf '%s\n' "$CMD_TEXT" | sed -n '/^## live$/,$p')
 check "the live section discloses the same three texts, only the summary line of a crew report, and the status wording (AC-09)" "yes yes yes yes yes" \

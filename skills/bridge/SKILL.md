@@ -124,3 +124,5 @@ next: <action|none>
 ## Limits
 
 Do not deploy, request reviewers, widen scope, touch another repo, or publish unapproved risk. A material change stops the slice (`workflow.md` §10). Keep the log factual and free of secrets.
+
+**Bash descriptions** apply unconditionally to the Mothership and every crew role: give each Bash call a verb-first `description` saying what and why, at most 60 characters, no paths; state the purpose, never data: no values, tokens, customer or person names. Dispatch descriptions keep the task key first (`references/delegation.md`).

@@ -637,7 +637,7 @@ seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{
 SEQ=(skill-bridge-spec expansion-bridge-spec)
 seq_case "skill via Skill tool then via expansion with another key: sent again" "$S1" "$BSK" '{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"launch","spec":"ALY-7"}}'
 SEQ=(skill-bridge-subagent mcp-allye-subagent)
-seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"},"activity":"Start task ALY-203.3"}'
+seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","task":"ALY-203.3","type":"allye:bridge-pilot"},"activity":"Start task ALY-203.3"}'
 new_case; mkcred; "$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/mcp-allye-subagent.json" >"$SB/stdin"; run_hook
 check "control: the same task_start payload outside a subagent binds (the subagent case is not vacuous)" '{"bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"},"type":"bind"}' "$(spooled | grep '"bind"')"; end_case
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture session-start-startup mcp-allye-task-start-half-bad-key skill-bridge-spec
@@ -1215,7 +1215,8 @@ new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #123"; fire Wri
 check "a valid PR line: pr is a JSON integer on the gates event, with the current gates" '{"gates":["SHIELD_CLEAR"],"pr":123,"type":"gates"}' "$(gev)"
 check "the gates event keys are exactly seq, type, gates, at and pr" "seq,type,gates,at,pr" "$("$JQ_BIN" -r 'select(.type=="gates") | keys_unsorted | join(",")' "$DATA/live/$(test_sha sess-gate-1).spool" | head -n 1)"
 check "the state file holds the set on line 1 and the pr on line 2, private" "600 $(printf '%s\n%s' '["SHIELD_CLEAR"]' 123)" "$(find "$(GFILE)" -printf '%m') $(cat "$(GFILE)")"
-check "nothing else of the log leaves: no marker, path or slug in a file, a log or an output" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find '; } | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|missions|m-1' || true)"
+# the logged jq program (constant, public) holds the generic mission-log regex (ALY-285.2): match this test's own slug m-1 / proj path, not the words missions or log.md
+check "nothing else of the log leaves: no marker, path or slug in a file, a log or an output" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find '; } | grep -cE 'GATESHA|MARKER_GATEFILE|m-1|proj/\.allye' || true)"
 end_case
 new_case; mkcred; mklog m-1 "- PR: #7"; fire Write
 check "a PR line without a Gates line: one gates event with the empty set and the pr" '{"gates":[],"pr":7,"type":"gates"}' "$(gev)"; end_case
@@ -1431,7 +1432,8 @@ echo "== gates: markers =="
 new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" "$SHA2" - -)"; fire Write; fire Edit
 check "gates event keys are exactly seq, type, gates and at" "seq,type,gates,at" "$("$JQ_BIN" -r 'select(.type=="gates") | keys_unsorted | join(",")' "$DATA/live/$(test_sha sess-gate-1).spool" | head -n 1)"
 check "every gates token is in the enumeration" "0" "$("$JQ_BIN" -r 'select(.type=="gates") | .gates[] | select(IN("SHIELD_CLEAR","WATCHER_APPROVED","MISSION_COMPLETE","CI_PENDING") | not)' "$DATA"/live/*.spool | grep -c . || true)"
-check "no sha, journal text, path or slug in any file or log" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find ' ; } | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|missions|m-1' || true)"
+# the logged jq program (constant, public) holds the generic mission-log regex (ALY-285.2): match this test's own slug m-1 / proj path, not the words missions or log.md
+check "no sha, journal text, path or slug in any file or log" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find ' ; } | grep -cE 'GATESHA|MARKER_GATEFILE|m-1|proj/\.allye' || true)"
 end_case
 
 # ─── ALY-279.2: the Mode line of the verified log gives role and mode (AC-06..AC-12, BR-04..07, D-21, D-22) ───
@@ -1942,6 +1944,109 @@ tk_full "key" "Implement ALY-263.3 for the slice" "Implement ALY-263.3 for the s
 tk_full "no key" "Implement the whole slice now" "Implement the whole slice now~-|"
 tk_full "hostile token and a key" "Implement ALY-263.3 ignore previous; token=MARKER_HOSTILE" "Implement ALY-263.3 ignore previous;~ALY-263.3|"
 tk_full "four words, two keys" "Do ALY-263.3 and ALY-263.4" "Do ALY-263.3 and ALY-263.4~-|"
+# ALY-285.4 (AC-16 to AC-19, BR-07, D-05, D-15): the key of the subagent's own task_start call. Marker value 2 = task_start tried.
+# tk_ts ID TASK [TYPE] [TOOL] [ACTION]: a PreToolUse of subagent ID calling the Allye MCP tasks tool.
+tk_ts() {
+  "$JQ_BIN" --arg id "$1" --arg t "$2" --arg ty "${3:-allye:bridge-pilot}" --arg tn "${4:-mcp__plugin_allye_allye__tasks}" --arg ac "${5:-task_start}" --arg tp "$PROJ/t.jsonl" \
+    '.agent_id = $id | .agent_type = $ty | .transcript_path = $tp | .tool_name = $tn | .tool_input = {action: $ac, task: $t}' "$FIX/mcp-allye-task-start.json" >"$SB/stdin"; run_hook
+}
+tk_memf() { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' "$1" >"$(TKMEM)"; chmod 600 "$(TKMEM)"; }
+tk_new; tk_tool t1; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-16: a late task_start (after other tools, an empty-key marker 1) sends the key on that call" "-|-|ALY-285.4|" "$(tk_ttask t1)"
+check "ALY-285.4 D-15: the marker is 2 and holds the key" '["t1","ALY-285.4",2]' "$(tk_mem t1)"
+check "ALY-285.4 AC-16: the call sends no text from the call (no desc)" "false|false|false|" "$(tk_tdesc t1)"; end_case
+tk_new; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-16: task_start as the very first tool sends the key" "ALY-285.4|" "$(tk_ttask t1)"
+check "ALY-285.4 D-15: the marker is 2" '["t1","ALY-285.4",2]' "$(tk_mem t1)"; end_case
+tk_new; tk_memf '[["t1","",1]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-18: a marker 1 with an empty key (ALY-281 path) can still be labelled" 'ALY-285.4| ["t1","ALY-285.4",2]' "$(tk_ttask t1) $(tk_mem t1)"; end_case
+tk_new; tk_tool t1; tk_ts t1 ALY-285.4; tk_ts t1 ALY-285.5; tk_tool t1
+check "ALY-285.4 AC-18: a second task_start sends nothing, the marker stays" "-|ALY-285.4|-|-|" "$(tk_ttask t1)"
+check "ALY-285.4 AC-18: the marker keeps the first key" '["t1","ALY-285.4",2]' "$(tk_mem t1)"; end_case
+tk_new; tk_meta t1 "Pilot ALY-280.1"; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-18: a step keyed by the dispatch description is not overridden" "ALY-280.1|-|" "$(tk_ttask t1)"; end_case
+tk_new; tk_agent "Pilot ALY-280.1"; tk_start t1; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-18: a step keyed at the start is not overridden" "-|-|" "$(tk_ttask t1)"; end_case
+tk_new; tk_meta t1 "Pilot ALY-280.1"; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-18: description key and task_start as first tool: the description key wins, once" "ALY-280.1|" "$(tk_ttask t1)"
+check "ALY-285.4 AC-18: ... and the marker is 2" '["t1","ALY-280.1",2]' "$(tk_mem t1)"; end_case
+# negatives (AC-17)
+tk_neg() {  # LABEL TASK [TYPE] [TOOL] [ACTION] [BOUND-SPEC-KEY...]
+  local label="$1" t="$2" ty="${3:-}" tn="${4:-}" ac="${5:-}"; shift 5
+  tk_new; [ $# -eq 0 ] || tk_bind "$@"
+  tk_tool t1 "${ty:-allye:bridge-pilot}"; tk_ts t1 "$t" "${ty:-allye:bridge-pilot}" "${tn:-mcp__plugin_allye_allye__tasks}" "${ac:-task_start}"
+  check "ALY-285.4 AC-17: $label: no key from the call" "-|-|" "$(tk_ttask t1)"; end_case
+}
+tk_neg "planning role recon" ALY-285.4 allye:bridge-recon "" ""
+tk_neg "planning role strategist" ALY-285.4 allye:bridge-strategist "" ""
+tk_neg "one project bound, the key is of another project" XYZ-5.1 "" "" "" ALY-263
+tk_neg "a task UUID" 4e2b7c1a-0b2d-4e11-9a55-c0ffee123456 "" "" ""
+tk_neg "a spec key" ALY-285 "" "" ""
+tk_neg "a bare number" 285.4 "" "" ""
+tk_neg "lower case key" aly-285.4 "" "" ""
+tk_neg "a key with a trailing newline" $'ALY-285.4\n' "" "" ""
+tk_neg "a key inside text" "start task ALY-285.4 now" "" "" ""
+tk_neg "two keys" "ALY-285.4 ALY-285.5" "" "" ""
+tk_neg "a five digit task number" ALY-285.1234 "" "" ""
+tk_neg "another server" ALY-285.4 "" mcp__other__tasks ""
+tk_neg "another tool of the Allye server" ALY-285.4 "" mcp__plugin_allye_allye__specs ""
+tk_neg "action TASK_START" ALY-285.4 "" "" TASK_START
+tk_neg "action task_submit" ALY-285.4 "" "" task_submit
+tk_neg "action with a trailing space" ALY-285.4 "" "" "task_start "
+tk_new; tk_bind ALY-263 XYZ-5; tk_tool t1; tk_ts t1 XYZ-5.1
+check "ALY-285.4 AC-17: several projects bound accept a full key" "-|XYZ-5.1|" "$(tk_ttask t1)"; end_case
+tk_new; tk_bind ALY-263; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-17: one project bound, the key is of that project" "-|ALY-285.4|" "$(tk_ttask t1)"; end_case
+tk_new; "$JQ_BIN" '.tool_input.task = {"a": "ALY-285.4"}' "$FIX/mcp-allye-task-start.json" >"$SB/x.json"; tk_tool t1
+"$JQ_BIN" --arg tp "$PROJ/t.jsonl" '.agent_id = "t1" | .agent_type = "allye:bridge-pilot" | .transcript_path = $tp' "$SB/x.json" >"$SB/stdin"; run_hook
+check "ALY-285.4 AC-17: a task that is not a string sends nothing and does not fail" "-|-|0||" "$(tk_ttask t1)$RC|$OUT|$ERR"; end_case
+# AC-19: only tool_input.task is read
+tk_new; tk_tool t1
+"$JQ_BIN" --arg tp "$PROJ/t.jsonl" '.agent_id = "t1" | .agent_type = "allye:bridge-pilot" | .transcript_path = $tp | .tool_input = {action: "task_start", task: "4e2b7c1a-0b2d-4e11-9a55-c0ffee123456", spec: "ALY-285", description: "Pilot ALY-285.9", prompt: "ALY-285.8"}' "$FIX/mcp-allye-task-start.json" >"$SB/stdin"; run_hook
+check "ALY-285.4 AC-19: only tool_input.task is read (spec, description, prompt are ignored)" "-|-|" "$(tk_ttask t1)"; end_case
+tk_new; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-19: the sent key matches the key pattern and is the only value from the call" "ALY-285.4|" "$(tk_wire t1)"; end_case
+# old and hostile memory files
+tk_new; tk_memf '[["t1","",0]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: an old file (third field 0) stays valid and the call labels" 'ALY-285.4| ["t1","ALY-285.4",2]' "$(tk_ttask t1) $(tk_mem t1)"; end_case
+tk_new; tk_memf '[["t1","ALY-9.9",1]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: an old file (third field 1) with a key stays valid: the step has a key, nothing is sent" "-| [\"t1\",\"ALY-9.9\",2]" "$(tk_ttask t1) $(tk_mem t1)"; end_case
+tk_new; tk_memf '[["t1","",2]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: a file with marker 2 is valid: nothing is sent" "-|" "$(tk_ttask t1)"; end_case
+tk_new; tk_memf '[["t1","",3]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: an entry with an unknown marker (3) counts as empty" "ALY-285.4|" "$(tk_ttask t1)"; end_case
+tk_new; tk_memf 'not json'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: a corrupt memory counts as empty" "ALY-285.4|" "$(tk_ttask t1)"; end_case
+tk_new; tk_memf "$(printf '[["t1","",2]'; head -c 9000 /dev/zero | tr '\0' ' '; printf ']')"; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: an oversized memory (cap kept) counts as empty" "ALY-285.4|" "$(tk_ttask t1)"; end_case
+# parallel agents are independent; the memory rolls at 64
+tk_new; tk_tool t1; tk_tool t2; tk_ts t1 ALY-285.4; tk_ts t2 ALY-285.5; tk_ts t1 ALY-285.9
+check "ALY-285.4 AC-18: parallel agent ids are independent" "-|ALY-285.4|-| -|ALY-285.5|" "$(tk_ttask t1) $(tk_ttask t2)"; end_case
+tk_new; for i in $(seq 1 66); do tk_ts "w$i" ALY-285.4; done
+check "ALY-285.4 D-15: the memory keeps the newest 64 ids, marker 2" "64 w66 2" "$("$JQ_BIN" -r 'length' "$(TKMEM)") $("$JQ_BIN" -r '.[-1][0]' "$(TKMEM)") $("$JQ_BIN" -r '.[-1][2]' "$(TKMEM)")"; end_case
+# gates: texts off, Live off
+for fl in activity-off detailed-off; do
+  tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"; tk_ts t1 ALY-285.4
+  check "ALY-285.4 AC-19: $fl sends no key and writes no state file" "-| no" "$(tk_ttask t1) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+done
+tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/off"; chmod 600 "$DATA/live/off"; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-19: Live off sends nothing and writes no state file" " no" "$(tk_ttask t1) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+# main session: no agent id, no key, no memory
+tk_new; "$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/mcp-allye-task-start.json" >"$SB/stdin"; run_hook
+check "ALY-285.4 AC-16: the main session's task_start sends no sub.task and records nothing" "0 no" "$(spooled | grep -c '"sub"' || true) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+# AC-18/AC-19: the fast path. A logging head shim shows whether the project prefix (tk_prefix: head -c 1200 of the bind file) was computed.
+tk_hp() { SHIMD="$SB/probeshims"; link_shims "$SHIMD"; ln -sf "$SHIMS_STUB/curl" "$SHIMD/curl"; printf '#!/bin/bash\nexec "%s/_wrap.sh" head "$@"\n' "$SHIMS" >"$SHIMD/head"; chmod +x "$SHIMD/head"; tk_bind ALY-263; : >"$SB/log/calls.log"; }
+tk_pf() { grep -c '^head \[-c\] \[1200\]' "$SB/log/calls.log" || true; }
+tk_new; tk_hp; tk_memf '[["t1","",1]]'; tk_tool t1
+check "ALY-285.4 AC-18: a plain tool call of a tried id takes the fast path (no prefix)" "0" "$(tk_pf)"; end_case
+tk_new; tk_hp; tk_memf '[["t1","",1]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-19: an Allye tasks task_start of a marker 1 id leaves the fast path (prefix computed)" "yes" "$([ "$(tk_pf)" -gt 0 ] && echo yes || echo no)"; end_case
+tk_new; tk_hp; tk_memf '[["t1","ALY-285.4",2]]'; tk_ts t1 ALY-285.5
+check "ALY-285.4 AC-18: a task_start of an id with marker 2 takes the fast path (no prefix)" "0" "$(tk_pf)"; end_case
+tk_new; tk_hp; tk_memf '[["t1","",1]]'; tk_ts t1 ALY-285.4 allye:bridge-pilot mcp__other__tasks
+check "ALY-285.4 AC-19: another server's tasks call computes no prefix" "0" "$(tk_pf)"; end_case
+tk_new; tk_hp; tk_memf '[["t1","",1]]'; tk_ts t1 ALY-285.4 allye:bridge-pilot mcp__plugin_allye_allye__specs
+check "ALY-285.4 AC-19: another Allye tool computes no prefix" "0" "$(tk_pf)"; end_case
 
 #@group synth 50
 echo "== synthetic sub_start for unseen subagents (ALY-217.7 AC-35, AC-36, D-26) =="
@@ -2326,11 +2431,12 @@ cls Bash '{"command":"npm run typecheck"}' "D-08: npm run typecheck" "Typecheck"
 cls Bash '{"command":"tsc -b"}' "D-08: tsc -b is a build" "Build"
 cls Bash '{"command":"npm run build"}' "D-08: npm run build" "Build"
 cls Bash '{"command":"make build"}' "D-08: make build" "Build"
-cls Bash '{"command":"git diff HEAD~1 -- secret.txt"}' "D-08: git diff" "Read the diff"
+cls Bash '{"command":"git diff HEAD~1 -- secret.txt"}' "ALY-285 AC-03: a tilde is not a plain-word character (intended): the whole command reads the constant" "Run a command"
+cls Bash '{"command":"git diff HEAD -- secret.txt"}' "D-08: git diff" "Read the diff"
 cls Bash '{"command":"git status --short"}' "D-08: git status" "Check git status"
-cls Bash '{"command":"git push origin main"}' "D-08: another git subcommand" "Run a command"
+cls Bash '{"command":"git push origin main"}' "ALY-285.2 AC-01: git push is a constant word now (was: another git subcommand)" "Push to git"
 cls Bash '{"command":"ls -la /home/u"}' "D-08: any other command" "Run a command"
-cls Bash '{"command":"cd /repo && npm test"}' "D-08: the class is decided on argv0 only" "Run a command"
+cls Bash '{"command":"cd /repo && npm test"}' "ALY-285 AC-06: a neutral cd segment is skipped, the word is the next segment (was: the class was decided on argv0 only)" "Run tests"
 cls Bash '{"command":"./node_modules/.bin/vitest run"}' "D-08: argv0 is its basename" "Run vitest"
 cls Bash '{"command":"npm install left-pad"}' "D-08: npm install is not a test" "Run a command"
 cls Bash '{"command":""}' "D-08: an empty command" "Run a command"
@@ -2344,6 +2450,317 @@ cls Bash '{"command":"npm test","description":"Run the unit tests of the hooks"}
 cls Bash '{"command":"npm test","description":"Run"}' "D-08: a description the cleaner drops (3-word minimum) falls back to the class" "Run tests"
 cls Bash '{"command":"vitest","description":"deploy with password=MARKER_ARGS and token=MARKER_ARGS now"}' "BR-04: a description with secrets leaves only what the cleaner keeps (the secrets are cut), the class is not used" "deploy with and now"
 check "BR-01: no marker of any tool input reached the spool or a file" "0" "$(grep -rl 'MARKER_ARGS\|abc123' "$DATA" 2>/dev/null | grep -c . || true)"
+end_case
+
+# ─── ALY-285.1: the strict segment classifier (AC-03, AC-06, AC-07, AC-08, AC-23, BR-02, D-09 to D-12, D-16, NFR-01) ───
+clsc() { cls Bash "$("$JQ_BIN" -cn --arg c "$1" '{command:$c}')" "$2" "$3"; }
+new_case; mkcred
+RC_="Run a command"
+clsc "git status && git diff" "AC-06: two classified segments: the word of the first" "Check git status"
+clsc "git status && MARKER_ARGS_X" "AC-06: git status && an unclassified segment" "$RC_"
+clsc "npm test && MARKER_ARGS_X" "AC-06: npm test && an unclassified segment" "$RC_"
+clsc "MARKER_ARGS_X && npm test" "AC-06: an unclassified first segment" "$RC_"
+clsc "cd repo && cd sub && npm test" "AC-06/D-12: two neutral cd segments then a word" "Run tests"
+clsc "cd repo && A=1 && npm test" "AC-06/D-12: a VAR=value only segment is neutral" "Run tests"
+clsc "cd repo" "AC-06: only neutral segments: no word" "$RC_"
+clsc "A=1" "AC-06: only a VAR=value segment: no word" "$RC_"
+clsc "cd ~ && npm test" "D-12: a cd word outside the shape" "$RC_"
+clsc "cd -P && npm test" "D-12: a cd flag is not a word" "$RC_"
+clsc "cd a b && npm test" "D-12: cd with two words" "$RC_"
+clsc "cd $(printf 'a%.0s' $(seq 61)) && npm test" "D-12: a cd word of 61 characters" "$RC_"
+clsc "npm test; git status" "AC-06: a semicolon separates segments" "Run tests"
+clsc "npm test || git status" "AC-06: || separates segments" "Run tests"
+clsc "$(printf 'npm test\ngit status')" "D-11: a newline separates segments" "Run tests"
+clsc "$(printf 'npm test\n')" "D-11: a trailing newline is not a segment" "Run tests"
+clsc "$(printf 'npm test\nMARKER_ARGS_X')" "D-11: a newline then an unclassified segment" "$RC_"
+clsc "npm test;;git status" "AC-06: an empty segment between operators" "$RC_"
+clsc "npm test | tail -5" "D-16: any pipe reads the constant" "$RC_"
+clsc "npm test |& tail" "AC-15: |& reads the constant" "$RC_"
+clsc "npm test &" "AC-15: a trailing & reads the constant" "$RC_"
+clsc "npm test &>f" "AC-15: &> reads the constant" "$RC_"
+clsc "npm test 2>&1" "AC-07: a redirect reads the constant" "$RC_"
+clsc "npm test > out.txt" "AC-07: > reads the constant" "$RC_"
+clsc "npm test < in.txt" "AC-07: < reads the constant" "$RC_"
+clsc 'echo $(cat f)' "AC-07: \$( reads the constant" "$RC_"
+clsc 'npm test ${HOME}' "AC-07: \${ reads the constant" "$RC_"
+clsc 'npm test `id`' "AC-07: a backtick reads the constant" "$RC_"
+clsc 'npm test \n' "AC-07: a backslash reads the constant" "$RC_"
+clsc "$(printf 'npm test\r')" "AC-07: a carriage return reads the constant" "$RC_"
+clsc "$(printf 'npm test\001')" "AC-07: a C0 control reads the constant" "$RC_"
+clsc "$(printf 'npm\ttest')" "AC-07: a tab is allowed" "Run tests"
+clsc "$(printf 'npm test \342\200\256')" "AC-07: a bidi control is not a plain-word character" "$RC_"
+clsc "npm test 'a'" "AC-07: a quoted word with no message flag" "$RC_"
+clsc "npm test \"a\"" "AC-07: a double-quoted word with no message flag" "$RC_"
+clsc "npm test 'a" "AC-07: an unterminated quote" "$RC_"
+clsc "npm test ''" "AC-07: an empty quoted word" "$RC_"
+clsc "npm test a'b'" "AC-07: a quote inside a word" "$RC_"
+clsc "npm test 'a'b" "AC-07: a quote followed by more word text" "$RC_"
+clsc "npm test 'a;b'" "AC-07: a quote holding a semicolon" "$RC_"
+clsc "npm test \"a&&b\"" "AC-07: a quote holding &&" "$RC_"
+clsc "npm test 'a|b'" "AC-07: a quote holding a pipe" "$RC_"
+clsc "npm test 'a'\"b\"" "AC-07: nested or adjacent quotes" "$RC_"
+clsc "eval npm test" "AC-07: eval" "$RC_"
+clsc "sh -c 'npm test'" "AC-07: sh -c" "$RC_"
+clsc "bash -c 'npm test'" "AC-07: bash -c" "$RC_"
+clsc "cd repo && bash -c 'npm test'" "AC-07: bash -c after cd" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c 'npm test'" "AC-07: the anchored heavy wrapper: the inner command is classified" "Run tests"
+clsc "cd repo && flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c 'npm test'" "AC-07: cd then the wrapper" "Run tests"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c 'git status'" "AC-07: the wrapper with another classified inner" "Check git status"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c 'MARKER_ARGS_X'" "AC-07: the wrapper with an unclassified inner" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c 'npm test && git status'" "AC-07: the wrapper inner is a single command" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c 'npm test | tail'" "AC-07: the wrapper inner with a pipe" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c 'npm test \"x\"'" "AC-07: the wrapper inner with a double quote not after a message flag" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 123456 bash -c 'npm test'" "AC-07: a timeout of 6 digits" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 60x bash -c 'npm test'" "AC-07: a non-numeric timeout" "$RC_"
+clsc "flock /tmp/other.lock timeout 600 bash -c 'npm test'" "AC-07: a lock outside /tmp/aly-heavy-" "$RC_"
+clsc "flock /tmp/aly-heavy-a/b.lock timeout 600 bash -c 'npm test'" "AC-07: a lock word with a slash" "$RC_"
+clsc "flock -n /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c 'npm test'" "AC-07: an extra flock flag" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 sh -c 'npm test'" "AC-07: sh instead of bash" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c npm test" "AC-07: an unquoted inner" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c \"npm test\"" "AC-07: a double-quoted outer" "$RC_"
+clsc "flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c 'npm test' extra" "AC-07: a word after the wrapper" "$RC_"
+clsc "npm test --force" "AC-03: --force" "$RC_"
+clsc "npm test --force-with-lease" "AC-03: starts with --force" "$RC_"
+clsc "npm test --delete-branch" "AC-03: starts with --delete" "$RC_"
+clsc "npm test --amend" "AC-03: --amend" "$RC_"
+clsc "npm test --hard" "AC-03: --hard" "$RC_"
+clsc "npm test --admin" "AC-03: --admin" "$RC_"
+clsc "npm test --mirror" "AC-03: --mirror" "$RC_"
+clsc "npm test --prune" "AC-03: --prune" "$RC_"
+clsc "npm test --no-verify" "AC-03: --no-verify" "$RC_"
+clsc "npm test --kill" "AC-03: --kill" "$RC_"
+clsc "npm test --force=1" "AC-03: a blacklisted flag before an =" "$RC_"
+clsc "npm test -f" "AC-03: -f" "$RC_"
+clsc "npm test -k" "AC-03: -k" "$RC_"
+clsc "npm test -d" "AC-03: -d" "$RC_"
+clsc "npm test -D" "AC-03: -D" "$RC_"
+clsc "npm test -uf" "D-10: a cluster holding f" "$RC_"
+clsc "npm test -fk" "D-10: a cluster holding f and k" "$RC_"
+clsc "npm test -xk" "D-10: a cluster holding k" "$RC_"
+clsc "npm test --unknown-flag" "AC-03: a flag outside the allowlist" "$RC_"
+clsc "npm test -Z" "AC-03: an uppercase short flag outside the allowlist" "$RC_"
+clsc "npm test a:b" "AC-03: a word with a colon" "$RC_"
+clsc "npm test a+b" "AC-03: a word with a plus" "$RC_"
+clsc "npm test +a" "AC-03: a word starting with a plus" "$RC_"
+clsc "npm test :a" "AC-03: a word starting with a colon" "$RC_"
+clsc "npm test a~b" "AC-03: a tilde" "$RC_"
+clsc "npm test a*b" "AC-03: a glob character" "$RC_"
+clsc "npm test a=b" "AC-03: a plain word with an equals sign" "$RC_"
+clsc "npm test $(printf 'a%.0s' $(seq 101))" "AC-03: a plain word of 101 characters" "$RC_"
+clsc "npm test $(printf 'a%.0s' $(seq 100))" "AC-03: a plain word of 100 characters" "Run tests"
+clsc "npm test src/a.test.ts@1" "AC-03: slash, dot, at sign and dash are plain-word characters" "Run tests"
+clsc "npm test --maxWorkers=4 --minWorkers=1" "AC-03: allowlisted flags with = values" "Run tests"
+clsc "npm test --maxWorkers=a:b" "AC-03: an allowlisted flag whose value has a colon" "$RC_"
+clsc "eslint -f json ." "AC-03: eslint -f json is blacklisted" "$RC_"
+clsc "tail -f log" "AC-03: tail -f is not classified" "$RC_"
+clsc "A=1 B=2 npm test" "AC-06: leading VAR=value words inside a segment" "Run tests"
+clsc "cd repo && A=1 npm test" "AC-06: VAR=value then the command" "Run tests"
+clsc "make build" "SHD-01: make build as exactly two words" "Build"
+clsc "make build deploy" "SHD-01: a positional word after make build reads the constant" "$RC_"
+clsc "make build install" "SHD-01: another positional word after make build" "$RC_"
+clsc "make build --jobs" "SHD-01: a flag after make build reads the constant" "$RC_"
+clsc "node --test" "SHD-03: node --test" "Run tests"
+clsc "node --test --test-concurrency=4 test/" "SHD-03: node --test with allowlisted flags" "Run tests"
+clsc "node --test-only evil.js" "SHD-03: node --test-only is not --test" "$RC_"
+clsc "node --test-reporter=dot evil.js" "SHD-03: node --test-reporter first is not --test" "$RC_"
+clsc "node --testing x.js" "SHD-03: any other --test prefix" "$RC_"
+clsc "git status --short" "AC-03: git status --short" "Check git status"
+clsc "git status --force" "AC-03: git status with a blacklisted flag" "$RC_"
+clsc "git diff --stat --cached" "AC-03: git diff allowlisted flags" "Read the diff"
+# ─── ALY-285.2: git, gh, heavy-lock and mission-log constant words (AC-01, AC-02, AC-04, AC-05, AC-03, BR-01) ───
+clsc "git commit -m 'MARKER_MSG'" "AC-01: git commit -m with a quoted message" "Commit to git"
+clsc 'git commit -m "MARKER_MSG"' "AC-01: git commit -m with a double-quoted message" "Commit to git"
+clsc 'git commit --message "x" --signoff' "AC-01: --message and --signoff" "Commit to git"
+clsc "git commit -a -s -q" "AC-01: git commit short flags" "Commit to git"
+clsc "git commit --all --quiet" "AC-01: git commit long flags" "Commit to git"
+clsc "git commit" "AC-01: git commit alone" "Commit to git"
+clsc "git push origin MARKER_BRANCH" "AC-01: git push with a remote and a branch: nothing of them" "Push to git"
+clsc "git push -u origin main" "AC-01: git push -u" "Push to git"
+clsc "git push --set-upstream origin main" "AC-01: git push --set-upstream" "Push to git"
+clsc "git push --tags" "AC-01: git push --tags" "Push to git"
+clsc "git push -q" "AC-01: git push -q" "Push to git"
+clsc "git merge --no-ff feature" "AC-01: git merge --no-ff" "Merge in git"
+clsc "git merge --ff-only --no-edit main" "AC-01: git merge --ff-only --no-edit" "Merge in git"
+clsc "git merge --squash main" "AC-01: git merge --squash" "Merge in git"
+clsc "git merge --abort" "AC-01: git merge --abort" "Merge in git"
+clsc "git fetch origin" "AC-01: git fetch" "Fetch from git"
+clsc "git fetch --all --tags -q" "AC-01: git fetch flags" "Fetch from git"
+clsc "git log --oneline" "AC-01: git log --oneline" "Read the history"
+clsc "git log --stat --graph --decorate" "AC-01: git log flags" "Read the history"
+clsc "git log --name-only -p" "AC-01: git log --name-only -p" "Read the history"
+clsc "git log -n 5" "AC-03: git log -n 5 is allowed (n is not f or k)" "Read the history"
+clsc "git log -5" "AC-03: git log -<digits>" "Read the history"
+clsc "git log -12345" "AC-03: git log -<5 digits> is outside the shape" "$RC_"
+clsc "git rebase main" "AC-01: git rebase" "$RC_"
+clsc "git -C d commit" "AC-01: git -C d commit (verb is not the second word)" "$RC_"
+clsc "git --no-pager log" "AC-01: git --no-pager log" "$RC_"
+clsc "git diff" "AC-01: git diff keeps its word" "Read the diff"
+clsc "git status" "AC-01: git status keeps its word" "Check git status"
+clsc "git push -d origin main" "AC-03: git push -d" "$RC_"
+clsc "git push origin +main" "AC-03: git push +main" "$RC_"
+clsc "git push origin :main" "AC-03: git push :main" "$RC_"
+clsc "git push --force-with-lease" "AC-03: git push --force-with-lease" "$RC_"
+clsc "git push --force" "AC-03: git push --force" "$RC_"
+clsc "git push -f" "AC-03: git push -f" "$RC_"
+clsc "git push -uf origin main" "AC-03: git push -uf" "$RC_"
+clsc "git push --mirror" "AC-03: git push --mirror" "$RC_"
+clsc "git push --delete origin main" "AC-03: git push --delete" "$RC_"
+clsc "git push --no-verify" "AC-03: git push --no-verify" "$RC_"
+clsc "git push --unknown" "AC-03: git push, a flag outside its allowlist" "$RC_"
+clsc "git push -m 'x'" "AC-03: git push, a message flag outside its allowlist" "$RC_"
+clsc "git fetch --prune" "AC-03: git fetch --prune" "$RC_"
+clsc "git commit --amend" "AC-03: git commit --amend" "$RC_"
+clsc "git commit --amend -m 'x'" "AC-03: git commit --amend -m" "$RC_"
+clsc "git commit -am 'x'" "AC-03: git commit -am (cluster outside the allowlist)" "$RC_"
+clsc "git commit --no-verify -m 'x'" "AC-03: git commit --no-verify" "$RC_"
+clsc "git commit -a 'x'" "AC-03: a quoted word after a flag that is not a message flag" "$RC_"
+clsc "git commit 'x'" "AC-03: a quoted word with no message flag" "$RC_"
+clsc 'git commit -m "a $(id)"' "AC-07: a command substitution in the message" "$RC_"
+clsc 'git commit -m "a;b"' "AC-07: a semicolon in the message" "$RC_"
+clsc "git commit -m 'it'\"s\"" "AC-07: nested quotes in the message" "$RC_"
+clsc "git commit -m x" "AC-03: a bare word after -m is a plain word" "Commit to git"
+clsc "git merge --hard main" "AC-03: git merge --hard" "$RC_"
+clsc "git merge -m x main" "AC-03: git merge -m is outside the allowlist" "$RC_"
+clsc "git log -f" "AC-03: git log -f" "$RC_"
+clsc "git log --unknown" "AC-03: git log, a flag outside its allowlist" "$RC_"
+clsc "git log HEAD~1" "AC-03: a tilde word" "$RC_"
+clsc "git log main:path" "AC-03: a colon word" "$RC_"
+clsc "git push && MARKER_ARGS_X" "AC-06: git push then an unclassified segment" "$RC_"
+clsc "git push && git status" "AC-06: git push then git status: the first word" "Push to git"
+clsc "git commit -m 'x' && git push" "AC-06: commit then push: the first word" "Commit to git"
+clsc "git push | cat" "AC-07: git push with a pipe" "$RC_"
+clsc "git push > out" "AC-07: git push with a redirect" "$RC_"
+clsc "git push origin main --force" "AC-03: a blacklisted flag after plain words" "$RC_"
+clsc "gh pr create" "AC-02: gh pr create" "Open the PR"
+clsc 'gh pr create --title "MARKER_TITLE" --body "MARKER_BODY" --base main --draft' "AC-02: gh pr create with title, body, base, draft" "Open the PR"
+clsc "gh pr create --fill --web --head feature" "AC-02: gh pr create --fill --web --head" "Open the PR"
+clsc "gh pr merge 12 --squash --auto" "AC-02: gh pr merge" "Merge the PR"
+clsc "gh pr merge --merge" "AC-02: gh pr merge --merge" "Merge the PR"
+clsc "gh pr merge --rebase 12" "AC-02: gh pr merge --rebase" "Merge the PR"
+clsc "gh pr view 12 --web" "AC-02: gh pr view" "Check the PR"
+clsc "gh pr view --json state" "AC-02: gh pr view --json" "Check the PR"
+clsc "gh pr checks --watch" "AC-02: gh pr checks --watch" "Check the PR"
+clsc "gh pr checks 12 --comments" "AC-02: gh pr checks --comments" "Check the PR"
+clsc "gh pr merge --admin" "AC-03: gh pr merge --admin" "$RC_"
+clsc "gh pr merge --delete-branch" "AC-03: gh pr merge --delete-branch" "$RC_"
+clsc "gh pr merge --squash --delete-branch" "AC-03: a blacklisted flag after an allowed one" "$RC_"
+clsc "gh pr merge --unknown" "AC-03: gh pr merge, a flag outside its allowlist" "$RC_"
+clsc "gh pr create --force" "AC-03: gh pr create --force" "$RC_"
+clsc "gh pr create --title x:y" "AC-03: a colon in a title word" "$RC_"
+clsc "gh pr create --head user:branch" "AC-03: a colon in a head word" "$RC_"
+clsc "gh pr create --body-file f" "AC-03: gh pr create --body-file is outside the allowlist" "$RC_"
+clsc "gh pr merge --title 'x'" "AC-03: gh pr merge with --title is outside its allowlist" "$RC_"
+clsc "gh pr list" "AC-02: gh pr list" "$RC_"
+clsc "gh pr close 12" "AC-02: gh pr close" "$RC_"
+clsc "gh pr" "AC-02: gh pr alone" "$RC_"
+clsc "gh" "AC-02: gh alone" "$RC_"
+clsc "gh issue create" "AC-02: gh issue create" "$RC_"
+clsc "gh api repos/x/y" "AC-02: gh api" "$RC_"
+clsc "gh repo delete x" "AC-02: gh repo delete" "$RC_"
+clsc "gh --repo x pr view" "AC-02: gh with the verb not second" "$RC_"
+clsc "fuser /tmp/aly-heavy-ALY-285.lock" "AC-04: fuser of a heavy lock" "Check the heavy lock"
+clsc "lsof /tmp/aly-heavy-ALY-285.lock" "AC-04: lsof of a heavy lock" "Check the heavy lock"
+clsc "fuser -v /tmp/aly-heavy-x.1.lock" "AC-04: fuser -v" "Check the heavy lock"
+clsc "lsof -t /tmp/aly-heavy-x.lock" "AC-04: lsof -t" "Check the heavy lock"
+clsc "fuser -k /tmp/aly-heavy-ALY-285.lock" "AC-04: fuser -k" "$RC_"
+clsc "fuser --kill /tmp/aly-heavy-ALY-285.lock" "AC-04: fuser --kill" "$RC_"
+clsc "fuser -vk /tmp/aly-heavy-ALY-285.lock" "AC-04: fuser -vk" "$RC_"
+clsc "lsof -k /tmp/aly-heavy-ALY-285.lock" "AC-04: lsof -k" "$RC_"
+clsc "fuser /tmp/aly-heavy-ALY-285.lock -k" "AC-04: -k after the lock" "$RC_"
+clsc "fuser" "AC-04: fuser with no argument" "$RC_"
+clsc "lsof" "AC-04: lsof with no argument" "$RC_"
+clsc "fuser /tmp/other.lock" "AC-04: a lock outside /tmp/aly-heavy-" "$RC_"
+clsc "fuser /tmp/aly-heavy-.lock" "AC-04: an empty lock name" "$RC_"
+clsc "fuser /tmp/aly-heavy-a/b.lock" "AC-04: a lock name with a slash" "$RC_"
+clsc "fuser /tmp/aly-heavy-ALY-285.lock2" "AC-04: a suffix after .lock" "$RC_"
+clsc "fuser /tmp/aly-heavy-ALY-285.lock /etc/passwd" "AC-04: a second argument" "$RC_"
+clsc "fuser /etc/passwd /tmp/aly-heavy-ALY-285.lock" "AC-04: another argument before the lock" "$RC_"
+clsc "lsof -i /tmp/aly-heavy-ALY-285.lock" "AC-04: a flag outside the allowlist" "$RC_"
+clsc "fuser $(printf '/tmp/aly-heavy-%s.lock' $(printf 'a%.0s' $(seq 61)))" "AC-04: a 61-character lock name" "$RC_"
+clsc "fuser $(printf '/tmp/aly-heavy-%s.lock' $(printf 'a%.0s' $(seq 60)))" "AC-04: a 60-character lock name" "Check the heavy lock"
+clsc "fuser /tmp/aly-heavy-x.lock | cat" "AC-04: fuser with a pipe" "$RC_"
+clsc "fuser /tmp/aly-heavy-x.lock && rm -rf y" "AC-04: fuser then another command" "$RC_"
+clsc 'echo "MARKER_LOG" >> .allye/missions/aly-285/log.md' "AC-05: echo to the mission log" "Update the mission log"
+clsc "echo 'MARKER_LOG' >> .allye/missions/aly-285/log.md" "AC-05: echo with single quotes" "Update the mission log"
+clsc 'echo "x" >>  .allye/missions/aly-285/log.md' "AC-05: two spaces before the path" "Update the mission log"
+clsc 'echo >> .allye/missions/aly-285/log.md' "AC-05: echo with no argument" "Update the mission log"
+clsc "printf '%s\\n' \"MARKER_LOG\" >> .allye/missions/aly-285/log.md" "AC-05: printf with the %s newline format" "Update the mission log"
+clsc 'printf "MARKER_LOG" >> .allye/missions/a.b_c-1/log.md' "AC-05: printf with one quoted argument" "Update the mission log"
+clsc "printf '%s\\n' x >> .allye/missions/aly-285/log.md" "AC-05: the format with a bare word" "$RC_"
+clsc "printf '%s\\n' \"a\" \"b\" >> .allye/missions/aly-285/log.md" "AC-05: the format with two arguments" "$RC_"
+clsc "printf '%d\\n' \"a\" >> .allye/missions/aly-285/log.md" "AC-05: another printf format" "$RC_"
+clsc "printf '%s\\n' \"a\" >> .allye/missions/aly-285/log.md && rm y" "AC-05: the format, then another command" "$RC_"
+clsc "printf 'a\\nb' >> .allye/missions/aly-285/log.md" "AC-05: a backslash in a single argument" "$RC_"
+clsc 'echo "a" "b" >> .allye/missions/aly-285/log.md' "AC-05: two quoted arguments" "$RC_"
+clsc 'echo x >> .allye/missions/aly-285/log.md' "AC-05: a bare word argument" "$RC_"
+clsc 'echo x >> .allye/missions/aly-285/log.md && rm y' "AC-05: echo x >> path && rm y" "$RC_"
+clsc 'echo "x" >> .allye/missions/aly-285/log.md && rm y' "AC-05: a quoted echo then another command" "$RC_"
+clsc 'echo "x" >> .allye/missions/aly-285/log.md; rm y' "AC-05: a semicolon after the path" "$RC_"
+clsc 'echo "x" >> .allye/missions/aly-285/log.md rm' "AC-05: a word after the path" "$RC_"
+clsc 'echo "x" >> .allye/missions/aly-285/log.md > y' "AC-05: a second redirect" "$RC_"
+clsc 'echo "$(cat f)" >> .allye/missions/aly-285/log.md' "AC-05: echo with a command substitution" "$RC_"
+clsc 'echo "$HOME" >> .allye/missions/aly-285/log.md' "AC-05: echo with a variable" "$RC_"
+clsc 'echo "`id`" >> .allye/missions/aly-285/log.md' "AC-05: echo with a backtick" "$RC_"
+clsc "echo \"$(printf 'a\nb')\" >> .allye/missions/aly-285/log.md" "AC-05: a newline in the argument" "$RC_"
+clsc 'echo "a;b" >> .allye/missions/aly-285/log.md' "AC-05: a semicolon in the argument" "$RC_"
+clsc 'echo "a>b" >> .allye/missions/aly-285/log.md' "AC-05: a redirect character in the argument" "$RC_"
+clsc "echo \"$(printf 'a%.0s' $(seq 200))\" >> .allye/missions/aly-285/log.md" "AC-05: an argument of 200 characters" "Update the mission log"
+clsc "echo \"$(printf 'a%.0s' $(seq 201))\" >> .allye/missions/aly-285/log.md" "AC-05: an argument of 201 characters" "$RC_"
+clsc 'echo "x" > .allye/missions/aly-285/log.md' "AC-05: a single > is another redirect" "$RC_"
+clsc 'echo "x" >> .allye/missions/aly-285/other.md' "AC-05: another file name" "$RC_"
+clsc 'echo "x" >> .allye/missions/aly-285/sub/log.md' "AC-05: a deeper path" "$RC_"
+clsc 'echo "x" >> /.allye/missions/aly-285/log.md' "AC-05: an absolute path" "$RC_"
+clsc 'echo "x" >> ../.allye/missions/aly-285/log.md' "AC-05: a parent path" "$RC_"
+clsc 'echo "x" >> .allye/missions/../log.md' "AC-05: a slug of two dots" "$RC_"
+clsc 'echo "x" >> .allye/missions/.hidden/log.md' "AC-05: a slug starting with a dot" "$RC_"
+clsc 'echo "x" >> .allye/missions//log.md' "AC-05: an empty slug" "$RC_"
+clsc "echo \"x\" >> .allye/missions/$(printf 'a%.0s' $(seq 61))/log.md" "AC-05: a slug of 61 characters" "$RC_"
+clsc "echo \"x\" >> .allye/missions/$(printf 'a%.0s' $(seq 60))/log.md" "AC-05: a slug of 60 characters" "Update the mission log"
+clsc 'echo "x" >> .allye/other/aly-285/log.md' "AC-05: another directory" "$RC_"
+clsc 'echo "x" >> ~/.allye/missions/aly-285/log.md' "AC-05: a home path" "$RC_"
+clsc 'cat "x" >> .allye/missions/aly-285/log.md' "AC-05: another command" "$RC_"
+clsc 'echo "x" 2>> .allye/missions/aly-285/log.md' "AC-05: a stderr redirect" "$RC_"
+clsc 'cd repo && echo "x" >> .allye/missions/aly-285/log.md' "AC-05: the whole shape only: a cd segment first reads the constant" "$RC_"
+clsc 'echo "x" >> .allye/missions/aly-285/log.md
+' "AC-05: a trailing newline" "$RC_"
+clsc 'echo "x" >> .allye/missions/aly-285/log.md ' "AC-05: a trailing space" "$RC_"
+clsc 'A=1 echo "x" >> .allye/missions/aly-285/log.md' "AC-05: a VAR=value prefix" "$RC_"
+clsc 'echo -e "x" >> .allye/missions/aly-285/log.md' "AC-05: an echo flag" "$RC_"
+clsc "$(for i in $(seq 16); do printf 'npm test;'; done)" "AC-06: 16 segments with a trailing separator" "Run tests"
+clsc "$(for i in $(seq 17); do printf 'npm test;'; done)" "AC-06: 17 segments with a trailing separator" "$RC_"
+clsc "npm test $(for i in $(seq 63); do printf 'a '; done)" "AC-06: 65 tokens" "$RC_"
+clsc "npm test $(for i in $(seq 61); do printf 'a '; done)" "AC-06: 63 tokens" "Run tests"
+clsc "npm test $(for i in $(seq 62); do printf 'a '; done)" "AC-06: 64 tokens" "Run tests"
+# AC-07 (1)/D-09: the 4096 code point window. A padded valid command: spaces are neutral.
+pad() { printf 'npm test'; head -c "$(($1 - 8))" /dev/zero | tr '\0' ' '; }
+clsc "$(pad 4096)" "D-09: a command of 4096 code points classifies" "Run tests"
+clsc "$(pad 4097)" "D-09: a command of 4097 code points reads the constant" "$RC_"
+clsc "$(printf 'npm test'; for i in $(seq 1366); do printf 'é'; done)" "D-09: the window counts code points, not bytes" "$RC_"
+# AC-08/AC-23: bounded-input termination. The worst-case inputs still emit the event with the constant, silently; the harness
+# timeout is a kill switch only (no assertion on elapsed time, architecture guard ALY-54).
+worst() { # LABEL COMMAND
+  clsc "$2" "AC-08: $1: the constant" "$RC_"
+  check "AC-08: $1: the hook exits 0 and prints nothing" "0||" "$RC|$OUT|$ERR"
+}
+worst "5000 single quotes" "$(head -c 5000 /dev/zero | tr '\0' "'")"
+worst "5000 double quotes" "$(head -c 5000 /dev/zero | tr '\0' '"')"
+worst "4096 semicolons" "$(head -c 4096 /dev/zero | tr '\0' ';')"
+worst "2000 a; segments" "$(yes 'a;' | head -n 2000 | tr -d '\n')"
+worst "nested quotes" "npm test '\"'\"'\"'\"'\"'"
+worst "alternating quotes" "$(yes "'\"" | head -n 2000 | tr -d '\n')"
+worst "an unterminated quote and 4000 characters" "npm test '$(head -c 4000 /dev/zero | tr '\0' a)"
+worst "4096 ampersands" "$(head -c 4096 /dev/zero | tr '\0' '&')"
+worst "4096 pipes" "$(head -c 4096 /dev/zero | tr '\0' '|')"
+worst "4097 characters" "$(head -c 4097 /dev/zero | tr '\0' a)"
+worst "4096 characters of one word" "$(head -c 4096 /dev/zero | tr '\0' a)"
+# Structure of the classifier defs (AC-08): constant limits checked early, try/catch null, no nested quantifier or group repetition.
+BCLS_DEFS=$(awk '/^def bcls_/ {on=1} /^def tooltpl/ {on=0} on' "$HOOK")
+check "AC-08: the classifier defs exist and carry the stable bcls_ prefix" "yes" "$([ "$(printf '%s\n' "$BCLS_DEFS" | grep -c '^def bcls_')" -ge 5 ] && echo yes || echo no)"
+check "AC-08: the entry def wraps the classifier in try ... catch null" "yes" "$(printf '%s\n' "$BCLS_DEFS" | grep -q 'try .* catch null' && echo yes || echo no)"
+check "AC-08/D-09: the limits 4096, 16 and 64 are constants of the defs" "yes yes yes" "$(for n in 4096 16 64; do printf '%s\n' "$BCLS_DEFS" | grep -q "\b$n\b" && echo yes || echo no; done | paste -sd' ')"
+check "AC-08: no regex string literal repeats a group (no nested quantifiers)" "0" "$(printf '%s\n' "$BCLS_DEFS" | grep -v '^ *#' | grep -o '"[^"]*"' | grep -cE '\)[*+{]|\)\?[*+{]|[*+}][*+{]' || true)"
+BCLS_GLOBALS=$(grep 'RESULT=\$(printf' "$HOOK" | grep -o -e '--\(arg\|argjson\|rawfile\) [a-z]*' | awk '{print $2}' | grep -vx txt | paste -sd'|')
+check "AC-08: the defs read no program argument but \$txt (the names bound by the main jq call are the globals)" "0 yes" "$(printf '%s\n' "$BCLS_DEFS" | grep -v '^ *#' | grep -cE "[$]($BCLS_GLOBALS)([^A-Za-z0-9_]|$)" || true) $([ -n "$BCLS_GLOBALS" ] && echo yes || echo no)"
 end_case
 
 new_case; mkcred
@@ -2365,7 +2782,7 @@ cls ${M}__tasks '{"action":"task_complete","task":"ALY-1.2"}' "D-08: task_comple
 cls ${M}__tasks '{"action":"task_start","task":"aly-263.9"}' "D-08: a lowercase key: the keyless form" "Start a task"
 cls ${M}__tasks '{"action":"task_submit","task":"ALY-263.9 MARKER_ARGS"}' "D-08: a key with trailing text: the keyless form" "Submit a task"
 cls ${M}__tasks '{"action":"task_complete"}' "D-08: no key: the keyless form" "Complete a task"
-cls ${M}__tasks '{"action":"task_update","task":"ALY-1.2","notes":"MARKER_ARGS"}' "D-08: another tasks action: no phrase" "<none>"
+cls ${M}__tasks '{"action":"task_cancel","task":"ALY-1.2","notes":"MARKER_ARGS"}' "D-08: another tasks action: no phrase" "<none>"
 cls ${M}__specs '{"action":"spec_get","spec":"ALY-263"}' "D-08: spec_get" "Read spec ALY-263"
 cls ${M}__specs '{"action":"spec_context","spec":"ALY-263"}' "D-08: spec_context" "Read spec ALY-263"
 cls ${M}__specs '{"action":"spec_context","spec":"not a key"}' "D-08: spec_context with a bad key: keyless" "Read a spec"
@@ -2435,6 +2852,54 @@ for fl in activity-off detailed-off; do
   check "AC-17: $fl: the tool events still go on" "2" "$(lines_of '.type == "tool"' | grep -c . || true)"
   end_case
 done
+
+# ALY-285.3 (AC-09, AC-10, AC-11, AC-12, BR-03, BR-05, D-13, D-14): Glob extension words, Monitor description, SendMessage, memory_save and task_update.
+# one_act TOOL INPUT: the activity of the one main-session tool event it makes ("-" without one).
+one_act() { rm -f "$DATA"/live/*.acts; mainp "$1" "$2"; lines_of '.type == "tool"' | "$JQ_BIN" -r '.activity // "-"' | tail -n 1; }
+new_case; mkcred
+GX=""
+for p in '**/*.ts' 'src/*.tsx' '*.js' '*.jsx' '*.mjs' '*.py' '*.md' '*.json' '*.yml' '*.yaml' '*.sh' '*.sql' '*.css' '*.html' '*.go' '*.rs' '*.toml' '*.prisma'; do
+  GX="$GX$(one_act Glob "$("$JQ_BIN" -cn --arg p "$p" '{pattern: $p}')")|"
+done
+check "AC-09: each of the 18 allowlisted extensions says Find .<ext> files" "Find .ts files|Find .tsx files|Find .js files|Find .jsx files|Find .mjs files|Find .py files|Find .md files|Find .json files|Find .yml files|Find .yaml files|Find .sh files|Find .sql files|Find .css files|Find .html files|Find .go files|Find .rs files|Find .toml files|Find .prisma files|" "$GX"
+GX=""
+for p in '**/*.ts;rm' '*.ts/' '*.TS' '*.tsx.bak' '*.' '' '*.exe' 'src/**' '*.ts ' '.ts' 'a*.t s' '*.ts$(id)'; do
+  GX="$GX$(one_act Glob "$("$JQ_BIN" -cn --arg p "$p" '{pattern: $p}')")|"
+done
+check "AC-09: hostile and unlisted patterns say Find files" "Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|" "$GX"
+check "AC-09: a non-string or absent Glob pattern says Find files (fresh sessions)" "Find files|Find files|Find files" "$(one_act Glob '{"pattern":["*.ts"]}')|$(one_act Glob '{"pattern":{"a":"*.ts"}}')|$(one_act Glob '{}')"
+check "AC-09: Grep stays Search the code and never carries its pattern or path" "Search the code|0" "$(one_act Grep '{"pattern":"MARKER_ARGS_G","path":"/p/MARKER_ARGS_G.ts","glob":"*.ts"}')|$(grep -rl 'MARKER_ARGS_G' "$DATA" 2>/dev/null | grep -c . || true)"
+end_case
+new_case; mkcred
+check "AC-10: a Monitor description goes through the cleaner" "Watch the build output" "$(one_act Monitor '{"description":"Watch the build output","command":"tail -f MARKER_ARGS_M"}')"
+check "AC-10: a Monitor description the cleaner drops (too short) gives no phrase" "-" "$(one_act Monitor '{"description":"Go","command":"x"}')"
+check "AC-10: a Monitor without a description or with a non-string one gives no phrase" "-|-" "$(one_act Monitor '{"command":"x"}')|$(one_act Monitor '{"description":["a b c d"]}')"
+check "AC-10: a Monitor description holding a secret-like token is redacted by the cleaner (no raw token in any file)" "0" "$(one_act Monitor '{"description":"Watch logs for sk-abcdefghijklmnopqrstuvwxyz0123 now"}' >/dev/null; grep -rl 'sk-abcdefghijklmnopqrstuvwxyz0123' "$DATA" 2>/dev/null | grep -c . || true)"
+check "BR-03: a Bash description still wins over its classifier phrase" "Run the unit tests now" "$(one_act Bash '{"command":"npm test","description":"Run the unit tests now"}')"
+check "AC-11: SendMessage says Send a message, never its content" "Send a message|0" "$(one_act SendMessage '{"to":"x","message":"MARKER_ARGS_S"}')|$(grep -rl 'MARKER_ARGS_S' "$DATA" 2>/dev/null | grep -c . || true)"
+check "AC-11: intelligence memory_save says Save a memory, never its content" "Save a memory|0" "$(one_act mcp__plugin_allye_allye__intelligence '{"action":"memory_save","content":"MARKER_ARGS_I"}')|$(grep -rl 'MARKER_ARGS_I' "$DATA" 2>/dev/null | grep -c . || true)"
+check "AC-11: other intelligence actions and non-string actions give no phrase" "-|-|-" "$(one_act mcp__plugin_allye_allye__intelligence '{"action":"memory_search","query":"x"}')|$(one_act mcp__plugin_allye_allye__intelligence '{"action":"memory_save2"}')|$(one_act mcp__plugin_allye_allye__intelligence '{"action":["memory_save"]}')"
+check "AC-11: memory_save on another server or another tool gives no phrase" "-|-|-" "$(one_act mcp__other__intelligence '{"action":"memory_save"}')|$(one_act mcp__plugin_allye_allye__tasks '{"action":"memory_save"}')|$(one_act mcp__plugin_allye_allye__specs '{"action":"task_update"}')"
+check "AC-11: tasks task_update with a valid key says Update task KEY" "Update task ALY-285.3" "$(one_act mcp__plugin_allye_allye__tasks '{"action":"task_update","task":"ALY-285.3","notes":"MARKER_ARGS_T"}')"
+check "AC-11: task_update with an invalid, missing or non-string key says Update a task" "Update a task|Update a task|Update a task" "$(one_act mcp__plugin_allye_allye__tasks '{"action":"task_update","task":"aly-1.2 MARKER_ARGS_T"}')|$(one_act mcp__plugin_allye_allye__tasks '{"action":"task_update"}')|$(one_act mcp__plugin_allye_allye__tasks '{"action":"task_update","task":["ALY-1.2"]}')"
+check "AC-11: task_update on a non-Allye server named like it gets no phrase" "-|-" "$(one_act mcp__other__tasks '{"action":"task_update","task":"ALY-285.3"}')|$(one_act mcp__github__task_update '{"action":"task_update","task":"ALY-285.3"}')"
+check "AC-11: the notes of task_update never leave" "0" "$(grep -rl 'MARKER_ARGS_T' "$DATA" 2>/dev/null | grep -c . || true)"
+check "D-14: task_update creates no bind" "0" "$(lines_of '.type == "bind"' | grep -c . || true)"
+end_case
+new_case; mkcred
+mainp mcp__plugin_allye_allye__tasks '{"action":"task_start","task":"ALY-285.3","spec":"ALY-285"}'
+check "D-14: task_start still binds" "1" "$(lines_of '.type == "bind"' | grep -c . || true)"
+end_case
+# texts off (regular flag and symlink, both flags): none of the new phrases is computed, sent or stashed; the events still go on
+for fl in activity-off detailed-off; do for kind in file symlink; do
+  new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+  if [ "$kind" = file ]; then : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"; else ln -s "$SB/nowhere" "$DATA/live/$fl"; fi
+  mainp Glob '{"pattern":"**/MARKERGLOB*.ts"}'; mainp Monitor '{"description":"Watch the MARKERMON output","command":"x"}'; mainp SendMessage '{"to":"x","message":"MARKERMSG"}'
+  mainp mcp__plugin_allye_allye__intelligence '{"action":"memory_save","content":"MARKERMEM"}'; mainp mcp__plugin_allye_allye__tasks '{"action":"task_update","task":"ALY-285.3"}'
+  check "AC-12: $fl ($kind): no new phrase reaches the spool or any file" "0" "$(grep -rlE 'MARKER(GLOB|MON|MSG|MEM)|Find \.ts|Watch the|Send a message|Save a memory|Update task|Update a task' "$DATA" 2>/dev/null | grep -c . || true)"
+  check "AC-12: $fl ($kind): the five tool events still go on, with no activity" "5 0" "$(lines_of '.type == "tool"' | grep -c . || true) $(lines_of '.type == "tool" and .activity != null' | grep -c . || true)"
+  end_case
+done; done
 
 echo "== text cleaner: shared vectors, cap 140, nested allowlist and marker scan (ALY-258.1 AC-06, AC-07, D-33, NFR-01) =="
 VEC="$FIX/vectors/agent-run-text-vectors.json"
@@ -5152,7 +5617,7 @@ check "the seq of ANOTHER session is never used" "false" "$(aopen_body | "$JQ_BI
 end_case_ans
 ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '7' >"$(aseqf)"; chmod 600 "$(aseqf)"
 ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
-check "the seq read never waits on the reporter's lock (no lock path in the answer client; the manifest-name list of protected_rel is not a lock path)" "0" "$(printf '%s\n' "$ACODE" | grep -v 'package-lock.json' | grep -cE '\.lock|flock|lock_take' || true)"
+check "the seq read never waits on the reporter's lock (no lock path in the answer client; the manifest-name list of protected_rel and the aly-heavy- lock names of the phrase grammar, ALY-285.5, are not a lock path)" "0" "$(printf '%s\n' "$ACODE" | grep -v 'package-lock.json' | grep -v 'aly-heavy-' | grep -cE '\.lock|flock|lock_take' || true)"
 end_case_ans
 
 echo "== answer after integration: the reporter's cmd_end seq is above the after read at open (ALY-269.10 AC-18) =="
@@ -5941,6 +6406,235 @@ check "a truncated 300 KB JSON document: exit 0, silent, no request" "0||0" "$RC
 printf '[1,2,3]' >"$SB/stdin"; ans_run; check "JSON that is not an object: exit 0, silent, no request" "0||0" "$RC|$OUT$ERR|$(sopen)"
 end_case_ans
 check "no hostile stub or forwarder survives the section" "0" "$(fake_survivors)"
+
+# ─── ALY-285.5: the phrase grammar of the reporter and of the permission request stay identical (AC-13, AC-14, AC-15, BR-04, BR-06, D-08) ─────
+# The grammar exists twice: the col-0 defs of hooks/live-report.sh and PHRASE_DEFS of hooks/live-answer.sh (PHRASE_HEAD + QCLEAN_DEFS +
+# PHRASE_TAIL). The two are compared def by def (name, comments stripped, whitespace normalised). Decision: the list holds EVERY def of
+# PHRASE_DEFS, the head defs (sre, keyok, mcpname, allyesrv) and the cleaner defs (act*, namedrop) included, because the grammar calls them;
+# `actbare` is defined twice in both files (the later def wins in jq), so its two occurrences are compared in order (actbare#1, actbare#2).
+# The task_start key source of the reporter (tk*, latecall, latekey) is outside the grammar and is not in the list.
+DD_LIST="sre keyok mcpname allyesrv actbad actws actcore actpath actbare:2 actident actnet namedrop actdrop actwk actkv actkey actsep actscheme actauth actword actbearer actcap actclean actphrase actof namedeny deftbase pathbase filetpl crewroles skilltpl keyslot mcptpl bscript dropvars bcls_plain bcls_flagbl bcls_msgflag bcls_wordok bcls_rf bcls_entry bcls_lex bcls_fw bcls_fs bcls_words bcls_cmd bcls_inner bcls_seg bcls_mlog bcls_run bcls bashtpl globexts globtpl tooltpl toolphrase"
+DD_AWK=$(cat <<'AWK'
+function flush(   b) { if (name != "") { b = body; gsub(/[ \t]+/, " ", b); sub(/^ /, "", b); sub(/ $/, "", b); cnt[name]++; printf "%s#%d\t%s\n", name, cnt[name], b } name = ""; body = "" }
+{
+  line = $0
+  sub(/\r$/, "", line)
+  if (line ~ /^def [A-Za-z_][A-Za-z0-9_]*/) { flush(); inb = 1 }
+  else if (line ~ /^[ \t]*$/ || line ~ /^[ \t]*#/) { next }
+  else if (line !~ /^[ \t]/) { flush(); inb = 0; next }
+  if (!inb) next
+  sub(/(^|[ \t])#.*$/, "", line)
+  if (line ~ /^def /) { s = substr(line, 5); match(s, /^[A-Za-z_][A-Za-z0-9_]*/); name = substr(s, RSTART, RLENGTH); body = s } else body = body " " line
+}
+END { flush() }
+AWK
+)
+DD_BLOCKS=$(cat <<'AWK'
+/^(QCLEAN_DEFS|PHRASE_HEAD|PHRASE_TAIL)=\$\(cat <<.[A-Z]+.$/ { on = 1; next }
+on && /^(QEOF|JQDEFS)$/ { on = 0; next }
+on { print }
+AWK
+)
+DD_VARS=$(cat <<'AWK'
+BEGIN { FS = "\t" }
+{
+  nm = $1; sub(/#.*/, "", nm); b = $2
+  sig = ""; if (match(b, /^[A-Za-z_][A-Za-z0-9_]*\([^)]*\)/)) sig = substr(b, RSTART, RLENGTH)
+  bound = " "; s = sig
+  while (match(s, /\$[A-Za-z_][A-Za-z0-9_]*/)) { bound = bound substr(s, RSTART, RLENGTH) " "; s = substr(s, RSTART + RLENGTH) }
+  s = b; gsub(/"([^"\\]|\\.)*"/, "\"\"", s); prev = ""
+  while (match(s, /[$.]?[A-Za-z_][A-Za-z0-9_]*:?/)) {
+    t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+    c1 = substr(t, 1, 1); cl = substr(t, length(t), 1)
+    if (c1 == "$") { if (prev == "as") bound = bound t " "; else if (index(bound, " " t " ") == 0 && t != "$txt") print "VAR\t" nm "\t" t }
+    else if (c1 != "." && cl != ":") print "ID\t" nm "\t" t
+    prev = t
+  }
+}
+AWK
+)
+dd_report() { awk "$DD_AWK" "$1"; }
+dd_answer() { awk "$DD_BLOCKS" "$1" | awk "$DD_AWK"; }
+# drift_check REPORT ANSWER: prints one line per problem, each naming the def; nothing when the grammar is identical
+drift_check() {
+  local rf="$1" af="$2" k b it nm cn i keys="" rn="" kind who tok
+  local -A RD AD EXP
+  while IFS=$'\t' read -r k b; do [ -n "$k" ] && RD[$k]=$b; done < <(dd_report "$rf")
+  while IFS=$'\t' read -r k b; do [ -n "$k" ] && AD[$k]=$b; done < <(dd_answer "$af")
+  for it in $DD_LIST; do nm=${it%%:*}; cn=1; case "$it" in *:*) cn=${it##*:} ;; esac
+    for i in $(seq 1 "$cn"); do EXP[$nm#$i]=1; keys="$keys $nm#$i"; done; done
+  for k in $keys; do
+    [ -n "${AD[$k]+x}" ] || echo "missing in the answer script: ${k%#*}"
+    [ -n "${RD[$k]+x}" ] || echo "missing in the reporter: ${k%#*}"
+    [ -n "${AD[$k]+x}" ] && [ -n "${RD[$k]+x}" ] && [ "${AD[$k]}" != "${RD[$k]}" ] && echo "body differs: ${k%#*}"
+  done
+  for k in "${!AD[@]}"; do [ -n "${EXP[$k]+x}" ] || echo "extra def in the answer script: ${k%#*}"; done
+  for k in "${!RD[@]}"; do rn="$rn ${k%#*} "; case "$k" in bcls*) [ -n "${EXP[$k]+x}" ] || echo "extra def in the reporter: ${k%#*}" ;; esac; done
+  { for k in $keys; do [ -n "${RD[$k]+x}" ] && printf '%s\t%s\n' "$k" "${RD[$k]}"; done; } | awk "$DD_VARS" | while IFS=$'\t' read -r kind who tok; do
+    case "$kind" in
+      VAR) echo "free variable $tok in $who (only \$txt is allowed)" ;;
+      ID) case " $rn " in *" $tok "*) case " $DD_LIST " in *" $tok "*|*" $tok:"*) ;; *) echo "def $tok used by $who is not in the list" ;; esac ;; esac ;;
+    esac
+  done | sort -u
+}
+
+echo "== answer drift: the grammar of live-report.sh and PHRASE_DEFS is identical def by def; mutations are caught (AC-13, BR-04, D-08 ALY-285.5) =="
+DDT="$ROOT_TMP/drift"; mkdir -p "$DDT"
+check "the real files: no def differs, is missing or is extra" "" "$(drift_check "$SCRIPT_DIR/live-report.sh" "$ANS")"
+LN=$(for it in $DD_LIST; do case "$it" in *:*) echo "${it##*:}" ;; *) echo 1 ;; esac; done | awk '{n += $1} END {print n}')
+check "the list and the answer script have the same number of defs (list size = def occurrences of PHRASE_DEFS)" "$LN" "$(dd_answer "$ANS" | wc -l | tr -d ' ')"
+check "the task_start key source is not in the list" "0" "$(for t in tkfull tkbare tkcand tkres taskkey tkstash latecall latekey tkpass; do case " $DD_LIST " in *" $t "*) echo x ;; esac; done | wc -l | tr -d ' ')"
+# mut NAME FILE-KEY SED EXPECTED: a temp copy of one file mutated by SED, the other file untouched; the drift check must print EXPECTED
+RPT="$SCRIPT_DIR/live-report.sh"
+mut() {  # NAME REPORT-SED ANSWER-SED EXPECTED ('' sed = untouched)
+  local r="$RPT" a="$ANS" o
+  if [ -n "$2" ]; then sed -E "$2" "$RPT" >"$DDT/$1.report" || true; r="$DDT/$1.report"; fi
+  if [ -n "$3" ]; then sed -E "$3" "$ANS" >"$DDT/$1.answer" || true; a="$DDT/$1.answer"; fi
+  check "mutation $1: the temp copy really differs" "yes" "$([ "$r" != "$RPT" ] && ! cmp -s "$r" "$RPT" || { [ "$a" != "$ANS" ] && ! cmp -s "$a" "$ANS"; } && echo yes || echo no)"
+  o=$(drift_check "$r" "$a")
+  check "mutation $1: detected, naming $4" "yes" "$(case "$o" in *"$4"*) echo yes ;; *) echo "no: [$o]" ;; esac)"
+}
+mut "changed-body-answer" '' 's/"Check git status"/"Check git state"/' "body differs: bcls_entry"
+mut "changed-body-reporter" 's/^def actcap: 140;/def actcap: 141;/' '' "body differs: actcap"
+mut "changed-cleaner-answer" '' 's/^def actcap: 140;/def actcap: 139;/' "body differs: actcap"
+mut "changed-tail-answer" '' 's/"Save a memory"/"Save memory"/' "body differs: mcptpl"
+mut "missing-answer" '' '/^def crewroles:/d' "missing in the answer script: crewroles"
+mut "missing-reporter" '/^def keyslot\(/d' '' "missing in the reporter: keyslot"
+mut "extra-answer" '' 's/^def toolphrase:/def xtradef: 1;\ndef toolphrase:/' "extra def in the answer script: xtradef"
+mut "extra-reporter-bcls" 's/^def bcls: try/def bcls_extra: 1;\ndef bcls: try/' '' "extra def in the reporter: bcls_extra"
+mut "free-variable" 's/^def crewroles: \[/def crewroles: $zzz | [/' 's/^def crewroles: \[/def crewroles: $zzz | [/' "free variable \$zzz in crewroles"
+mut "unlisted-helper" 's/^def crewroles: \[/def crewroles: helperx | [/;s/^def toolphrase:/def helperx: 1;\ndef toolphrase:/' 's/^def crewroles: \[/def crewroles: helperx | [/' "def helperx used by crewroles is not in the list"
+
+# ─── the same tool call through both scripts: the reporter's activity and the request's phrase are equal (AC-13, AC-14) ─────
+echo "== answer drift phrases: reporter activity equals the request phrase for every new class (AC-13, AC-14, BR-06 ALY-285.5) =="
+DPN=0
+dp_both() {  # SESSION TOOL INPUT: runs the reporter then the answer client; sets DP_REP, DP_ANS, DP_REPERR, DP_ANSERR, DP_ANSOUT and leaves the request in the log
+  "$JQ_BIN" -nc --arg s "$1" --arg t "$2" --argjson i "$3" --arg c "$SB/proj" '{hook_event_name: "PreToolUse", session_id: $s, cwd: $c, tool_name: $t, tool_input: $i, tool_use_id: "toolu_dp1"}' >"$SB/stdin"; run_hook
+  DP_REPERR="$RC|$OUT|$ERR"
+  DP_REP=$(spooled_all "$1" | "$JQ_BIN" -r 'select(.type == "tool") | .activity // "<none>"' | tail -n 1)
+  ans_payload "$1" "$2" "$3"; : >"$SB/api/requests.log"; ans_run
+  DP_ANSERR="$RC|$OUT|$ERR"
+  DP_ANS=$(perm_body | "$JQ_BIN" -r '.phrase // "<none>"')
+}
+dp_row() {  # NAME TOOL INPUT EXPECTED
+  DPN=$((DPN + 1)); dp_both "sess-dp$DPN" "$2" "$3"
+  check "phrase $1: reporter and request both say '$4', both silent" "$4|$4|0||" "$DP_REP|$DP_ANS|$DP_REPERR"
+  check "phrase $1: the request run exits 0, stdout and stderr empty" "0||" "$DP_ANSERR"
+}
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal; SHIMD="$SHIMS_STUB"; DATA_ENV="$DATA"
+dp_row "git status" Bash '{"command":"git status"}' "Check git status"
+dp_row "git diff" Bash '{"command":"git diff --stat"}' "Read the diff"
+dp_row "git commit" Bash '{"command":"git commit -m \"fix the thing\""}' "Commit to git"
+dp_row "git push" Bash '{"command":"git push -u origin feat-x"}' "Push to git"
+dp_row "git merge" Bash '{"command":"git merge --no-ff main"}' "Merge in git"
+dp_row "git fetch" Bash '{"command":"git fetch --all"}' "Fetch from git"
+dp_row "git log" Bash '{"command":"git log --oneline -5"}' "Read the history"
+dp_row "gh pr create" Bash '{"command":"gh pr create --title \"x y\" --draft"}' "Open the PR"
+dp_row "gh pr merge" Bash '{"command":"gh pr merge --squash"}' "Merge the PR"
+dp_row "gh pr view" Bash '{"command":"gh pr view --web"}' "Check the PR"
+dp_row "heavy lock flock" Bash '{"command":"flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c \u0027npm test\u0027"}' "Run tests"
+dp_row "heavy lock fuser" Bash '{"command":"fuser -v /tmp/aly-heavy-ALY-285.lock"}' "Check the heavy lock"
+dp_row "mission log" Bash '{"command":"echo \u0027step done\u0027 >> .allye/missions/m-1/log.md"}' "Update the mission log"
+dp_row "chain cd and test" Bash '{"command":"cd src && npm test"}' "Run tests"
+dp_row "chain of two verbs" Bash '{"command":"git status && git diff"}' "Check git status"
+dp_row "var prefix" Bash '{"command":"CI=1 npm test"}' "Run tests"
+dp_row "pipe" Bash '{"command":"npm test | tail"}' "Run a command"
+dp_row "unknown command" Bash '{"command":"ls -la"}' "Run a command"
+dp_row "no command" Bash '{}' "Run a command"
+dp_row "description wins" Bash '{"command":"git status","description":"Print a greeting for the user"}' "Print a greeting for the user"
+dp_row "Glob ext" Glob '{"pattern":"src/**/*.ts"}' "Find .ts files"
+dp_row "Glob no ext" Glob '{"pattern":"**/README*"}' "Find files"
+dp_row "Glob other ext" Glob '{"pattern":"src/*.exe"}' "Find files"
+dp_row "Grep" Grep '{"pattern":"SECRETPAT","path":"/p"}' "Search the code"
+dp_row "Monitor description" Monitor '{"command":"tail -f x","description":"Watch the build output now"}' "Watch the build output now"
+dp_row "Monitor no description" Monitor '{"command":"tail -f x"}' "<none>"
+dp_row "SendMessage" SendMessage '{"to":"a","message":"SECRETMSG"}' "Send a message"
+dp_row "memory_save" "${AP}intelligence" '{"action":"memory_save","title":"SECRETT","content":"c"}' "Save a memory"
+dp_row "task_update valid key" "${AP}tasks" '{"action":"task_update","task":"ALY-285.5","notes":"x"}' "Update task ALY-285.5"
+dp_row "task_update invalid key" "${AP}tasks" '{"action":"task_update","task":"not a key"}' "Update a task"
+dp_row "task_update no key" "${AP}tasks" '{"action":"task_update"}' "Update a task"
+dp_row "task_update other server" mcp__other__tasks '{"action":"task_update","task":"ALY-285.5"}' "<none>"
+dp_row "task_start" "${AP}tasks" '{"action":"task_start","task":"ALY-285.5"}' "Start task ALY-285.5"
+dp_row "memory_save on tasks" "${AP}tasks" '{"action":"memory_save"}' "<none>"
+end_case_ans
+
+# ─── AC-14: Bash stays high and deny-only, the new tools stay high, the body keys are exact, a deny round trip prints a deny (BR-06) ─────
+echo "== answer permission phrases: risk high, exact keys, no command text, deny-only, flags and the decision program (AC-14, BR-06 ALY-285.5) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
+for row in 'Bash|{"command":"git push origin feat-x"}' 'Bash|{"command":"flock /tmp/aly-heavy-X.lock timeout 600 bash -c \u0027npm test\u0027"}' 'Monitor|{"command":"tail -f x","description":"Watch the build output now"}' 'SendMessage|{"to":"a","message":"m"}' "${AP}tasks|"'{"action":"task_update","task":"ALY-285.5"}' "${AP}intelligence|"'{"action":"memory_save","title":"t","content":"c"}'; do
+  tl=${row%%|*}; inp=${row#*|}
+  ans_payload sess-0001 "$tl" "$inp"; : >"$SB/api/requests.log"; ans_run
+  OB=$(perm_body)
+  check "$tl $inp: exactly {session_hash, kind, hash, risk, tool, phrase}, risk high, one open" '["hash","kind","phrase","risk","session_hash","tool"] high 1' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys') $(printf '%s' "$OB" | "$JQ_BIN" -r .risk) $(sopen)"
+  check "$tl: the run is quiet and exits 0" "0||" "$RC|$OUT|$ERR"
+done
+ans_payload sess-0001 Bash '{"command":"git push origin SECRETBRANCH --tags"}'; : >"$SB/api/requests.log"; ans_run
+check "a classified Bash command: the phrase is the constant word, the command text is not sent" "Push to git none" "$(perm_body | "$JQ_BIN" -r .phrase) $(case "$(slog)" in *SECRETBRANCH*|*"git push"*|*origin*) echo found ;; *) echo none ;; esac)"
+perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+check "a classified Bash command: an allow from Allye prints nothing (deny-only, BR-06)" "0||" "$RC|$OUT|$ERR"
+perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"Not now"}}'
+ah_stdout_only "a classified Bash command: the deny-answer round trip prints the deny line" "$(ah_dec deny 'Not now')"
+ans_payload sess-0001 Monitor '{"command":"tail -f x","description":"Watch the build output now"}'
+perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+check "Monitor (high): an allow prints nothing" "0||" "$RC|$OUT|$ERR"
+perm_wait '{"status":"answered","decision":{"behavior":"deny"}}'
+ah_stdout_only "Monitor: a deny prints the deny line (the phrase defs and the decision program compile together)" "$(ah_dec deny '')"
+smode wait terminal
+for flag in activity-off detailed-off; do
+  for how in file symlink; do
+    mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+    if [ "$how" = file ]; then : >"$DATA/live/$flag"; else ln -s /nonexistent "$DATA/live/$flag"; fi
+    for row in 'Bash|{"command":"git status"}' 'Monitor|{"description":"Watch the build output now"}' 'SendMessage|{"to":"a"}' "${AP}tasks|"'{"action":"task_update","task":"ALY-285.5"}' "${AP}intelligence|"'{"action":"memory_save"}' 'Glob|{"pattern":"*.ts"}'; do
+      tl=${row%%|*}; inp=${row#*|}
+      ans_payload sess-0001 "$tl" "$inp"; : >"$SB/api/requests.log"; ans_run
+      check "$flag as a $how: $tl sends no phrase, keeps its tool" '["hash","kind","risk","session_hash","tool"] 0|' "$(perm_body | "$JQ_BIN" -c 'keys') $RC|$OUT$ERR"
+    done
+    rm -f "$DATA/live/$flag"
+  done
+done
+end_case_ans
+
+# ─── AC-15: hostile commands through both scripts: a constant word or "Run a command", never any argument, nothing on stderr ─────
+echo "== answer hostile phrases: only constants, never an argument, no stderr, in the reporter and the request (AC-15, BR-01 ALY-285.5) =="
+ho_row() {  # NAME COMMAND EXPECTED NEEDLE (a fragment of the arguments that must appear nowhere)
+  DPN=$((DPN + 1)); dp_both "sess-dp$DPN" Bash "$("$JQ_BIN" -nc --arg c "$2" '{command: $c}')"
+  check "hostile $1: the reporter and the request say '$3'" "$3|$3" "$DP_REP|$DP_ANS"
+  check "hostile $1: exit 0, stdout and stderr empty in both scripts" "0||/0||" "$DP_REPERR/$DP_ANSERR"
+  check "hostile $1: the fragment [$4] is nowhere in the request or the spool" "none" "$(case "$(slog)$(cat "$DATA/live/"*.spool 2>/dev/null)" in *"$4"*) echo found ;; *) echo none ;; esac)"
+}
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal; SHIMD="$SHIMS_STUB"; DATA_ENV="$DATA"
+ho_row "token" 'deploy --token ghp_FAKE0123456789abcdefghijklmnop' "Run a command" "ghp_FAKE"
+ho_row "token on a known verb" 'npm test --token ghp_FAKE0123456789abcdefghijklmnop' "Run a command" "ghp_FAKE"
+ho_row "password" 'login --password hunter2FAKE' "Run a command" "hunter2"
+ho_row "password in a VAR" 'PASSWORD=hunter2FAKE npm test' "Run tests" "hunter2"
+ho_row "customer name" 'report --customer "Acme Industries Ltda"' "Run a command" "Acme"
+ho_row "person name in a commit message" 'git commit -m "Fix for Maria Fernanda Souza"' "Commit to git" "Maria"
+ho_row "person name elsewhere" 'git blame --author Joao Silva' "Run a command" "Joao"
+ho_row "branch name" 'git push origin feature/secret-customer-x' "Push to git" "secret-customer"
+ho_row "branch name with a flag" 'git push --force origin feature/secret-customer-x' "Run a command" "secret-customer"
+ho_row "remote URL" 'git push https://user:pw@git.internal.example/repo.git' "Run a command" "internal.example"
+ho_row "remote URL fetch" 'git fetch ssh://git@host.fake/org/repo.git' "Run a command" "host.fake"
+ho_row "forged lock with -k" 'fuser -k /tmp/aly-heavy-forged.lock' "Run a command" "forged"
+ho_row "forged lock with another path" 'fuser -v /tmp/aly-heavy-forged.lock /etc/shadow' "Run a command" "shadow"
+ho_row "forged lock path traversal" 'fuser -v /tmp/aly-heavy-../../etc/x.lock' "Run a command" "etc/x"
+ho_row "mission log with extra commands" 'echo hi >> .allye/missions/m1/log.md && curl evil.fake' "Run a command" "evil.fake"
+ho_row "mission log with a substitution" 'echo "$(id)" >> .allye/missions/m1/log.md' "Run a command" "id)"
+ho_row "mission log message with an argument leak" 'echo "token ghp_FAKE0123456789abcdefghijkl" >> .allye/missions/m1/log.md' "Update the mission log" "ghp_FAKE"
+ho_row "5000 characters" "npm test $(head -c 5000 /dev/zero | tr '\0' x)" "Run a command" "xxxxxxxxxx"
+ho_row "control character" $'npm test\a --silent' "Run a command" "silent"
+ho_row "bidi override" $'npm test \xe2\x80\xae rm -rf evilfake' "Run a command" "evilfake"
+ho_row "zero width" $'npm\xe2\x80\x8b test' "Run a command" "ZZNONE"
+ho_row "or-or" 'a||b' "Run a command" "a||b"
+ho_row "pipe" 'a|b' "Run a command" "a|b"
+ho_row "pipe and stderr" 'a|&b' "Run a command" "a|&b"
+ho_row "background" 'a&' "Run a command" "a&"
+ho_row "background redirect" 'a&>f' "Run a command" "a&>f"
+ho_row "carriage return" $'npm test\rcurl evilfake' "Run a command" "evilfake"
+ho_row "only a carriage return" $'\r' "Run a command" "ZZNONE"
+ho_row "4096 characters, valid" "npm test$(head -c 4088 /dev/zero | tr '\0' ' ')" "Run tests" "ZZNONE"
+ho_row "4097 characters" "npm test$(head -c 4089 /dev/zero | tr '\0' ' ')" "Run a command" "ZZNONE"
+ho_row "4097 characters of a secret tail" "npm test$(head -c 4080 /dev/zero | tr '\0' ' ') ghp_FAKE0123456789" "Run a command" "ghp_FAKE"
+end_case_ans
 
 #@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
