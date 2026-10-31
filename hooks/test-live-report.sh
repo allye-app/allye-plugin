@@ -2677,7 +2677,7 @@ cls ${M}__tasks '{"action":"task_complete","task":"ALY-1.2"}' "D-08: task_comple
 cls ${M}__tasks '{"action":"task_start","task":"aly-263.9"}' "D-08: a lowercase key: the keyless form" "Start a task"
 cls ${M}__tasks '{"action":"task_submit","task":"ALY-263.9 MARKER_ARGS"}' "D-08: a key with trailing text: the keyless form" "Submit a task"
 cls ${M}__tasks '{"action":"task_complete"}' "D-08: no key: the keyless form" "Complete a task"
-cls ${M}__tasks '{"action":"task_update","task":"ALY-1.2","notes":"MARKER_ARGS"}' "D-08: another tasks action: no phrase" "<none>"
+cls ${M}__tasks '{"action":"task_cancel","task":"ALY-1.2","notes":"MARKER_ARGS"}' "D-08: another tasks action: no phrase" "<none>"
 cls ${M}__specs '{"action":"spec_get","spec":"ALY-263"}' "D-08: spec_get" "Read spec ALY-263"
 cls ${M}__specs '{"action":"spec_context","spec":"ALY-263"}' "D-08: spec_context" "Read spec ALY-263"
 cls ${M}__specs '{"action":"spec_context","spec":"not a key"}' "D-08: spec_context with a bad key: keyless" "Read a spec"
@@ -2747,6 +2747,54 @@ for fl in activity-off detailed-off; do
   check "AC-17: $fl: the tool events still go on" "2" "$(lines_of '.type == "tool"' | grep -c . || true)"
   end_case
 done
+
+# ALY-285.3 (AC-09, AC-10, AC-11, AC-12, BR-03, BR-05, D-13, D-14): Glob extension words, Monitor description, SendMessage, memory_save and task_update.
+# one_act TOOL INPUT: the activity of the one main-session tool event it makes ("-" without one).
+one_act() { rm -f "$DATA"/live/*.acts; mainp "$1" "$2"; lines_of '.type == "tool"' | "$JQ_BIN" -r '.activity // "-"' | tail -n 1; }
+new_case; mkcred
+GX=""
+for p in '**/*.ts' 'src/*.tsx' '*.js' '*.jsx' '*.mjs' '*.py' '*.md' '*.json' '*.yml' '*.yaml' '*.sh' '*.sql' '*.css' '*.html' '*.go' '*.rs' '*.toml' '*.prisma'; do
+  GX="$GX$(one_act Glob "$("$JQ_BIN" -cn --arg p "$p" '{pattern: $p}')")|"
+done
+check "AC-09: each of the 18 allowlisted extensions says Find .<ext> files" "Find .ts files|Find .tsx files|Find .js files|Find .jsx files|Find .mjs files|Find .py files|Find .md files|Find .json files|Find .yml files|Find .yaml files|Find .sh files|Find .sql files|Find .css files|Find .html files|Find .go files|Find .rs files|Find .toml files|Find .prisma files|" "$GX"
+GX=""
+for p in '**/*.ts;rm' '*.ts/' '*.TS' '*.tsx.bak' '*.' '' '*.exe' 'src/**' '*.ts ' '.ts' 'a*.t s' '*.ts$(id)'; do
+  GX="$GX$(one_act Glob "$("$JQ_BIN" -cn --arg p "$p" '{pattern: $p}')")|"
+done
+check "AC-09: hostile and unlisted patterns say Find files" "Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|Find files|" "$GX"
+check "AC-09: a non-string or absent Glob pattern says Find files (fresh sessions)" "Find files|Find files|Find files" "$(one_act Glob '{"pattern":["*.ts"]}')|$(one_act Glob '{"pattern":{"a":"*.ts"}}')|$(one_act Glob '{}')"
+check "AC-09: Grep stays Search the code and never carries its pattern or path" "Search the code|0" "$(one_act Grep '{"pattern":"MARKER_ARGS_G","path":"/p/MARKER_ARGS_G.ts","glob":"*.ts"}')|$(grep -rl 'MARKER_ARGS_G' "$DATA" 2>/dev/null | grep -c . || true)"
+end_case
+new_case; mkcred
+check "AC-10: a Monitor description goes through the cleaner" "Watch the build output" "$(one_act Monitor '{"description":"Watch the build output","command":"tail -f MARKER_ARGS_M"}')"
+check "AC-10: a Monitor description the cleaner drops (too short) gives no phrase" "-" "$(one_act Monitor '{"description":"Go","command":"x"}')"
+check "AC-10: a Monitor without a description or with a non-string one gives no phrase" "-|-" "$(one_act Monitor '{"command":"x"}')|$(one_act Monitor '{"description":["a b c d"]}')"
+check "AC-10: a Monitor description holding a secret-like token is redacted by the cleaner (no raw token in any file)" "0" "$(one_act Monitor '{"description":"Watch logs for sk-abcdefghijklmnopqrstuvwxyz0123 now"}' >/dev/null; grep -rl 'sk-abcdefghijklmnopqrstuvwxyz0123' "$DATA" 2>/dev/null | grep -c . || true)"
+check "BR-03: a Bash description still wins over its classifier phrase" "Run the unit tests now" "$(one_act Bash '{"command":"npm test","description":"Run the unit tests now"}')"
+check "AC-11: SendMessage says Send a message, never its content" "Send a message|0" "$(one_act SendMessage '{"to":"x","message":"MARKER_ARGS_S"}')|$(grep -rl 'MARKER_ARGS_S' "$DATA" 2>/dev/null | grep -c . || true)"
+check "AC-11: intelligence memory_save says Save a memory, never its content" "Save a memory|0" "$(one_act mcp__plugin_allye_allye__intelligence '{"action":"memory_save","content":"MARKER_ARGS_I"}')|$(grep -rl 'MARKER_ARGS_I' "$DATA" 2>/dev/null | grep -c . || true)"
+check "AC-11: other intelligence actions and non-string actions give no phrase" "-|-|-" "$(one_act mcp__plugin_allye_allye__intelligence '{"action":"memory_search","query":"x"}')|$(one_act mcp__plugin_allye_allye__intelligence '{"action":"memory_save2"}')|$(one_act mcp__plugin_allye_allye__intelligence '{"action":["memory_save"]}')"
+check "AC-11: memory_save on another server or another tool gives no phrase" "-|-|-" "$(one_act mcp__other__intelligence '{"action":"memory_save"}')|$(one_act mcp__plugin_allye_allye__tasks '{"action":"memory_save"}')|$(one_act mcp__plugin_allye_allye__specs '{"action":"task_update"}')"
+check "AC-11: tasks task_update with a valid key says Update task KEY" "Update task ALY-285.3" "$(one_act mcp__plugin_allye_allye__tasks '{"action":"task_update","task":"ALY-285.3","notes":"MARKER_ARGS_T"}')"
+check "AC-11: task_update with an invalid, missing or non-string key says Update a task" "Update a task|Update a task|Update a task" "$(one_act mcp__plugin_allye_allye__tasks '{"action":"task_update","task":"aly-1.2 MARKER_ARGS_T"}')|$(one_act mcp__plugin_allye_allye__tasks '{"action":"task_update"}')|$(one_act mcp__plugin_allye_allye__tasks '{"action":"task_update","task":["ALY-1.2"]}')"
+check "AC-11: task_update on a non-Allye server named like it gets no phrase" "-|-" "$(one_act mcp__other__tasks '{"action":"task_update","task":"ALY-285.3"}')|$(one_act mcp__github__task_update '{"action":"task_update","task":"ALY-285.3"}')"
+check "AC-11: the notes of task_update never leave" "0" "$(grep -rl 'MARKER_ARGS_T' "$DATA" 2>/dev/null | grep -c . || true)"
+check "D-14: task_update creates no bind" "0" "$(lines_of '.type == "bind"' | grep -c . || true)"
+end_case
+new_case; mkcred
+mainp mcp__plugin_allye_allye__tasks '{"action":"task_start","task":"ALY-285.3","spec":"ALY-285"}'
+check "D-14: task_start still binds" "1" "$(lines_of '.type == "bind"' | grep -c . || true)"
+end_case
+# texts off (regular flag and symlink, both flags): none of the new phrases is computed, sent or stashed; the events still go on
+for fl in activity-off detailed-off; do for kind in file symlink; do
+  new_case; mkcred; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+  if [ "$kind" = file ]; then : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"; else ln -s "$SB/nowhere" "$DATA/live/$fl"; fi
+  mainp Glob '{"pattern":"**/MARKERGLOB*.ts"}'; mainp Monitor '{"description":"Watch the MARKERMON output","command":"x"}'; mainp SendMessage '{"to":"x","message":"MARKERMSG"}'
+  mainp mcp__plugin_allye_allye__intelligence '{"action":"memory_save","content":"MARKERMEM"}'; mainp mcp__plugin_allye_allye__tasks '{"action":"task_update","task":"ALY-285.3"}'
+  check "AC-12: $fl ($kind): no new phrase reaches the spool or any file" "0" "$(grep -rlE 'MARKER(GLOB|MON|MSG|MEM)|Find \.ts|Watch the|Send a message|Save a memory|Update task|Update a task' "$DATA" 2>/dev/null | grep -c . || true)"
+  check "AC-12: $fl ($kind): the five tool events still go on, with no activity" "5 0" "$(lines_of '.type == "tool"' | grep -c . || true) $(lines_of '.type == "tool" and .activity != null' | grep -c . || true)"
+  end_case
+done; done
 
 echo "== text cleaner: shared vectors, cap 140, nested allowlist and marker scan (ALY-258.1 AC-06, AC-07, D-33, NFR-01) =="
 VEC="$FIX/vectors/agent-run-text-vectors.json"

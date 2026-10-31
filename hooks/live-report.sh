@@ -1513,7 +1513,7 @@ def actphrase($cap): actclean($cap; 3; 8);
 # $txt is "1" unless texts are off (the activity-off flag; ALY-258.3 adds detailed:false): then no activity, no desc, no stash.
 def actof:
   if $txt != "1" then null
-  elif .tool_name | IN("Bash","Agent","Task") then ((.tool_input | objects | .description) // null) | actphrase(actcap)
+  elif .tool_name | IN("Bash","Agent","Task","Monitor") then ((.tool_input | objects | .description) // null) | actphrase(actcap)
   elif .tool_name == "TodoWrite" then [.tool_input | objects | .todos | arrays | .[] | objects | select(.status == "in_progress")] | .[0] | (objects | .activeForm) // null | actphrase(actcap)
   else null end;
 # ALY-258.2 (D-05, D-35): the strict report lines. Over the first 65536 characters, a line counts for a key only when it starts at
@@ -1554,7 +1554,9 @@ def withact($a): if $a != null then . + {activity: $a} else . end;
 # templates skip the 3-word minimum. The table, by tool:
 #   Read -> "Read <basename>" | "Read a file"; Edit, MultiEdit, NotebookEdit -> "Edit <basename>" | "Edit a file"; Write -> "Write <basename>" | "Edit a file"
 #     (basename = last component of file_path / notebook_path, accepted by deftbase: shape, a letter, the denylist and the actdrop drops)
-#   Grep -> "Search the code"; Glob -> "Find files"
+#   Grep -> "Search the code" (no identifier slot); Glob -> "Find .<ext> files" for a pattern ending in *.<ext> of 18 allowlisted extensions, else "Find files"
+#   SendMessage -> "Send a message"; Monitor: no template, only its cleaned description (actof); intelligence memory_save -> "Save a memory";
+#   tasks task_update -> "Update task KEY" | "Update a task" (Allye server only, no bind)
 #   Skill -> "Load the <role> skill" only for the 12 crew roles (allye:bridge-<role> or bridge-<role>); else no phrase
 #   Allye MCP (server allye / *_allye) by suffix + tool_input.action: __tasks task_start|task_submit|task_complete -> "Start|Submit|Complete task KEY";
 #     __specs spec_get|spec_context -> "Read spec KEY"; __kb kb_read|kb_search|kb_tree -> "Read a KB page", kb_update|kb_section|kb_create -> "Update a KB page";
@@ -1579,6 +1581,8 @@ def mcptpl:
     | if ($a | type) != "string" then null
       elif $sfx == "tasks" and ($a | IN("task_start","task_submit","task_complete")) then
         ({task_start: "Start", task_submit: "Submit", task_complete: "Complete"}[$a]) as $v | (keyslot("task")) as $k | if $k != null then $v + " task " + $k else $v + " a task" end
+      elif $sfx == "tasks" and $a == "task_update" then (keyslot("task")) as $k | if $k != null then "Update task " + $k else "Update a task" end
+      elif $sfx == "intelligence" and $a == "memory_save" then "Save a memory"
       elif $sfx == "specs" and ($a | IN("spec_get","spec_context")) then (keyslot("spec")) as $k | if $k != null then "Read spec " + $k else "Read a spec" end
       elif $sfx == "kb" and ($a | IN("kb_read","kb_search","kb_tree")) then "Read a KB page"
       elif $sfx == "kb" and ($a | IN("kb_update","kb_section","kb_create")) then "Update a KB page"
@@ -1673,6 +1677,12 @@ def bcls_run:
   else bcls_words | map(bcls_seg) | map(select(. != "")) | if length == 0 then error("b") else .[0] end end;
 def bcls: try bcls_run catch null;
 def bashtpl: ((.tool_input | objects | .command) | if type == "string" then bcls else null end) // "Run a command";
+# ALY-285.3 (AC-09): Glob says "Find .<ext> files" only when the pattern ENDS in "*." plus one allowlisted extension (an exact suffix test
+# against a fixed list, no regex on the pattern text); the pattern itself is never sent. Anything else, a non-string included: "Find files".
+def globexts: ["ts","tsx","js","jsx","mjs","py","md","json","yml","yaml","sh","sql","css","html","go","rs","toml","prisma"];
+def globtpl: ((.tool_input | objects | .pattern) | if type == "string" and length <= 1000 then . else "" end) as $p
+  | ([globexts[] | select(. as $e | $p | endswith("*." + $e))] | .[0]) as $x
+  | if $x != null then "Find ." + $x + " files" else "Find files" end;
 def tooltpl:
   if (.tool_name | type) != "string" then null
   elif .tool_name == "Read" then filetpl("Read"; "Read a file"; "file_path")
@@ -1680,7 +1690,8 @@ def tooltpl:
   elif .tool_name == "Write" then filetpl("Write"; "Edit a file"; "file_path")
   elif .tool_name == "NotebookEdit" then filetpl("Edit"; "Edit a file"; "notebook_path")
   elif .tool_name == "Grep" then "Search the code"
-  elif .tool_name == "Glob" then "Find files"
+  elif .tool_name == "Glob" then globtpl
+  elif .tool_name == "SendMessage" then "Send a message"
   elif .tool_name == "Skill" then skilltpl
   elif .tool_name == "Bash" then bashtpl
   elif .tool_name | startswith("mcp__") then mcptpl
