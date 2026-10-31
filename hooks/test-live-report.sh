@@ -5615,7 +5615,7 @@ check "the seq of ANOTHER session is never used" "false" "$(aopen_body | "$JQ_BI
 end_case_ans
 ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '7' >"$(aseqf)"; chmod 600 "$(aseqf)"
 ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
-check "the seq read never waits on the reporter's lock (no lock path in the answer client; the manifest-name list of protected_rel is not a lock path)" "0" "$(printf '%s\n' "$ACODE" | grep -v 'package-lock.json' | grep -cE '\.lock|flock|lock_take' || true)"
+check "the seq read never waits on the reporter's lock (no lock path in the answer client; the manifest-name list of protected_rel and the aly-heavy- lock names of the phrase grammar, ALY-285.5, are not a lock path)" "0" "$(printf '%s\n' "$ACODE" | grep -v 'package-lock.json' | grep -v 'aly-heavy-' | grep -cE '\.lock|flock|lock_take' || true)"
 end_case_ans
 
 echo "== answer after integration: the reporter's cmd_end seq is above the after read at open (ALY-269.10 AC-18) =="
@@ -6404,6 +6404,235 @@ check "a truncated 300 KB JSON document: exit 0, silent, no request" "0||0" "$RC
 printf '[1,2,3]' >"$SB/stdin"; ans_run; check "JSON that is not an object: exit 0, silent, no request" "0||0" "$RC|$OUT$ERR|$(sopen)"
 end_case_ans
 check "no hostile stub or forwarder survives the section" "0" "$(fake_survivors)"
+
+# ─── ALY-285.5: the phrase grammar of the reporter and of the permission request stay identical (AC-13, AC-14, AC-15, BR-04, BR-06, D-08) ─────
+# The grammar exists twice: the col-0 defs of hooks/live-report.sh and PHRASE_DEFS of hooks/live-answer.sh (PHRASE_HEAD + QCLEAN_DEFS +
+# PHRASE_TAIL). The two are compared def by def (name, comments stripped, whitespace normalised). Decision: the list holds EVERY def of
+# PHRASE_DEFS, the head defs (sre, keyok, mcpname, allyesrv) and the cleaner defs (act*, namedrop) included, because the grammar calls them;
+# `actbare` is defined twice in both files (the later def wins in jq), so its two occurrences are compared in order (actbare#1, actbare#2).
+# The task_start key source of the reporter (tk*, latecall, latekey) is outside the grammar and is not in the list.
+DD_LIST="sre keyok mcpname allyesrv actbad actws actcore actpath actbare:2 actident actnet namedrop actdrop actwk actkv actkey actsep actscheme actauth actword actbearer actcap actclean actphrase actof namedeny deftbase pathbase filetpl crewroles skilltpl keyslot mcptpl bscript dropvars bcls_plain bcls_flagbl bcls_msgflag bcls_wordok bcls_rf bcls_entry bcls_lex bcls_fw bcls_fs bcls_words bcls_cmd bcls_inner bcls_seg bcls_mlog bcls_run bcls bashtpl globexts globtpl tooltpl toolphrase"
+DD_AWK=$(cat <<'AWK'
+function flush(   b) { if (name != "") { b = body; gsub(/[ \t]+/, " ", b); sub(/^ /, "", b); sub(/ $/, "", b); cnt[name]++; printf "%s#%d\t%s\n", name, cnt[name], b } name = ""; body = "" }
+{
+  line = $0
+  sub(/\r$/, "", line)
+  if (line ~ /^def [A-Za-z_][A-Za-z0-9_]*/) { flush(); inb = 1 }
+  else if (line ~ /^[ \t]*$/ || line ~ /^[ \t]*#/) { next }
+  else if (line !~ /^[ \t]/) { flush(); inb = 0; next }
+  if (!inb) next
+  sub(/(^|[ \t])#.*$/, "", line)
+  if (line ~ /^def /) { s = substr(line, 5); match(s, /^[A-Za-z_][A-Za-z0-9_]*/); name = substr(s, RSTART, RLENGTH); body = s } else body = body " " line
+}
+END { flush() }
+AWK
+)
+DD_BLOCKS=$(cat <<'AWK'
+/^(QCLEAN_DEFS|PHRASE_HEAD|PHRASE_TAIL)=\$\(cat <<.[A-Z]+.$/ { on = 1; next }
+on && /^(QEOF|JQDEFS)$/ { on = 0; next }
+on { print }
+AWK
+)
+DD_VARS=$(cat <<'AWK'
+BEGIN { FS = "\t" }
+{
+  nm = $1; sub(/#.*/, "", nm); b = $2
+  sig = ""; if (match(b, /^[A-Za-z_][A-Za-z0-9_]*\([^)]*\)/)) sig = substr(b, RSTART, RLENGTH)
+  bound = " "; s = sig
+  while (match(s, /\$[A-Za-z_][A-Za-z0-9_]*/)) { bound = bound substr(s, RSTART, RLENGTH) " "; s = substr(s, RSTART + RLENGTH) }
+  s = b; gsub(/"([^"\\]|\\.)*"/, "\"\"", s); prev = ""
+  while (match(s, /[$.]?[A-Za-z_][A-Za-z0-9_]*:?/)) {
+    t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+    c1 = substr(t, 1, 1); cl = substr(t, length(t), 1)
+    if (c1 == "$") { if (prev == "as") bound = bound t " "; else if (index(bound, " " t " ") == 0 && t != "$txt") print "VAR\t" nm "\t" t }
+    else if (c1 != "." && cl != ":") print "ID\t" nm "\t" t
+    prev = t
+  }
+}
+AWK
+)
+dd_report() { awk "$DD_AWK" "$1"; }
+dd_answer() { awk "$DD_BLOCKS" "$1" | awk "$DD_AWK"; }
+# drift_check REPORT ANSWER: prints one line per problem, each naming the def; nothing when the grammar is identical
+drift_check() {
+  local rf="$1" af="$2" k b it nm cn i keys="" rn="" kind who tok
+  local -A RD AD EXP
+  while IFS=$'\t' read -r k b; do [ -n "$k" ] && RD[$k]=$b; done < <(dd_report "$rf")
+  while IFS=$'\t' read -r k b; do [ -n "$k" ] && AD[$k]=$b; done < <(dd_answer "$af")
+  for it in $DD_LIST; do nm=${it%%:*}; cn=1; case "$it" in *:*) cn=${it##*:} ;; esac
+    for i in $(seq 1 "$cn"); do EXP[$nm#$i]=1; keys="$keys $nm#$i"; done; done
+  for k in $keys; do
+    [ -n "${AD[$k]+x}" ] || echo "missing in the answer script: ${k%#*}"
+    [ -n "${RD[$k]+x}" ] || echo "missing in the reporter: ${k%#*}"
+    [ -n "${AD[$k]+x}" ] && [ -n "${RD[$k]+x}" ] && [ "${AD[$k]}" != "${RD[$k]}" ] && echo "body differs: ${k%#*}"
+  done
+  for k in "${!AD[@]}"; do [ -n "${EXP[$k]+x}" ] || echo "extra def in the answer script: ${k%#*}"; done
+  for k in "${!RD[@]}"; do rn="$rn ${k%#*} "; case "$k" in bcls*) [ -n "${EXP[$k]+x}" ] || echo "extra def in the reporter: ${k%#*}" ;; esac; done
+  { for k in $keys; do [ -n "${RD[$k]+x}" ] && printf '%s\t%s\n' "$k" "${RD[$k]}"; done; } | awk "$DD_VARS" | while IFS=$'\t' read -r kind who tok; do
+    case "$kind" in
+      VAR) echo "free variable $tok in $who (only \$txt is allowed)" ;;
+      ID) case " $rn " in *" $tok "*) case " $DD_LIST " in *" $tok "*|*" $tok:"*) ;; *) echo "def $tok used by $who is not in the list" ;; esac ;; esac ;;
+    esac
+  done | sort -u
+}
+
+echo "== answer drift: the grammar of live-report.sh and PHRASE_DEFS is identical def by def; mutations are caught (AC-13, BR-04, D-08 ALY-285.5) =="
+DDT="$ROOT_TMP/drift"; mkdir -p "$DDT"
+check "the real files: no def differs, is missing or is extra" "" "$(drift_check "$SCRIPT_DIR/live-report.sh" "$ANS")"
+LN=$(for it in $DD_LIST; do case "$it" in *:*) echo "${it##*:}" ;; *) echo 1 ;; esac; done | awk '{n += $1} END {print n}')
+check "the list and the answer script have the same number of defs (list size = def occurrences of PHRASE_DEFS)" "$LN" "$(dd_answer "$ANS" | wc -l | tr -d ' ')"
+check "the task_start key source is not in the list" "0" "$(for t in tkfull tkbare tkcand tkres taskkey tkstash latecall latekey tkpass; do case " $DD_LIST " in *" $t "*) echo x ;; esac; done | wc -l | tr -d ' ')"
+# mut NAME FILE-KEY SED EXPECTED: a temp copy of one file mutated by SED, the other file untouched; the drift check must print EXPECTED
+RPT="$SCRIPT_DIR/live-report.sh"
+mut() {  # NAME REPORT-SED ANSWER-SED EXPECTED ('' sed = untouched)
+  local r="$RPT" a="$ANS" o
+  if [ -n "$2" ]; then sed -E "$2" "$RPT" >"$DDT/$1.report" || true; r="$DDT/$1.report"; fi
+  if [ -n "$3" ]; then sed -E "$3" "$ANS" >"$DDT/$1.answer" || true; a="$DDT/$1.answer"; fi
+  check "mutation $1: the temp copy really differs" "yes" "$([ "$r" != "$RPT" ] && ! cmp -s "$r" "$RPT" || { [ "$a" != "$ANS" ] && ! cmp -s "$a" "$ANS"; } && echo yes || echo no)"
+  o=$(drift_check "$r" "$a")
+  check "mutation $1: detected, naming $4" "yes" "$(case "$o" in *"$4"*) echo yes ;; *) echo "no: [$o]" ;; esac)"
+}
+mut "changed-body-answer" '' 's/"Check git status"/"Check git state"/' "body differs: bcls_entry"
+mut "changed-body-reporter" 's/^def actcap: 140;/def actcap: 141;/' '' "body differs: actcap"
+mut "changed-cleaner-answer" '' 's/^def actcap: 140;/def actcap: 139;/' "body differs: actcap"
+mut "changed-tail-answer" '' 's/"Save a memory"/"Save memory"/' "body differs: mcptpl"
+mut "missing-answer" '' '/^def crewroles:/d' "missing in the answer script: crewroles"
+mut "missing-reporter" '/^def keyslot\(/d' '' "missing in the reporter: keyslot"
+mut "extra-answer" '' 's/^def toolphrase:/def xtradef: 1;\ndef toolphrase:/' "extra def in the answer script: xtradef"
+mut "extra-reporter-bcls" 's/^def bcls: try/def bcls_extra: 1;\ndef bcls: try/' '' "extra def in the reporter: bcls_extra"
+mut "free-variable" 's/^def crewroles: \[/def crewroles: $zzz | [/' 's/^def crewroles: \[/def crewroles: $zzz | [/' "free variable \$zzz in crewroles"
+mut "unlisted-helper" 's/^def crewroles: \[/def crewroles: helperx | [/;s/^def toolphrase:/def helperx: 1;\ndef toolphrase:/' 's/^def crewroles: \[/def crewroles: helperx | [/' "def helperx used by crewroles is not in the list"
+
+# ─── the same tool call through both scripts: the reporter's activity and the request's phrase are equal (AC-13, AC-14) ─────
+echo "== answer drift phrases: reporter activity equals the request phrase for every new class (AC-13, AC-14, BR-06 ALY-285.5) =="
+DPN=0
+dp_both() {  # SESSION TOOL INPUT: runs the reporter then the answer client; sets DP_REP, DP_ANS, DP_REPERR, DP_ANSERR, DP_ANSOUT and leaves the request in the log
+  "$JQ_BIN" -nc --arg s "$1" --arg t "$2" --argjson i "$3" --arg c "$SB/proj" '{hook_event_name: "PreToolUse", session_id: $s, cwd: $c, tool_name: $t, tool_input: $i, tool_use_id: "toolu_dp1"}' >"$SB/stdin"; run_hook
+  DP_REPERR="$RC|$OUT|$ERR"
+  DP_REP=$(spooled_all "$1" | "$JQ_BIN" -r 'select(.type == "tool") | .activity // "<none>"' | tail -n 1)
+  ans_payload "$1" "$2" "$3"; : >"$SB/api/requests.log"; ans_run
+  DP_ANSERR="$RC|$OUT|$ERR"
+  DP_ANS=$(perm_body | "$JQ_BIN" -r '.phrase // "<none>"')
+}
+dp_row() {  # NAME TOOL INPUT EXPECTED
+  DPN=$((DPN + 1)); dp_both "sess-dp$DPN" "$2" "$3"
+  check "phrase $1: reporter and request both say '$4', both silent" "$4|$4|0||" "$DP_REP|$DP_ANS|$DP_REPERR"
+  check "phrase $1: the request run exits 0, stdout and stderr empty" "0||" "$DP_ANSERR"
+}
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal; SHIMD="$SHIMS_STUB"; DATA_ENV="$DATA"
+dp_row "git status" Bash '{"command":"git status"}' "Check git status"
+dp_row "git diff" Bash '{"command":"git diff --stat"}' "Read the diff"
+dp_row "git commit" Bash '{"command":"git commit -m \"fix the thing\""}' "Commit to git"
+dp_row "git push" Bash '{"command":"git push -u origin feat-x"}' "Push to git"
+dp_row "git merge" Bash '{"command":"git merge --no-ff main"}' "Merge in git"
+dp_row "git fetch" Bash '{"command":"git fetch --all"}' "Fetch from git"
+dp_row "git log" Bash '{"command":"git log --oneline -5"}' "Read the history"
+dp_row "gh pr create" Bash '{"command":"gh pr create --title \"x y\" --draft"}' "Open the PR"
+dp_row "gh pr merge" Bash '{"command":"gh pr merge --squash"}' "Merge the PR"
+dp_row "gh pr view" Bash '{"command":"gh pr view --web"}' "Check the PR"
+dp_row "heavy lock flock" Bash '{"command":"flock /tmp/aly-heavy-ALY-285.lock timeout 600 bash -c \u0027npm test\u0027"}' "Run tests"
+dp_row "heavy lock fuser" Bash '{"command":"fuser -v /tmp/aly-heavy-ALY-285.lock"}' "Check the heavy lock"
+dp_row "mission log" Bash '{"command":"echo \u0027step done\u0027 >> .allye/missions/m-1/log.md"}' "Update the mission log"
+dp_row "chain cd and test" Bash '{"command":"cd src && npm test"}' "Run tests"
+dp_row "chain of two verbs" Bash '{"command":"git status && git diff"}' "Check git status"
+dp_row "var prefix" Bash '{"command":"CI=1 npm test"}' "Run tests"
+dp_row "pipe" Bash '{"command":"npm test | tail"}' "Run a command"
+dp_row "unknown command" Bash '{"command":"ls -la"}' "Run a command"
+dp_row "no command" Bash '{}' "Run a command"
+dp_row "description wins" Bash '{"command":"git status","description":"Print a greeting for the user"}' "Print a greeting for the user"
+dp_row "Glob ext" Glob '{"pattern":"src/**/*.ts"}' "Find .ts files"
+dp_row "Glob no ext" Glob '{"pattern":"**/README*"}' "Find files"
+dp_row "Glob other ext" Glob '{"pattern":"src/*.exe"}' "Find files"
+dp_row "Grep" Grep '{"pattern":"SECRETPAT","path":"/p"}' "Search the code"
+dp_row "Monitor description" Monitor '{"command":"tail -f x","description":"Watch the build output now"}' "Watch the build output now"
+dp_row "Monitor no description" Monitor '{"command":"tail -f x"}' "<none>"
+dp_row "SendMessage" SendMessage '{"to":"a","message":"SECRETMSG"}' "Send a message"
+dp_row "memory_save" "${AP}intelligence" '{"action":"memory_save","title":"SECRETT","content":"c"}' "Save a memory"
+dp_row "task_update valid key" "${AP}tasks" '{"action":"task_update","task":"ALY-285.5","notes":"x"}' "Update task ALY-285.5"
+dp_row "task_update invalid key" "${AP}tasks" '{"action":"task_update","task":"not a key"}' "Update a task"
+dp_row "task_update no key" "${AP}tasks" '{"action":"task_update"}' "Update a task"
+dp_row "task_update other server" mcp__other__tasks '{"action":"task_update","task":"ALY-285.5"}' "<none>"
+dp_row "task_start" "${AP}tasks" '{"action":"task_start","task":"ALY-285.5"}' "Start task ALY-285.5"
+dp_row "memory_save on tasks" "${AP}tasks" '{"action":"memory_save"}' "<none>"
+end_case_ans
+
+# ─── AC-14: Bash stays high and deny-only, the new tools stay high, the body keys are exact, a deny round trip prints a deny (BR-06) ─────
+echo "== answer permission phrases: risk high, exact keys, no command text, deny-only, flags and the decision program (AC-14, BR-06 ALY-285.5) =="
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
+for row in 'Bash|{"command":"git push origin feat-x"}' 'Bash|{"command":"flock /tmp/aly-heavy-X.lock timeout 600 bash -c \u0027npm test\u0027"}' 'Monitor|{"command":"tail -f x","description":"Watch the build output now"}' 'SendMessage|{"to":"a","message":"m"}' "${AP}tasks|"'{"action":"task_update","task":"ALY-285.5"}' "${AP}intelligence|"'{"action":"memory_save","title":"t","content":"c"}'; do
+  tl=${row%%|*}; inp=${row#*|}
+  ans_payload sess-0001 "$tl" "$inp"; : >"$SB/api/requests.log"; ans_run
+  OB=$(perm_body)
+  check "$tl $inp: exactly {session_hash, kind, hash, risk, tool, phrase}, risk high, one open" '["hash","kind","phrase","risk","session_hash","tool"] high 1' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys') $(printf '%s' "$OB" | "$JQ_BIN" -r .risk) $(sopen)"
+  check "$tl: the run is quiet and exits 0" "0||" "$RC|$OUT|$ERR"
+done
+ans_payload sess-0001 Bash '{"command":"git push origin SECRETBRANCH --tags"}'; : >"$SB/api/requests.log"; ans_run
+check "a classified Bash command: the phrase is the constant word, the command text is not sent" "Push to git none" "$(perm_body | "$JQ_BIN" -r .phrase) $(case "$(slog)" in *SECRETBRANCH*|*"git push"*|*origin*) echo found ;; *) echo none ;; esac)"
+perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+check "a classified Bash command: an allow from Allye prints nothing (deny-only, BR-06)" "0||" "$RC|$OUT|$ERR"
+perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"Not now"}}'
+ah_stdout_only "a classified Bash command: the deny-answer round trip prints the deny line" "$(ah_dec deny 'Not now')"
+ans_payload sess-0001 Monitor '{"command":"tail -f x","description":"Watch the build output now"}'
+perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+check "Monitor (high): an allow prints nothing" "0||" "$RC|$OUT|$ERR"
+perm_wait '{"status":"answered","decision":{"behavior":"deny"}}'
+ah_stdout_only "Monitor: a deny prints the deny line (the phrase defs and the decision program compile together)" "$(ah_dec deny '')"
+smode wait terminal
+for flag in activity-off detailed-off; do
+  for how in file symlink; do
+    mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+    if [ "$how" = file ]; then : >"$DATA/live/$flag"; else ln -s /nonexistent "$DATA/live/$flag"; fi
+    for row in 'Bash|{"command":"git status"}' 'Monitor|{"description":"Watch the build output now"}' 'SendMessage|{"to":"a"}' "${AP}tasks|"'{"action":"task_update","task":"ALY-285.5"}' "${AP}intelligence|"'{"action":"memory_save"}' 'Glob|{"pattern":"*.ts"}'; do
+      tl=${row%%|*}; inp=${row#*|}
+      ans_payload sess-0001 "$tl" "$inp"; : >"$SB/api/requests.log"; ans_run
+      check "$flag as a $how: $tl sends no phrase, keeps its tool" '["hash","kind","risk","session_hash","tool"] 0|' "$(perm_body | "$JQ_BIN" -c 'keys') $RC|$OUT$ERR"
+    done
+    rm -f "$DATA/live/$flag"
+  done
+done
+end_case_ans
+
+# ─── AC-15: hostile commands through both scripts: a constant word or "Run a command", never any argument, nothing on stderr ─────
+echo "== answer hostile phrases: only constants, never an argument, no stderr, in the reporter and the request (AC-15, BR-01 ALY-285.5) =="
+ho_row() {  # NAME COMMAND EXPECTED NEEDLE (a fragment of the arguments that must appear nowhere)
+  DPN=$((DPN + 1)); dp_both "sess-dp$DPN" Bash "$("$JQ_BIN" -nc --arg c "$2" '{command: $c}')"
+  check "hostile $1: the reporter and the request say '$3'" "$3|$3" "$DP_REP|$DP_ANS"
+  check "hostile $1: exit 0, stdout and stderr empty in both scripts" "0||/0||" "$DP_REPERR/$DP_ANSERR"
+  check "hostile $1: the fragment [$4] is nowhere in the request or the spool" "none" "$(case "$(slog)$(cat "$DATA/live/"*.spool 2>/dev/null)" in *"$4"*) echo found ;; *) echo none ;; esac)"
+}
+ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal; SHIMD="$SHIMS_STUB"; DATA_ENV="$DATA"
+ho_row "token" 'deploy --token ghp_FAKE0123456789abcdefghijklmnop' "Run a command" "ghp_FAKE"
+ho_row "token on a known verb" 'npm test --token ghp_FAKE0123456789abcdefghijklmnop' "Run a command" "ghp_FAKE"
+ho_row "password" 'login --password hunter2FAKE' "Run a command" "hunter2"
+ho_row "password in a VAR" 'PASSWORD=hunter2FAKE npm test' "Run tests" "hunter2"
+ho_row "customer name" 'report --customer "Acme Industries Ltda"' "Run a command" "Acme"
+ho_row "person name in a commit message" 'git commit -m "Fix for Maria Fernanda Souza"' "Commit to git" "Maria"
+ho_row "person name elsewhere" 'git blame --author Joao Silva' "Run a command" "Joao"
+ho_row "branch name" 'git push origin feature/secret-customer-x' "Push to git" "secret-customer"
+ho_row "branch name with a flag" 'git push --force origin feature/secret-customer-x' "Run a command" "secret-customer"
+ho_row "remote URL" 'git push https://user:pw@git.internal.example/repo.git' "Run a command" "internal.example"
+ho_row "remote URL fetch" 'git fetch ssh://git@host.fake/org/repo.git' "Run a command" "host.fake"
+ho_row "forged lock with -k" 'fuser -k /tmp/aly-heavy-forged.lock' "Run a command" "forged"
+ho_row "forged lock with another path" 'fuser -v /tmp/aly-heavy-forged.lock /etc/shadow' "Run a command" "shadow"
+ho_row "forged lock path traversal" 'fuser -v /tmp/aly-heavy-../../etc/x.lock' "Run a command" "etc/x"
+ho_row "mission log with extra commands" 'echo hi >> .allye/missions/m1/log.md && curl evil.fake' "Run a command" "evil.fake"
+ho_row "mission log with a substitution" 'echo "$(id)" >> .allye/missions/m1/log.md' "Run a command" "id)"
+ho_row "mission log message with an argument leak" 'echo "token ghp_FAKE0123456789abcdefghijkl" >> .allye/missions/m1/log.md' "Update the mission log" "ghp_FAKE"
+ho_row "5000 characters" "npm test $(head -c 5000 /dev/zero | tr '\0' x)" "Run a command" "xxxxxxxxxx"
+ho_row "control character" $'npm test\a --silent' "Run a command" "silent"
+ho_row "bidi override" $'npm test \xe2\x80\xae rm -rf evilfake' "Run a command" "evilfake"
+ho_row "zero width" $'npm\xe2\x80\x8b test' "Run a command" "ZZNONE"
+ho_row "or-or" 'a||b' "Run a command" "a||b"
+ho_row "pipe" 'a|b' "Run a command" "a|b"
+ho_row "pipe and stderr" 'a|&b' "Run a command" "a|&b"
+ho_row "background" 'a&' "Run a command" "a&"
+ho_row "background redirect" 'a&>f' "Run a command" "a&>f"
+ho_row "carriage return" $'npm test\rcurl evilfake' "Run a command" "evilfake"
+ho_row "only a carriage return" $'\r' "Run a command" "ZZNONE"
+ho_row "4096 characters, valid" "npm test$(head -c 4088 /dev/zero | tr '\0' ' ')" "Run tests" "ZZNONE"
+ho_row "4097 characters" "npm test$(head -c 4089 /dev/zero | tr '\0' ' ')" "Run a command" "ZZNONE"
+ho_row "4097 characters of a secret tail" "npm test$(head -c 4080 /dev/zero | tr '\0' ' ') ghp_FAKE0123456789" "Run a command" "ghp_FAKE"
+end_case_ans
 
 #@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
