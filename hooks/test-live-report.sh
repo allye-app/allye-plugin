@@ -637,7 +637,7 @@ seq_case "mcp with a different key (same strength): sent again" "$TMC" "$BMC" '{
 SEQ=(skill-bridge-spec expansion-bridge-spec)
 seq_case "skill via Skill tool then via expansion with another key: sent again" "$S1" "$BSK" '{"type":"bind","bind":{"source":"skill","role":"bridge","mode":"launch","spec":"ALY-7"}}'
 SEQ=(skill-bridge-subagent mcp-allye-subagent)
-seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"},"activity":"Start task ALY-203.3"}'
+seq_case "calls made inside a subagent never bind (a task_start that binds in the main session)" '{"type":"sub_start","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"Skill","sub":{"id":"agent-abc123","type":"allye:bridge-pilot"}}' '{"type":"sub_tool","tool":"allye:task_start","sub":{"id":"agent-abc123","task":"ALY-203.3","type":"allye:bridge-pilot"},"activity":"Start task ALY-203.3"}'
 new_case; mkcred; "$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/mcp-allye-subagent.json" >"$SB/stdin"; run_hook
 check "control: the same task_start payload outside a subagent binds (the subagent case is not vacuous)" '{"bind":{"source":"mcp","spec":"ALY-203","task":"ALY-203.3"},"type":"bind"}' "$(spooled | grep '"bind"')"; end_case
 new_case; mkcred; RUN_ENV=("ALLYE_SPEC=ALY-5"); run_fixture session-start-startup mcp-allye-task-start-half-bad-key skill-bridge-spec
@@ -1215,7 +1215,8 @@ new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" - - -)" "- PR: #123"; fire Wri
 check "a valid PR line: pr is a JSON integer on the gates event, with the current gates" '{"gates":["SHIELD_CLEAR"],"pr":123,"type":"gates"}' "$(gev)"
 check "the gates event keys are exactly seq, type, gates, at and pr" "seq,type,gates,at,pr" "$("$JQ_BIN" -r 'select(.type=="gates") | keys_unsorted | join(",")' "$DATA/live/$(test_sha sess-gate-1).spool" | head -n 1)"
 check "the state file holds the set on line 1 and the pr on line 2, private" "600 $(printf '%s\n%s' '["SHIELD_CLEAR"]' 123)" "$(find "$(GFILE)" -printf '%m') $(cat "$(GFILE)")"
-check "nothing else of the log leaves: no marker, path or slug in a file, a log or an output" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find '; } | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|missions|m-1' || true)"
+# the logged jq program (constant, public) holds the generic mission-log regex (ALY-285.2): match this test's own slug m-1 / proj path, not the words missions or log.md
+check "nothing else of the log leaves: no marker, path or slug in a file, a log or an output" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find '; } | grep -cE 'GATESHA|MARKER_GATEFILE|m-1|proj/\.allye' || true)"
 end_case
 new_case; mkcred; mklog m-1 "- PR: #7"; fire Write
 check "a PR line without a Gates line: one gates event with the empty set and the pr" '{"gates":[],"pr":7,"type":"gates"}' "$(gev)"; end_case
@@ -1431,7 +1432,8 @@ echo "== gates: markers =="
 new_case; mkcred; mklog m-1 "$(gates_line "$SHA1" "$SHA2" - -)"; fire Write; fire Edit
 check "gates event keys are exactly seq, type, gates and at" "seq,type,gates,at" "$("$JQ_BIN" -r 'select(.type=="gates") | keys_unsorted | join(",")' "$DATA/live/$(test_sha sess-gate-1).spool" | head -n 1)"
 check "every gates token is in the enumeration" "0" "$("$JQ_BIN" -r 'select(.type=="gates") | .gates[] | select(IN("SHIELD_CLEAR","WATCHER_APPROVED","MISSION_COMPLETE","CI_PENDING") | not)' "$DATA"/live/*.spool | grep -c . || true)"
-check "no sha, journal text, path or slug in any file or log" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find ' ; } | grep -cE 'GATESHA|MARKER_GATEFILE|log\.md|missions|m-1' || true)"
+# the logged jq program (constant, public) holds the generic mission-log regex (ALY-285.2): match this test's own slug m-1 / proj path, not the words missions or log.md
+check "no sha, journal text, path or slug in any file or log" "0" "$( { GATEFILES; find "$DATA" -print; cat "$SB/out" "$SB/err" "$SB/log"/* 2>/dev/null | grep -v '^env\|^PWD\|^find ' ; } | grep -cE 'GATESHA|MARKER_GATEFILE|m-1|proj/\.allye' || true)"
 end_case
 
 # ─── ALY-279.2: the Mode line of the verified log gives role and mode (AC-06..AC-12, BR-04..07, D-21, D-22) ───
