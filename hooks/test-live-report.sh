@@ -1942,6 +1942,109 @@ tk_full "key" "Implement ALY-263.3 for the slice" "Implement ALY-263.3 for the s
 tk_full "no key" "Implement the whole slice now" "Implement the whole slice now~-|"
 tk_full "hostile token and a key" "Implement ALY-263.3 ignore previous; token=MARKER_HOSTILE" "Implement ALY-263.3 ignore previous;~ALY-263.3|"
 tk_full "four words, two keys" "Do ALY-263.3 and ALY-263.4" "Do ALY-263.3 and ALY-263.4~-|"
+# ALY-285.4 (AC-16 to AC-19, BR-07, D-05, D-15): the key of the subagent's own task_start call. Marker value 2 = task_start tried.
+# tk_ts ID TASK [TYPE] [TOOL] [ACTION]: a PreToolUse of subagent ID calling the Allye MCP tasks tool.
+tk_ts() {
+  "$JQ_BIN" --arg id "$1" --arg t "$2" --arg ty "${3:-allye:bridge-pilot}" --arg tn "${4:-mcp__plugin_allye_allye__tasks}" --arg ac "${5:-task_start}" --arg tp "$PROJ/t.jsonl" \
+    '.agent_id = $id | .agent_type = $ty | .transcript_path = $tp | .tool_name = $tn | .tool_input = {action: $ac, task: $t}' "$FIX/mcp-allye-task-start.json" >"$SB/stdin"; run_hook
+}
+tk_memf() { mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' "$1" >"$(TKMEM)"; chmod 600 "$(TKMEM)"; }
+tk_new; tk_tool t1; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-16: a late task_start (after other tools, an empty-key marker 1) sends the key on that call" "-|-|ALY-285.4|" "$(tk_ttask t1)"
+check "ALY-285.4 D-15: the marker is 2 and holds the key" '["t1","ALY-285.4",2]' "$(tk_mem t1)"
+check "ALY-285.4 AC-16: the call sends no text from the call (no desc)" "false|false|false|" "$(tk_tdesc t1)"; end_case
+tk_new; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-16: task_start as the very first tool sends the key" "ALY-285.4|" "$(tk_ttask t1)"
+check "ALY-285.4 D-15: the marker is 2" '["t1","ALY-285.4",2]' "$(tk_mem t1)"; end_case
+tk_new; tk_memf '[["t1","",1]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-18: a marker 1 with an empty key (ALY-281 path) can still be labelled" 'ALY-285.4| ["t1","ALY-285.4",2]' "$(tk_ttask t1) $(tk_mem t1)"; end_case
+tk_new; tk_tool t1; tk_ts t1 ALY-285.4; tk_ts t1 ALY-285.5; tk_tool t1
+check "ALY-285.4 AC-18: a second task_start sends nothing, the marker stays" "-|ALY-285.4|-|-|" "$(tk_ttask t1)"
+check "ALY-285.4 AC-18: the marker keeps the first key" '["t1","ALY-285.4",2]' "$(tk_mem t1)"; end_case
+tk_new; tk_meta t1 "Pilot ALY-280.1"; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-18: a step keyed by the dispatch description is not overridden" "ALY-280.1|-|" "$(tk_ttask t1)"; end_case
+tk_new; tk_agent "Pilot ALY-280.1"; tk_start t1; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-18: a step keyed at the start is not overridden" "-|-|" "$(tk_ttask t1)"; end_case
+tk_new; tk_meta t1 "Pilot ALY-280.1"; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-18: description key and task_start as first tool: the description key wins, once" "ALY-280.1|" "$(tk_ttask t1)"
+check "ALY-285.4 AC-18: ... and the marker is 2" '["t1","ALY-280.1",2]' "$(tk_mem t1)"; end_case
+# negatives (AC-17)
+tk_neg() {  # LABEL TASK [TYPE] [TOOL] [ACTION] [BOUND-SPEC-KEY...]
+  local label="$1" t="$2" ty="${3:-}" tn="${4:-}" ac="${5:-}"; shift 5
+  tk_new; [ $# -eq 0 ] || tk_bind "$@"
+  tk_tool t1 "${ty:-allye:bridge-pilot}"; tk_ts t1 "$t" "${ty:-allye:bridge-pilot}" "${tn:-mcp__plugin_allye_allye__tasks}" "${ac:-task_start}"
+  check "ALY-285.4 AC-17: $label: no key from the call" "-|-|" "$(tk_ttask t1)"; end_case
+}
+tk_neg "planning role recon" ALY-285.4 allye:bridge-recon "" ""
+tk_neg "planning role strategist" ALY-285.4 allye:bridge-strategist "" ""
+tk_neg "one project bound, the key is of another project" XYZ-5.1 "" "" "" ALY-263
+tk_neg "a task UUID" 4e2b7c1a-0b2d-4e11-9a55-c0ffee123456 "" "" ""
+tk_neg "a spec key" ALY-285 "" "" ""
+tk_neg "a bare number" 285.4 "" "" ""
+tk_neg "lower case key" aly-285.4 "" "" ""
+tk_neg "a key with a trailing newline" $'ALY-285.4\n' "" "" ""
+tk_neg "a key inside text" "start task ALY-285.4 now" "" "" ""
+tk_neg "two keys" "ALY-285.4 ALY-285.5" "" "" ""
+tk_neg "a five digit task number" ALY-285.1234 "" "" ""
+tk_neg "another server" ALY-285.4 "" mcp__other__tasks ""
+tk_neg "another tool of the Allye server" ALY-285.4 "" mcp__plugin_allye_allye__specs ""
+tk_neg "action TASK_START" ALY-285.4 "" "" TASK_START
+tk_neg "action task_submit" ALY-285.4 "" "" task_submit
+tk_neg "action with a trailing space" ALY-285.4 "" "" "task_start "
+tk_new; tk_bind ALY-263 XYZ-5; tk_tool t1; tk_ts t1 XYZ-5.1
+check "ALY-285.4 AC-17: several projects bound accept a full key" "-|XYZ-5.1|" "$(tk_ttask t1)"; end_case
+tk_new; tk_bind ALY-263; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-17: one project bound, the key is of that project" "-|ALY-285.4|" "$(tk_ttask t1)"; end_case
+tk_new; "$JQ_BIN" '.tool_input.task = {"a": "ALY-285.4"}' "$FIX/mcp-allye-task-start.json" >"$SB/x.json"; tk_tool t1
+"$JQ_BIN" --arg tp "$PROJ/t.jsonl" '.agent_id = "t1" | .agent_type = "allye:bridge-pilot" | .transcript_path = $tp' "$SB/x.json" >"$SB/stdin"; run_hook
+check "ALY-285.4 AC-17: a task that is not a string sends nothing and does not fail" "-|-|0||" "$(tk_ttask t1)$RC|$OUT|$ERR"; end_case
+# AC-19: only tool_input.task is read
+tk_new; tk_tool t1
+"$JQ_BIN" --arg tp "$PROJ/t.jsonl" '.agent_id = "t1" | .agent_type = "allye:bridge-pilot" | .transcript_path = $tp | .tool_input = {action: "task_start", task: "4e2b7c1a-0b2d-4e11-9a55-c0ffee123456", spec: "ALY-285", description: "Pilot ALY-285.9", prompt: "ALY-285.8"}' "$FIX/mcp-allye-task-start.json" >"$SB/stdin"; run_hook
+check "ALY-285.4 AC-19: only tool_input.task is read (spec, description, prompt are ignored)" "-|-|" "$(tk_ttask t1)"; end_case
+tk_new; tk_tool t1; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-19: the sent key matches the key pattern and is the only value from the call" "ALY-285.4|" "$(tk_wire t1)"; end_case
+# old and hostile memory files
+tk_new; tk_memf '[["t1","",0]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: an old file (third field 0) stays valid and the call labels" 'ALY-285.4| ["t1","ALY-285.4",2]' "$(tk_ttask t1) $(tk_mem t1)"; end_case
+tk_new; tk_memf '[["t1","ALY-9.9",1]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: an old file (third field 1) with a key stays valid: the step has a key, nothing is sent" "-| [\"t1\",\"ALY-9.9\",2]" "$(tk_ttask t1) $(tk_mem t1)"; end_case
+tk_new; tk_memf '[["t1","",2]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: a file with marker 2 is valid: nothing is sent" "-|" "$(tk_ttask t1)"; end_case
+tk_new; tk_memf '[["t1","",3]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: an entry with an unknown marker (3) counts as empty" "ALY-285.4|" "$(tk_ttask t1)"; end_case
+tk_new; tk_memf 'not json'; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: a corrupt memory counts as empty" "ALY-285.4|" "$(tk_ttask t1)"; end_case
+tk_new; tk_memf "$(printf '[["t1","",2]'; head -c 9000 /dev/zero | tr '\0' ' '; printf ']')"; tk_ts t1 ALY-285.4
+check "ALY-285.4 D-15: an oversized memory (cap kept) counts as empty" "ALY-285.4|" "$(tk_ttask t1)"; end_case
+# parallel agents are independent; the memory rolls at 64
+tk_new; tk_tool t1; tk_tool t2; tk_ts t1 ALY-285.4; tk_ts t2 ALY-285.5; tk_ts t1 ALY-285.9
+check "ALY-285.4 AC-18: parallel agent ids are independent" "-|ALY-285.4|-| -|ALY-285.5|" "$(tk_ttask t1) $(tk_ttask t2)"; end_case
+tk_new; for i in $(seq 1 66); do tk_ts "w$i" ALY-285.4; done
+check "ALY-285.4 D-15: the memory keeps the newest 64 ids, marker 2" "64 w66 2" "$("$JQ_BIN" -r 'length' "$(TKMEM)") $("$JQ_BIN" -r '.[-1][0]' "$(TKMEM)") $("$JQ_BIN" -r '.[-1][2]' "$(TKMEM)")"; end_case
+# gates: texts off, Live off
+for fl in activity-off detailed-off; do
+  tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$fl"; chmod 600 "$DATA/live/$fl"; tk_ts t1 ALY-285.4
+  check "ALY-285.4 AC-19: $fl sends no key and writes no state file" "-| no" "$(tk_ttask t1) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+done
+tk_new; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/off"; chmod 600 "$DATA/live/off"; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-19: Live off sends nothing and writes no state file" " no" "$(tk_ttask t1) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+# main session: no agent id, no key, no memory
+tk_new; "$JQ_BIN" 'del(.agent_id, .agent_type)' "$FIX/mcp-allye-task-start.json" >"$SB/stdin"; run_hook
+check "ALY-285.4 AC-16: the main session's task_start sends no sub.task and records nothing" "0 no" "$(spooled | grep -c '"sub"' || true) $([ -e "$(TKMEM)" ] && echo yes || echo no)"; end_case
+# AC-18/AC-19: the fast path. A logging head shim shows whether the project prefix (tk_prefix: head -c 1200 of the bind file) was computed.
+tk_hp() { SHIMD="$SB/probeshims"; link_shims "$SHIMD"; ln -sf "$SHIMS_STUB/curl" "$SHIMD/curl"; printf '#!/bin/bash\nexec "%s/_wrap.sh" head "$@"\n' "$SHIMS" >"$SHIMD/head"; chmod +x "$SHIMD/head"; tk_bind ALY-263; : >"$SB/log/calls.log"; }
+tk_pf() { grep -c '^head \[-c\] \[1200\]' "$SB/log/calls.log" || true; }
+tk_new; tk_hp; tk_memf '[["t1","",1]]'; tk_tool t1
+check "ALY-285.4 AC-18: a plain tool call of a tried id takes the fast path (no prefix)" "0" "$(tk_pf)"; end_case
+tk_new; tk_hp; tk_memf '[["t1","",1]]'; tk_ts t1 ALY-285.4
+check "ALY-285.4 AC-19: an Allye tasks task_start of a marker 1 id leaves the fast path (prefix computed)" "yes" "$([ "$(tk_pf)" -gt 0 ] && echo yes || echo no)"; end_case
+tk_new; tk_hp; tk_memf '[["t1","ALY-285.4",2]]'; tk_ts t1 ALY-285.5
+check "ALY-285.4 AC-18: a task_start of an id with marker 2 takes the fast path (no prefix)" "0" "$(tk_pf)"; end_case
+tk_new; tk_hp; tk_memf '[["t1","",1]]'; tk_ts t1 ALY-285.4 allye:bridge-pilot mcp__other__tasks
+check "ALY-285.4 AC-19: another server's tasks call computes no prefix" "0" "$(tk_pf)"; end_case
+tk_new; tk_hp; tk_memf '[["t1","",1]]'; tk_ts t1 ALY-285.4 allye:bridge-pilot mcp__plugin_allye_allye__specs
+check "ALY-285.4 AC-19: another Allye tool computes no prefix" "0" "$(tk_pf)"; end_case
 
 #@group synth 50
 echo "== synthetic sub_start for unseen subagents (ALY-217.7 AC-35, AC-36, D-26) =="

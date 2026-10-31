@@ -1243,9 +1243,10 @@ fi
 # projects). TKID/TKDESC: at the FIRST tool of an agent id (no entry marked tried in $HASH.tkmem) the metadata file is read through the same
 # safe open and the same 2 s budget as at the stop; whatever the result the jq program records the attempt, so it is never repeated. Only
 # while texts are on.
-TKPFX=""; TKID=""; TKDESC=""
+TKPFX=""; TKID=""; TKDESC=""; TKPD=0
 tk_prefix() {  # sets TKPFX
   local b="" t="" all p first="" mixed=0
+  TKPD=1
   if [ -f "$LIVE_DIR/$HASH.bind" ] && [ ! -L "$LIVE_DIR/$HASH.bind" ] && private_file_ok "$LIVE_DIR/$HASH.bind"; then b=$(head -c 1200 "$LIVE_DIR/$HASH.bind" 2>/dev/null) || b=""; fi
   if [ -f "$LIVE_DIR/$HASH.touch" ] && [ ! -L "$LIVE_DIR/$HASH.touch" ] && private_file_ok "$LIVE_DIR/$HASH.touch"; then t=$(head -c 1200 "$LIVE_DIR/$HASH.touch" 2>/dev/null) || t=""; fi
   all=$( { printf '%s\n' "$b" | LC_ALL=C grep -oE '"(spec|task)":"[A-Z][A-Z0-9]{1,9}-[0-9]' | LC_ALL=C sed -E 's/^"[a-z]+":"//; s/-[0-9]$//'
@@ -1256,13 +1257,18 @@ tk_prefix() {  # sets TKPFX
   done <<<"$all"
   if [ "$mixed" = 0 ] && [[ "$first" =~ ^[A-Z][A-Z0-9]{1,9}$ ]]; then TKPFX="$first"; fi
 }
-tk_tried() {  # tk_tried ID: succeeds when $HASH.tkmem holds an entry of ID marked tried (a private regular file of at most 8192 bytes)
-  local f="$LIVE_DIR/$HASH.tkmem" c
+# ALY-285.4 (D-15): the third field is 0 (start), 1 (first tool read) or 2 (task_start tried); tk_tried ID [VALUES] succeeds for 1 or 2, or for the digits given.
+tk_tried() {  # tk_tried ID [VALUES]: succeeds when $HASH.tkmem holds an entry of ID marked tried (a private regular file of at most 8192 bytes)
+  local f="$LIVE_DIR/$HASH.tkmem" c re
   [ -f "$f" ] && [ ! -L "$f" ] || return 1
   pfcap "$f" || return 1
   { IFS= read -r -d '' -N 8192 c <"$f"; } 2>/dev/null; [ -n "$c" ] || return 1   # builtin read: no fork
-  [[ "$c" =~ \[\"$1\",\"([A-Z][A-Z0-9]{1,9}-[0-9]+(\.[0-9]+)?)?\",1\] ]]
+  re="\\[\"$1\",\"([A-Z][A-Z0-9]{1,9}-[0-9]+(\\.[0-9]+)?)?\",[${2:-12}]\\]"
+  [[ "$c" =~ $re ]]
 }
+# ALY-285.4 (AC-19): succeeds for the payload of an Allye `tasks` call that may be a task_start (a cheap substring check, no jq); a false
+# positive only costs the prefix, the jq program decides.
+tk_late_payload() { case "$INPUT" in *task_start*) case "$INPUT" in *'allye__tasks"'*) return 0 ;; esac ;; esac; return 1; }
 # ALY-263.13 (AC-16): the hot path of a subagent tool event is cheap. The project prefix (about ten forks) is computed only where it is
 # used: at a SubagentStart and a SubagentStop (a stash entry may give a task key to a first or synthetic sub_start) and at the PreToolUse
 # of an agent id whose first-tool attempt is not recorded (TKID set). A PreToolUse whose payload holds the literal "agent_id" key
@@ -1273,7 +1279,10 @@ if ! texts_off; then
   case "$INPUT" in *PreToolUse*'"agent_id"'*)
     if [[ "$INPUT" =~ \"agent_id\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9_-]{1,64})\" ]]; then
       TKQ="${BASH_REMATCH[1]}"; TKX="${INPUT//\"agent_id\"/}"
-      if [ $(( ${#INPUT} - ${#TKX} )) -eq 10 ] && tk_tried "$TKQ"; then TKFAST=1; fi
+      if [ $(( ${#INPUT} - ${#TKX} )) -eq 10 ] && tk_tried "$TKQ"; then
+        TKFAST=1
+        if tk_late_payload && ! tk_tried "$TKQ" 2; then TKFAST=0; fi   # ALY-285.4: only an Allye tasks task_start of an id without marker 2 leaves the fast path
+      fi
     fi ;;
   esac
 fi
@@ -1291,6 +1300,8 @@ if [ "$TKFAST" = 0 ] && ! texts_off; then
           TKID="$TKI"; tk_prefix
           [[ "$RD_END" =~ ^[0-9]{13}$ ]] || RD_END="$(( $(now_ms) + 2000 ))"
           if MDP=$(agent_file_of meta.json) && TKDESC=$(meta_description "$MDP"; printf x); then TKDESC="${TKDESC%x}"; else TKDESC=""; fi
+        elif [[ "$TKI" =~ ^[A-Za-z0-9_-]{1,64}$ ]] && [ "$TKPD" = 0 ] && tk_late_payload && ! tk_tried "$TKI" 2; then
+          tk_prefix   # ALY-285.4: a tried id's Allye tasks task_start needs the project prefix (nothing else is read)
         fi
       fi
       TRF="" ;;
@@ -1880,22 +1891,32 @@ def actdd($e):
 # sub_tool of $tkid whose entry is not tried yet takes the key from the cleaned description and sends it only when it differs from the value
 # already sent for that agent; the attempt is recorded either way (tried 1), so a failed read is never repeated. {out: events, st: memory or null}.
 def tkmemin: ($tkmem | try fromjson catch []) | (if type == "array" then . else [] end)
-  | map(select(type == "array" and length == 3 and (.[0] | idok) and (.[1] | type == "string") and (.[1] == "" or (.[1] | keyok)) and (.[2] == 0 or .[2] == 1))) | .[-64:];
+  | map(select(type == "array" and length == 3 and (.[0] | idok) and (.[1] | type == "string") and (.[1] == "" or (.[1] | keyok)) and (.[2] == 0 or .[2] == 1 or .[2] == 2))) | .[-64:];
+# ALY-285.4 (AC-16 to AC-19, D-15): the task_start of the subagent itself. latecall: the payload is a PreToolUse of an Allye `tasks` call with the
+# action exactly "task_start" (the attempt, third field 2); latekey: its tool_input.task when it is exactly one full task key (anchored, no
+# extraction, no trailing newline; nothing else of the payload is read). The planning-role filter and the bound-project rule are those of taskkey.
+def latecall: .hook_event_name == "PreToolUse" and allyesrv and ((.tool_name | split("__"))[2] == "tasks")
+  and (((.tool_input | objects | .action) // null) == "task_start");
+def latekey: ((.tool_input | objects | .task) // null)
+  | if type == "string" and test("\\A[A-Z][A-Z0-9]{1,9}-[0-9]{1,4}\\.[0-9]{1,3}\\z") then . else null end;
 def tkpass($e):
   if $tkok != "1" or $txt != "1" then {out: $e, st: null}
   else
-    reduce $e[] as $ev ({out: [], m: tkmemin, ch: false};
+    (. as $p | (try ($p | latecall) catch false) as $lc | (if $lc then (try ($p | latekey) catch null) else null end) as $lk0 | ($p.agent_id // null) as $lid
+    | reduce $e[] as $ev ({out: [], m: tkmemin, ch: false};
       ($ev.sub.id // null) as $i
       | (if $i == null then null else (.m | map(select(.[0] == $i)) | .[0]) end) as $o
+      | ($lc and $i != null and $i == $lid) as $late
       | if $ev.type == "sub_start" and ($ev.sub.task // null) != null and $o == null then
           .out += [$ev] | .m = ((.m + [[$i, $ev.sub.task, 0]]) | .[-64:]) | .ch = true
-        elif $ev.type == "sub_tool" and $i != null and $i == $tkid and ($o == null or $o[2] == 0) then
+        elif $ev.type == "sub_tool" and $i != null and (($i == $tkid and ($o == null or $o[2] == 0)) or ($late and ($o == null or $o[2] != 2))) then
           (if $o != null then $o[1] else "" end) as $sent
-          | (($tkdesc | actclean(actcap; 1; 1)) as $d | if $d != null then ($d | taskkey($tkpfx; $ev.sub.type)) else null end) as $k
+          | (if $i == $tkid and ($o == null or $o[2] == 0) then (($tkdesc | actclean(actcap; 1; 1)) as $d | if $d != null then ($d | taskkey($tkpfx; $ev.sub.type)) else null end) else null end) as $dk
+          | (if $dk != null then $dk elif $late and $sent == "" and $lk0 != null then ($lk0 | taskkey($tkpfx; $ev.sub.type)) else null end) as $k
           | .out += [if $k != null and $k != $sent then $ev | .sub.task = $k else $ev end]
-          | .m = (((.m | map(select(.[0] != $i))) + [[$i, (if $k != null then $k else $sent end), 1]]) | .[-64:]) | .ch = true
+          | .m = (((.m | map(select(.[0] != $i))) + [[$i, (if $k != null then $k else $sent end), (if $late then 2 else 1 end)]]) | .[-64:]) | .ch = true
         else .out += [$ev] end)
-    | {out: .out, st: (if .ch then .m else null end)}
+    | {out: .out, st: (if .ch then .m else null end)})
   end;
 # ─── ALY-263.11 (AC-12, D-05, D-19): sub.resumed and the tail close ───
 # $rsm is the content of $HASH.rsm (line 1 the next-check time, ignored here; the rest the JSON), usable only when $rsok is "1"; an entry off
