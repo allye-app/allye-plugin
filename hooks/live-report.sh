@@ -1599,7 +1599,7 @@ def bcls_wordok($f; $prev):
   if startswith("\u0001") then ($prev | bcls_msgflag) and (.[2:] | test("[\u0022\u0027]") | not)
   elif startswith("-") then
     (index("=")) as $i | (if $i == null then . else .[0:$i] end) as $n
-    | (($n | bcls_flagbl) | not) and ($n | IN($f[]))
+    | (($n | bcls_flagbl) | not) and (($n | IN($f[])) or (($f | any(. == "-N")) and ($n | test("\\A-[0-9]{1,4}\\z"))))
       and (if $i == null then true else (.[$i + 1:] | if startswith("\u0001") then ($n | bcls_msgflag) and (.[2:] | test("[\u0022\u0027]") | not) else bcls_plain end) end)
   else bcls_plain end;
 # runner flags shared by the test, lint, typecheck and build words
@@ -1610,8 +1610,23 @@ def bcls_entry:
     elif $a == "eslint" or $a == "lint" then {w: "Lint", f: bcls_rf}
     elif $a == "tsc" then {w: (if (.[1:] | any(. == "-b" or . == "--build")) then "Build" else "Typecheck" end), f: (bcls_rf + ["-b","--build","-p","--project"])}
     elif $a == "typecheck" then {w: "Typecheck", f: bcls_rf} elif $a == "build" then {w: "Build", f: bcls_rf}
-    elif $a == "git" then (if $b == "diff" then {w: "Read the diff", f: ["--","--stat","--cached","--staged","--name-only","--name-status"]}
+    elif $a == "git" then (if $b == "commit" then {w: "Commit to git", f: ["-m","--message","-a","--all","-s","--signoff","-q","--quiet"]}
+      elif $b == "push" then {w: "Push to git", f: ["-u","--set-upstream","--tags","-q"]}
+      elif $b == "merge" then {w: "Merge in git", f: ["--no-ff","--ff-only","--squash","--no-edit","--abort","-q"]}
+      elif $b == "fetch" then {w: "Fetch from git", f: ["--all","--tags","-q"]}
+      elif $b == "log" then {w: "Read the history", f: ["--oneline","--stat","--graph","--decorate","--name-only","-p","-n","-N"]}
+      elif $b == "diff" then {w: "Read the diff", f: ["--","--stat","--cached","--staged","--name-only","--name-status"]}
       elif $b == "status" then {w: "Check git status", f: ["--","--short","-s","--branch","-b","--porcelain"]} else null end)
+    elif $a == "gh" then (if $b == "pr" then ((.[2] // "") as $c
+        | if $c == "create" then {w: "Open the PR", f: ["--title","--body","--base","--head","--draft","--fill","--web"]}
+          elif $c == "merge" then {w: "Merge the PR", f: ["--squash","--merge","--rebase","--auto"]}
+          elif $c == "view" or $c == "checks" then {w: "Check the PR", f: ["--web","--watch","--comments","--json"]}
+          else null end) else null end)
+    elif $a == "fuser" or $a == "lsof" then
+      (.[1:] | map(select(test("\\A/tmp/aly-heavy-[A-Za-z0-9._-]{1,60}\\.lock\\z") | not))) as $o
+      | if (.[1:] | length) > 0 and ((.[1:] | map(select(test("\\A/tmp/aly-heavy-[A-Za-z0-9._-]{1,60}\\.lock\\z"))) | length) == 1)
+          and ($o | all(startswith("-")))
+        then {w: "Check the heavy lock", f: (if $a == "fuser" then ["-v"] else ["-t"] end)} else null end
     elif $a == "make" then (if $b == "build" and length == 2 then {w: "Build", f: []} else null end)
     elif $a == "node" then (if $b == "--test" then {w: "Run tests", f: ["--test","--test-concurrency","--test-reporter","--test-only"]} else null end)
     elif $a | IN("npm","pnpm","yarn","bun") then (bscript(if $b == "run" then (.[2] // "") else $b end)) as $w | if $w != null then {w: $w, f: bcls_rf} else null end
@@ -1648,8 +1663,12 @@ def bcls_seg:
     elif ($w | length) == 7 and $w[0] == "flock" and ($w[1] | test("\\A/tmp/aly-heavy-[A-Za-z0-9._-]{1,60}\\.lock\\z")) and $w[2] == "timeout" and ($w[3] | test("\\A[0-9]{1,5}\\z"))
       and $w[4] == "bash" and $w[5] == "-c" and ($w[6] | startswith("\u0001s")) then ($w[6][2:] | bcls_inner)
     else $w | bcls_cmd end;
+def bcls_mlog:
+  test("\\A(echo|printf)( +(\u0027[^\u0001-\u001f$`\\\\<>;&|\u0022\u0027]{0,200}\u0027|\u0022[^\u0001-\u001f$`\\\\<>;&|\u0022\u0027]{0,200}\u0022))? +>> +\\.allye/missions/[A-Za-z0-9_-][A-Za-z0-9._-]{0,59}/log\\.md\\z")
+  or test("\\Aprintf +\u0027%s\\\\n\u0027 +(\u0027[^\u0001-\u001f$`\\\\<>;&|\u0022\u0027]{0,200}\u0027|\u0022[^\u0001-\u001f$`\\\\<>;&|\u0022\u0027]{0,200}\u0022) +>> +\\.allye/missions/[A-Za-z0-9_-][A-Za-z0-9._-]{0,59}/log\\.md\\z");
 def bcls_run:
   if length > 4096 then error("b")
+  elif bcls_mlog then "Update the mission log"
   elif test("[\u0001-\u0008\u000b-\u001f]|\\\\|\\$\\(|\\$\\{|`|<|>") then error("b")
   else bcls_words | map(bcls_seg) | map(select(. != "")) | if length == 0 then error("b") else .[0] end end;
 def bcls: try bcls_run catch null;
