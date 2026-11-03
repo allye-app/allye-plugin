@@ -7240,6 +7240,127 @@ check "the decision path never calls realpath, readlink, resolve_path or an exte
 check "the output stage re-runs the lookup: the decision program embeds LOOKUP_JQ and takes no rule, mode, destination or path from the API" "1 0" "$(printf '%s\n' "$ACODE" | grep -c "^'\"\$LOOKUP_JQ\"'\$") $(printf '%s\n' "$DCODE" | grep -cE '\$d\.(rules|mode|destination|label|path|updatedPermissions)|\$r\[0\]\.data\.decision\.(rules|mode|destination|label)' || true)"
 check "the script stays executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
 
+echo "== answer options privacy (ALY-290.3 AC-11, BR-01): no rule text or directory leaves either hook, in any file, process or log =="
+# A canary in ruleContent (Bash addRules) and one in directories (addDirectories, a real subfolder of the sandbox home) goes through BOTH
+# scripts (the reporter also receives PermissionRequest). PATH shims log every argv and environment, a curl stand-in keeps the config it
+# receives on stdin and the body file it names, /proc is read during the runs (also while getent is held, i.e. while the folder is being
+# resolved, and while the wait is held). The canary may be only in the final stdout line of the run whose chosen option holds it.
+PV_RULE="zzcanary-rule-7qx"; PV_DIR="zzcanary-dir-9kq"
+PV_SPY="" ; PVPOLL=""
+pv_spy() {  # DIR [leaky]: every real tool as an argv-logging shim, curl as the recording stand-in, getent as the holdable one
+  local t; mkdir -p "$1"
+  for t in "$REALBIN"/*; do cp "$FIX/argv-canary-shim.sh" "$1/${t##*/}"; done
+  cp "$FIX/curl-spy-shim.sh" "$1/curl"; cp "$FIX/getent-hold-shim.sh" "$1/getent"
+  if [ -n "${2:-}" ]; then   # the negative control: a jq that keeps what it receives on a pipe
+    printf '%s\n' '#!/bin/bash' \
+      '[ -p /dev/stdin ] && { f="$SPY_DIR/in.$$"; "$CANARY_REAL/cat" >"$f"; exec "$CANARY_REAL/jq" "$@" <"$f"; }' \
+      'exec "$CANARY_REAL/jq" "$@"' >"$1/jq"
+  fi
+  chmod 755 "$1"/*
+}
+pv_env() {  # [hold]
+  RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj" "ANS_MARK=$MARK" "CANARY_LOG=$SB/canary.log" "CANARY_REAL=$REALBIN" "SPY_DIR=$PV_SPY" "LIVE_ANSWER_DEBUG=1")
+  [ -z "${1:-}" ] || RUN_ENV+=("HOLD_STARTED=$SB/hold.started" "HOLD_RELEASE=$SB/hold.release")
+}
+pv_snap() {  # OUTFILE: pid, command line and environment of every process of this case (its ANS_MARK), appended
+  local e p
+  for e in $(grep -lsz -x "ANS_MARK=$MARK" /proc/[0-9]*/environ 2>/dev/null); do
+    p=${e%/environ}
+    { printf 'PID %s\n' "${p#/proc/}"; tr '\0' ' ' <"$p/cmdline"; printf '\n'; tr '\0' '\n' <"$e"; } >>"$1" 2>/dev/null
+  done
+  return 0
+}
+pv_poll() { local i; for i in $(seq 1 4000); do [ -e "$2" ] && break; pv_snap "$1"; sleep 0.02; done; }   # bounded count, never a clock assertion
+pv_poll_start() { rm -f "$SB/poll.stop"; pv_poll "$SB/proc.snap" "$SB/poll.stop" & PVPOLL=$!; BGKILL+=("$PVPOLL"); }
+pv_poll_stop() { : >"$SB/poll.stop"; wait "$PVPOLL" 2>/dev/null; PVPOLL=""; }
+pv_note() {  # after a run: its stderr and the stub's log are kept, the stub's log is cleared
+  printf '%s\n' "$ERR" >>"$SB/stderr.all"; slog >>"$SB/allreq.log"; : >"$SB/api/requests.log"
+}
+pv_hits() { grep -rlsF -e "$PV_RULE" -e "$PV_DIR" "$@" 2>/dev/null | sed "s|$SB/||" | sort | tr '\n' ' '; }
+ans_case; mkdir -p "$SB/noshims" "$SB/spy" "$SB/home/$PV_DIR"; SHIMD="$SB/noshims"; DATA_ENV="$DATA"; PV_SPY="$SB/spy"
+pv_spy "$SB/spybin"; REAL="$SB/spybin"; : >"$SB/canary.log"; : >"$SB/proc.snap"; : >"$SB/stdout.nonfinal"; : >"$SB/allreq.log"; : >"$SB/stderr.all"
+PV_AR=$("$JQ_BIN" -nc --arg r "$PV_RULE *" '{type: "addRules", rules: [{toolName: "Bash", ruleContent: $r}], behavior: "allow", destination: "localSettings"}')
+PV_AD=$("$JQ_BIN" -nc --arg d "$SB/home/$PV_DIR" '{type: "addDirectories", directories: [$d], destination: "session"}')
+PV_SUGG_R="[$PV_AR]"; PV_SUGG_F="[$PV_AD,$SM_E]"; PV_SUGG_M="[$PV_AR,$PV_AD]"   # the rule alone, the folder (+ edits), both (a shape the table does not map)
+pv_pay() { ans_payload_ex sess-0001 Bash '{"command":"ls"}' default "$1"; }
+
+# 1. the reporter receives the same PermissionRequest (three payloads: rule, folder, both canaries in one)
+pv_env; pv_poll_start
+for PV_S in "$PV_SUGG_R" "$PV_SUGG_F" "$PV_SUGG_M"; do
+  pv_pay "$PV_S"; run_hook
+  check "the reporter: exit 0, stdout and stderr empty" "0||" "$RC|$OUT|$ERR"
+  printf '%s\n' "$OUT" >>"$SB/stdout.nonfinal"; pv_note
+done
+pv_poll_stop
+check "the reporter wrote a spool for the session (the scan below reads it)" "yes" "$([ -s "$(spool_of sess-0001)" ] && echo yes || echo no)"
+smode wait terminal
+
+# 2. the answer client while the folder is being resolved (getent held)
+pv_pay "$PV_SUGG_F"; pv_env hold; rm -f "$SB/hold.started" "$SB/hold.release"; ans_bg
+for i in $(seq 1 3000); do [ -e "$SB/hold.started" ] && break; sleep 0.01; done
+check "the folder check is running: the held getent started" "yes" "$([ -e "$SB/hold.started" ] && echo yes || echo no)"
+: >"$SB/hold1.snap"; pv_snap "$SB/hold1.snap"; cat "$SB/hold1.snap" >>"$SB/proc.snap"
+check "/proc was read while the folder was being resolved: the hook and the getent are in the capture" "yes yes" "$([ "$(grep -c 'live-answer.sh' "$SB/hold1.snap")" -ge 1 ] && echo yes || echo no) $([ "$(grep -c 'getent passwd' "$SB/hold1.snap")" -ge 1 ] && echo yes || echo no)"
+: >"$SB/hold.release"; ans_bg_end
+check "run with the folder held: exit 0, nothing printed, no stderr" "0||" "$RC|$OUT|$ERR"
+check "the open offered the folder (ids only)" "allow_once,allow_edits_session,allow_folder,switch_auto,deny|false" "$(slog | "$JQ_BIN" -r 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson | (([.options[]?.id] | join(",")) + "|" + ((.options_partial // false) | tostring))')"
+printf '%s\n' "$OUT" >>"$SB/stdout.nonfinal"; pv_note
+
+# 3. the answer client while the wait is held (curl in flight, every entry in memory)
+pv_env; smode wait hold; ans_bg; swait_hits 1
+: >"$SB/hold2.snap"; pv_snap "$SB/hold2.snap"; cat "$SB/hold2.snap" >>"$SB/proc.snap"
+check "/proc was read while the wait was held: the hook and a curl with --max-redirs are in the capture" "yes yes" "$([ "$(grep -c 'live-answer.sh' "$SB/hold2.snap")" -ge 1 ] && echo yes || echo no) $([ "$(grep -c 'max-redirs' "$SB/hold2.snap")" -ge 1 ] && echo yes || echo no)"
+kill -TERM "$BGPID" 2>/dev/null; ans_bg_end
+printf '%s\n' "$OUT" >>"$SB/stdout.nonfinal"; pv_note; rm -f "$DATA/live/answer-backoff"; smode wait terminal
+
+# 4. the unmapped payload with both canaries: no options beyond once and deny, partial, nothing printed
+pv_pay "$PV_SUGG_M"; pv_env; pv_poll_start; ans_run; pv_poll_stop
+check "both canaries in one payload: only the plain options, partial, silent" "allow_once,switch_auto,deny|true|0||" "$(oids)|$RC|$OUT|$ERR"
+printf '%s\n' "$OUT" >>"$SB/stdout.nonfinal"; pv_note
+
+# 5. the user chooses the persistent rule: the rule text is in the final line, the directory is not
+pv_pay "$PV_SUGG_R"; pv_env; pv_poll_start
+odec '{"behavior":"allow","option":"allow_always"}'
+pv_poll_stop
+ocheck "allow_always: the one line holds exactly the held rule group" "$(oexp "$PV_SUGG_R")"
+check "allow_always: the rule canary is in that one final line, the directory canary is not" "1 1 0" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ') $(printf '%s\n' "$OUT" | grep -c "$PV_RULE") $(printf '%s\n' "$OUT" | grep -c "$PV_DIR")"
+pv_note
+
+# 6. the user chooses the folder: the directory is in the final line, the rule text is not
+pv_pay "$PV_SUGG_F"; pv_env; pv_poll_start
+odec '{"behavior":"allow","option":"allow_folder"}'
+pv_poll_stop
+ocheck "allow_folder: the one line holds exactly the held directory entry" "$(oexp "[$PV_AD]")"
+check "allow_folder: the directory canary is in that one final line, the rule canary is not" "1 0 1" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ') $(printf '%s\n' "$OUT" | grep -c "$PV_RULE") $(printf '%s\n' "$OUT" | grep -c "$PV_DIR")"
+pv_note
+
+# the scan: the scan sources were really filled
+check "the shims logged the processes the runs started" "yes" "$([ "$(grep -c '^ARGV ' "$SB/canary.log")" -gt 10 ] && echo yes || echo no)"
+check "the curl stand-in kept the configs (token header, body file line) and the open bodies it was given" "yes yes" "$([ "$(grep -l 'data-binary = "@' "$SB"/spy/cfg.* 2>/dev/null | wc -l | tr -d ' ')" -ge 2 ] && echo yes || echo no) $([ "$(grep -l '"session_hash"' "$SB"/spy/body.* 2>/dev/null | wc -l | tr -d ' ')" -ge 2 ] && echo yes || echo no)"
+check "the /proc capture holds processes of the runs (hook, getent, curl)" "yes" "$([ "$(grep -c '^PID ' "$SB/proc.snap")" -ge 6 ] && echo yes || echo no)"
+check "the debug log exists, is private (600) and non-empty" "600 yes" "$(find "$DATA/live/answer-debug.log" -prune -printf '%m' 2>/dev/null) $([ -s "$DATA/live/answer-debug.log" ] && echo yes || echo no)"
+# the scan: no canary anywhere but the final lines
+check "no canary in any open body or other request the stub received (both scripts)" "" "$(pv_hits "$SB/allreq.log")"
+check "no canary in any curl config or body file (copied while they existed)" "" "$(pv_hits "$SB/spy")"
+check "no canary in any file under the plugin data dir (spool, state, temp files, 0600 debug log)" "" "$(pv_hits "$DATA")"
+check "no canary in the argv or environment logged by the PATH shims" "" "$(pv_hits "$SB/canary.log")"
+check "no canary in any /proc cmdline or environ captured during the runs (also while the folder was resolved)" "" "$(pv_hits "$SB/proc.snap")"
+check "no canary on stderr of either script, nor on the stdout of the reporter or of a run without a chosen option" "" "$(pv_hits "$SB/stderr.all" "$SB/stdout.nonfinal")"
+check "no process of the case is left (the held getent and curl are gone)" "0" "$(marked)"
+# negative control 1: a deliberately leaky jq copy in the sandbox keeps what it receives; the same scan must flag it
+mkdir -p "$SB/spy2"; pv_spy "$SB/spybin2" leaky; REAL="$SB/spybin2"; PV_SPY="$SB/spy2"; pv_env
+pv_pay "$PV_SUGG_F"; smode wait terminal; ans_run
+check "control: the leaky jq run still exits 0 silently" "0||" "$RC|$OUT|$ERR"
+check "control: the scan flags the canary the leaky shim kept (a file under spy2)" "yes" "$(case "$(pv_hits "$SB/spy2")" in spy2/in.*) echo yes ;; *) echo no ;; esac)"
+REAL="$SB/spybin"; PV_SPY="$SB/spy"
+# negative control 2: a process holding the canary in its command line and in its environment is flagged by the /proc capture
+: >"$SB/ctl.snap"
+ANS_MARK="$MARK" PVLEAK="$PV_RULE" "$BASH_BIN" -c 'sleep 3; :' "$PV_DIR" & CTLP=$!; CTLS=$(pstart "$CTLP")
+for i in $(seq 1 300); do pv_snap "$SB/ctl.snap"; [ "$(pv_hits "$SB/ctl.snap")" != "" ] && break; sleep 0.01; done
+[ "$(pstart "$CTLP")" = "$CTLS" ] && kill "$CTLP" 2>/dev/null; wait "$CTLP" 2>/dev/null
+check "control: the /proc capture flags a canary in a command line and in an environment" "yes yes" "$([ "$(grep -c "^bash -c\|bash -c" "$SB/ctl.snap")" -ge 1 ] && grep -qF "$PV_DIR" "$SB/ctl.snap" && echo yes || echo no) $(grep -q "^PVLEAK=$PV_RULE" "$SB/ctl.snap" && echo yes || echo no)"
+end_case_ans
+
 #@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
 # every worker runs these final checks over its own sandboxes; only the worker of the group `final` counts them

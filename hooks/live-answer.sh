@@ -1,8 +1,11 @@
 #!/bin/bash
-# Claude Code blocking PermissionRequest hook of the Live return channel (ALY-269, D-07). Slice ALY-269.3: the answer CLIENT.
-# It opens a request on the Allye API and waits for the answer. Slice .5 adds the permission path: risk, D-08 phrase and the
-# PermissionRequest output (the question path is slice .4); ALY-290.2: the output follows the option the user chose (once, session, folder,
-# persistent rule, auto mode or deny), built only from the entries the hook itself held. stdin = the Claude Code hook JSON, stdout = hook output.
+# Claude Code blocking PermissionRequest hook of the Live return channel (ALY-269, D-07). It opens a request on the Allye API and waits for
+# the answer. Question path (ALY-269.4): AskUserQuestion. Permission path (ALY-269.5, ALY-290): risk, the D-08 phrase, the terminal options
+# of the prompt offered as fixed ids (once, session edits, session rule, folder, persistent rule, auto mode, deny) and the PermissionRequest
+# output. The rule text, directories and modes of permission_suggestions stay on this machine (ALY-290, BR-01): they are held in memory in one
+# unexported variable, reach jq on stdin only, never leave in the open, and appear only in the final stdout line of the option the user chose,
+# rebuilt by the hook itself from those held entries (never from the API). Whatever the request's risk, an offered id is honoured (a request opened with options); a fresh
+# password or MFA for a persistent rule is enforced by the API. stdin = the Claude Code hook JSON, stdout = hook output.
 #
 # Contract (BR-02, AC-16): the terminal keeps the last word. On any doubt the script exits 0 with no output; every exit below is
 # a literal `exit 0`, there is no `set -e`, and a top-level ERR trap ends with exit 0. stderr is never written (`exec 2>/dev/null`),
@@ -22,7 +25,7 @@
 # hooks/live-report.sh slice .2 computes `h`. The session is identified to the API by session_hash = sha256 of the session_id (no
 # trailing newline), the same value as the reporter's HASH.
 #
-# Open (AC-06): POST /api/live/requests {session_hash, kind, hash, risk, tool[, phrase][, after]} (no tu, never; `after` = the reporter's seq when readable safely, see read_after), --max-time 2.
+# Open (AC-06): POST /api/live/requests {session_hash, kind, hash, risk, tool[, phrase][, options][, options_partial][, after]} (no tu, never; `after` = the reporter's seq when readable safely, see read_after), --max-time 2.
 # answerable false: exit at once. true: poll GET /api/live/requests/:id/wait until the deadline = min(110 s, expiresAt), each chunk
 # --max-time min(30, remaining - 1), stopping when 1 s or less remains. 110 is the default of ANSWER_BUDGET_DEFAULT below;
 # LIVE_ANSWER_BUDGET_S (digits, at most 110) lowers it and exists for tests only. Every status ends the loop here except `pending`.
@@ -824,7 +827,8 @@ texts_off() {  # activity-off or detailed-off in the live dir, any entry (also a
 #     allow_once -> {behavior: allow}; deny -> {behavior: deny, message?}; allow_edits_session, allow_session, allow_folder, allow_always ->
 #     {behavior: allow, updatedPermissions: exactly the held group of that id}, taken from a RE-RUN of the lookup on the held suggestions
 #     (never from the API); switch_auto -> the one constructed entry {type: setMode, mode: auto, destination: session} (AC-15).
-#     A request whose own risk is high prints the same (the veto is gone); the whole list is validated before it is printed.
+#     The risk of the request does not change this: a high-risk request prints the id it offered, like any other; the whole list is validated
+#     before it is printed.
 #   opened without options (texts off): the legacy {behavior[, message]} shape, an allow only at a request whose own risk is not high.
 # NFC runs through `uconv -x any-nfc` only when that tool is on the PATH (none is guaranteed): without it, strip and cap only.
 # Never updatedInput, bypassPermissions or dontAsk (BR-06).
