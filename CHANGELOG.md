@@ -1,3 +1,12 @@
+# [2.17.0](https://github.com/allye-app/allye-plugin/compare/v2.16.1...v2.17.0) (2026-11-03)
+
+
+### Features
+
+* **hooks:** apply the chosen Live permission option from held entries (ALY-290.2) ([b8a2458](https://github.com/allye-app/allye-plugin/commit/b8a2458efeb6bca18df9357298eeca98ff866f33))
+* **hooks:** offer every terminal option on the Live permission open (ALY-290.1) ([f3dee09](https://github.com/allye-app/allye-plugin/commit/f3dee0909146569c992de036efbab12ecaef74c8))
+* **hooks:** refuse allow_folder for root, home and their ancestors (ALY-290.5) ([59be5a9](https://github.com/allye-app/allye-plugin/commit/59be5a9c8990a51f3f7ece76a32925b8484acdbc))
+
 ## [2.16.1](https://github.com/allye-app/allye-plugin/compare/v2.16.0...v2.16.1) (2026-11-03)
 
 
