@@ -5873,20 +5873,39 @@ msg "\"$(head -c 190 /dev/zero | tr '\0' y) 123456789 abc\"" "$(dline ',"message
 msg '"café ✓"' "$(dline ',"message":"café ✓"')"
 end_case_ans
 
-echo "== answer permission output: malformed tables print nothing (AC-09, BR-02 ALY-269.5) =="
+echo "== answer permission output: options request, a decision without option prints nothing (AC-09, AC-16, BR-02 ALY-269.5, ALY-290.2) =="
 ans_case; REAL="$REALBIN_RP"; perm_fs
 ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
-for d in '{"status":"answered","decision":{"behavior":"ALLOW"}}' '{"status":"answered","decision":{"behavior":"Allow"}}' '{"status":"answered","decision":{"behavior":"ask"}}' \
-  '{"status":"answered","decision":{"behavior":"allow_always"}}' '{"status":"answered","decision":{"behavior":"allow "}}' '{"status":"answered","decision":{"behavior":" deny"}}' '{"status":"answered","decision":{"behavior":"deny\n"}}' \
-  '{"status":"answered","decision":{"behavior":["allow"]}}' '{"status":"answered","decision":{"behavior":true}}' '{"status":"answered","decision":{"behavior":null}}' '{"status":"answered","decision":{"message":"x"}}' \
-  '{"status":"answered","decision":{"behavior":"allow","updatedInput":{"command":"x"}}}' '{"status":"answered","decision":{"behavior":"allow","updatedPermissions":[]}}' \
-  '{"status":"answered","decision":{"behavior":"allow","extra":1}}' '{"status":"answered","decision":{"behavior":"deny","always":true}}' \
-  '{"status":"answered","decision":[]}' '{"status":"answered","decision":[{"behavior":"allow"}]}' '{"status":"answered","decision":null}' '{"status":"answered","decision":"allow"}' '{"status":"answered","decision":7}' '{"status":"answered","decision":{}}' '{"status":"answered"}' \
-  '{"status":"answered","decision":{"behavior":"allow","message":5}}' '{"status":"answered","decision":{"behavior":"deny","message":null}}' '{"status":"answered","decision":{"behavior":"deny","message":["x"]}}' '{"status":"answered","decision":{"behavior":"deny","message":{"a":1}}}' \
-  '{"status":"terminal","decision":{"behavior":"allow"}}' '{"status":"expired","decision":{"behavior":"allow"}}' '{"status":"ANSWERED","decision":{"behavior":"allow"}}' '{"status":"answered ","decision":{"behavior":"allow"}}' '{"status":["answered"],"decision":{"behavior":"allow"}}' '{"decision":{"behavior":"allow"}}' \
-  '{"status":"answered","decision":{"answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"behavior":"allow","answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"updatedInput":{"answers":{}}}}' '[]' '"answered"' 'null'; do
+LEGACY_ROWS=('{"status":"answered","decision":{"behavior":"ALLOW"}}' '{"status":"answered","decision":{"behavior":"Allow"}}' '{"status":"answered","decision":{"behavior":"ask"}}' 
+  '{"status":"answered","decision":{"behavior":"allow_always"}}' '{"status":"answered","decision":{"behavior":"allow "}}' '{"status":"answered","decision":{"behavior":" deny"}}' '{"status":"answered","decision":{"behavior":"deny\n"}}' 
+  '{"status":"answered","decision":{"behavior":["allow"]}}' '{"status":"answered","decision":{"behavior":true}}' '{"status":"answered","decision":{"behavior":null}}' '{"status":"answered","decision":{"message":"x"}}' 
+  '{"status":"answered","decision":{"behavior":"allow","updatedInput":{"command":"x"}}}' '{"status":"answered","decision":{"behavior":"allow","updatedPermissions":[]}}' 
+  '{"status":"answered","decision":{"behavior":"allow","extra":1}}' '{"status":"answered","decision":{"behavior":"deny","always":true}}' 
+  '{"status":"answered","decision":[]}' '{"status":"answered","decision":[{"behavior":"allow"}]}' '{"status":"answered","decision":null}' '{"status":"answered","decision":"allow"}' '{"status":"answered","decision":7}' '{"status":"answered","decision":{}}' '{"status":"answered"}' 
+  '{"status":"answered","decision":{"behavior":"allow","message":5}}' '{"status":"answered","decision":{"behavior":"deny","message":null}}' '{"status":"answered","decision":{"behavior":"deny","message":["x"]}}' '{"status":"answered","decision":{"behavior":"deny","message":{"a":1}}}' 
+  '{"status":"terminal","decision":{"behavior":"allow"}}' '{"status":"expired","decision":{"behavior":"allow"}}' '{"status":"ANSWERED","decision":{"behavior":"allow"}}' '{"status":"answered ","decision":{"behavior":"allow"}}' '{"status":["answered"],"decision":{"behavior":"allow"}}' '{"decision":{"behavior":"allow"}}' 
+  '{"status":"answered","decision":{"answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"behavior":"allow","answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"updatedInput":{"answers":{}}}}' '[]' '"answered"' 'null')
+for d in "${LEGACY_ROWS[@]}"; do
   perm_wait "$d"
   check "malformed $d: nothing printed, exit 0, no ack, no cancel" "0||0 0" "$RC|$OUT$ERR|$(sacks) $(scancels)"
+done
+# ALY-290.2 (Medic): the same rows against a request opened WITHOUT options (texts off): the legacy clauses of the decision program, each malformed for its own reason
+for flag in activity-off detailed-off; do
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$flag"
+  ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
+  for d in "${LEGACY_ROWS[@]}"; do
+    perm_wait "$d"
+    check "$flag, legacy shape: malformed $d: nothing printed, exit 0, no ack, no cancel" "0||0 0" "$RC|$OUT$ERR|$(sacks) $(scancels)"
+  done
+  perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+  check "$flag, legacy shape: an allow at normal risk is printed" "$DEC_ALLOW|1" "$OUT|$(sacks)"
+  perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"no"}}'
+  check "$flag, legacy shape: a deny with a message is printed" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"no"}}}|1' "$OUT|$(sacks)"
+  ans_payload sess-0001 Bash '{"command":"ls"}'
+  perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+  check "$flag, legacy shape: an allow at high risk is dropped" "0||0" "$RC|$OUT$ERR|$(sacks)"
+  rm -f "$DATA/live/$flag"
+  ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
 done
 # the question answers stub mode on a permission request, and a permission decision on a question request
 smode wait question; : >"$SB/api/requests.log"; ans_run
@@ -6670,6 +6689,8 @@ O_OK='allow_once,deny|false'
 echo "== answer options lookup: the whole shape against the SPIKE table, tool and literal mode (AC-01, AC-02, AC-03, ALY-290.1) =="
 ans_case; smode wait terminal
 orow "Bash default, directory + setMode: each its own id; the directory is unresolvable (/tmp/ao-x): allow_folder fails closed, partial (the offered case is in the folder section)" Bash default '{"command":"ls"}' "[$AD_E,$SM_E]" 'allow_once,allow_edits_session,switch_auto,deny|true'
+ans_payload_ex sess-0001 Bash '{"command":"ls"}' default "[$(arl localSettings Bash 'a *')]"; "$JQ_BIN" -c '. + {agent_id: "agent-x1", agent_type: "allye:bridge-pilot"}' "$SB/stdin" >"$SB/stdin.t" && mv "$SB/stdin.t" "$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+check "options Bash default with agent_id and agent_type (a subagent): the same ids as the main agent" "allow_once,allow_always,switch_auto,deny|false|0|" "$(oids)|$RC|$ERR"
 orow "Bash default, setMode alone is not a table row" Bash default '{"command":"ls"}' "[$SM_E]" 'allow_once,switch_auto,deny|true'
 orow "Bash default, setMode before directory (payload order is part of the shape)" Bash default '{"command":"ls"}' "[$SM_E,$AD_E]" 'allow_once,switch_auto,deny|true'
 orow "Bash acceptEdits, one rule, localSettings" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'git init *')]" 'allow_once,allow_always,switch_auto,deny|false'
@@ -6684,6 +6705,7 @@ orow "Bash default, three rules in one entry (a many-rule payload against the pr
 orow "Bash plan: no switch_auto, shape not in the table" Bash plan '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
 orow "Bash auto" Bash auto '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
 orow "Bash with no permission_mode" Bash "" '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash with permission_mode bypassPermissions: no switch_auto, shape not in the table" Bash bypassPermissions '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
 orow "Bash with an unknown mode" Bash bogus '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
 orow "Bash with a case-different mode (literal match)" Bash Default '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
 orow "Write default, setMode" Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
