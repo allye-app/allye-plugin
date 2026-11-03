@@ -5145,7 +5145,7 @@ ans_case; smode wait terminal; ans_run
 quiet "a Bash permission request"
 check "one open call, one wait call" "1 1" "$(sopen) $(swaits)"
 OB=$(slog | "$JQ_BIN" -c 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson')
-check "the open body is exactly {session_hash, kind, hash, risk, tool, phrase}: no run_id, no tu" '["hash","kind","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
+check "the open body is exactly {session_hash, kind, hash, risk, tool, phrase, options}: no run_id, no tu (ALY-290.1 AC-05)" '["hash","kind","options","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
 check "hash is the known answer of the canonical array (V1)" "$VEC1" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.hash')"
 check "session_hash is sha256 of the session id (known answer), like the reporter's HASH" "$SH1 $(test_sha sess-0001)" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.session_hash') $SH1"
 check "kind permission, risk high (Bash, ALY-269.5), tool Bash" "permission high Bash" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.kind) \(.risk) \(.tool)"')"
@@ -5568,7 +5568,7 @@ aseqf() { echo "$DATA/live/$(test_sha sess-0001).seq"; }
 aseq_case() { ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' "$1" >"$(aseqf)"; chmod "${2:-600}" "$(aseqf)"; ans_run; }
 aseq_case 7
 quiet "seq file holds 7"
-check "after is the integer 7, a JSON number, and the keys are the strict set (a Bash request: with phrase) plus after" '7 number ["after","hash","kind","phrase","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -r '"\(.after) \(.after | type) \([keys[]] | sort | tojson)"' | sed 's/ \[/ [/')"
+check "after is the integer 7, a JSON number, and the keys are the strict set (a Bash request: with phrase and options) plus after" '7 number ["after","hash","kind","options","phrase","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -r '"\(.after) \(.after | type) \([keys[]] | sort | tojson)"' | sed 's/ \[/ [/')"
 check "the seq file is left untouched (read only)" "7 600" "$(cat "$(aseqf)") $(find "$(aseqf)" -prune -printf '%m')"
 end_case_ans
 aseq_case 1790000000123
@@ -5610,7 +5610,7 @@ ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; mk
 check "a directory as seq file: after omitted, still opens" "false 1 0" "$(aopen_body | "$JQ_BIN" -r 'has("after")') $(sopen) $RC"
 end_case_ans
 ans_case; smode wait terminal; ans_run
-check "no seq file at all: after omitted, the body is exactly the strict set (a Bash request: with phrase)" '["hash","kind","phrase","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -c 'keys')"
+check "no seq file at all: after omitted, the body is exactly the strict set (a Bash request: with phrase and options)" '["hash","kind","options","phrase","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -c 'keys')"
 end_case_ans
 ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '7' >"$DATA/live/$(test_sha other-session).seq"; chmod 600 "$DATA/live/$(test_sha other-session).seq"; ans_run
 check "the seq of ANOTHER session is never used" "false" "$(aopen_body | "$JQ_BIN" -r 'has("after")')"
@@ -5675,7 +5675,7 @@ ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
 "$JQ_BIN" --arg c "$SB/proj" '.cwd = $c' "$PERM_FIX" >"$SB/stdin"; ans_run
 quiet "the fixture: a Bash permission request"
 OB=$(perm_body)
-check "the open body has exactly {session_hash, kind, hash, risk, tool, phrase}: no tu, no input, no command, no path" '["hash","kind","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
+check "the open body has exactly {session_hash, kind, hash, risk, tool, phrase, options}: no tu, no input, no command, no path" '["hash","kind","options","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
 check "kind permission, risk high (Bash), tool Bash, the hash is the canonical one" "permission high Bash yes" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.kind) \(.risk) \(.tool)"') $([ "$(printf '%s' "$OB" | "$JQ_BIN" -r .hash)" = "$("$JQ_BIN" -S -c '[.tool_name, .tool_input]' "$SB/stdin" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)" ] && echo yes || echo no)"
 check "the phrase is the D-08 phrase of the description" "Print a greeting for the user" "$(printf '%s' "$OB" | "$JQ_BIN" -r .phrase)"
 BODYRAW=$(slog | "$JQ_BIN" -r 'select(.method == "POST" and .path == "/api/live/requests") | .body')
@@ -5955,7 +5955,7 @@ end_case_ans
 echo "== answer permission texts: the reporter's text gates, and the tool name of other servers (SHD-02, SHD-06 ALY-269.5) =="
 ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
 "$JQ_BIN" --arg c "$SB/proj" '.cwd = $c' "$PERM_FIX" >"$SB/stdin"; ans_run
-check "texts on: the phrase is sent" '["hash","kind","phrase","risk","session_hash","tool"]' "$(perm_body | "$JQ_BIN" -c 'keys')"
+check "texts on: the phrase and the options are sent" '["hash","kind","options","phrase","risk","session_hash","tool"]' "$(perm_body | "$JQ_BIN" -c 'keys')"
 for flag in activity-off detailed-off; do
   mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$flag"; : >"$SB/api/requests.log"; ans_run
   check "$flag exists: no phrase, tool, hash and risk kept" '["hash","kind","risk","session_hash","tool"] Bash high' "$(perm_body | "$JQ_BIN" -c 'keys') $(perm_body | "$JQ_BIN" -r '"\(.tool) \(.risk)"')"
@@ -5996,7 +5996,7 @@ end_case_ans
 
 echo "== answer permission static: no updatedPermissions, one validated output path (AC-07, AC-09, AC-18 ALY-269.5) =="
 ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
-check "the script never mentions updatedPermissions or an always rule" "0 0" "$(printf '%s\n' "$ACODE" | grep -c 'updatedPermissions' || true) $(printf '%s\n' "$ACODE" | grep -ciE 'allow_always|"always"' || true)"
+check "the script never mentions updatedPermissions or an always rule (allow_always is now a label id of the open, ALY-290.1; the updatedPermissions clause stays until slice .2)" "0 0" "$(printf '%s\n' "$ACODE" | grep -c 'updatedPermissions' || true) $(printf '%s\n' "$ACODE" | grep -c '"always"' || true)"
 PF='printf '"'"'%s\n'"'"' "$O"'
 check "the decision is printed by one printf of the jq-built, validated line (permission_answered)" "1" "$(printf '%s\n' "$ACODE" | grep -cF -- "$PF" || true)"
 check "the body carries the phrase on stdin, not argv (no --arg p)" "0" "$(printf '%s\n' "$ACODE" | grep -c -- '--arg p ' || true)"
@@ -6168,7 +6168,7 @@ for c in "curl -H \"Authorization: Bearer $AH_GH\" https://api.internal.example/
   ans_payload sess-0001 Bash "$("$JQ_BIN" -nc --arg c "$c" --arg d "Upload the file with $AH_GH and $AH_AWS to /home/user/.ssh/id_rsa" '{command: $c, description: $d}')"; ans_run
   quiet "a Bash command holding a token"
   OB=$(qbody)
-  check "the body keys are within {session_hash, kind, hash, risk, tool, phrase, after}; the five constant ones present" "0 5" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\((keys - ["session_hash","kind","hash","risk","tool","phrase","after"]) | length) \(([keys[] | select(. == "session_hash" or . == "kind" or . == "hash" or . == "risk" or . == "tool")]) | length)"')"
+  check "the body keys are within {session_hash, kind, hash, risk, tool, phrase, options, options_partial, after}; the five constant ones present" "0 5" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\((keys - ["session_hash","kind","hash","risk","tool","phrase","options","options_partial","after"]) | length) \(([keys[] | select(. == "session_hash" or . == "kind" or . == "hash" or . == "risk" or . == "tool")]) | length)"')"
   check "risk is high, kind permission, tool Bash" "high permission Bash" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.risk) \(.kind) \(.tool)"')"
   ah_absent "neither the command, the path, the token fragments nor the description's secrets reach any request" ghp_ aB3dE5gH7jK9 Bearer Authorization wJalr AWS_SECRET EXAMPLEKEY /home/user id_rsa api.internal curl deploy.sh export
   end_case_ans
@@ -6516,9 +6516,9 @@ dp_both() {  # SESSION TOOL INPUT: runs the reporter then the answer client; set
   DP_ANSERR="$RC|$OUT|$ERR"
   DP_ANS=$(perm_body | "$JQ_BIN" -r '.phrase // "<none>"')
 }
-dp_row() {  # NAME TOOL INPUT EXPECTED
+dp_row() {  # NAME TOOL INPUT EXPECTED [EXPECTED-REQUEST-PHRASE]
   DPN=$((DPN + 1)); dp_both "sess-dp$DPN" "$2" "$3"
-  check "phrase $1: reporter and request both say '$4', both silent" "$4|$4|0||" "$DP_REP|$DP_ANS|$DP_REPERR"
+  check "phrase $1: reporter says '$4', the request says '${5:-$4}' (ALY-290.1: another MCP server's tool gets the constant), both silent" "$4|${5:-$4}|0||" "$DP_REP|$DP_ANS|$DP_REPERR"
   check "phrase $1: the request run exits 0, stdout and stderr empty" "0||" "$DP_ANSERR"
 }
 ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal; SHIMD="$SHIMS_STUB"; DATA_ENV="$DATA"
@@ -6553,9 +6553,9 @@ dp_row "memory_save" "${AP}intelligence" '{"action":"memory_save","title":"SECRE
 dp_row "task_update valid key" "${AP}tasks" '{"action":"task_update","task":"ALY-285.5","notes":"x"}' "Update task ALY-285.5"
 dp_row "task_update invalid key" "${AP}tasks" '{"action":"task_update","task":"not a key"}' "Update a task"
 dp_row "task_update no key" "${AP}tasks" '{"action":"task_update"}' "Update a task"
-dp_row "task_update other server" mcp__other__tasks '{"action":"task_update","task":"ALY-285.5"}' "<none>"
+dp_row "task_update other server" mcp__other__tasks '{"action":"task_update","task":"ALY-285.5"}' "<none>" "Use a tool"
 dp_row "task_start" "${AP}tasks" '{"action":"task_start","task":"ALY-285.5"}' "Start task ALY-285.5"
-dp_row "memory_save on tasks" "${AP}tasks" '{"action":"memory_save"}' "<none>"
+dp_row "memory_save on tasks" "${AP}tasks" '{"action":"memory_save"}' "<none>" "Use a tool"
 end_case_ans
 
 # ─── AC-14: Bash stays high and deny-only, the new tools stay high, the body keys are exact, a deny round trip prints a deny (BR-06) ─────
@@ -6565,7 +6565,7 @@ for row in 'Bash|{"command":"git push origin feat-x"}' 'Bash|{"command":"flock /
   tl=${row%%|*}; inp=${row#*|}
   ans_payload sess-0001 "$tl" "$inp"; : >"$SB/api/requests.log"; ans_run
   OB=$(perm_body)
-  check "$tl $inp: exactly {session_hash, kind, hash, risk, tool, phrase}, risk high, one open" '["hash","kind","phrase","risk","session_hash","tool"] high 1' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys') $(printf '%s' "$OB" | "$JQ_BIN" -r .risk) $(sopen)"
+  check "$tl $inp: exactly {session_hash, kind, hash, risk, tool, phrase, options}, risk high, one open" '["hash","kind","options","phrase","risk","session_hash","tool"] high 1' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys') $(printf '%s' "$OB" | "$JQ_BIN" -r .risk) $(sopen)"
   check "$tl: the run is quiet and exits 0" "0||" "$RC|$OUT|$ERR"
 done
 ans_payload sess-0001 Bash '{"command":"git push origin SECRETBRANCH --tags"}'; : >"$SB/api/requests.log"; ans_run
@@ -6634,6 +6634,266 @@ ho_row "only a carriage return" $'\r' "Run a command" "ZZNONE"
 ho_row "4096 characters, valid" "npm test$(head -c 4088 /dev/zero | tr '\0' ' ')" "Run tests" "ZZNONE"
 ho_row "4097 characters" "npm test$(head -c 4089 /dev/zero | tr '\0' ' ')" "Run a command" "ZZNONE"
 ho_row "4097 characters of a secret tail" "npm test$(head -c 4080 /dev/zero | tr '\0' ' ') ghp_FAKE0123456789" "Run a command" "ghp_FAKE"
+end_case_ans
+
+# ─── ALY-290.1: the options of a permission request (AC-01 to AC-10, AC-18, AC-19, AC-22, BR-01, BR-04, D-10 to D-15) ─────
+#@always
+AD_E='{"type":"addDirectories","directories":["/tmp/ao-x"],"destination":"session"}'
+SM_E='{"type":"setMode","mode":"acceptEdits","destination":"session"}'
+arl() {  # DEST TOOL CONTENT...  ("-" = a rule without ruleContent): an addRules entry, behavior allow
+  "$JQ_BIN" -nc --arg d "$1" --arg t "$2" '$ARGS.positional as $p | {type: "addRules", rules: [$p[] | if . == "-" then {toolName: $t} else {toolName: $t, ruleContent: .} end], behavior: "allow", destination: $d}' --args "${@:3}"
+}
+ans_payload_ex() {  # SESSION TOOL INPUT MODE SUGGESTIONS: as ans_payload plus permission_mode ("" = absent) and permission_suggestions ("" = absent)
+  "$JQ_BIN" -nc --arg s "$1" --arg t "$2" --argjson i "$3" --arg c "$SB/proj" --arg m "$4" --arg g "$5" \
+    '{hook_event_name: "PermissionRequest", session_id: $s, cwd: $c, tool_name: $t, tool_input: $i} + (if $m != "" then {permission_mode: $m} else {} end) + (if $g != "" then {permission_suggestions: ($g | fromjson)} else {} end)' >"$SB/stdin"
+}
+lbody() {  # the open body of the last run, as compact JSON
+  slog | "$JQ_BIN" -c 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson'
+}
+oids() {  # "id,id|partial" of the last open body
+  lbody | "$JQ_BIN" -r '(([.options[]?.id] | join(",")) + "|" + ((.options_partial // false) | tostring))'
+}
+orow() {  # NAME TOOL MODE INPUT SUGGESTIONS EXPECTED ("ids|partial"); [P] in INPUT = the project directory
+  local inp="${4//\[P\]/$SB/proj}"
+  ans_payload_ex sess-0001 "$2" "$inp" "$3" "$5"; : >"$SB/api/requests.log"; ans_run
+  check "options $1" "$6|0|" "$(oids)|$RC|$ERR"
+}
+REALBIN_JQF="$ROOT_TMP/realbin-jqf"; make_realbin "$REALBIN_JQF" jq
+printf '#!%s\nfor a in "$@"; do case "$a" in *utf8bytelength*) exit 5 ;; esac; done\nexec %s "$@"\n' "$BASH_BIN" "$JQ_BIN" >"$REALBIN_JQF/jq"; chmod +x "$REALBIN_JQF/jq"
+O_OK='allow_once,deny|false'
+#@end
+
+echo "== answer options lookup: the whole shape against the SPIKE table, tool and literal mode (AC-01, AC-02, AC-03, ALY-290.1) =="
+ans_case; smode wait terminal
+orow "Bash default, directory + setMode: each its own id; allow_folder fails closed (stub), partial" Bash default '{"command":"ls"}' "[$AD_E,$SM_E]" 'allow_once,allow_edits_session,switch_auto,deny|true'
+orow "Bash default, setMode alone is not a table row" Bash default '{"command":"ls"}' "[$SM_E]" 'allow_once,switch_auto,deny|true'
+orow "Bash default, setMode before directory (payload order is part of the shape)" Bash default '{"command":"ls"}' "[$SM_E,$AD_E]" 'allow_once,switch_auto,deny|true'
+orow "Bash acceptEdits, one rule, localSettings" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'git init *')]" 'allow_once,allow_always,switch_auto,deny|false'
+orow "Bash default, two rules in one entry" Bash default '{"command":"ls"}' "[$(arl localSettings Bash 'a *' 'b *')]" 'allow_once,allow_always,switch_auto,deny|false'
+orow "Bash default, projectSettings" Bash default '{"command":"ls"}' "[$(arl projectSettings Bash 'a *')]" 'allow_once,allow_always,switch_auto,deny|false'
+orow "Bash default, userSettings" Bash default '{"command":"ls"}' "[$(arl userSettings Bash 'a *')]" 'allow_once,allow_always,switch_auto,deny|false'
+orow "Bash default, session rule is allow_session" Bash default '{"command":"ls"}' "[$(arl session Bash 'a *')]" 'allow_once,allow_session,switch_auto,deny|false'
+orow "Bash acceptEdits, session rule" Bash acceptEdits '{"command":"ls"}' "[$(arl session Bash 'a *')]" 'allow_once,allow_session,switch_auto,deny|false'
+orow "Bash default, a session rule plus a localSettings rule: not produced, neither id" Bash default '{"command":"ls"}' "[$(arl session Bash 'a *'),$(arl localSettings Bash 'b *')]" 'allow_once,switch_auto,deny|true'
+orow "Bash default, a rule plus an unmapped entry: neither" Bash default '{"command":"ls"}' "[$(arl localSettings Bash 'a *'),{\"type\":\"replaceRules\",\"rules\":[],\"behavior\":\"allow\",\"destination\":\"session\"}]" 'allow_once,switch_auto,deny|true'
+orow "Bash default, three rules in one entry (a many-rule payload against the proven one- and two-rule shapes)" Bash default '{"command":"ls"}' "[$(arl localSettings Bash 'a *' 'b *' 'c *')]" 'allow_once,switch_auto,deny|true'
+orow "Bash plan: no switch_auto, shape not in the table" Bash plan '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash auto" Bash auto '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash with no permission_mode" Bash "" '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash with an unknown mode" Bash bogus '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash with a case-different mode (literal match)" Bash Default '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Write default, setMode" Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+orow "Edit default, setMode" Edit default '{"file_path":"[P]/src/a.txt","old_string":"a","new_string":"b"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+orow "NotebookEdit default, setMode" NotebookEdit default '{"notebook_path":"[P]/n.ipynb","new_source":"x"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+orow "Write acceptEdits: not in the table" Write acceptEdits '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Read default, session rule" Read default '{"file_path":"/tmp/outside/x"}' "[$(arl session Read '/tmp/outside/*')]" 'allow_once,allow_session,deny|false'
+orow "Read default, localSettings rule: not the proven destination" Read default '{"file_path":"/tmp/outside/x"}' "[$(arl localSettings Read '/tmp/outside/*')]" 'allow_once,deny|true'
+orow "Read default, two rules against a proven one-rule shape" Read default '{"file_path":"/tmp/outside/x"}' "[$(arl session Read 'a' 'b')]" 'allow_once,deny|true'
+orow "WebFetch default, domain rule" WebFetch default '{"url":"https://example.test/"}' "[$(arl localSettings WebFetch 'domain:example.test')]" 'allow_once,allow_always,deny|false'
+orow "WebSearch default, tool-wide rule (no ruleContent)" WebSearch default '{"query":"q"}' "[$(arl localSettings WebSearch -)]" 'allow_once,allow_always,deny|false'
+orow "WebSearch default, a rule WITH ruleContent is not the proven shape" WebSearch default '{"query":"q"}' "[$(arl localSettings WebSearch x)]" 'allow_once,deny|true'
+orow "WebFetch default, a tool-wide rule is refused (AC-02)" WebFetch default '{"url":"https://example.test/"}' "[$(arl localSettings WebFetch -)]" 'allow_once,deny|true'
+orow "Skill default, two entries are ONE allow_always" Skill default '{"skill":"s"}' "[$(arl localSettings Skill 'foo'),$(arl localSettings Skill 'foo:*')]" 'allow_once,allow_always,deny|false'
+orow "Skill default, one entry only" Skill default '{"skill":"s"}' "[$(arl localSettings Skill 'foo')]" 'allow_once,deny|true'
+orow "Skill default, two entries with different destinations" Skill default '{"skill":"s"}' "[$(arl localSettings Skill 'foo'),$(arl session Skill 'foo:*')]" 'allow_once,deny|true'
+orow "MCP default, tool-wide rule" mcp__stubmcp__write_thing default '{"x":1}' "[$(arl localSettings mcp__stubmcp__write_thing -)]" 'allow_once,allow_always,deny|false'
+orow "MCP default, the rule names another tool (AC-02)" mcp__stubmcp__write_thing default '{"x":1}' "[$(arl localSettings mcp__stubmcp__other -)]" 'allow_once,deny|true'
+orow "MCP acceptEdits: not in the table" mcp__stubmcp__write_thing acceptEdits '{"x":1}' "[$(arl localSettings mcp__stubmcp__write_thing -)]" 'allow_once,deny|true'
+echo "== answer options binding: the entry is bound to the call (AC-02, ALY-290.1) =="
+orow "Bash: a rule whose toolName differs from the payload's" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Read 'a *')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: a rule with no ruleContent" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash -)]" 'allow_once,switch_auto,deny|true'
+orow "Bash: ruleContent only *" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash '*')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: ruleContent only * with spaces" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash ' * ')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: empty ruleContent" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash '')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: an extra key on the entry" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'a *' | "$JQ_BIN" -c '. + {x: 1}')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: an extra key on the rule" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'a *' | "$JQ_BIN" -c '.rules[0].x = 1')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: a missing destination" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'a *' | "$JQ_BIN" -c 'del(.destination)')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: rules is a string" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'a *' | "$JQ_BIN" -c '.rules = "x"')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: an entry that is not an object" Bash acceptEdits '{"command":"ls"}' '["x"]' 'allow_once,switch_auto,deny|true'
+echo "== answer options unmapped: one row per case, never offered, partial (AC-06, D-10, D-14, ALY-290.1) =="
+ARL_BASH=$(arl localSettings Write 'a')
+for row in \
+  'replaceRules|{"type":"replaceRules","rules":[{"toolName":"Write","ruleContent":"a"}],"behavior":"allow","destination":"session"}' \
+  'removeRules|{"type":"removeRules","rules":[{"toolName":"Write","ruleContent":"a"}],"behavior":"allow","destination":"session"}' \
+  'removeDirectories|{"type":"removeDirectories","directories":["/tmp/x"],"destination":"session"}' \
+  'addRules ask|{"type":"addRules","rules":[{"toolName":"Write","ruleContent":"a"}],"behavior":"ask","destination":"localSettings"}' \
+  'addRules deny|{"type":"addRules","rules":[{"toolName":"Write","ruleContent":"a"}],"behavior":"deny","destination":"localSettings"}' \
+  'persistent addDirectories|{"type":"addDirectories","directories":["/tmp/x"],"destination":"localSettings"}' \
+  'setMode plan|{"type":"setMode","mode":"plan","destination":"session"}' \
+  'setMode acceptEdits localSettings|{"type":"setMode","mode":"acceptEdits","destination":"localSettings"}' \
+  'setMode bypassPermissions|{"type":"setMode","mode":"bypassPermissions","destination":"session"}' \
+  'setMode dontAsk|{"type":"setMode","mode":"dontAsk","destination":"session"}' \
+  'setMode auto|{"type":"setMode","mode":"auto","destination":"session"}' \
+  'unknown type|{"type":"frobnicate","destination":"session"}'; do
+  orow "Write default, ${row%%|*}: not offered, partial" Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[${row#*|}]" 'allow_once,deny|true'
+done
+orow "Write default, a valid setMode followed by an unmapped entry: neither" Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E,{\"type\":\"setMode\",\"mode\":\"bypassPermissions\",\"destination\":\"session\"}]" 'allow_once,deny|true'
+orow "Write to a .claude folder: allow_edits_session not offered (D-10, S21), partial" Write default '{"file_path":"[P]/.claude/settings.json","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Edit in a nested .claude folder" Edit default '{"file_path":"[P]/a/.claude/x.md","old_string":"a","new_string":"b"}' "[$SM_E]" 'allow_once,deny|true'
+orow "NotebookEdit in a .claude folder" NotebookEdit default '{"notebook_path":"[P]/.claude/n.ipynb","new_source":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write with a different-case .Claude component" Write default '{"file_path":"[P]/.Claude/x","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write with a missing file_path (fail closed)" Write default '{"content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write with a non-string file_path (fail closed)" Write default '{"file_path":7,"content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write with an empty file_path (fail closed)" Write default '{"file_path":"","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write to a file whose NAME merely starts with .claude" Write default '{"file_path":"[P]/.claudex/x","content":"x"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+orow "NotebookEdit reads notebook_path, not file_path" NotebookEdit default '{"notebook_path":"[P]/n.ipynb","file_path":"[P]/.claude/x","new_source":"x"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+echo "== answer options switch_auto: Bash in default and acceptEdits only, never read from a suggestion (AC-07, ALY-290.1) =="
+orow "Bash default, no suggestions: switch_auto still offered (tool plus mode is the proof)" Bash default '{"command":"ls"}' '[]' 'allow_once,switch_auto,deny|false'
+orow "Bash acceptEdits, no suggestions key at all" Bash acceptEdits '{"command":"ls"}' '' 'allow_once,switch_auto,deny|false'
+orow "Bash default, an auto setMode suggestion is not a source (and is unmapped)" Bash default '{"command":"ls"}' '[{"type":"setMode","mode":"auto","destination":"session"}]' 'allow_once,switch_auto,deny|true'
+for tm in "Write|{\"file_path\":\"[P]/a\",\"content\":\"x\"}|$SM_E" "Edit|{\"file_path\":\"[P]/a\",\"old_string\":\"a\",\"new_string\":\"b\"}|$SM_E" "NotebookEdit|{\"notebook_path\":\"[P]/n\",\"new_source\":\"x\"}|$SM_E" \
+          "Read|{\"file_path\":\"/tmp/o\"}|$(arl session Read 'a')" "WebFetch|{\"url\":\"https://e.test\"}|$(arl localSettings WebFetch 'domain:e.test')" "WebSearch|{\"query\":\"q\"}|$(arl localSettings WebSearch -)" \
+          "Skill|{\"skill\":\"s\"}|$(arl localSettings Skill 'a'),$(arl localSettings Skill 'a:*')" "mcp__stubmcp__t|{\"x\":1}|$(arl localSettings mcp__stubmcp__t -)"; do
+  t=${tm%%|*}; r=${tm#*|}; inp=${r%%|*}; sg=${r#*|}
+  for m in default acceptEdits plan auto ""; do
+    inp2="${inp//\[P\]/$SB/proj}"
+    ans_payload_ex sess-0001 "$t" "$inp2" "$m" "[$sg]"; : >"$SB/api/requests.log"; ans_run
+    check "switch_auto is never offered for $t in mode '${m:-none}'" "no" "$(lbody | "$JQ_BIN" -r 'if ([.options[]?.id] | index("switch_auto")) == null then "no" else "yes" end')"
+  done
+done
+echo "== answer options suggestions read: valid JSON at all times, none, big, read failure (AC-04, D-11, ALY-290.1) =="
+orow "no permission_suggestions key: allow_once and deny, no partial" Write default '{"file_path":"[P]/a","content":"x"}' '' "$O_OK"
+orow "permission_suggestions []: allow_once and deny, a body with options (not empty)" Write default '{"file_path":"[P]/a","content":"x"}' '[]' "$O_OK"
+orow "permission_suggestions null" Write default '{"file_path":"[P]/a","content":"x"}' 'null' "$O_OK"
+orow "permission_suggestions a string (not an array)" Write default '{"file_path":"[P]/a","content":"x"}' '"x"' "$O_OK"
+orow "permission_suggestions an object (not an array)" Write default '{"file_path":"[P]/a","content":"x"}' '{"type":"setMode"}' "$O_OK"
+BIGR=$("$JQ_BIN" -nc --arg r "$(head -c 40000 /dev/zero | tr '\0' a)" '[{"type":"addRules","rules":[{"toolName":"Write","ruleContent":$r}],"behavior":"allow","destination":"localSettings"}]')
+orow "more than 32 KiB of suggestions: allow_once and deny, partial" Write default '{"file_path":"[P]/a","content":"x"}' "$BIGR" 'allow_once,deny|true'
+head -c 1048576 /dev/zero | tr '\0' a >"$SB/bigr.txt"
+"$JQ_BIN" -nc --rawfile r "$SB/bigr.txt" --arg c "$SB/proj" '{hook_event_name: "PermissionRequest", session_id: "sess-0001", cwd: $c, tool_name: "Write", tool_input: {file_path: ($c + "/a"), content: "x"}, permission_mode: "default", permission_suggestions: [{type: "addRules", rules: [{toolName: "Write", ruleContent: $r}], behavior: "allow", destination: "localSettings"}]}' >"$SB/stdin"
+: >"$SB/api/requests.log"; ans_run
+check "1 MB of suggestions: one open with allow_once and deny, partial, quiet, the rule text nowhere in the request" "allow_once,deny|true|0||none" "$(oids)|$RC|$OUT$ERR|$(case "$(slog)" in *aaaaaaaaaa*) echo found ;; *) echo none ;; esac)"
+REAL="$REALBIN_JQF"
+orow "jq failing at the read: allow_once and deny, partial, a body with options (never a phrase without options)" Write default '{"file_path":"[P]/a","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+check "jq failing at the read: the phrase is sent together with the options" "yes" "$(lbody | "$JQ_BIN" -r 'if (.phrase | type) == "string" and (.options | length) == 2 then "yes" else "no" end')"
+REAL="$REALBIN"
+end_case_ans
+
+echo "== answer options body: exact keys and order, labels of D-02, whatever the risk (AC-05, AC-10, BR-01, D-02, D-15, ALY-290.1) =="
+ans_case; smode wait terminal
+ans_payload_ex sess-0001 Bash '{"command":"echo hi","description":"d"}' plan "[$(arl localSettings Bash 'a *')]"; : >"$SB/api/requests.log"; ans_run
+check "a Bash request (risk high): keys in the order session_hash, kind, hash, risk, tool, phrase, options, options_partial" '["session_hash","kind","hash","risk","tool","phrase","options","options_partial"]' "$(lbody | "$JQ_BIN" -c 'keys_unsorted')"
+check "that body: risk high, phrase from the D-08 grammar, options allow_once and deny with the D-02 labels, options_partial true" 'high|Run a command|[{"id":"allow_once","label":"Yes"},{"id":"deny","label":"No"}]|true' "$(lbody | "$JQ_BIN" -r '"\(.risk)|\(.phrase)|\(.options | tojson)|\(.options_partial)"')"
+ans_payload_ex sess-0001 Bash '{"command":"echo hi"}' acceptEdits "[$(arl localSettings Bash 'a *')]"; : >"$SB/api/requests.log"; ans_run
+check "Bash acceptEdits with a rule: allow_once, allow_always, switch_auto, deny with the exact labels, no options_partial key" '[{"id":"allow_once","label":"Yes"},{"id":"allow_always","label":"Yes, always allow"},{"id":"switch_auto","label":"Yes, switch to auto mode"},{"id":"deny","label":"No"}] ["session_hash","kind","hash","risk","tool","phrase","options"]' "$(lbody | "$JQ_BIN" -c '.options') $(lbody | "$JQ_BIN" -c 'keys_unsorted')"
+ans_payload_ex sess-0001 Write '{"file_path":"'"$SB"'/proj/a.txt","content":"x"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+check "Write default (risk high, no CLAUDE_PROJECT_DIR files): allow_edits_session label" '[{"id":"allow_once","label":"Yes"},{"id":"allow_edits_session","label":"Yes, allow all edits this session"},{"id":"deny","label":"No"}]' "$(lbody | "$JQ_BIN" -c '.options')"
+ans_payload_ex sess-0001 Read '{"file_path":"/tmp/o/x"}' default "[$(arl session Read 'a')]"; : >"$SB/api/requests.log"; ans_run
+check "Read default: allow_session label" '[{"id":"allow_once","label":"Yes"},{"id":"allow_session","label":"Yes, allow for this session"},{"id":"deny","label":"No"}]' "$(lbody | "$JQ_BIN" -c '.options')"
+REAL="$REALBIN_RP"; perm_fs
+for r in normal high; do
+  if [ "$r" = normal ]; then mkdir -p "$SB/proj/src"; : >"$SB/proj/src/a.txt"; ans_payload_ex sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}' default "[$SM_E]"
+  else ans_payload_ex sess-0001 Edit '{"file_path":"'"$SB"'/proj/.git/config","old_string":"a","new_string":"b"}' default "[$SM_E]"; fi
+  : >"$SB/api/requests.log"; ans_run
+  check "risk $r: the same key set with options, nothing else" "$r|[\"hash\",\"kind\",\"options\",\"phrase\",\"risk\",\"session_hash\",\"tool\"]" "$(lbody | "$JQ_BIN" -r '.risk')|$(lbody | "$JQ_BIN" -c 'keys')"
+done
+mkdir -p -m 700 "$DATA/live"; printf '%s' 1790000000123 >"$DATA/live/$(test_sha sess-0001).seq"; chmod 600 "$DATA/live/$(test_sha sess-0001).seq"
+ans_payload_ex sess-0001 Bash '{"command":"echo hi"}' plan "[$(arl localSettings Bash 'a *')]"; : >"$SB/api/requests.log"; ans_run
+check "with a readable seq: after is added to the same body" '["session_hash","kind","hash","risk","tool","phrase","options","options_partial","after"]' "$(lbody | "$JQ_BIN" -c 'keys_unsorted')"
+REAL="$REALBIN"
+rm -f "$DATA/live/$(test_sha sess-0001).seq"
+# AC-05 / AC-24 of the API spec: the literal body {Bash, high, "Run a command", options allow_once / allow_always / deny labelled Yes / "Yes, always allow" / No,
+# options_partial true} is NOT producible from a real payload: the SPIKE mapping also offers switch_auto for Bash in default and acceptEdits, and
+# with another mode a rule is not in the table. KNOWN CONTRACT GAP, reported to the Mothership (the API accepts that body as a vector only). What is
+# pinned here instead: the exact key order and the D-02 labels (above) and the label table itself (below).
+ASRC=$(sed -n 's/^OPT_LABELS=//p' "$ANS" | sed "s/^'//; s/'\$//")
+check "the label table of the script is exactly D-02 (seven ids, wire order, constants)" '{"allow_once":"Yes","allow_edits_session":"Yes, allow all edits this session","allow_session":"Yes, allow for this session","allow_folder":"Yes, allow this folder","allow_always":"Yes, always allow","switch_auto":"Yes, switch to auto mode","deny":"No"}' "$ASRC"
+check "the labels are defined once, as a constant (no label built from a payload)" "1" "$(grep -c '^OPT_LABELS=' "$ANS")"
+echo "== answer options hash: unchanged by suggestions and mode (AC-10, ALY-290.1) =="
+AOV1=cb849cc1afccaaee6ac77370f8db2f40d8c1736adbbfed6de716bcadc140df0a   # the pinned vector V1 (the same value as VEC1 of the open section)
+ans_payload sess-0001 Bash '{"description":"d","command":"echo hi"}'; : >"$SB/api/requests.log"; ans_run
+H0=$(lbody | "$JQ_BIN" -r .hash)
+ans_payload_ex sess-0001 Bash '{"description":"d","command":"echo hi"}' acceptEdits "[$(arl localSettings Bash 'a *')]"; : >"$SB/api/requests.log"; ans_run
+H1=$(lbody | "$JQ_BIN" -r .hash)
+ans_payload_ex sess-0001 Bash '{"description":"d","command":"echo hi"}' plan "[$AD_E,$SM_E]"; : >"$SB/api/requests.log"; ans_run
+H2=$(lbody | "$JQ_BIN" -r .hash)
+check "the hash is the pinned V1 with no suggestions, with a rule and acceptEdits, and with other suggestions and plan" "$AOV1 $AOV1 $AOV1" "$H0 $H1 $H2"
+end_case_ans
+
+echo "== answer options texts off: no options, no options_partial, no constant phrase, today's open (AC-08, ALY-290.1) =="
+ans_case; smode wait terminal
+for flag in activity-off detailed-off; do
+  for how in file symlink; do
+    mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+    if [ "$how" = file ]; then : >"$DATA/live/$flag"; else ln -s /nonexistent "$DATA/live/$flag"; fi
+    for row in "Write|{\"file_path\":\"$SB/proj/a\",\"content\":\"x\"}|$SM_E" "WebFetch|{\"url\":\"https://e.test\"}|$(arl localSettings WebFetch 'domain:e.test')" "Bash|{\"command\":\"ls\"}|$AD_E,$SM_E" "mcp__stubmcp__t|{\"x\":1}|$(arl localSettings mcp__stubmcp__t -)" "FooTool|{}|$SM_E"; do
+      t=${row%%|*}; r=${row#*|}; inp=${r%%|*}; sg=${r#*|}
+      ans_payload_ex sess-0001 "$t" "$inp" default "[$sg]"; : >"$SB/api/requests.log"; ans_run
+      check "$flag as a $how: $t sends neither phrase, options nor options_partial; the open keeps its five keys; exit 0 silent" '["hash","kind","risk","session_hash","tool"] 1 0|' "$(lbody | "$JQ_BIN" -c 'keys') $(sopen) $RC|$OUT$ERR"
+    done
+    rm -f "$DATA/live/$flag"
+  done
+done
+end_case_ans
+
+echo "== answer options phrase: the constant, the allow-list and the denied list (AC-09, D-12, ALY-290.1) =="
+ans_case; smode wait terminal
+for t in WebFetch mcp__stubmcp__t mcp__github__create_issue; do
+  ans_payload_ex sess-0001 "$t" '{"url":"https://e.test","secret":"SECRETIN"}' default ''; : >"$SB/api/requests.log"; ans_run
+  check "$t: the constant phrase 'Use a tool' and the allow_once / deny options, no server name, domain or argument" "Use a tool|allow_once,deny|false|none" "$(lbody | "$JQ_BIN" -r '.phrase')|$(oids)|$(case "$(slog)" in *SECRETIN*|*e.test*|*github*|*stubmcp*) echo found ;; *) echo none ;; esac)"
+done
+ans_payload_ex sess-0001 Skill '{"skill":"SECRETSKILL"}' default ''; : >"$SB/api/requests.log"; ans_run
+check "Skill (a spike-proven row) gets a phrase, never the skill name" "yes|none" "$(lbody | "$JQ_BIN" -r 'if (.phrase | type) == "string" and .phrase != "" then "yes" else "no" end')|$(case "$(slog)" in *SECRETSKILL*) echo found ;; *) echo none ;; esac)"
+ans_payload_ex sess-0001 Bash '{"command":"git push origin feat-x"}' default ''; : >"$SB/api/requests.log"; ans_run
+check "a grammar phrase is kept as it is (Push to git), not replaced by the constant" "Push to git" "$(lbody | "$JQ_BIN" -r '.phrase')"
+for t in FooTool Monitor2 NotAKnownTool; do
+  ans_payload_ex sess-0001 "$t" '{"description":"Watch the build output now"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+  check "an unknown tool ($t): opens, no phrase, no options, no options_partial (the API marks it not answerable)" '["hash","kind","risk","session_hash","tool"] 1' "$(lbody | "$JQ_BIN" -c 'keys') $(sopen)"
+done
+ans_payload_ex sess-0001 ExitPlanMode '{"plan":"SECRETPLAN","description":"Print a greeting for the user"}' plan ''; : >"$SB/api/requests.log"; ans_run
+check "ExitPlanMode (denied list, even with text a grammar could use): still opens, no phrase, no options, no plan text" '["hash","kind","risk","session_hash","tool"] 1 ExitPlanMode none' "$(lbody | "$JQ_BIN" -c 'keys') $(sopen) $(lbody | "$JQ_BIN" -r .tool) $(case "$(slog)" in *SECRETPLAN*) echo found ;; *) echo none ;; esac)"
+# behavioural proof of the AC-09 clause: a sandbox COPY (never the worktree file) whose denied list names Bash, a tool with a grammar phrase
+mkdir -p "$SB/anscopy"; ln -sfn "$SCRIPT_DIR/lib" "$SB/anscopy/lib"
+sed 's/^DENIED_TOOLS=" ExitPlanMode "/DENIED_TOOLS=" ExitPlanMode Bash "/' "$ANS" >"$SB/anscopy/live-answer.sh"; chmod 755 "$SB/anscopy/live-answer.sh"
+check "the copy really differs (Bash is on its denied list)" "1" "$(grep -c '^DENIED_TOOLS=" ExitPlanMode Bash "' "$SB/anscopy/live-answer.sh")"
+ANS_KEEP="$ANS"; ANS="$SB/anscopy/live-answer.sh"
+ans_payload_ex sess-0001 Bash '{"command":"git push origin feat-x","description":"Print a greeting for the user"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+check "a denied tool WITH a grammar phrase (Bash): still opens, no phrase, no options, no options_partial, quiet" '["hash","kind","risk","session_hash","tool"] 1 Bash 0|' "$(lbody | "$JQ_BIN" -c 'keys') $(sopen) $(lbody | "$JQ_BIN" -r .tool) $RC|$OUT$ERR"
+ANS="$ANS_KEEP"
+ans_payload_ex sess-0001 Bash '{"command":"git push origin feat-x","description":"Print a greeting for the user"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+check "the real script (Bash not denied) sends that grammar phrase and options" "Print a greeting for the user|yes" "$(lbody | "$JQ_BIN" -r .phrase)|$(lbody | "$JQ_BIN" -r 'if has("options") then "yes" else "no" end')"
+check "the denied list is checked before the phrase (the script mentions ExitPlanMode once, as a literal name)" "1" "$(grep -v '^[[:space:]]*#' "$ANS" | grep -c 'DENIED_TOOLS=" ExitPlanMode "')"
+smode wait allow
+ans_payload_ex sess-0001 ExitPlanMode '{"plan":"p"}' plan ''; : >"$SB/api/requests.log"; ans_run
+check "ExitPlanMode: an allow answer prints nothing (not answerable on the real API; the hook never invents a decision)" "0||" "$RC|$OUT|$ERR"
+end_case_ans
+
+echo "== answer options created: a joined row ends the hook at once, questions unchanged, a 400 backs off (AC-22, AC-19, AC-18, D-03, ALY-290.1) =="
+for c in false missing string; do
+  ans_case; smode wait allow; smode open-created "$c"
+  ans_payload_ex sess-0001 Write '{"file_path":"'"$SB"'/proj/a","content":"x"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+  check "created $c: one open, no wait, no cancel, no output, no stderr, nothing left behind" "1 0 0 0| " "$(sopen) $(swaits) $(scancels) $RC|$OUT$ERR $(live_left)"
+  end_case_ans
+done
+ans_case; smode wait terminal
+ans_payload_ex sess-0001 Write '{"file_path":"'"$SB"'/proj/a","content":"x"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+check "created true: the hook waits as before" "1 1" "$(sopen) $(swaits)"
+smode open-created missing
+qpl; : >"$SB/api/requests.log"; ans_run
+check "a question ignores created (missing): it still waits" "1 1" "$(sopen) $(swaits)"
+smode open-created false
+qpl; : >"$SB/api/requests.log"; ans_run
+check "a question ignores created (false): it still waits" "1 1" "$(sopen) $(swaits)"
+smode open-created true
+for m in default auto acceptEdits plan; do
+  "$JQ_BIN" -c --arg c "$SB/proj" --arg m "$m" '.cwd = $c | .session_id = "sess-0001" | .permission_mode = $m | .permission_suggestions = [{type: "setMode", mode: "acceptEdits", destination: "session"}]' "$QFIX" >"$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+  check "AskUserQuestion in mode $m: kind question, no options, no options_partial, no phrase" "question|none" "$(lbody | "$JQ_BIN" -r '.kind')|$(lbody | "$JQ_BIN" -r 'if has("options") or has("options_partial") or has("phrase") then "present" else "none" end')"
+done
+for kind in permission question; do
+  ans_case; smode wait terminal; smode open 400
+  if [ "$kind" = question ]; then qpl; else ans_payload_ex sess-0001 Write '{"file_path":"'"$SB"'/proj/a","content":"x"}' default "[$SM_E]"; fi
+  : >"$SB/api/requests.log"; ans_run
+  check "an open answering 400 ($kind): exit 0, no output, no stderr, no wait, a 60 s back-off is set" "1 0 yes|0" "$(sopen) $(swaits) $([ -s "$DATA/live/answer-backoff" ] && echo yes || echo no)|$RC$OUT$ERR"
+  : >"$SB/api/requests.log"; ans_run
+  check "the next run ($kind) honours the back-off: no network call" "0|0" "$(sopen)|$RC"
+  end_case_ans
+done
+echo "== answer options static: held entries stay in one unexported variable, on stdin only (D-11, ALY-290.1) =="
+ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
+check "no export or declare -x anywhere" "0" "$(printf '%s\n' "$ACODE" | grep -cE '(^|[[:space:];])(export|declare +-[a-zA-Z]*x|typeset +-[a-zA-Z]*x)([[:space:]]|$)' || true)"
+check "PERM_SUGG never reaches --arg, --argjson, a here-string or a redirect to a file" "0" "$(printf '%s\n' "$ACODE" | grep -E 'PERM_SUGG' | grep -cE -- '--(arg|argjson|slurpfile|rawfile) +[A-Za-z_]+ +"?\$\{?PERM_SUGG|<<<.*PERM_SUGG|PERM_SUGG[^|]*>[[:space:]]*"?\$T' || true)"
+check "the suggestions are read once, before INPUT is cleared" "1 yes" "$(printf '%s\n' "$ACODE" | grep -c 'jq -r "\$READ_JQ"') $([ "$(printf '%s\n' "$ACODE" | grep -n 'perm_options$\|; perm_options' | head -n 1 | cut -d: -f1)" -lt "$(printf '%s\n' "$ACODE" | grep -n '^  INPUT=""' | head -n 1 | cut -d: -f1)" ] && echo yes || echo no)"
+check "the script stays executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
 end_case_ans
 
 #@keepnext
