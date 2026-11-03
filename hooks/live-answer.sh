@@ -1,11 +1,12 @@
 #!/bin/bash
 # Claude Code blocking PermissionRequest hook of the Live return channel (ALY-269, D-07). Slice ALY-269.3: the answer CLIENT.
 # It opens a request on the Allye API and waits for the answer. Slice .5 adds the permission path: risk, D-08 phrase and the
-# PermissionRequest output (the question path is slice .4). stdin = the Claude Code hook JSON, stdout = hook output.
+# PermissionRequest output (the question path is slice .4); ALY-290.2: the output follows the option the user chose (once, session, folder,
+# persistent rule, auto mode or deny), built only from the entries the hook itself held. stdin = the Claude Code hook JSON, stdout = hook output.
 #
 # Contract (BR-02, AC-16): the terminal keeps the last word. On any doubt the script exits 0 with no output; every exit below is
 # a literal `exit 0`, there is no `set -e`, and a top-level ERR trap ends with exit 0. stderr is never written (`exec 2>/dev/null`),
-# stdout gets one line only for a strictly validated permission decision (permission_answered). Runtime: bash 3.2+, curl, jq, sha256sum or shasum.
+# stdout gets one line only for a strictly validated permission decision (permission_answered, one jq program). Runtime: bash 3.2+, curl, jq, sha256sum or shasum.
 #
 # Origin and credential (AC-17, D-15, D-16): the API origin and the token come ONLY from the pairing file, read through
 # hooks/lib/credential.sh (load_live_credential); no environment variable or project setting is consulted for either. The origin is
@@ -659,6 +660,7 @@ phrase_of() {
 #   PERM_SUGG          held, UNEXPORTED: the payload's permission_suggestions as compact JSON, ALWAYS a valid JSON array (`[]` for a missing, null or
 #                      non-array value, for more than 32 KiB (utf8bytelength) and for a read failure). It reaches jq on stdin only: never argv,
 #                      environment, here-string or file.
+#   PERM_TOOL          the unredacted tool name of the open (TOOL is renamed `mcp` afterwards); the output stage re-runs the lookup with it.
 #   PERM_MODE          the literal permission_mode ([A-Za-z]{1,32}), or "".
 #   PERM_CLAUDE_PATH   yes | no | unknown: for Write, Edit and NotebookEdit, whether file_path / notebook_path has a `.claude` path component
 #                      (unknown = missing or not a string); "no" for every other tool.
@@ -768,7 +770,7 @@ folder_check() {  # ALY-290.5 (BR-07, AC-23, D-17): stdin = the group's director
 # perm_options: sets PERM_* and (texts on) the constant PHRASE, from $INPUT and the unredacted $TOOL. Never fails the run.
 perm_options() {
   local out st rest lk id ids line part=true sw=0 offer=() o
-  PERM_SUGG='[]'; PERM_MODE=""; PERM_CLAUDE_PATH=no; PERM_OFFER=(allow_once deny); PERM_PARTIAL=false
+  PERM_SUGG='[]'; PERM_MODE=""; PERM_CLAUDE_PATH=no; PERM_OFFER=(allow_once deny); PERM_PARTIAL=false; PERM_TOOL=$TOOL
   PERM_OPTIONS='[{"id":"allow_once","label":"Yes"},{"id":"deny","label":"No"}]'
   # the denied list is checked before the phrase and drops even a grammar phrase
   case "$DENIED_TOOLS" in *" $TOOL "*) PHRASE=""; return 0 ;; esac
@@ -812,27 +814,67 @@ texts_off() {  # activity-off or detailed-off in the live dir, any entry (also a
   [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ] || [ -e "$LIVE_DIR/detailed-off" ] || [ -L "$LIVE_DIR/detailed-off" ]
 }
 
-# DECIDE_JQ (AC-07, AC-09, BR-02): the ONLY producer of the PermissionRequest output. It prints nothing unless status is `answered`
-# and the decision is an object whose keys are `behavior` (exactly "allow" or "deny") and optionally `message` (a string). The message
-# is cleaned: ANSI escape sequences removed, control, bidi, zero-width, tag and other invisible code points (the reporter's actbad)
-# stripped, whitespace to single spaces, 200 code points at most. NFC runs through `uconv -x any-nfc` only when that tool is on the
-# PATH (none is guaranteed): without it, strip and cap only. A decision `allow` on a request whose OWN risk is high is dropped here (fail closed,
-# BR-02: the API enforces deny-only for high, this is the plugin-side check). Never updatedPermissions, updatedInput or an "always" rule.
+# DECIDE_JQ (AC-07, AC-09, AC-13 to AC-16, BR-02, D-04): the ONLY producer of the PermissionRequest output. One jq run: stdin = the held
+# suggestions (a pipe, never an argument), --slurpfile r = the bounded copy of the wait answer (head -c 65536), --arg tool/mode/cpath = the
+# held literals of the open, --argjson offer = the PERM_OPTIONS of the open, --argjson opts = whether the open carried options. It prints
+# nothing unless the answer is exactly one document with status `answered` and a decision that is strictly valid:
+#   opened with options: {behavior, option[, message]}; `option` is a string id the hook itself offered (inside the D-02 table), `behavior`
+#     is the table's (allow for every id but deny), `message` only with deny (cleaned: ANSI removed, control, bidi, zero-width, tag and other
+#     invisible code points stripped, whitespace to single spaces, 200 code points at most); any other key is malformed.
+#     allow_once -> {behavior: allow}; deny -> {behavior: deny, message?}; allow_edits_session, allow_session, allow_folder, allow_always ->
+#     {behavior: allow, updatedPermissions: exactly the held group of that id}, taken from a RE-RUN of the lookup on the held suggestions
+#     (never from the API); switch_auto -> the one constructed entry {type: setMode, mode: auto, destination: session} (AC-15).
+#     A request whose own risk is high prints the same (the veto is gone); the whole list is validated before it is printed.
+#   opened without options (texts off): the legacy {behavior[, message]} shape, an allow only at a request whose own risk is not high.
+# NFC runs through `uconv -x any-nfc` only when that tool is on the PATH (none is guaranteed): without it, strip and cap only.
+# Never updatedInput, bypassPermissions or dontAsk (BR-06).
 DECIDE_JQ='
 def msgclean:
   gsub("\u001b\\[[0-9;?]*[ -/]*[@-~]"; "") | gsub("\u001b\\][^\u0007\u001b]*(\u0007|\u001b\\\\)"; "")
   | .[0:2000] | explode | map(if actws then 32 elif actbad then empty else . end) | implode
   | gsub(" +"; " ") | sub("\\A "; "") | sub(" \\z"; "") | .[0:200] | sub(" \\z"; "");
-.data | objects | select(.status == "answered") | .decision | objects
-| select(((keys - ["behavior", "message"]) == []) and (.behavior | IN("allow", "deny")) and ((has("message") | not) or (.message | type == "string")))
-| select(.behavior == "deny" or $risk != "high")
-| (if has("message") then (.message | msgclean) else "" end) as $m
-| {hookSpecificOutput: {hookEventName: "PermissionRequest", decision: ({behavior: .behavior} + (if $m != "" then {message: $m} else {} end))}}'
+def d02: {allow_once: "allow", allow_edits_session: "allow", allow_session: "allow", allow_folder: "allow", allow_always: "allow", switch_auto: "allow", deny: "deny"};
+def rule_ok($t): type == "object" and ((keys == ["ruleContent", "toolName"] and (.ruleContent | type == "string")) or keys == ["toolName"]) and .toolName == $t;
+def entry_ok($t):
+  type == "object" and (
+    (.type == "addDirectories" and keys == ["destination", "directories", "type"] and .destination == "session"
+      and (.directories | type == "array" and length >= 1 and all(.[]; type == "string")))
+    or (.type == "setMode" and keys == ["destination", "mode", "type"] and (.mode | IN("acceptEdits", "auto")) and .destination == "session")
+    or (.type == "addRules" and keys == ["behavior", "destination", "rules", "type"] and .behavior == "allow"
+      and (.destination | IN("session", "localSettings", "projectSettings", "userSettings"))
+      and (.rules | type == "array" and (length == 1 or length == 2) and all(.[]; rule_ok($t)))));
+def outline($d): {hookSpecificOutput: {hookEventName: "PermissionRequest", decision: $d}};
+'"$LOOKUP_JQ"'
+| . as $L
+| ($r | select(length == 1) | .[0] | objects | .data | objects | select(.status == "answered") | .decision | objects) as $d
+| (if $opts then
+     ($d | select(((keys - ["behavior", "message", "option"]) == []) and (.option | type == "string") and (.option as $o | d02 | has($o))
+        and (.option as $o | any($offer[]; .id == $o)) and (d02[.option] == .behavior)
+        and ((has("message") | not) or (.option == "deny" and (.message | type == "string"))))
+      | {id: .option, behavior: .behavior, m: (if has("message") then (.message | msgclean) else "" end)})
+   else
+     ($d | select(((keys - ["behavior", "message"]) == []) and (.behavior | IN("allow", "deny")) and ((has("message") | not) or (.message | type == "string")))
+      | select(.behavior == "deny" or $risk != "high")
+      | {id: (if .behavior == "allow" then "allow_once" else "deny" end), behavior: .behavior, m: (if has("message") then (.message | msgclean) else "" end)})
+   end) as $c
+| if ($c.id | IN("allow_edits_session", "allow_session", "allow_folder", "allow_always")) then
+    ($L.groups[$c.id] // empty) as $g
+    | select(($g | type == "array" and length >= 1) and all($g[]; entry_ok($tool)))
+    | outline({behavior: "allow", updatedPermissions: $g})
+  elif $c.id == "switch_auto" then
+    [{type: "setMode", mode: "auto", destination: "session"}] as $g
+    | select(all($g[]; entry_ok($tool)))
+    | outline({behavior: "allow", updatedPermissions: $g})
+  else outline({behavior: $c.behavior} + (if $c.m != "" then {message: $c.m} else {} end)) end'
 
 # permission_answered: validates $T/resp and prints the decision line (one printf, after every check). Returns 1 when nothing was printed.
 permission_answered() {
-  local O
-  O=$(head -c 65536 "$T/resp" 2>/dev/null | jq -c --arg risk "$RISK" "$PHRASE_DEFS"$'\n'"$DECIDE_JQ" 2>/dev/null) || return 1
+  local O opts=false scope=none id
+  [ "${BOPT:-null}" = null ] || opts=true
+  head -c 65536 "$T/resp" >"$T/resp.b" 2>/dev/null || return 1
+  # the held suggestions reach jq on stdin only (a pipe); the response is the bounded copy
+  O=$(printf '%s' "$PERM_SUGG" | jq -c --slurpfile r "$T/resp.b" --arg risk "$RISK" --arg tool "$PERM_TOOL" --arg mode "$PERM_MODE" --arg cpath "$PERM_CLAUDE_PATH" \
+      --argjson offer "$PERM_OPTIONS" --argjson opts "$opts" "$PHRASE_DEFS"$'\n'"$DECIDE_JQ" 2>/dev/null) || return 1
   [ -n "$O" ] || return 1
   case "$O" in *$'\n'*) return 1 ;; '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"'*) ;; *) return 1 ;; esac
   # SHD-05: NFC of the message only when uconv is on the PATH (a failure, or a changed line count, prints nothing); without it strip+cap stay
@@ -845,6 +887,15 @@ permission_answered() {
     O=$(printf '%s' "$O" | jq -c --rawfile m <(printf '%s' "$N") '.hookSpecificOutput.decision.message = ($m | .[0:200] | sub(" +\\z"; ""))') || return 1
     case "$O" in *$'\n'*) return 1 ;; esac
   fi
+  # debug: fixed words only, the path and the scope word of the chosen id (never an entry, a rule or a label)
+  if [ "$opts" = true ]; then
+    id=$(jq -r '.[0].data.decision.option | strings' "$T/resp.b" 2>/dev/null) || id=""
+    case "$id" in
+      allow_once) scope=once ;; deny) scope=deny ;; allow_edits_session|allow_session) scope=session ;;
+      allow_folder) scope=folder ;; allow_always) scope=persistent ;; switch_auto) scope=mode ;; *) scope=none ;;
+    esac
+    dbg "decision option $scope"
+  else dbg "decision legacy"; fi
   printf '%s\n' "$O"
 }
 

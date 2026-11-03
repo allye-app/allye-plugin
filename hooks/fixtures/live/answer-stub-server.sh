@@ -15,6 +15,7 @@
 #   open-created (ALY-290.1, D-03) the `created` key of the open answer: true (default) | false | missing (no key) | string (the string "true")
 #   wait         space-separated modes, the Nth wait call takes the Nth word (the last repeats):
 #                pending (default) | allow | deny | question | decision | nodecision | terminal | expired | no_audience | slow | hold | malformed | unknown | redirect | 500 | 404 | 429
+#                rawbody (ALY-290.2): answers with the file wait-raw as the whole body, byte for byte
 #                rawdata (ALY-269.5): answers with the file wait-data as the whole `data` object (any decision shape)
 #   expires-in   seconds from the open to `expiresAt` (default 100); expires-at: a raw expiresAt string that overrides it
 #   decision     (ALY-269.4) raw JSON file read by the wait mode `decision`: its content becomes `data.decision` of an `answered` wait
@@ -83,6 +84,7 @@ const server = createServer((req, res) => {
           case "decision": return done("answered", { decision: JSON.parse(read("decision", "null")) });
           case "nodecision": return done("answered");
           case "rawdata": return ok(res, JSON.parse(read("wait-data", "{}")));   // ALY-269.5: the raw `data` of the wait answer, from the control file wait-data
+          case "rawbody": return send(res, 200, readFileSync(`${dir}/wait-raw`, "utf8"));   // ALY-290.2: the file wait-raw is the whole body, byte for byte (two documents, a trailing document)
           case "terminal": return done("terminal", { reason: "cmd_end" });
           case "expired": return done("expired", { reason: "expired" });
           case "no_audience": return done("expired", { reason: "no_audience" });
