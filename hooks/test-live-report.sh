@@ -5107,6 +5107,9 @@ marked() {  # processes whose environment holds this case's ANS_MARK
 live_left() { ls -A "$DATA/live" 2>/dev/null | tr '\n' ' '; }
 quiet() { check "$1: exit 0, stdout and stderr empty" "0||" "$RC|$OUT|$ERR"; }
 end_case_ans() { fake_stop; ans_cleanup_bg; }
+perm_wait_opt() {  # RAWDATA-JSON as perm_wait, for a request opened WITH options (ALY-290.2): adds `option` from the behavior (allow -> allow_once, deny -> deny)
+  perm_wait "$("$JQ_BIN" -nc --argjson w "$1" '$w | if (.decision | type) == "object" and (.decision.behavior | IN("allow", "deny")) then .decision.option = (if .decision.behavior == "allow" then "allow_once" else "deny" end) else . end')"
+}
 ans_cleanup_bg() { local p; for p in ${BGKILL[@]+"${BGKILL[@]}"}; do kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null; done; return 0; }
 TOKFP=$(printf '%s' "$TOKEN" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)
 # ALY-269.4 helpers. qpl: the AskUserQuestion fixture as the payload (the session id is overridden so the hash vectors stay stable).
@@ -5145,7 +5148,7 @@ ans_case; smode wait terminal; ans_run
 quiet "a Bash permission request"
 check "one open call, one wait call" "1 1" "$(sopen) $(swaits)"
 OB=$(slog | "$JQ_BIN" -c 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson')
-check "the open body is exactly {session_hash, kind, hash, risk, tool, phrase}: no run_id, no tu" '["hash","kind","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
+check "the open body is exactly {session_hash, kind, hash, risk, tool, phrase, options}: no run_id, no tu (ALY-290.1 AC-05)" '["hash","kind","options","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
 check "hash is the known answer of the canonical array (V1)" "$VEC1" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.hash')"
 check "session_hash is sha256 of the session id (known answer), like the reporter's HASH" "$SH1 $(test_sha sess-0001)" "$(printf '%s' "$OB" | "$JQ_BIN" -r '.session_hash') $SH1"
 check "kind permission, risk high (Bash, ALY-269.5), tool Bash" "permission high Bash" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.kind) \(.risk) \(.tool)"')"
@@ -5196,7 +5199,7 @@ end_case_ans
 
 echo "== answer client wait: statuses, no_audience by hit count, deadline, expiresAt (AC-06, D-04, ALY-269.3) =="
 for st in allow deny question terminal expired no_audience; do
-  ans_case; smode wait "$st"; ans_run
+  ans_case; if [ "$st" = deny ]; then printf '%s' '{"status":"answered","decision":{"behavior":"deny","option":"deny","message":"no"}}' >"$SB/api/wait-data"; smode wait rawdata; else smode wait "$st"; fi; ans_run
   # ALY-269.5: the default payload is a Bash request (risk high): an allow is dropped, a deny is printed (see `answer permission`)
   if [ "$st" = deny ]; then check "wait status deny: the permission deny line is printed, exit 0" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"no"}}}|0|' "$OUT|$RC|$ERR"; else quiet "wait status $st"; fi
   check "wait status $st: one wait call, no cancel, nothing printed" "1 0 1" "$(swaits) $(scancels) $(sopen)"
@@ -5568,7 +5571,7 @@ aseqf() { echo "$DATA/live/$(test_sha sess-0001).seq"; }
 aseq_case() { ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '%s' "$1" >"$(aseqf)"; chmod "${2:-600}" "$(aseqf)"; ans_run; }
 aseq_case 7
 quiet "seq file holds 7"
-check "after is the integer 7, a JSON number, and the keys are the strict set (a Bash request: with phrase) plus after" '7 number ["after","hash","kind","phrase","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -r '"\(.after) \(.after | type) \([keys[]] | sort | tojson)"' | sed 's/ \[/ [/')"
+check "after is the integer 7, a JSON number, and the keys are the strict set (a Bash request: with phrase and options) plus after" '7 number ["after","hash","kind","options","phrase","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -r '"\(.after) \(.after | type) \([keys[]] | sort | tojson)"' | sed 's/ \[/ [/')"
 check "the seq file is left untouched (read only)" "7 600" "$(cat "$(aseqf)") $(find "$(aseqf)" -prune -printf '%m')"
 end_case_ans
 aseq_case 1790000000123
@@ -5610,7 +5613,7 @@ ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; mk
 check "a directory as seq file: after omitted, still opens" "false 1 0" "$(aopen_body | "$JQ_BIN" -r 'has("after")') $(sopen) $RC"
 end_case_ans
 ans_case; smode wait terminal; ans_run
-check "no seq file at all: after omitted, the body is exactly the strict set (a Bash request: with phrase)" '["hash","kind","phrase","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -c 'keys')"
+check "no seq file at all: after omitted, the body is exactly the strict set (a Bash request: with phrase and options)" '["hash","kind","options","phrase","risk","session_hash","tool"]' "$(aopen_body | "$JQ_BIN" -c 'keys')"
 end_case_ans
 ans_case; smode wait terminal; mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; printf '7' >"$DATA/live/$(test_sha other-session).seq"; chmod 600 "$DATA/live/$(test_sha other-session).seq"; ans_run
 check "the seq of ANOTHER session is never used" "false" "$(aopen_body | "$JQ_BIN" -r 'has("after")')"
@@ -5675,7 +5678,7 @@ ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
 "$JQ_BIN" --arg c "$SB/proj" '.cwd = $c' "$PERM_FIX" >"$SB/stdin"; ans_run
 quiet "the fixture: a Bash permission request"
 OB=$(perm_body)
-check "the open body has exactly {session_hash, kind, hash, risk, tool, phrase}: no tu, no input, no command, no path" '["hash","kind","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
+check "the open body has exactly {session_hash, kind, hash, risk, tool, phrase, options}: no tu, no input, no command, no path" '["hash","kind","options","phrase","risk","session_hash","tool"]' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys')"
 check "kind permission, risk high (Bash), tool Bash, the hash is the canonical one" "permission high Bash yes" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.kind) \(.risk) \(.tool)"') $([ "$(printf '%s' "$OB" | "$JQ_BIN" -r .hash)" = "$("$JQ_BIN" -S -c '[.tool_name, .tool_input]' "$SB/stdin" | { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -d' ' -f1)" ] && echo yes || echo no)"
 check "the phrase is the D-08 phrase of the description" "Print a greeting for the user" "$(printf '%s' "$OB" | "$JQ_BIN" -r .phrase)"
 BODYRAW=$(slog | "$JQ_BIN" -r 'select(.method == "POST" and .path == "/api/live/requests") | .body')
@@ -5832,24 +5835,25 @@ end_case_ans
 echo "== answer permission output: allow, deny, message, ack, no cancel (AC-07, AC-09 ALY-269.5) =="
 ans_case; REAL="$REALBIN_RP"; perm_fs
 ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
-perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
 check "allow on a normal request: exactly one line, the allow-listed keys, exit 0, stderr empty" "$DEC_ALLOW|0|" "$OUT|$RC|$ERR"
 check "allow: one ack, no cancel, one wait, no leftovers" "1 0 1 0 " "$(sacks) $(scancels) $(swaits) $(marked) $(live_left)"
 check "the ack path is the request id's" "1" "$(scount POST '^/api/live/requests/stub-req-1/ack$')"
-perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"Not now, please use the terminal."}}'
+perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"Not now, please use the terminal."}}'
 check "deny with a message" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Not now, please use the terminal."}}}' "$OUT"
 check "deny: one ack, no cancel" "1 0" "$(sacks) $(scancels)"
-perm_wait '{"status":"answered","decision":{"behavior":"allow","message":"ok"}}'
-check "allow with a message keeps it" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","message":"ok"}}}' "$OUT"
-check "the output has no updatedPermissions, updatedInput or always rule" "none" "$(case "$OUT" in *updated*|*always*|*Permissions*) echo found ;; *) echo none ;; esac)"
-smode ack 500; perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+perm_wait_opt '{"status":"answered","decision":{"behavior":"allow","message":"ok"}}'
+check "allow with a message is malformed since ALY-290.2 (message only with deny): nothing printed, no ack" "0||0" "$RC|$OUT$ERR|$(sacks)"
+perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
+check "the allow_once output has no updatedPermissions, updatedInput or always rule" "none" "$(case "$OUT" in *updated*|*always*|*Permissions*) echo found ;; *) echo none ;; esac)"
+smode ack 500; perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
 check "an ack that fails changes nothing: the line is printed, exit 0" "$DEC_ALLOW|0|" "$OUT|$RC|$ERR"
-smode ack hold; RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj"); perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+smode ack hold; RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj"); perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
 check "an ack that is held (2 s limit) changes nothing: the line is printed once, exit 0, no cancel" "$DEC_ALLOW|0|0" "$OUT|$RC|$(scancels)"
 smode ack ok
 # the message is cleaned and capped
 msg() {  # JSON-ENCODED-STRING EXPECTED-LINE-MESSAGE-JSON
-  perm_wait '{"status":"answered","decision":{"behavior":"deny","message":'"$1"'}}'
+  perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":'"$1"'}}'
   check "message $1 -> $2" "$2|0" "$OUT|$RC"
 }
 dline() { printf '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"%s}}}' "$1"; }
@@ -5869,38 +5873,57 @@ msg "\"$(head -c 190 /dev/zero | tr '\0' y) 123456789 abc\"" "$(dline ',"message
 msg '"café ✓"' "$(dline ',"message":"café ✓"')"
 end_case_ans
 
-echo "== answer permission output: malformed tables print nothing (AC-09, BR-02 ALY-269.5) =="
+echo "== answer permission output: options request, a decision without option prints nothing (AC-09, AC-16, BR-02 ALY-269.5, ALY-290.2) =="
 ans_case; REAL="$REALBIN_RP"; perm_fs
 ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
-for d in '{"status":"answered","decision":{"behavior":"ALLOW"}}' '{"status":"answered","decision":{"behavior":"Allow"}}' '{"status":"answered","decision":{"behavior":"ask"}}' \
-  '{"status":"answered","decision":{"behavior":"allow_always"}}' '{"status":"answered","decision":{"behavior":"allow "}}' '{"status":"answered","decision":{"behavior":" deny"}}' '{"status":"answered","decision":{"behavior":"deny\n"}}' \
-  '{"status":"answered","decision":{"behavior":["allow"]}}' '{"status":"answered","decision":{"behavior":true}}' '{"status":"answered","decision":{"behavior":null}}' '{"status":"answered","decision":{"message":"x"}}' \
-  '{"status":"answered","decision":{"behavior":"allow","updatedInput":{"command":"x"}}}' '{"status":"answered","decision":{"behavior":"allow","updatedPermissions":[]}}' \
-  '{"status":"answered","decision":{"behavior":"allow","extra":1}}' '{"status":"answered","decision":{"behavior":"deny","always":true}}' \
-  '{"status":"answered","decision":[]}' '{"status":"answered","decision":[{"behavior":"allow"}]}' '{"status":"answered","decision":null}' '{"status":"answered","decision":"allow"}' '{"status":"answered","decision":7}' '{"status":"answered","decision":{}}' '{"status":"answered"}' \
-  '{"status":"answered","decision":{"behavior":"allow","message":5}}' '{"status":"answered","decision":{"behavior":"deny","message":null}}' '{"status":"answered","decision":{"behavior":"deny","message":["x"]}}' '{"status":"answered","decision":{"behavior":"deny","message":{"a":1}}}' \
-  '{"status":"terminal","decision":{"behavior":"allow"}}' '{"status":"expired","decision":{"behavior":"allow"}}' '{"status":"ANSWERED","decision":{"behavior":"allow"}}' '{"status":"answered ","decision":{"behavior":"allow"}}' '{"status":["answered"],"decision":{"behavior":"allow"}}' '{"decision":{"behavior":"allow"}}' \
-  '{"status":"answered","decision":{"answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"behavior":"allow","answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"updatedInput":{"answers":{}}}}' '[]' '"answered"' 'null'; do
+LEGACY_ROWS=('{"status":"answered","decision":{"behavior":"ALLOW"}}' '{"status":"answered","decision":{"behavior":"Allow"}}' '{"status":"answered","decision":{"behavior":"ask"}}' 
+  '{"status":"answered","decision":{"behavior":"allow_always"}}' '{"status":"answered","decision":{"behavior":"allow "}}' '{"status":"answered","decision":{"behavior":" deny"}}' '{"status":"answered","decision":{"behavior":"deny\n"}}' 
+  '{"status":"answered","decision":{"behavior":["allow"]}}' '{"status":"answered","decision":{"behavior":true}}' '{"status":"answered","decision":{"behavior":null}}' '{"status":"answered","decision":{"message":"x"}}' 
+  '{"status":"answered","decision":{"behavior":"allow","updatedInput":{"command":"x"}}}' '{"status":"answered","decision":{"behavior":"allow","updatedPermissions":[]}}' 
+  '{"status":"answered","decision":{"behavior":"allow","extra":1}}' '{"status":"answered","decision":{"behavior":"deny","always":true}}' 
+  '{"status":"answered","decision":[]}' '{"status":"answered","decision":[{"behavior":"allow"}]}' '{"status":"answered","decision":null}' '{"status":"answered","decision":"allow"}' '{"status":"answered","decision":7}' '{"status":"answered","decision":{}}' '{"status":"answered"}' 
+  '{"status":"answered","decision":{"behavior":"allow","message":5}}' '{"status":"answered","decision":{"behavior":"deny","message":null}}' '{"status":"answered","decision":{"behavior":"deny","message":["x"]}}' '{"status":"answered","decision":{"behavior":"deny","message":{"a":1}}}' 
+  '{"status":"terminal","decision":{"behavior":"allow"}}' '{"status":"expired","decision":{"behavior":"allow"}}' '{"status":"ANSWERED","decision":{"behavior":"allow"}}' '{"status":"answered ","decision":{"behavior":"allow"}}' '{"status":["answered"],"decision":{"behavior":"allow"}}' '{"decision":{"behavior":"allow"}}' 
+  '{"status":"answered","decision":{"answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"behavior":"allow","answers":[{"q":0,"picks":[0]}]}}' '{"status":"answered","decision":{"updatedInput":{"answers":{}}}}' '[]' '"answered"' 'null')
+for d in "${LEGACY_ROWS[@]}"; do
   perm_wait "$d"
   check "malformed $d: nothing printed, exit 0, no ack, no cancel" "0||0 0" "$RC|$OUT$ERR|$(sacks) $(scancels)"
+done
+# ALY-290.2 (Medic): the same rows against a request opened WITHOUT options (texts off): the legacy clauses of the decision program, each malformed for its own reason
+for flag in activity-off detailed-off; do
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$flag"
+  ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
+  for d in "${LEGACY_ROWS[@]}"; do
+    perm_wait "$d"
+    check "$flag, legacy shape: malformed $d: nothing printed, exit 0, no ack, no cancel" "0||0 0" "$RC|$OUT$ERR|$(sacks) $(scancels)"
+  done
+  perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+  check "$flag, legacy shape: an allow at normal risk is printed" "$DEC_ALLOW|1" "$OUT|$(sacks)"
+  perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"no"}}'
+  check "$flag, legacy shape: a deny with a message is printed" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"no"}}}|1' "$OUT|$(sacks)"
+  ans_payload sess-0001 Bash '{"command":"ls"}'
+  perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+  check "$flag, legacy shape: an allow at high risk is dropped" "0||0" "$RC|$OUT$ERR|$(sacks)"
+  rm -f "$DATA/live/$flag"
+  ans_payload sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}'
 done
 # the question answers stub mode on a permission request, and a permission decision on a question request
 smode wait question; : >"$SB/api/requests.log"; ans_run
 check "a question-style decision on a permission request: nothing printed" "0||0" "$RC|$OUT$ERR|$(sacks)"
 ans_payload sess-0001 AskUserQuestion '{"questions":[{"question":"Which?","header":"H","options":[{"label":"A","description":"a"},{"label":"B","description":"b"}],"multiSelect":false}]}'
-perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
 check "a permission decision on an AskUserQuestion request: nothing printed from this path" "0||0" "$RC|$OUT$ERR|$(sacks)"
 end_case_ans
 
-echo "== answer permission high risk: an allow is dropped, a deny is printed (BR-02, AC-04 ALY-269.5) =="
+echo "== answer permission high risk: an offered id is printed, a deny is printed, the risk sent is unchanged (BR-02, AC-04 ALY-269.5, ALY-290.2 AC-14) =="
 ans_case; REAL="$REALBIN_RP"; perm_fs
 for hi in 'Bash|{"command":"echo hi","description":"Print a greeting now"}' 'Edit|{"file_path":"[P]/package.json"}' 'Edit|{"file_path":"[O]/x"}' 'Read|{"file_path":"[P]/.env"}' "${AP}specs|{\"action\":\"spec_approve\",\"spec\":\"ALY-1\"}" 'mcp__other__tool|{}' 'WebFetch|{"url":"https://example.test"}'; do
   inp="${hi#*|}"; inp="${inp//\[P\]/$SB/proj}"; inp="${inp//\[O\]/$SB/outside}"; ans_payload sess-0001 "${hi%%|*}" "$inp"
-  perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
-  check "high ${hi%%|*}: an allow prints nothing, exit 0, stderr empty, no ack, no cancel" "high|0||0 0" "$(perm_body | "$JQ_BIN" -r .risk)|$RC|$OUT$ERR|$(sacks) $(scancels)"
-  perm_wait '{"status":"answered","decision":{"behavior":"allow","message":"fine"}}'
-  check "high ${hi%%|*}: an allow with a message prints nothing" "0||0" "$RC|$OUT$ERR|$(sacks)"
-  perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"no"}}'
+  perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
+  check "high ${hi%%|*}: an allow_once is printed (no veto), exit 0, stderr empty, one ack, no cancel" "high|$DEC_ALLOW|0||1 0" "$(perm_body | "$JQ_BIN" -r .risk)|$OUT|$RC|$ERR|$(sacks) $(scancels)"
+  perm_wait_opt '{"status":"answered","decision":{"behavior":"allow","message":"fine"}}'
+  check "high ${hi%%|*}: an allow with a message prints nothing (message only with deny)" "0||0" "$RC|$OUT$ERR|$(sacks)"
+  perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"no"}}'
   check "high ${hi%%|*}: a deny is printed and acked" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"no"}}}|1 0' "$OUT|$(sacks) $(scancels)"
 done
 end_case_ans
@@ -5955,7 +5978,7 @@ end_case_ans
 echo "== answer permission texts: the reporter's text gates, and the tool name of other servers (SHD-02, SHD-06 ALY-269.5) =="
 ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal
 "$JQ_BIN" --arg c "$SB/proj" '.cwd = $c' "$PERM_FIX" >"$SB/stdin"; ans_run
-check "texts on: the phrase is sent" '["hash","kind","phrase","risk","session_hash","tool"]' "$(perm_body | "$JQ_BIN" -c 'keys')"
+check "texts on: the phrase and the options are sent" '["hash","kind","options","phrase","risk","session_hash","tool"]' "$(perm_body | "$JQ_BIN" -c 'keys')"
 for flag in activity-off detailed-off; do
   mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$flag"; : >"$SB/api/requests.log"; ans_run
   check "$flag exists: no phrase, tool, hash and risk kept" '["hash","kind","risk","session_hash","tool"] Bash high' "$(perm_body | "$JQ_BIN" -c 'keys') $(perm_body | "$JQ_BIN" -r '"\(.tool) \(.risk)"')"
@@ -5981,22 +6004,22 @@ REAL="$REALBIN_RP"; msg '"e\u0301"' "$(dline ',"message":"'"$NFCD"'"')"
 if [ -n "$(type -P uconv)" ]; then
   REAL="$REALBIN_NFC"; msg '"e\u0301"' "$(dline ',"message":"'"$NFCC"'"')"
   msg '"plain ascii"' "$(dline ',"message":"plain ascii"')"
-  perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
+  perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
   check "uconv on PATH, no message: the allow line is unchanged" "$DEC_ALLOW|0" "$OUT|$RC"
   # SHD-08: 200 x U+0344 becomes 400 code points under NFC; the cap is applied again after the normalisation
   M344=$("$JQ_BIN" -nr '[range(0; 200) | 836] | implode')
-  perm_wait "$("$JQ_BIN" -nc --arg m "$M344" '{status: "answered", decision: {behavior: "deny", message: $m}}')"
+  perm_wait_opt "$("$JQ_BIN" -nc --arg m "$M344" '{status: "answered", decision: {behavior: "deny", message: $m}}')"
   check "200 x U+0344 through uconv: a line is printed and its message is at most 200 code points after NFC (SHD-08)" "1 yes 0" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ') $([ -n "$OUT" ] && [ "$(printf '%s' "$OUT" | "$JQ_BIN" -r '.hookSpecificOutput.decision.message | length')" -le 200 ] && echo yes || echo no) $RC"
 fi
-REAL="$REALBIN_BADNFC"; perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"e\u0301"}}'
+REAL="$REALBIN_BADNFC"; perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"e\u0301"}}'
 check "a failing uconv prints nothing, exit 0, no ack" "0||0" "$RC|$OUT$ERR|$(sacks)"
-REAL="$REALBIN_NLNFC"; perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"hello"}}'
+REAL="$REALBIN_NLNFC"; perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"hello"}}'
 check "a uconv that changes the line count prints nothing, exit 0, no ack" "0||0" "$RC|$OUT$ERR|$(sacks)"
 end_case_ans
 
-echo "== answer permission static: no updatedPermissions, one validated output path (AC-07, AC-09, AC-18 ALY-269.5) =="
+echo "== answer permission static: one validated output path (AC-07, AC-09, AC-18 ALY-269.5) =="
 ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
-check "the script never mentions updatedPermissions or an always rule" "0 0" "$(printf '%s\n' "$ACODE" | grep -c 'updatedPermissions' || true) $(printf '%s\n' "$ACODE" | grep -ciE 'allow_always|"always"' || true)"
+check "the script never builds an always rule of its own (allow_always is an id; the updatedPermissions scan is in answer options decision, ALY-290.2 AC-20)" "0" "$(printf '%s\n' "$ACODE" | grep -c '"always"' || true)"
 PF='printf '"'"'%s\n'"'"' "$O"'
 check "the decision is printed by one printf of the jq-built, validated line (permission_answered)" "1" "$(printf '%s\n' "$ACODE" | grep -cF -- "$PF" || true)"
 check "the body carries the phrase on stdin, not argv (no --arg p)" "0" "$(printf '%s\n' "$ACODE" | grep -c -- '--arg p ' || true)"
@@ -6168,14 +6191,14 @@ for c in "curl -H \"Authorization: Bearer $AH_GH\" https://api.internal.example/
   ans_payload sess-0001 Bash "$("$JQ_BIN" -nc --arg c "$c" --arg d "Upload the file with $AH_GH and $AH_AWS to /home/user/.ssh/id_rsa" '{command: $c, description: $d}')"; ans_run
   quiet "a Bash command holding a token"
   OB=$(qbody)
-  check "the body keys are within {session_hash, kind, hash, risk, tool, phrase, after}; the five constant ones present" "0 5" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\((keys - ["session_hash","kind","hash","risk","tool","phrase","after"]) | length) \(([keys[] | select(. == "session_hash" or . == "kind" or . == "hash" or . == "risk" or . == "tool")]) | length)"')"
+  check "the body keys are within {session_hash, kind, hash, risk, tool, phrase, options, options_partial, after}; the five constant ones present" "0 5" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\((keys - ["session_hash","kind","hash","risk","tool","phrase","options","options_partial","after"]) | length) \(([keys[] | select(. == "session_hash" or . == "kind" or . == "hash" or . == "risk" or . == "tool")]) | length)"')"
   check "risk is high, kind permission, tool Bash" "high permission Bash" "$(printf '%s' "$OB" | "$JQ_BIN" -r '"\(.risk) \(.kind) \(.tool)"')"
   ah_absent "neither the command, the path, the token fragments nor the description's secrets reach any request" ghp_ aB3dE5gH7jK9 Bearer Authorization wJalr AWS_SECRET EXAMPLEKEY /home/user id_rsa api.internal curl deploy.sh export
   end_case_ans
 done
-ans_case; perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
-check "a high-risk allow decision prints NOTHING (veto), exit 0, silent" "0||" "$RC|$OUT|$ERR"
-perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"Not now"}}'
+ans_case; perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
+check "a high-risk allow_once decision is printed (the veto is gone, ALY-290.2), exit 0, silent" "$DEC_ALLOW|0|" "$OUT|$RC|$ERR"
+perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"Not now"}}'
 ah_stdout_only "a high-risk deny decision prints exactly the deny line" "$(ah_dec deny 'Not now')"
 end_case_ans
 
@@ -6294,18 +6317,18 @@ for bad in '../x' 'a b' "$(printf 'a%.0s' $(seq 1 65))" 'x/../../y' 'a?b=1' 'a#b
   check "bad id (${#bad} chars): only the open was ever called, no wait, ack or cancel path" "POST /api/live/requests" "$(tr '\n' ',' <"$SB/redir/seen.log" | sed 's/,$//')"
   ah_redir_stop; end_case_ans
 done
-ans_case; smode wait deny; ans_run
+ans_case; perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"no"}}'; ans_run
 check "a normal run touches only /api/live/requests and /requests/<its own id>/(wait|ack)" "yes" "$(slog | "$JQ_BIN" -r '.path' | grep -Evc '^/api/live/requests(/stub-req-1/(wait|ack))?$' | { read -r n; [ "$n" = 0 ] && echo yes || echo "no:$n"; })"
 smode wait hold; : >"$SB/api/requests.log"; ans_bg; swait_hits 1; kill -TERM "$BGPID" 2>/dev/null; ans_bg_end
 check "the cancel path is the run's own id" "/api/live/requests/stub-req-1/cancel" "$(slog | "$JQ_BIN" -r 'select(.method == "POST" and (.path | test("/cancel$"))) | .path')"
 end_case_ans
 # a decision that carries another request's id is data of the wait call of OUR id: the protocol binds it by path only (observed, not asserted)
-ans_case; perm_wait '{"id":"someone-elses-request","status":"answered","decision":{"behavior":"deny","message":"x"}}'
+ans_case; perm_wait_opt '{"id":"someone-elses-request","status":"answered","decision":{"behavior":"deny","message":"x"}}'
 check "(observation) a wait answer naming another id: exit 0, silent stderr; the hook asked only for its own id" "0||yes" "$RC|$ERR|$(slog | "$JQ_BIN" -r '.path' | grep -Evc '^/api/live/requests(/stub-req-1/(wait|ack))?$' | { read -r n; [ "$n" = 0 ] && echo yes || echo no; })"
 end_case_ans
 # the debug log across the paths
 ans_case; RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj" LIVE_ANSWER_DEBUG=1)
-perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"DECISIONSECRETWORD please"}}'
+perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"DECISIONSECRETWORD please"}}'
 ans_payload sess-0001 Bash '{"command":"echo SECRETWORDXYZ","description":"Print SECRETWORDXYZ for me"}'; : >"$SB/api/requests.log"; ans_run
 qpl; qdec '{"answers":[{"q":0,"picks":[1]},{"q":1,"picks":[0]}]}'; ans_run
 DL=$(cat "$DATA/live/answer-debug.log" 2>/dev/null || true)
@@ -6318,7 +6341,7 @@ echo "== answer hostile cleanup: no child and no temp file after any exit path, 
 ah_gone() {  # NAME CANCELS: after the run: no marked process, no recorded child alive, no .answer* entry, the expected cancel count
   check "$1: no marked process, no recorded child alive, no temp entry, $2 cancel(s)" "0 0 0 $2" "$(marked) $(ah_alive "$KIDS") $(ah_temps) $(scancels)"
 }
-ans_case; smode wait deny; KIDS=""; ans_run
+ans_case; perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"no"}}'; KIDS=""; ans_run
 check "answered (permission deny): exit 0, stderr empty, the deny line printed" "0||1" "$RC|$ERR|$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"; ah_gone "answered permission" 0
 end_case_ans
 ans_case; qpl; qdec '{"answers":[{"q":0,"picks":[1]},{"q":1,"picks":[0]}]}'; KIDS=""; ans_run
@@ -6357,7 +6380,7 @@ AH_DIRTY='"line1\nline2\r\u0000 \u001b[31mred\u001b[0m \u001b]0;title\u0007 \u20
 AH_BADCP='explode | any(. < 32 or (. >= 127 and . <= 159) or . == 173 or (. >= 8203 and . <= 8207) or (. >= 8232 and . <= 8238) or (. >= 8288 and . <= 8303) or . == 65279 or (. >= 917504 and . <= 917631))'
 ah_framed() {  # NAME TEXT-JSON-LITERAL MAXLEN: a permission deny message and a question `other` with this text
   local name="$1" lit="$2" max="$3" w
-  ans_case; w=$("$JQ_BIN" -nc "{status: \"answered\", decision: {behavior: \"deny\", message: ($lit)}}"); perm_wait "$w"
+  ans_case; w=$("$JQ_BIN" -nc "{status: \"answered\", decision: {behavior: \"deny\", message: ($lit)}}"); perm_wait_opt "$w"
   check "$name (deny message): exit 0, stderr empty, at most one stdout line" "0||yes" "$RC|$ERR|$([ "$(printf '%s' "$OUT" | wc -l | tr -d ' ')" -le 1 ] && echo yes || echo no)"
   if [ -n "$OUT" ]; then
     check "$name (deny message): valid JSON of exactly the allow-listed shape, behavior deny" "true" "$(printf '%s' "$OUT" | "$JQ_BIN" -e '(keys == ["hookSpecificOutput"]) and (.hookSpecificOutput | keys == ["decision","hookEventName"]) and .hookSpecificOutput.hookEventName == "PermissionRequest" and (.hookSpecificOutput.decision | ((keys - ["behavior","message"]) == []) and .behavior == "deny")' 2>/dev/null || echo false)"
@@ -6377,13 +6400,13 @@ ah_framed "dirty text" "$AH_DIRTY" 200
 ah_framed "very long text" '[range(0; 3000) | "w\(.) "] | join("") + "\"}}}"' 200
 ah_framed "long text without spaces" '"a" * 5000' 200
 # survival of quotes and backslashes as properly escaped JSON, and the exact caps
-ans_case; perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"say \"hi\" to C:\\dir and {\"a\":1}"}}'
+ans_case; perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"say \"hi\" to C:\\dir and {\"a\":1}"}}'
 ah_stdout_only "quotes and backslashes in a message survive only as escaped JSON" "$(ah_dec deny 'say "hi" to C:\dir and {"a":1}')"
 end_case_ans
 ans_case; qpl; qdec "$("$JQ_BIN" -nc '{answers: [{q: 0, picks: [1]}, {q: 1, picks: [], other: ("x\"y\\z " + ("a" * 700))}]}')"; ans_run
 check "other: the quote and backslash survive as escaped JSON text, capped at exactly 500 code points" "0||true 500" "$RC|$ERR|$(printf '%s' "$OUT" | "$JQ_BIN" -r '.hookSpecificOutput.decision.updatedInput.answers["Which checks should run?"] | "\(startswith("x\"y\\z aaa")) \(length)"')"
 end_case_ans
-ans_case; perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"\u001b[2J\u001b[Hgone \u0000 \u202e\u200b\ud83d\ude00 ok"}}'
+ans_case; perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"\u001b[2J\u001b[Hgone \u0000 \u202e\u200b\ud83d\ude00 ok"}}'
 check "a message of control, bidi and zero-width characters keeps its words: exactly one JSON line, no ESC byte" "1 0 0" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ') $(printf '%s' "$OUT" | LC_ALL=C tr -d -c '\033' | wc -c | tr -d ' ') $(printf '%s' "$OUT" | "$JQ_BIN" -e '.hookSpecificOutput.decision.behavior == "deny"' >/dev/null 2>&1; echo $?)"
 end_case_ans
 
@@ -6516,9 +6539,9 @@ dp_both() {  # SESSION TOOL INPUT: runs the reporter then the answer client; set
   DP_ANSERR="$RC|$OUT|$ERR"
   DP_ANS=$(perm_body | "$JQ_BIN" -r '.phrase // "<none>"')
 }
-dp_row() {  # NAME TOOL INPUT EXPECTED
+dp_row() {  # NAME TOOL INPUT EXPECTED [EXPECTED-REQUEST-PHRASE]
   DPN=$((DPN + 1)); dp_both "sess-dp$DPN" "$2" "$3"
-  check "phrase $1: reporter and request both say '$4', both silent" "$4|$4|0||" "$DP_REP|$DP_ANS|$DP_REPERR"
+  check "phrase $1: reporter says '$4', the request says '${5:-$4}' (ALY-290.1: another MCP server's tool gets the constant), both silent" "$4|${5:-$4}|0||" "$DP_REP|$DP_ANS|$DP_REPERR"
   check "phrase $1: the request run exits 0, stdout and stderr empty" "0||" "$DP_ANSERR"
 }
 ans_case; REAL="$REALBIN_RP"; perm_fs; smode wait terminal; SHIMD="$SHIMS_STUB"; DATA_ENV="$DATA"
@@ -6553,9 +6576,9 @@ dp_row "memory_save" "${AP}intelligence" '{"action":"memory_save","title":"SECRE
 dp_row "task_update valid key" "${AP}tasks" '{"action":"task_update","task":"ALY-285.5","notes":"x"}' "Update task ALY-285.5"
 dp_row "task_update invalid key" "${AP}tasks" '{"action":"task_update","task":"not a key"}' "Update a task"
 dp_row "task_update no key" "${AP}tasks" '{"action":"task_update"}' "Update a task"
-dp_row "task_update other server" mcp__other__tasks '{"action":"task_update","task":"ALY-285.5"}' "<none>"
+dp_row "task_update other server" mcp__other__tasks '{"action":"task_update","task":"ALY-285.5"}' "<none>" "Use a tool"
 dp_row "task_start" "${AP}tasks" '{"action":"task_start","task":"ALY-285.5"}' "Start task ALY-285.5"
-dp_row "memory_save on tasks" "${AP}tasks" '{"action":"memory_save"}' "<none>"
+dp_row "memory_save on tasks" "${AP}tasks" '{"action":"memory_save"}' "<none>" "Use a tool"
 end_case_ans
 
 # ─── AC-14: Bash stays high and deny-only, the new tools stay high, the body keys are exact, a deny round trip prints a deny (BR-06) ─────
@@ -6565,19 +6588,19 @@ for row in 'Bash|{"command":"git push origin feat-x"}' 'Bash|{"command":"flock /
   tl=${row%%|*}; inp=${row#*|}
   ans_payload sess-0001 "$tl" "$inp"; : >"$SB/api/requests.log"; ans_run
   OB=$(perm_body)
-  check "$tl $inp: exactly {session_hash, kind, hash, risk, tool, phrase}, risk high, one open" '["hash","kind","phrase","risk","session_hash","tool"] high 1' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys') $(printf '%s' "$OB" | "$JQ_BIN" -r .risk) $(sopen)"
+  check "$tl $inp: exactly {session_hash, kind, hash, risk, tool, phrase, options}, risk high, one open" '["hash","kind","options","phrase","risk","session_hash","tool"] high 1' "$(printf '%s' "$OB" | "$JQ_BIN" -c 'keys') $(printf '%s' "$OB" | "$JQ_BIN" -r .risk) $(sopen)"
   check "$tl: the run is quiet and exits 0" "0||" "$RC|$OUT|$ERR"
 done
 ans_payload sess-0001 Bash '{"command":"git push origin SECRETBRANCH --tags"}'; : >"$SB/api/requests.log"; ans_run
 check "a classified Bash command: the phrase is the constant word, the command text is not sent" "Push to git none" "$(perm_body | "$JQ_BIN" -r .phrase) $(case "$(slog)" in *SECRETBRANCH*|*"git push"*|*origin*) echo found ;; *) echo none ;; esac)"
-perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
-check "a classified Bash command: an allow from Allye prints nothing (deny-only, BR-06)" "0||" "$RC|$OUT|$ERR"
-perm_wait '{"status":"answered","decision":{"behavior":"deny","message":"Not now"}}'
+perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
+check "a classified Bash command: an allow_once from Allye is printed as {behavior: allow} only (ALY-290.2)" "$DEC_ALLOW|0|" "$OUT|$RC|$ERR"
+perm_wait_opt '{"status":"answered","decision":{"behavior":"deny","message":"Not now"}}'
 ah_stdout_only "a classified Bash command: the deny-answer round trip prints the deny line" "$(ah_dec deny 'Not now')"
 ans_payload sess-0001 Monitor '{"command":"tail -f x","description":"Watch the build output now"}'
-perm_wait '{"status":"answered","decision":{"behavior":"allow"}}'
-check "Monitor (high): an allow prints nothing" "0||" "$RC|$OUT|$ERR"
-perm_wait '{"status":"answered","decision":{"behavior":"deny"}}'
+perm_wait_opt '{"status":"answered","decision":{"behavior":"allow"}}'
+check "Monitor (high): an allow_once is printed (ALY-290.2)" "$DEC_ALLOW|0|" "$OUT|$RC|$ERR"
+perm_wait_opt '{"status":"answered","decision":{"behavior":"deny"}}'
 ah_stdout_only "Monitor: a deny prints the deny line (the phrase defs and the decision program compile together)" "$(ah_dec deny '')"
 smode wait terminal
 for flag in activity-off detailed-off; do
@@ -6634,6 +6657,730 @@ ho_row "only a carriage return" $'\r' "Run a command" "ZZNONE"
 ho_row "4096 characters, valid" "npm test$(head -c 4088 /dev/zero | tr '\0' ' ')" "Run tests" "ZZNONE"
 ho_row "4097 characters" "npm test$(head -c 4089 /dev/zero | tr '\0' ' ')" "Run a command" "ZZNONE"
 ho_row "4097 characters of a secret tail" "npm test$(head -c 4080 /dev/zero | tr '\0' ' ') ghp_FAKE0123456789" "Run a command" "ghp_FAKE"
+end_case_ans
+
+# ─── ALY-290.1: the options of a permission request (AC-01 to AC-10, AC-18, AC-19, AC-22, BR-01, BR-04, D-10 to D-15) ─────
+#@always
+AD_E='{"type":"addDirectories","directories":["/tmp/ao-x"],"destination":"session"}'
+SM_E='{"type":"setMode","mode":"acceptEdits","destination":"session"}'
+arl() {  # DEST TOOL CONTENT...  ("-" = a rule without ruleContent): an addRules entry, behavior allow
+  "$JQ_BIN" -nc --arg d "$1" --arg t "$2" '$ARGS.positional as $p | {type: "addRules", rules: [$p[] | if . == "-" then {toolName: $t} else {toolName: $t, ruleContent: .} end], behavior: "allow", destination: $d}' --args "${@:3}"
+}
+ans_payload_ex() {  # SESSION TOOL INPUT MODE SUGGESTIONS: as ans_payload plus permission_mode ("" = absent) and permission_suggestions ("" = absent)
+  "$JQ_BIN" -nc --arg s "$1" --arg t "$2" --argjson i "$3" --arg c "$SB/proj" --arg m "$4" --arg g "$5" \
+    '{hook_event_name: "PermissionRequest", session_id: $s, cwd: $c, tool_name: $t, tool_input: $i} + (if $m != "" then {permission_mode: $m} else {} end) + (if $g != "" then {permission_suggestions: ($g | fromjson)} else {} end)' >"$SB/stdin"
+}
+lbody() {  # the open body of the last run, as compact JSON
+  slog | "$JQ_BIN" -c 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson'
+}
+oids() {  # "id,id|partial" of the last open body
+  lbody | "$JQ_BIN" -r '(([.options[]?.id] | join(",")) + "|" + ((.options_partial // false) | tostring))'
+}
+orow() {  # NAME TOOL MODE INPUT SUGGESTIONS EXPECTED ("ids|partial"); [P] in INPUT = the project directory
+  local inp="${4//\[P\]/$SB/proj}"
+  ans_payload_ex sess-0001 "$2" "$inp" "$3" "$5"; : >"$SB/api/requests.log"; ans_run
+  check "options $1" "$6|0|" "$(oids)|$RC|$ERR"
+}
+REALBIN_JQF="$ROOT_TMP/realbin-jqf"; make_realbin "$REALBIN_JQF" jq
+printf '#!%s\nfor a in "$@"; do case "$a" in *utf8bytelength*) exit 5 ;; esac; done\nexec %s "$@"\n' "$BASH_BIN" "$JQ_BIN" >"$REALBIN_JQF/jq"; chmod +x "$REALBIN_JQF/jq"
+O_OK='allow_once,deny|false'
+#@end
+
+echo "== answer options lookup: the whole shape against the SPIKE table, tool and literal mode (AC-01, AC-02, AC-03, ALY-290.1) =="
+ans_case; smode wait terminal
+orow "Bash default, directory + setMode: each its own id; the directory is unresolvable (/tmp/ao-x): allow_folder fails closed, partial (the offered case is in the folder section)" Bash default '{"command":"ls"}' "[$AD_E,$SM_E]" 'allow_once,allow_edits_session,switch_auto,deny|true'
+ans_payload_ex sess-0001 Bash '{"command":"ls"}' default "[$(arl localSettings Bash 'a *')]"; "$JQ_BIN" -c '. + {agent_id: "agent-x1", agent_type: "allye:bridge-pilot"}' "$SB/stdin" >"$SB/stdin.t" && mv "$SB/stdin.t" "$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+check "options Bash default with agent_id and agent_type (a subagent): the same ids as the main agent" "allow_once,allow_always,switch_auto,deny|false|0|" "$(oids)|$RC|$ERR"
+orow "Bash default, setMode alone is not a table row" Bash default '{"command":"ls"}' "[$SM_E]" 'allow_once,switch_auto,deny|true'
+orow "Bash default, setMode before directory (payload order is part of the shape)" Bash default '{"command":"ls"}' "[$SM_E,$AD_E]" 'allow_once,switch_auto,deny|true'
+orow "Bash acceptEdits, one rule, localSettings" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'git init *')]" 'allow_once,allow_always,switch_auto,deny|false'
+orow "Bash default, two rules in one entry" Bash default '{"command":"ls"}' "[$(arl localSettings Bash 'a *' 'b *')]" 'allow_once,allow_always,switch_auto,deny|false'
+orow "Bash default, projectSettings" Bash default '{"command":"ls"}' "[$(arl projectSettings Bash 'a *')]" 'allow_once,allow_always,switch_auto,deny|false'
+orow "Bash default, userSettings" Bash default '{"command":"ls"}' "[$(arl userSettings Bash 'a *')]" 'allow_once,allow_always,switch_auto,deny|false'
+orow "Bash default, session rule is allow_session" Bash default '{"command":"ls"}' "[$(arl session Bash 'a *')]" 'allow_once,allow_session,switch_auto,deny|false'
+orow "Bash acceptEdits, session rule" Bash acceptEdits '{"command":"ls"}' "[$(arl session Bash 'a *')]" 'allow_once,allow_session,switch_auto,deny|false'
+orow "Bash default, a session rule plus a localSettings rule: not produced, neither id" Bash default '{"command":"ls"}' "[$(arl session Bash 'a *'),$(arl localSettings Bash 'b *')]" 'allow_once,switch_auto,deny|true'
+orow "Bash default, a rule plus an unmapped entry: neither" Bash default '{"command":"ls"}' "[$(arl localSettings Bash 'a *'),{\"type\":\"replaceRules\",\"rules\":[],\"behavior\":\"allow\",\"destination\":\"session\"}]" 'allow_once,switch_auto,deny|true'
+orow "Bash default, three rules in one entry (a many-rule payload against the proven one- and two-rule shapes)" Bash default '{"command":"ls"}' "[$(arl localSettings Bash 'a *' 'b *' 'c *')]" 'allow_once,switch_auto,deny|true'
+orow "Bash plan: no switch_auto, shape not in the table" Bash plan '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash auto" Bash auto '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash with no permission_mode" Bash "" '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash with permission_mode bypassPermissions: no switch_auto, shape not in the table" Bash bypassPermissions '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash with an unknown mode" Bash bogus '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Bash with a case-different mode (literal match)" Bash Default '{"command":"ls"}' "[$(arl localSettings Bash 'a *')]" 'allow_once,deny|true'
+orow "Write default, setMode" Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+orow "Edit default, setMode" Edit default '{"file_path":"[P]/src/a.txt","old_string":"a","new_string":"b"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+orow "NotebookEdit default, setMode" NotebookEdit default '{"notebook_path":"[P]/n.ipynb","new_source":"x"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+orow "Write acceptEdits: not in the table" Write acceptEdits '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Read default, session rule" Read default '{"file_path":"/tmp/outside/x"}' "[$(arl session Read '/tmp/outside/*')]" 'allow_once,allow_session,deny|false'
+orow "Read default, localSettings rule: not the proven destination" Read default '{"file_path":"/tmp/outside/x"}' "[$(arl localSettings Read '/tmp/outside/*')]" 'allow_once,deny|true'
+orow "Read default, two rules against a proven one-rule shape" Read default '{"file_path":"/tmp/outside/x"}' "[$(arl session Read 'a' 'b')]" 'allow_once,deny|true'
+orow "WebFetch default, domain rule" WebFetch default '{"url":"https://example.test/"}' "[$(arl localSettings WebFetch 'domain:example.test')]" 'allow_once,allow_always,deny|false'
+orow "WebSearch default, tool-wide rule (no ruleContent)" WebSearch default '{"query":"q"}' "[$(arl localSettings WebSearch -)]" 'allow_once,allow_always,deny|false'
+orow "WebSearch default, a rule WITH ruleContent is not the proven shape" WebSearch default '{"query":"q"}' "[$(arl localSettings WebSearch x)]" 'allow_once,deny|true'
+orow "WebFetch default, a tool-wide rule is refused (AC-02)" WebFetch default '{"url":"https://example.test/"}' "[$(arl localSettings WebFetch -)]" 'allow_once,deny|true'
+orow "Skill default, two entries are ONE allow_always" Skill default '{"skill":"s"}' "[$(arl localSettings Skill 'foo'),$(arl localSettings Skill 'foo:*')]" 'allow_once,allow_always,deny|false'
+orow "Skill default, one entry only" Skill default '{"skill":"s"}' "[$(arl localSettings Skill 'foo')]" 'allow_once,deny|true'
+orow "Skill default, two entries with different destinations" Skill default '{"skill":"s"}' "[$(arl localSettings Skill 'foo'),$(arl session Skill 'foo:*')]" 'allow_once,deny|true'
+orow "MCP default, tool-wide rule" mcp__stubmcp__write_thing default '{"x":1}' "[$(arl localSettings mcp__stubmcp__write_thing -)]" 'allow_once,allow_always,deny|false'
+orow "MCP default, the rule names another tool (AC-02)" mcp__stubmcp__write_thing default '{"x":1}' "[$(arl localSettings mcp__stubmcp__other -)]" 'allow_once,deny|true'
+orow "MCP acceptEdits: not in the table" mcp__stubmcp__write_thing acceptEdits '{"x":1}' "[$(arl localSettings mcp__stubmcp__write_thing -)]" 'allow_once,deny|true'
+echo "== answer options binding: the entry is bound to the call (AC-02, ALY-290.1) =="
+orow "Bash: a rule whose toolName differs from the payload's" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Read 'a *')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: a rule with no ruleContent" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash -)]" 'allow_once,switch_auto,deny|true'
+orow "Bash: ruleContent only *" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash '*')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: ruleContent only * with spaces" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash ' * ')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: empty ruleContent" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash '')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: an extra key on the entry" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'a *' | "$JQ_BIN" -c '. + {x: 1}')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: an extra key on the rule" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'a *' | "$JQ_BIN" -c '.rules[0].x = 1')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: a missing destination" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'a *' | "$JQ_BIN" -c 'del(.destination)')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: rules is a string" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'a *' | "$JQ_BIN" -c '.rules = "x"')]" 'allow_once,switch_auto,deny|true'
+orow "Bash: an entry that is not an object" Bash acceptEdits '{"command":"ls"}' '["x"]' 'allow_once,switch_auto,deny|true'
+echo "== answer options unmapped: one row per case, never offered, partial (AC-06, D-10, D-14, ALY-290.1) =="
+ARL_BASH=$(arl localSettings Write 'a')
+for row in \
+  'replaceRules|{"type":"replaceRules","rules":[{"toolName":"Write","ruleContent":"a"}],"behavior":"allow","destination":"session"}' \
+  'removeRules|{"type":"removeRules","rules":[{"toolName":"Write","ruleContent":"a"}],"behavior":"allow","destination":"session"}' \
+  'removeDirectories|{"type":"removeDirectories","directories":["/tmp/x"],"destination":"session"}' \
+  'addRules ask|{"type":"addRules","rules":[{"toolName":"Write","ruleContent":"a"}],"behavior":"ask","destination":"localSettings"}' \
+  'addRules deny|{"type":"addRules","rules":[{"toolName":"Write","ruleContent":"a"}],"behavior":"deny","destination":"localSettings"}' \
+  'persistent addDirectories|{"type":"addDirectories","directories":["/tmp/x"],"destination":"localSettings"}' \
+  'setMode plan|{"type":"setMode","mode":"plan","destination":"session"}' \
+  'setMode acceptEdits localSettings|{"type":"setMode","mode":"acceptEdits","destination":"localSettings"}' \
+  'setMode bypassPermissions|{"type":"setMode","mode":"bypassPermissions","destination":"session"}' \
+  'setMode dontAsk|{"type":"setMode","mode":"dontAsk","destination":"session"}' \
+  'setMode auto|{"type":"setMode","mode":"auto","destination":"session"}' \
+  'unknown type|{"type":"frobnicate","destination":"session"}'; do
+  orow "Write default, ${row%%|*}: not offered, partial" Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[${row#*|}]" 'allow_once,deny|true'
+done
+orow "Write default, a valid setMode followed by an unmapped entry: neither" Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E,{\"type\":\"setMode\",\"mode\":\"bypassPermissions\",\"destination\":\"session\"}]" 'allow_once,deny|true'
+orow "Write to a .claude folder: allow_edits_session not offered (D-10, S21), partial" Write default '{"file_path":"[P]/.claude/settings.json","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Edit in a nested .claude folder" Edit default '{"file_path":"[P]/a/.claude/x.md","old_string":"a","new_string":"b"}' "[$SM_E]" 'allow_once,deny|true'
+orow "NotebookEdit in a .claude folder" NotebookEdit default '{"notebook_path":"[P]/.claude/n.ipynb","new_source":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write with a different-case .Claude component" Write default '{"file_path":"[P]/.Claude/x","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write with a missing file_path (fail closed)" Write default '{"content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write with a non-string file_path (fail closed)" Write default '{"file_path":7,"content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write with an empty file_path (fail closed)" Write default '{"file_path":"","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+orow "Write to a file whose NAME merely starts with .claude" Write default '{"file_path":"[P]/.claudex/x","content":"x"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+orow "NotebookEdit reads notebook_path, not file_path" NotebookEdit default '{"notebook_path":"[P]/n.ipynb","file_path":"[P]/.claude/x","new_source":"x"}' "[$SM_E]" 'allow_once,allow_edits_session,deny|false'
+echo "== answer options switch_auto: Bash in default and acceptEdits only, never read from a suggestion (AC-07, ALY-290.1) =="
+orow "Bash default, no suggestions: switch_auto still offered (tool plus mode is the proof)" Bash default '{"command":"ls"}' '[]' 'allow_once,switch_auto,deny|false'
+orow "Bash acceptEdits, no suggestions key at all" Bash acceptEdits '{"command":"ls"}' '' 'allow_once,switch_auto,deny|false'
+orow "Bash default, an auto setMode suggestion is not a source (and is unmapped)" Bash default '{"command":"ls"}' '[{"type":"setMode","mode":"auto","destination":"session"}]' 'allow_once,switch_auto,deny|true'
+for tm in "Write|{\"file_path\":\"[P]/a\",\"content\":\"x\"}|$SM_E" "Edit|{\"file_path\":\"[P]/a\",\"old_string\":\"a\",\"new_string\":\"b\"}|$SM_E" "NotebookEdit|{\"notebook_path\":\"[P]/n\",\"new_source\":\"x\"}|$SM_E" \
+          "Read|{\"file_path\":\"/tmp/o\"}|$(arl session Read 'a')" "WebFetch|{\"url\":\"https://e.test\"}|$(arl localSettings WebFetch 'domain:e.test')" "WebSearch|{\"query\":\"q\"}|$(arl localSettings WebSearch -)" \
+          "Skill|{\"skill\":\"s\"}|$(arl localSettings Skill 'a'),$(arl localSettings Skill 'a:*')" "mcp__stubmcp__t|{\"x\":1}|$(arl localSettings mcp__stubmcp__t -)"; do
+  t=${tm%%|*}; r=${tm#*|}; inp=${r%%|*}; sg=${r#*|}
+  for m in default acceptEdits plan auto ""; do
+    inp2="${inp//\[P\]/$SB/proj}"
+    ans_payload_ex sess-0001 "$t" "$inp2" "$m" "[$sg]"; : >"$SB/api/requests.log"; ans_run
+    check "switch_auto is never offered for $t in mode '${m:-none}'" "no" "$(lbody | "$JQ_BIN" -r 'if ([.options[]?.id] | index("switch_auto")) == null then "no" else "yes" end')"
+  done
+done
+echo "== answer options suggestions read: valid JSON at all times, none, big, read failure (AC-04, D-11, ALY-290.1) =="
+orow "no permission_suggestions key: allow_once and deny, no partial" Write default '{"file_path":"[P]/a","content":"x"}' '' "$O_OK"
+orow "permission_suggestions []: allow_once and deny, a body with options (not empty)" Write default '{"file_path":"[P]/a","content":"x"}' '[]' "$O_OK"
+orow "permission_suggestions null" Write default '{"file_path":"[P]/a","content":"x"}' 'null' "$O_OK"
+orow "permission_suggestions a string (not an array)" Write default '{"file_path":"[P]/a","content":"x"}' '"x"' "$O_OK"
+orow "permission_suggestions an object (not an array)" Write default '{"file_path":"[P]/a","content":"x"}' '{"type":"setMode"}' "$O_OK"
+BIGR=$("$JQ_BIN" -nc --arg r "$(head -c 40000 /dev/zero | tr '\0' a)" '[{"type":"addRules","rules":[{"toolName":"Write","ruleContent":$r}],"behavior":"allow","destination":"localSettings"}]')
+orow "more than 32 KiB of suggestions: allow_once and deny, partial" Write default '{"file_path":"[P]/a","content":"x"}' "$BIGR" 'allow_once,deny|true'
+head -c 1048576 /dev/zero | tr '\0' a >"$SB/bigr.txt"
+"$JQ_BIN" -nc --rawfile r "$SB/bigr.txt" --arg c "$SB/proj" '{hook_event_name: "PermissionRequest", session_id: "sess-0001", cwd: $c, tool_name: "Write", tool_input: {file_path: ($c + "/a"), content: "x"}, permission_mode: "default", permission_suggestions: [{type: "addRules", rules: [{toolName: "Write", ruleContent: $r}], behavior: "allow", destination: "localSettings"}]}' >"$SB/stdin"
+: >"$SB/api/requests.log"; ans_run
+check "1 MB of suggestions: one open with allow_once and deny, partial, quiet, the rule text nowhere in the request" "allow_once,deny|true|0||none" "$(oids)|$RC|$OUT$ERR|$(case "$(slog)" in *aaaaaaaaaa*) echo found ;; *) echo none ;; esac)"
+REAL="$REALBIN_JQF"
+orow "jq failing at the read: allow_once and deny, partial, a body with options (never a phrase without options)" Write default '{"file_path":"[P]/a","content":"x"}' "[$SM_E]" 'allow_once,deny|true'
+check "jq failing at the read: the phrase is sent together with the options" "yes" "$(lbody | "$JQ_BIN" -r 'if (.phrase | type) == "string" and (.options | length) == 2 then "yes" else "no" end')"
+REAL="$REALBIN"
+end_case_ans
+
+echo "== answer options body: exact keys and order, labels of D-02, whatever the risk (AC-05, AC-10, BR-01, D-02, D-15, ALY-290.1) =="
+ans_case; smode wait terminal
+ans_payload_ex sess-0001 Bash '{"command":"echo hi","description":"d"}' plan "[$(arl localSettings Bash 'a *')]"; : >"$SB/api/requests.log"; ans_run
+check "a Bash request (risk high): keys in the order session_hash, kind, hash, risk, tool, phrase, options, options_partial" '["session_hash","kind","hash","risk","tool","phrase","options","options_partial"]' "$(lbody | "$JQ_BIN" -c 'keys_unsorted')"
+check "that body: risk high, phrase from the D-08 grammar, options allow_once and deny with the D-02 labels, options_partial true" 'high|Run a command|[{"id":"allow_once","label":"Yes"},{"id":"deny","label":"No"}]|true' "$(lbody | "$JQ_BIN" -r '"\(.risk)|\(.phrase)|\(.options | tojson)|\(.options_partial)"')"
+ans_payload_ex sess-0001 Bash '{"command":"echo hi"}' acceptEdits "[$(arl localSettings Bash 'a *')]"; : >"$SB/api/requests.log"; ans_run
+check "Bash acceptEdits with a rule: allow_once, allow_always, switch_auto, deny with the exact labels, no options_partial key" '[{"id":"allow_once","label":"Yes"},{"id":"allow_always","label":"Yes, always allow"},{"id":"switch_auto","label":"Yes, switch to auto mode"},{"id":"deny","label":"No"}] ["session_hash","kind","hash","risk","tool","phrase","options"]' "$(lbody | "$JQ_BIN" -c '.options') $(lbody | "$JQ_BIN" -c 'keys_unsorted')"
+ans_payload_ex sess-0001 Write '{"file_path":"'"$SB"'/proj/a.txt","content":"x"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+check "Write default (risk high, no CLAUDE_PROJECT_DIR files): allow_edits_session label" '[{"id":"allow_once","label":"Yes"},{"id":"allow_edits_session","label":"Yes, allow all edits this session"},{"id":"deny","label":"No"}]' "$(lbody | "$JQ_BIN" -c '.options')"
+ans_payload_ex sess-0001 Read '{"file_path":"/tmp/o/x"}' default "[$(arl session Read 'a')]"; : >"$SB/api/requests.log"; ans_run
+check "Read default: allow_session label" '[{"id":"allow_once","label":"Yes"},{"id":"allow_session","label":"Yes, allow for this session"},{"id":"deny","label":"No"}]' "$(lbody | "$JQ_BIN" -c '.options')"
+REAL="$REALBIN_RP"; perm_fs
+for r in normal high; do
+  if [ "$r" = normal ]; then mkdir -p "$SB/proj/src"; : >"$SB/proj/src/a.txt"; ans_payload_ex sess-0001 Edit '{"file_path":"'"$SB"'/proj/src/a.txt","old_string":"a","new_string":"b"}' default "[$SM_E]"
+  else ans_payload_ex sess-0001 Edit '{"file_path":"'"$SB"'/proj/.git/config","old_string":"a","new_string":"b"}' default "[$SM_E]"; fi
+  : >"$SB/api/requests.log"; ans_run
+  check "risk $r: the same key set with options, nothing else" "$r|[\"hash\",\"kind\",\"options\",\"phrase\",\"risk\",\"session_hash\",\"tool\"]" "$(lbody | "$JQ_BIN" -r '.risk')|$(lbody | "$JQ_BIN" -c 'keys')"
+done
+mkdir -p -m 700 "$DATA/live"; printf '%s' 1790000000123 >"$DATA/live/$(test_sha sess-0001).seq"; chmod 600 "$DATA/live/$(test_sha sess-0001).seq"
+ans_payload_ex sess-0001 Bash '{"command":"echo hi"}' plan "[$(arl localSettings Bash 'a *')]"; : >"$SB/api/requests.log"; ans_run
+check "with a readable seq: after is added to the same body" '["session_hash","kind","hash","risk","tool","phrase","options","options_partial","after"]' "$(lbody | "$JQ_BIN" -c 'keys_unsorted')"
+REAL="$REALBIN"
+rm -f "$DATA/live/$(test_sha sess-0001).seq"
+# AC-05 / AC-24 of the API spec: the literal body {Bash, high, "Run a command", options allow_once / allow_always / deny labelled Yes / "Yes, always allow" / No,
+# options_partial true} is NOT producible from a real payload: the SPIKE mapping also offers switch_auto for Bash in default and acceptEdits, and
+# with another mode a rule is not in the table. KNOWN CONTRACT GAP, reported to the Mothership (the API accepts that body as a vector only). What is
+# pinned here instead: the exact key order and the D-02 labels (above) and the label table itself (below).
+ASRC=$(sed -n 's/^OPT_LABELS=//p' "$ANS" | sed "s/^'//; s/'\$//")
+check "the label table of the script is exactly D-02 (seven ids, wire order, constants)" '{"allow_once":"Yes","allow_edits_session":"Yes, allow all edits this session","allow_session":"Yes, allow for this session","allow_folder":"Yes, allow this folder","allow_always":"Yes, always allow","switch_auto":"Yes, switch to auto mode","deny":"No"}' "$ASRC"
+check "the labels are defined once, as a constant (no label built from a payload)" "1" "$(grep -c '^OPT_LABELS=' "$ANS")"
+echo "== answer options hash: unchanged by suggestions and mode (AC-10, ALY-290.1) =="
+AOV1=cb849cc1afccaaee6ac77370f8db2f40d8c1736adbbfed6de716bcadc140df0a   # the pinned vector V1 (the same value as VEC1 of the open section)
+ans_payload sess-0001 Bash '{"description":"d","command":"echo hi"}'; : >"$SB/api/requests.log"; ans_run
+H0=$(lbody | "$JQ_BIN" -r .hash)
+ans_payload_ex sess-0001 Bash '{"description":"d","command":"echo hi"}' acceptEdits "[$(arl localSettings Bash 'a *')]"; : >"$SB/api/requests.log"; ans_run
+H1=$(lbody | "$JQ_BIN" -r .hash)
+ans_payload_ex sess-0001 Bash '{"description":"d","command":"echo hi"}' plan "[$AD_E,$SM_E]"; : >"$SB/api/requests.log"; ans_run
+H2=$(lbody | "$JQ_BIN" -r .hash)
+check "the hash is the pinned V1 with no suggestions, with a rule and acceptEdits, and with other suggestions and plan" "$AOV1 $AOV1 $AOV1" "$H0 $H1 $H2"
+end_case_ans
+
+echo "== answer options texts off: no options, no options_partial, no constant phrase, today's open (AC-08, ALY-290.1) =="
+ans_case; smode wait terminal
+for flag in activity-off detailed-off; do
+  for how in file symlink; do
+    mkdir -p "$DATA/live"; chmod 700 "$DATA/live"
+    if [ "$how" = file ]; then : >"$DATA/live/$flag"; else ln -s /nonexistent "$DATA/live/$flag"; fi
+    for row in "Write|{\"file_path\":\"$SB/proj/a\",\"content\":\"x\"}|$SM_E" "WebFetch|{\"url\":\"https://e.test\"}|$(arl localSettings WebFetch 'domain:e.test')" "Bash|{\"command\":\"ls\"}|$AD_E,$SM_E" "mcp__stubmcp__t|{\"x\":1}|$(arl localSettings mcp__stubmcp__t -)" "FooTool|{}|$SM_E"; do
+      t=${row%%|*}; r=${row#*|}; inp=${r%%|*}; sg=${r#*|}
+      ans_payload_ex sess-0001 "$t" "$inp" default "[$sg]"; : >"$SB/api/requests.log"; ans_run
+      check "$flag as a $how: $t sends neither phrase, options nor options_partial; the open keeps its five keys; exit 0 silent" '["hash","kind","risk","session_hash","tool"] 1 0|' "$(lbody | "$JQ_BIN" -c 'keys') $(sopen) $RC|$OUT$ERR"
+    done
+    rm -f "$DATA/live/$flag"
+  done
+done
+end_case_ans
+
+echo "== answer options phrase: the constant, the allow-list and the denied list (AC-09, D-12, ALY-290.1) =="
+ans_case; smode wait terminal
+for t in WebFetch mcp__stubmcp__t mcp__github__create_issue; do
+  ans_payload_ex sess-0001 "$t" '{"url":"https://e.test","secret":"SECRETIN"}' default ''; : >"$SB/api/requests.log"; ans_run
+  check "$t: the constant phrase 'Use a tool' and the allow_once / deny options, no server name, domain or argument" "Use a tool|allow_once,deny|false|none" "$(lbody | "$JQ_BIN" -r '.phrase')|$(oids)|$(case "$(slog)" in *SECRETIN*|*e.test*|*github*|*stubmcp*) echo found ;; *) echo none ;; esac)"
+done
+ans_payload_ex sess-0001 Skill '{"skill":"SECRETSKILL"}' default ''; : >"$SB/api/requests.log"; ans_run
+check "Skill (a spike-proven row) gets a phrase, never the skill name" "yes|none" "$(lbody | "$JQ_BIN" -r 'if (.phrase | type) == "string" and .phrase != "" then "yes" else "no" end')|$(case "$(slog)" in *SECRETSKILL*) echo found ;; *) echo none ;; esac)"
+ans_payload_ex sess-0001 Bash '{"command":"git push origin feat-x"}' default ''; : >"$SB/api/requests.log"; ans_run
+check "a grammar phrase is kept as it is (Push to git), not replaced by the constant" "Push to git" "$(lbody | "$JQ_BIN" -r '.phrase')"
+for t in FooTool Monitor2 NotAKnownTool; do
+  ans_payload_ex sess-0001 "$t" '{"description":"Watch the build output now"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+  check "an unknown tool ($t): opens, no phrase, no options, no options_partial (the API marks it not answerable)" '["hash","kind","risk","session_hash","tool"] 1' "$(lbody | "$JQ_BIN" -c 'keys') $(sopen)"
+done
+ans_payload_ex sess-0001 ExitPlanMode '{"plan":"SECRETPLAN","description":"Print a greeting for the user"}' plan ''; : >"$SB/api/requests.log"; ans_run
+check "ExitPlanMode (denied list, even with text a grammar could use): still opens, no phrase, no options, no plan text" '["hash","kind","risk","session_hash","tool"] 1 ExitPlanMode none' "$(lbody | "$JQ_BIN" -c 'keys') $(sopen) $(lbody | "$JQ_BIN" -r .tool) $(case "$(slog)" in *SECRETPLAN*) echo found ;; *) echo none ;; esac)"
+# behavioural proof of the AC-09 clause: a sandbox COPY (never the worktree file) whose denied list names Bash, a tool with a grammar phrase
+mkdir -p "$SB/anscopy"; ln -sfn "$SCRIPT_DIR/lib" "$SB/anscopy/lib"
+sed 's/^DENIED_TOOLS=" ExitPlanMode "/DENIED_TOOLS=" ExitPlanMode Bash "/' "$ANS" >"$SB/anscopy/live-answer.sh"; chmod 755 "$SB/anscopy/live-answer.sh"
+check "the copy really differs (Bash is on its denied list)" "1" "$(grep -c '^DENIED_TOOLS=" ExitPlanMode Bash "' "$SB/anscopy/live-answer.sh")"
+ANS_KEEP="$ANS"; ANS="$SB/anscopy/live-answer.sh"
+ans_payload_ex sess-0001 Bash '{"command":"git push origin feat-x","description":"Print a greeting for the user"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+check "a denied tool WITH a grammar phrase (Bash): still opens, no phrase, no options, no options_partial, quiet" '["hash","kind","risk","session_hash","tool"] 1 Bash 0|' "$(lbody | "$JQ_BIN" -c 'keys') $(sopen) $(lbody | "$JQ_BIN" -r .tool) $RC|$OUT$ERR"
+ANS="$ANS_KEEP"
+ans_payload_ex sess-0001 Bash '{"command":"git push origin feat-x","description":"Print a greeting for the user"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+check "the real script (Bash not denied) sends that grammar phrase and options" "Print a greeting for the user|yes" "$(lbody | "$JQ_BIN" -r .phrase)|$(lbody | "$JQ_BIN" -r 'if has("options") then "yes" else "no" end')"
+check "the denied list is checked before the phrase (the script mentions ExitPlanMode once, as a literal name)" "1" "$(grep -v '^[[:space:]]*#' "$ANS" | grep -c 'DENIED_TOOLS=" ExitPlanMode "')"
+smode wait allow
+ans_payload_ex sess-0001 ExitPlanMode '{"plan":"p"}' plan ''; : >"$SB/api/requests.log"; ans_run
+check "ExitPlanMode: an allow answer prints nothing (not answerable on the real API; the hook never invents a decision)" "0||" "$RC|$OUT|$ERR"
+end_case_ans
+
+echo "== answer options created: a joined row ends the hook at once, questions unchanged, a 400 backs off (AC-22, AC-19, AC-18, D-03, ALY-290.1) =="
+for c in false missing string; do
+  ans_case; smode wait allow; smode open-created "$c"
+  ans_payload_ex sess-0001 Write '{"file_path":"'"$SB"'/proj/a","content":"x"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+  check "created $c: one open, no wait, no cancel, no output, no stderr, nothing left behind" "1 0 0 0| " "$(sopen) $(swaits) $(scancels) $RC|$OUT$ERR $(live_left)"
+  end_case_ans
+done
+ans_case; smode wait terminal
+ans_payload_ex sess-0001 Write '{"file_path":"'"$SB"'/proj/a","content":"x"}' default "[$SM_E]"; : >"$SB/api/requests.log"; ans_run
+check "created true: the hook waits as before" "1 1" "$(sopen) $(swaits)"
+smode open-created missing
+qpl; : >"$SB/api/requests.log"; ans_run
+check "a question ignores created (missing): it still waits" "1 1" "$(sopen) $(swaits)"
+smode open-created false
+qpl; : >"$SB/api/requests.log"; ans_run
+check "a question ignores created (false): it still waits" "1 1" "$(sopen) $(swaits)"
+smode open-created true
+for m in default auto acceptEdits plan; do
+  "$JQ_BIN" -c --arg c "$SB/proj" --arg m "$m" '.cwd = $c | .session_id = "sess-0001" | .permission_mode = $m | .permission_suggestions = [{type: "setMode", mode: "acceptEdits", destination: "session"}]' "$QFIX" >"$SB/stdin"; : >"$SB/api/requests.log"; ans_run
+  check "AskUserQuestion in mode $m: kind question, no options, no options_partial, no phrase" "question|none" "$(lbody | "$JQ_BIN" -r '.kind')|$(lbody | "$JQ_BIN" -r 'if has("options") or has("options_partial") or has("phrase") then "present" else "none" end')"
+done
+for kind in permission question; do
+  ans_case; smode wait terminal; smode open 400
+  if [ "$kind" = question ]; then qpl; else ans_payload_ex sess-0001 Write '{"file_path":"'"$SB"'/proj/a","content":"x"}' default "[$SM_E]"; fi
+  : >"$SB/api/requests.log"; ans_run
+  check "an open answering 400 ($kind): exit 0, no output, no stderr, no wait, a 60 s back-off is set" "1 0 yes|0" "$(sopen) $(swaits) $([ -s "$DATA/live/answer-backoff" ] && echo yes || echo no)|$RC$OUT$ERR"
+  : >"$SB/api/requests.log"; ans_run
+  check "the next run ($kind) honours the back-off: no network call" "0|0" "$(sopen)|$RC"
+  end_case_ans
+done
+echo "== answer options static: held entries stay in one unexported variable, on stdin only (D-11, ALY-290.1) =="
+ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
+check "no export or declare -x anywhere" "0" "$(printf '%s\n' "$ACODE" | grep -cE '(^|[[:space:];])(export|declare +-[a-zA-Z]*x|typeset +-[a-zA-Z]*x)([[:space:]]|$)' || true)"
+check "PERM_SUGG never reaches --arg, --argjson, a here-string or a redirect to a file" "0" "$(printf '%s\n' "$ACODE" | grep -E 'PERM_SUGG' | grep -cE -- '--(arg|argjson|slurpfile|rawfile) +[A-Za-z_]+ +"?\$\{?PERM_SUGG|<<<.*PERM_SUGG|PERM_SUGG[^|]*>[[:space:]]*"?\$T' || true)"
+check "the suggestions are read once, before INPUT is cleared" "1 yes" "$(printf '%s\n' "$ACODE" | grep -c 'jq -r "\$READ_JQ"') $([ "$(printf '%s\n' "$ACODE" | grep -n 'perm_options$\|; perm_options' | head -n 1 | cut -d: -f1)" -lt "$(printf '%s\n' "$ACODE" | grep -n '^  INPUT=""' | head -n 1 | cut -d: -f1)" ] && echo yes || echo no)"
+check "the script stays executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
+end_case_ans
+
+echo "== answer options folder (ALY-290.5 AC-23, BR-07, D-17): allow_folder is refused for /, home and their ancestors, whole group, fail closed =="
+O_FOLD='allow_once,allow_edits_session,allow_folder,switch_auto,deny|false'
+O_NOFOLD='allow_once,allow_edits_session,switch_auto,deny|true'
+dj() { "$JQ_BIN" -nc '$ARGS.positional' --args "$@"; }
+fbuild() {  # DIRS-JSON: [addDirectories(session), setMode] suggestions
+  "$JQ_BIN" -nc --argjson d "$1" --argjson s "$SM_E" '[{type: "addDirectories", directories: $d, destination: "session"}, $s]'
+}
+frow() {  # NAME DIRS-JSON EXPECTED [ENV...]: Bash in default mode; ENV words (KEY=VALUE) are added after the sandbox HOME
+  local name="$1" dirs="$2" exp="$3"; shift 3
+  ans_payload_ex sess-0001 Bash '{"command":"ls"}' default "$(fbuild "$dirs")"; : >"$SB/api/requests.log"
+  RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj" "$@"); ans_run; RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj")
+  check "folder $name" "$exp|0|" "$(oids)|$RC|$ERR"
+}
+frow_nohome() {  # NAME DIRS-JSON EXPECTED: as frow, with HOME absent from the environment
+  local name="$1" dirs="$2" exp="$3"
+  ans_payload_ex sess-0001 Bash '{"command":"ls"}' default "$(fbuild "$dirs")"; : >"$SB/api/requests.log"
+  env -i XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$REAL" ANS_MARK="$MARK" CLAUDE_PROJECT_DIR="$SB/proj" "$BASH_BIN" "$ANS" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
+  RC=$?; ERR=$(cat "$SB/err")
+  check "folder $name" "$exp|0|" "$(oids)|$RC|$ERR"
+}
+ans_case; smode wait terminal
+mkdir -p "$SB/home/proj/deep" "$SB/hom" "$SB/x" "$SB/other"
+ln -s "$SB/home/proj" "$SB/x/lnk"; ln -s "$SB/home" "$SB/x/hl"
+GETENT_DIR="$ROOT_TMP/realbin-getent$N"; make_realbin "$GETENT_DIR"; cp "$FIX/getent-shim.sh" "$GETENT_DIR/getent"
+frow "a subfolder of home is offered (builtins only: no realpath, readlink or getent on PATH)" "$(dj "$SB/home/proj")" "$O_FOLD"
+check "the default sandbox PATH has no realpath, readlink or getent" "none" "$(for t in realpath readlink getent; do [ -e "$REAL/$t" ] && echo "$t"; done | tr '\n' ' ')none" 
+frow "a sibling whose name starts like home ($SB/hom) is offered" "$(dj "$SB/hom")" "$O_FOLD"
+frow "a deeper subfolder is offered" "$(dj "$SB/home/proj/deep")" "$O_FOLD"
+frow "/ is refused" "$(dj /)" "$O_NOFOLD"
+frow "/// is refused" "$(dj ///)" "$O_NOFOLD"
+frow "\$HOME is refused" "$(dj "$SB/home")" "$O_NOFOLD"
+frow "an ancestor of home (the sandbox root) is refused" "$(dj "$SB")" "$O_NOFOLD"
+frow "an ancestor two levels up is refused" "$(dj "$(dirname "$SB")")" "$O_NOFOLD"
+if [ -d /home ]; then frow "/home is refused when HOME is /home" "$(dj /home)" "$O_NOFOLD" HOME=/home; fi
+frow "// is refused (double leading slash, SHD-01)" "$(dj //)" "$O_NOFOLD"
+frow "//<sandbox home> is refused (double leading slash, SHD-01)" "$(dj "/$SB/home")" "$O_NOFOLD"
+frow "//<sandbox home>/proj is offered (double leading slash, a subfolder)" "$(dj "/$SB/home/proj")" "$O_FOLD"
+frow "//<ancestor of home> is refused" "$(dj "/$SB")" "$O_NOFOLD"
+if [ -d /home ]; then
+  frow "//home is refused when HOME is /home (SHD-01)" "$(dj //home)" "$O_NOFOLD" HOME=/home
+  frow "/proc/self/root/home is refused when HOME is /home (SHD-01)" "$(dj /proc/self/root/home)" "$O_NOFOLD" HOME=/home
+fi
+if [ -d /proc/self/root ]; then
+  frow "/proc/self/root (the root through the magic link) is refused" "$(dj /proc/self/root)" "$O_NOFOLD"
+  frow "/proc/self/root + the sandbox home is refused" "$(dj "/proc/self/root$SB/home")" "$O_NOFOLD"
+  frow "/proc/self/root + an ancestor of the sandbox home is refused" "$(dj "/proc/self/root$SB")" "$O_NOFOLD"
+  frow "/proc/self/root + a subfolder of the sandbox home is offered" "$(dj "/proc/self/root$SB/home/proj")" "$O_FOLD"
+fi
+frow "a symlinked HOME: the lexical ancestor of HOME is refused with no getent (SHD-02)" "$(dj "$SB/x")" "$O_NOFOLD" HOME="$SB/x/hl"
+frow "a symlinked HOME: its resolved home is refused" "$(dj "$SB/home")" "$O_NOFOLD" HOME="$SB/x/hl"
+frow "a symlinked HOME: a subfolder of the resolved home is offered" "$(dj "$SB/home/proj")" "$O_FOLD" HOME="$SB/x/hl"
+frow "~ is refused (not absolute)" "$(dj '~')" "$O_NOFOLD"
+frow "~/proj is refused (not absolute)" "$(dj '~/proj')" "$O_NOFOLD"
+frow "a trailing slash on home is refused" "$(dj "$SB/home/")" "$O_NOFOLD"
+frow "several trailing slashes on home are refused" "$(dj "$SB/home///")" "$O_NOFOLD"
+frow "a subfolder with a trailing slash is offered" "$(dj "$SB/home/proj/")" "$O_FOLD"
+frow "dot segments to home are refused (home/proj/..)" "$(dj "$SB/home/proj/..")" "$O_NOFOLD"
+frow "dot segments to home are refused (home/./)" "$(dj "$SB/home/./")" "$O_NOFOLD"
+frow "dot segments up to the root are refused" "$(dj "$SB/home/../..")" "$O_NOFOLD"
+frow "dot segments inside a subfolder path are offered" "$(dj "$SB/home/./proj/../proj")" "$O_FOLD"
+frow "link/.. through a symlink resolves physically to home and is refused" "$(dj "$SB/x/lnk/..")" "$O_NOFOLD"
+frow "a symlink to home is refused" "$(dj "$SB/x/hl")" "$O_NOFOLD"
+frow "a path through a symlink to home, into a subfolder, is offered" "$(dj "$SB/x/hl/proj")" "$O_FOLD"
+frow "a relative path is refused" "$(dj proj)" "$O_NOFOLD"
+frow "a dot alone is refused" "$(dj .)" "$O_NOFOLD"
+frow "two dots alone are refused" "$(dj ..)" "$O_NOFOLD"
+frow "a relative path with a slash is refused" "$(dj home/proj)" "$O_NOFOLD"
+frow "an unresolvable path is refused (fail closed)" "$(dj "$SB/does-not-exist")" "$O_NOFOLD"
+frow "a path through a regular file is refused (fail closed)" "$(dj "$SB/stdin/x")" "$O_NOFOLD"
+frow "an empty string is refused" "$(dj "")" "$O_NOFOLD"
+frow "an empty string beside a good folder refuses the whole group" "$(dj "$SB/home/proj" "")" "$O_NOFOLD"
+frow "an entry with a newline is refused" "$(dj "$SB/home/proj"$'\n'"$SB/hom")" "$O_NOFOLD"
+frow "a newline alone before a slash is refused" "$(dj $'\n/')" "$O_NOFOLD"
+frow "an entry with a bell is refused" "$(dj "$SB/home/proj"$'\a')" "$O_NOFOLD"
+frow "an entry with a tab is refused" "$(dj "$SB/home/"$'\t'"proj")" "$O_NOFOLD"
+frow "an entry with a carriage return is refused" "$(dj "$SB/hom"$'\r')" "$O_NOFOLD"
+frow "an entry with DEL is refused" "$(dj "$SB/hom"$'\x7f')" "$O_NOFOLD"
+frow "an entry that is not a string is refused (the shape is not in the table: no allow_edits_session either)" '[7]' 'allow_once,switch_auto,deny|true'
+frow "two directories, only the second refused: the whole group is refused" "$(dj "$SB/home/proj" "$SB/home")" "$O_NOFOLD"
+frow "two directories, only the first refused: the whole group is refused" "$(dj / "$SB/home/proj")" "$O_NOFOLD"
+frow "two good directories are offered" "$(dj "$SB/home/proj" "$SB/hom")" "$O_FOLD"
+frow_nohome "HOME unset refuses (fail closed)" "$(dj "$SB/hom")" "$O_NOFOLD"
+frow "HOME empty refuses (fail closed)" "$(dj "$SB/hom")" "$O_NOFOLD" HOME=
+frow "HOME not absolute refuses (fail closed)" "$(dj "$SB/hom")" "$O_NOFOLD" HOME=relative/home
+frow "HOME unresolvable refuses (fail closed)" "$(dj "$SB/hom")" "$O_NOFOLD" HOME="$SB/no-home"
+frow "HOME with a trailing slash still refuses home" "$(dj "$SB/home")" "$O_NOFOLD" HOME="$SB/home/"
+frow "HOME pointing elsewhere, no getent: only HOME counts, the real passwd home is offered" "$(dj "$SB/home")" "$O_FOLD" HOME="$SB/other"
+# the getent branch: a shim on PATH reports the passwd home
+REAL="$GETENT_DIR"
+frow "HOME elsewhere, getent reports home: the passwd home is refused" "$(dj "$SB/home")" "$O_NOFOLD" HOME="$SB/other" GETENT_HOME="$SB/home" GETENT_LOG="$SB/getent.log"
+check "getent was called once, with only passwd and the uid" "passwd $(id -u) 1" "$(head -n 1 "$SB/getent.log" 2>/dev/null) $(wc -l <"$SB/getent.log" 2>/dev/null | tr -d ' ')"
+frow "HOME elsewhere, getent reports home: an ancestor of the passwd home is refused" "$(dj "$SB")" "$O_NOFOLD" HOME="$SB/other" GETENT_HOME="$SB/home"
+frow "getent reports a different-case home: the case-different path is refused (nocasematch)" "$(dj "$SB/home")" "$O_NOFOLD" HOME="$SB/other" GETENT_HOME="$(printf '%s' "$SB/home" | tr 'a-z' 'A-Z')"
+frow "getent reports home: an unrelated folder is still offered" "$(dj "$SB/hom")" "$O_FOLD" HOME="$SB/other" GETENT_HOME="$SB/home"
+frow "getent present but silent (no GETENT_HOME): HOME still decides, a subfolder is offered" "$(dj "$SB/home/proj")" "$O_FOLD"
+REAL="$REALBIN"
+# jq failing
+JQF1="$ROOT_TMP/realbin-jqf1-$N"; make_realbin "$JQF1" jq
+printf '%s\n' "#!$BASH_BIN" 'for a in "$@"; do case "$a" in *explode*) exit 5 ;; esac; done' "exec $JQ_BIN \"\$@\"" >"$JQF1/jq"; chmod +x "$JQF1/jq"
+JQF2="$ROOT_TMP/realbin-jqf2-$N"; make_realbin "$JQF2" jq
+printf '%s\n' "#!$BASH_BIN" 'for a in "$@"; do case "$a" in *".[0].directories") exit 5 ;; esac; done' "exec $JQ_BIN \"\$@\"" >"$JQF2/jq"; chmod +x "$JQF2/jq"
+REAL="$JQF1"; frow "jq failing in the folder check: not offered (fail closed)" "$(dj "$SB/home/proj")" "$O_NOFOLD"
+REAL="$JQF2"; frow "jq failing when the group is read: not offered (fail closed)" "$(dj "$SB/home/proj")" "$O_NOFOLD"
+REAL="$REALBIN"
+frow "back on the real jq a subfolder is offered again" "$(dj "$SB/home/proj")" "$O_FOLD"
+echo "== answer options folder canary: the directory string reaches no argv or environment of any process (AC-11 light, ALY-290.5) =="
+CANARY_DIR="$ROOT_TMP/realbin-canary$N"; mkdir -p "$CANARY_DIR"
+for t in "$REALBIN"/*; do cp "$FIX/argv-canary-shim.sh" "$CANARY_DIR/${t##*/}"; done
+mkdir -p "$SB/zz-canary-dir-x"; : >"$SB/canary.log"
+REAL="$CANARY_DIR"
+frow "the canary run offers the folder" "$(dj "$SB/zz-canary-dir-x")" "$O_FOLD" CANARY_LOG="$SB/canary.log" CANARY_REAL="$REALBIN"
+check "the canary run logged the processes it started" "yes" "$([ "$(grep -c '^ARGV ' "$SB/canary.log")" -gt 3 ] && echo yes || echo no)"
+check "the directory string is in no argv or environment of any process" "0" "$(grep -c 'zz-canary-dir-x' "$SB/canary.log" || true)"
+REAL="$REALBIN"
+end_case_ans
+
+echo "== answer options folder static: no path tool and no external command touches a held directory (AC-20, D-17, ALY-290.5) =="
+FCODE=$(awk '/^folder_check\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$ANS" | grep -v '^[[:space:]]*#')
+check "the folder check was found" "yes" "$([ -n "$FCODE" ] && printf '%s\n' "$FCODE" | grep -q 'cd -P' && echo yes || echo no)"
+check "the folder check never calls realpath, readlink or resolve_path" "0" "$(printf '%s\n' "$FCODE" | grep -cE 'realpath|readlink|resolve_path' || true)"
+check "the folder check calls no external tool but jq and getent (passwd and the uid only)" "0" "$(printf '%s\n' "$FCODE" | grep -E '(^|[|;&({`]|\$\()[[:space:]]*(cat|cut|sed|awk|tr|dirname|basename|ls|stat|find|env|xargs|sort|head|tail|grep|wc|readlink|realpath|python[0-9]*|node|perl|sh|bash)([[:space:]]|$)' | grep -cv '^$' || true)"
+check "getent is called as: getent passwd \"\$UID\" only" "1" "$(printf '%s\n' "$FCODE" | grep -c 'getent passwd "\$UID"' || true)"
+check "the held group never goes through --arg, --argjson, export, a here-string, a heredoc or a redirect to a file" "0" "$(printf '%s\n' "$FCODE" | sed -e 's/2>\/dev\/null//g' -e 's/>\/dev\/null//g' -e 's/>&[0-9]//g' -e 's/>=//g' | grep -cE -- '--(arg|argjson|slurpfile|rawfile)|(^|[[:space:]])(export|declare|typeset)[[:space:]]|<<|[0-9]?>>?[[:space:]]*[^[:space:]]' || true)"
+check "the directories reach the loop through a pipe" "1" "$(printf '%s\n' "$FCODE" | grep -c "empty end' 2>/dev/null | {" || true)"
+check "the script stays executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
+
+# ─── ALY-290.2: apply the chosen option in the decision program (AC-13 to AC-16, AC-18, AC-20, BR-02, BR-03, BR-06, D-02, D-04, D-06, D-10, D-11, D-14) ─────
+#@always
+odec() {  # DECISION-JSON: the next wait answers `answered` with this decision
+  perm_wait "$("$JQ_BIN" -nc --argjson d "$1" '{status: "answered", decision: $d}')"
+}
+oexp() {  # UPDATED-JSON: the expected output line, key-sorted
+  "$JQ_BIN" -S -c -n --argjson u "$1" '{hookSpecificOutput: {hookEventName: "PermissionRequest", decision: {behavior: "allow", updatedPermissions: $u}}}'
+}
+ocheck() {  # NAME EXPECTED-LINE (key-sorted): the printed line, exit 0, stderr empty, one ack, no cancel
+  check "$1" "$2|0||1 0" "$(printf '%s' "$OUT" | "$JQ_BIN" -S -c . 2>/dev/null || echo "NOT-JSON:$OUT")|$RC|$ERR|$(sacks) $(scancels)"
+}
+onone() {  # NAME: AC-16, nothing printed, exit 0, stderr empty, no ack, no cancel
+  check "$1: nothing printed, exit 0, stderr empty, no ack, no cancel" "0||0 0" "$RC|$OUT$ERR|$(sacks) $(scancels)"
+}
+oid() {  # NAME ID EXPECTED-UPDATED-JSON: the payload of the case is set; the decision names ID
+  odec "$("$JQ_BIN" -nc --arg o "$2" '{behavior: (if $o == "deny" then "deny" else "allow" end), option: $o}')"
+  ocheck "$1" "$(oexp "$3")"
+}
+opay() {  # TOOL MODE INPUT SUGGESTIONS: the payload; [P] in INPUT is the project directory
+  ans_payload_ex sess-0001 "$1" "${3//\[P\]/$SB/proj}" "$2" "$4"
+}
+#@end
+
+echo "== answer options decision (ALY-290.2 AC-13, AC-14): allow_once, deny and the group of each id, verbatim =="
+ans_case; mkdir -p "$SB/proj/dd"
+ADR='{"type":"addDirectories","directories":["'"$SB"'/proj/dd"],"destination":"session"}'
+opay Bash default '{"command":"ls"}' "[$ADR,$SM_E]"
+oid "Bash default allow_folder: only the directory entry" allow_folder "[$ADR]"
+oid "Bash default allow_edits_session: only the setMode entry" allow_edits_session "[$SM_E]"
+odec '{"behavior":"allow","option":"allow_once"}'
+check "allow_once: exactly {behavior: allow}, one ack, no cancel" "$DEC_ALLOW|0||1 0" "$OUT|$RC|$ERR|$(sacks) $(scancels)"
+odec '{"behavior":"deny","option":"deny"}'
+check "deny without a message: exactly {behavior: deny}" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}|0||1 0' "$OUT|$RC|$ERR|$(sacks) $(scancels)"
+odec '{"behavior":"deny","option":"deny","message":"\u001b[31mNot\u001b[0m   now\n please"}'
+check "deny with a message: cleaned as before" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Not now please"}}}|0||1 0' "$OUT|$RC|$ERR|$(sacks) $(scancels)"
+odec '{"behavior":"allow","option":"switch_auto"}'
+ocheck "switch_auto (Bash default): the one constant setMode auto/session" "$(oexp '[{"type":"setMode","mode":"auto","destination":"session"}]')"
+odec '{"behavior":"allow","option":"allow_always"}'
+onone "an id the hook did not offer (allow_always with only a directory and a setMode)"
+odec '{"behavior":"allow","option":"allow_edits_session"}'
+check "the printed entry is the held one, verbatim and in key order (no sorting)" "$("$JQ_BIN" -c -n --argjson e "$SM_E" '{hookSpecificOutput:{hookEventName:"PermissionRequest",decision:{behavior:"allow",updatedPermissions:[$e]}}}')" "$OUT"
+end_case_ans
+
+echo "== answer options decision (ALY-290.2 AC-14): every tool and shape row =="
+ans_case
+opay Skill default '{"skill":"s"}' "[$(arl localSettings Skill 'foo'),$(arl localSettings Skill 'foo:*')]"
+oid "Skill: both entries, ONE allow_always, payload order" allow_always "[$(arl localSettings Skill 'foo'),$(arl localSettings Skill 'foo:*')]"
+opay Bash default '{"command":"ls"}' "[$(arl session Bash 'git status *')]"
+oid "Bash default: a session rule is allow_session" allow_session "[$(arl session Bash 'git status *')]"
+opay Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'git init *')]"
+oid "Bash acceptEdits: a localSettings rule is allow_always" allow_always "[$(arl localSettings Bash 'git init *')]"
+opay Bash default '{"command":"ls"}' "[$(arl userSettings Bash 'a *' 'b *')]"
+oid "Bash: a userSettings entry with two rules" allow_always "[$(arl userSettings Bash 'a *' 'b *')]"
+opay mcp__stubmcp__write_thing default '{"x":1}' "[$(arl localSettings mcp__stubmcp__write_thing -)]"
+oid "an MCP tool (the open sent it as the literal mcp, the output stage still uses the held tool name)" allow_always "[$(arl localSettings mcp__stubmcp__write_thing -)]"
+opay WebSearch default '{"query":"q"}' "[$(arl localSettings WebSearch -)]"
+oid "WebSearch: the tool-wide rule" allow_always "[$(arl localSettings WebSearch -)]"
+opay WebFetch default '{"url":"https://example.test/"}' "[$(arl localSettings WebFetch 'domain:example.test')]"
+oid "WebFetch: the domain rule" allow_always "[$(arl localSettings WebFetch 'domain:example.test')]"
+opay Read default '{"file_path":"/tmp/outside/x"}' "[$(arl session Read '/tmp/outside/*')]"
+oid "Read: the session rule" allow_session "[$(arl session Read '/tmp/outside/*')]"
+opay Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E]"
+oid "Write default: the setMode entry" allow_edits_session "[$SM_E]"
+opay Edit default '{"file_path":"[P]/src/a.txt","old_string":"a","new_string":"b"}' "[$SM_E]"
+oid "Edit default: the setMode entry" allow_edits_session "[$SM_E]"
+opay NotebookEdit default '{"notebook_path":"[P]/n.ipynb","new_source":"x"}' "[$SM_E]"
+oid "NotebookEdit default: the setMode entry" allow_edits_session "[$SM_E]"
+opay Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E]"
+odec '{"behavior":"allow","option":"switch_auto"}'
+onone "switch_auto on a tool that never offers it (Write)"
+opay Bash plan '{"command":"ls"}' '[]'
+odec '{"behavior":"allow","option":"switch_auto"}'
+onone "switch_auto in a mode that never offers it (plan)"
+end_case_ans
+
+echo "== answer options decision (ALY-290.2 AC-14, BR-02): the veto is gone, a high-risk request prints a named offered id =="
+ans_case; REAL="$REALBIN_RP"; mkdir -p "$SB/proj/dd"; perm_fs
+opay Bash default '{"command":"echo hi","description":"Print a greeting now"}' "[$ADR,$SM_E]"
+for id in allow_once allow_folder allow_edits_session switch_auto deny; do
+  case "$id" in allow_once|deny) ex='' ;; allow_folder) ex="[$ADR]" ;; allow_edits_session) ex="[$SM_E]" ;; switch_auto) ex='[{"type":"setMode","mode":"auto","destination":"session"}]' ;; esac
+  if [ "$id" = allow_once ]; then
+    odec '{"behavior":"allow","option":"allow_once"}'; check "high Bash: allow_once is printed" "high|$DEC_ALLOW|1" "$(lbody | "$JQ_BIN" -r .risk)|$OUT|$(sacks)"
+  elif [ "$id" = deny ]; then
+    odec '{"behavior":"deny","option":"deny","message":"no"}'; check "high Bash: deny is printed" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"no"}}}|1' "$OUT|$(sacks)"
+  else
+    oid "high Bash: $id is printed" "$id" "$ex"
+  fi
+done
+opay Edit default '{"file_path":"[P]/package.json"}' "[$SM_E]"
+oid "high Edit (protected file): allow_edits_session is printed" allow_edits_session "[$SM_E]"
+check "the risk of that open is still high" "high" "$(lbody | "$JQ_BIN" -r .risk)"
+opay Edit default '{"file_path":"[P]/src/a.txt"}' "[$SM_E]"; odec '{"behavior":"allow","option":"allow_once"}'
+check "normal Edit: the risk sent is normal and allow_once is printed" "normal|$DEC_ALLOW" "$(lbody | "$JQ_BIN" -r .risk)|$OUT"
+end_case_ans
+
+echo "== answer options decision (ALY-290.2 AC-16): malformed decisions print nothing, no ack, no stderr =="
+ans_case; mkdir -p "$SB/proj/dd"
+opay Bash default '{"command":"ls"}' "[$ADR,$SM_E]"
+for d in \
+  '{"behavior":"allow","option":"allow_always"}' '{"behavior":"allow","option":"allow_session"}' '{"behavior":"allow","option":"allow_forever"}' '{"behavior":"allow","option":"bypassPermissions"}' \
+  '{"behavior":"allow","option":""}' '{"behavior":"allow","option":"ALLOW_ONCE"}' '{"behavior":"allow","option":"allow_once "}' \
+  '{"behavior":"allow"}' '{"behavior":"deny"}' '{"option":"allow_once"}' '{"option":"deny"}' \
+  '{"behavior":"deny","option":"allow_once"}' '{"behavior":"allow","option":"deny"}' '{"behavior":"deny","option":"allow_folder"}' '{"behavior":"deny","option":"switch_auto"}' '{"behavior":"ask","option":"allow_once"}' '{"behavior":null,"option":"allow_once"}' \
+  '{"behavior":"allow","option":7}' '{"behavior":"allow","option":["allow_once"]}' '{"behavior":"allow","option":null}' '{"behavior":"allow","option":true}' '{"behavior":"allow","option":{"id":"allow_once"}}' \
+  '{"behavior":"allow","option":"allow_once","message":"x"}' '{"behavior":"allow","option":"allow_folder","message":"x"}' '{"behavior":"allow","option":"switch_auto","message":"x"}' \
+  '{"behavior":"deny","option":"deny","message":5}' '{"behavior":"deny","option":"deny","message":null}' '{"behavior":"deny","option":"deny","message":["x"]}' \
+  '{"behavior":"allow","option":"allow_once","updatedPermissions":[]}' '{"behavior":"allow","option":"allow_folder","updatedPermissions":[{"type":"setMode","mode":"bypassPermissions","destination":"session"}]}' \
+  '{"behavior":"allow","option":"allow_once","rules":[]}' '{"behavior":"allow","option":"allow_once","mode":"auto"}' '{"behavior":"allow","option":"switch_auto","mode":"bypassPermissions"}' \
+  '{"behavior":"allow","option":"allow_once","destination":"userSettings"}' '{"behavior":"allow","option":"allow_once","label":"Yes"}' '{"behavior":"allow","option":"allow_once","updatedInput":{"command":"x"}}' \
+  '{"behavior":"deny","option":"deny","extra":1}' '{"behavior":"allow","option":"allow_once","answers":[{"q":0,"picks":[0]}]}' \
+  '[]' '[{"behavior":"allow","option":"allow_once"}]' 'null' '"allow_once"' '7' '{}'; do
+  odec "$d"
+  onone "malformed $d"
+done
+for w in '{"status":"terminal","decision":{"behavior":"allow","option":"allow_once"}}' '{"status":"expired","decision":{"behavior":"allow","option":"allow_once"}}' '{"status":"ANSWERED","decision":{"behavior":"allow","option":"allow_once"}}' \
+  '{"status":"answered"}' '{"decision":{"behavior":"allow","option":"allow_once"}}' '{"status":"answered","decision":{"behavior":"allow"}}' '{"status":"answered","decision":{"behavior":"deny","message":"no"}}' '[]' 'null'; do
+  perm_wait "$w"
+  onone "malformed wait $w"
+done
+BIGM=$(head -c 70000 /dev/zero | tr '\0' x)
+perm_wait "$("$JQ_BIN" -nc --arg m "$BIGM" '{status: "answered", decision: {behavior: "deny", option: "deny", message: $m}}')"
+onone "a response over 64 KiB (head -c 65536 cuts it)"
+printf '%s\n%s\n' '{"data":{"status":"answered","decision":{"behavior":"allow","option":"allow_once"}}}' '{"data":{"status":"answered","decision":{"behavior":"allow","option":"allow_once"}}}' >"$SB/api/wait-raw"
+smode wait rawbody; : >"$SB/api/requests.log"; ans_run
+onone "two JSON documents in the response"
+printf '%s %s\n' '{"data":{"status":"answered","decision":{"behavior":"allow","option":"allow_once"}}}' '{"data":{"status":"pending"}}' >"$SB/api/wait-raw"
+smode wait rawbody; : >"$SB/api/requests.log"; ans_run
+onone "a trailing document after the answer"
+printf '%s\n' '{"data":{"status":"answered","decision":{"behavior":"allow","option":"allow_once"}}} x' >"$SB/api/wait-raw"
+smode wait rawbody; : >"$SB/api/requests.log"; ans_run
+onone "trailing garbage after the answer"
+printf '%s\n' '{"data":{"status":"answered","decision":{"behavior":"allow","option":"allow_once"}}}' >"$SB/api/wait-raw"
+smode wait rawbody; : >"$SB/api/requests.log"; ans_run
+check "the same single document through rawbody is printed (the harness works)" "$DEC_ALLOW|1" "$OUT|$(sacks)"
+echo "== answer options decision (ALY-290.2 AC-16, S15): one malformed entry among valid ones rejects the whole output =="
+for badskill in '{"type":"addRules","rules":[{"toolName":"Skill","ruleContent":"foo:*"}],"behavior":"allow","destination":"localSettings","extra":1}' \
+                '{"type":"addRules","rules":"Skill(foo:*)","behavior":"allow","destination":"localSettings"}' \
+                '{"type":"addRules","rules":[{"toolName":"Skill","ruleContent":"foo:*"}],"behavior":"allow","destination":"session"}'; do
+  opay Skill default '{"skill":"s"}' "[$(arl localSettings Skill 'foo'),$badskill]"
+  odec '{"behavior":"allow","option":"allow_always"}'
+  onone "Skill with a valid entry and a malformed one ($badskill)"
+done
+end_case_ans
+
+echo "== answer options decision (ALY-290.2 D-05, AC-08): texts off keeps the legacy shape, texts on rejects it =="
+ans_case; REAL="$REALBIN_RP"; perm_fs
+opay Edit default '{"file_path":"[P]/src/a.txt"}' "[$SM_E]"
+odec '{"behavior":"allow"}'
+onone "texts on, options sent: the legacy {behavior: allow} is malformed (option missing)"
+odec '{"behavior":"deny","message":"no"}'
+onone "texts on, options sent: the legacy deny is malformed"
+for flag in activity-off detailed-off; do
+  mkdir -p "$DATA/live"; chmod 700 "$DATA/live"; : >"$DATA/live/$flag"
+  opay Edit default '{"file_path":"[P]/src/a.txt"}' "[$SM_E]"
+  odec '{"behavior":"allow"}'
+  check "$flag: the legacy allow at normal risk is printed" "$DEC_ALLOW|1" "$OUT|$(sacks)"
+  odec '{"behavior":"deny","message":"no"}'
+  check "$flag: the legacy deny is printed" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"no"}}}|1' "$OUT|$(sacks)"
+  odec '{"behavior":"allow","option":"allow_once"}'
+  onone "$flag: an option decision is malformed (extra key)"
+  odec '{"behavior":"allow","option":"allow_edits_session"}'
+  onone "$flag: an option id that was never offered"
+  opay Bash default '{"command":"ls"}' '[]'
+  odec '{"behavior":"allow"}'
+  onone "$flag: the legacy allow at high risk prints nothing"
+  odec '{"behavior":"deny","message":"no"}'
+  check "$flag: the legacy deny at high risk is printed" '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"no"}}}|1' "$OUT|$(sacks)"
+  rm -f "$DATA/live/$flag"
+done
+end_case_ans
+
+echo "== answer options decision (ALY-290.2 AC-18): terminal first, expired and an API down stay as before =="
+ans_case
+opay Write default '{"file_path":"[P]/src/a.txt","content":"x"}' "[$SM_E]"
+for m in terminal expired no_audience nodecision malformed 500 404; do
+  smode wait "$m"; : >"$SB/api/requests.log"; ans_run
+  check "wait $m: silent, nothing printed, no ack" "0||0" "$RC|$OUT$ERR|$(sacks)"
+done
+smode wait terminal; : >"$SB/api/requests.log"; ans_run
+check "terminal first: no ack and no cancel (the terminal keeps the last word)" "0 0" "$(sacks) $(scancels)"
+smode wait pending; RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj" "LIVE_ANSWER_BUDGET_S=3"); : >"$SB/api/requests.log"; ans_run; RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj")
+check "the deadline passes: silent, the request is cancelled once, nothing printed" "0||1" "$RC|$OUT$ERR|$(scancels)"
+end_case_ans
+
+echo "== answer options decision (ALY-290.2 AC-20, BR-06, D-11): static scan of the decision program and its path =="
+ACODE=$(grep -v '^[[:space:]]*#' "$ANS")
+DCODE=$(awk '/^DECIDE_JQ=/{f=1} f{print} f&&/^  else outline/{exit}' "$ANS")
+check "the decision program was found" "yes" "$([ -n "$DCODE" ] && printf '%s\n' "$DCODE" | grep -q 'updatedPermissions' && echo yes || echo no)"
+PAFUNC=$(awk '/^permission_answered\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$ANS" | grep -v '^[[:space:]]*#')
+check "updatedPermissions appears only in the one decision program" "yes" "$([ "$(printf '%s\n' "$ACODE" | grep -c 'updatedPermissions')" = "$(printf '%s\n' "$DCODE" | grep -c 'updatedPermissions')" ] && echo yes || echo no)"
+check "the only constructed setMode entry is the constant of AC-15 (mode auto, destination session); the lookup reads setMode as input" "1 1" "$(printf '%s\n' "$ACODE" | grep -c 'type: "setMode"') $(printf '%s\n' "$ACODE" | grep 'type: "setMode"' | grep -c 'mode: "auto", destination: "session"')"
+check "bypassPermissions and dontAsk appear in no output path (no occurrence outside comments)" "0" "$(printf '%s\n' "$ACODE" | grep -cE 'bypassPermissions|dontAsk' || true)"
+check "no updatedInput is built by the permission path (only the question path builds it)" "0" "$(printf '%s\n%s\n' "$DCODE" "$PAFUNC" | grep -c 'updatedInput' || true)"
+check "one printf of the output" "1" "$(printf '%s\n' "$ACODE" | grep -cF -- 'printf '"'"'%s\n'"'"' "$O"' || true)"
+check "the single printf is the last command of permission_answered, after every check" "yes" "$([ "$(printf '%s\n' "$PAFUNC" | grep -v '^[[:space:]]*$' | tail -n 2 | head -n 1 | tr -d ' ')" = 'printf'"'"'%s\n'"'"'"$O"' ] && echo yes || echo no)"
+check "the ack comes after permission_answered (and so after the printf)" "1" "$(printf '%s\n' "$ACODE" | grep -c 'elif permission_answered; then api_call POST "/api/live/requests/\$RID/ack"')"
+#@held-scan-begin
+held_scan() {  # FILE: scans the WHOLE bodies of perm_options and permission_answered (comments stripped): "forbidden-forms|copies|redirects|jq-args"
+  local b
+  b=$(for f in perm_options permission_answered; do awk -v f="$f" '$0 ~ "^"f"\\(\\) \\{"{p=1} p{print} p&&/^\}/{exit}' "$1"; done | grep -v '^[[:space:]]*#')
+  printf '%s|%s|%s|%s' \
+    "$(printf '%s\n' "$b" | grep -cE '(^|[[:space:];])(export|declare +-[a-zA-Z]*x|typeset +-[a-zA-Z]*x)([[:space:]]|$)|<<' || true)" \
+    "$(printf '%s\n' "$b" | grep -cE '=\(?"?\$\{?PERM_SUGG' || true)" \
+    "$(printf '%s\n' "$b" | grep 'PERM_SUGG' | sed -e 's/2>\/dev\/null//g' -e 's/>\/dev\/null//g' -e 's/>&[0-9]//g' | grep -cE '>' || true)" \
+    "$(printf '%s\n' "$b" | grep -oE -- '--(arg|argjson|rawfile|slurpfile) +[A-Za-z_]+ +(<\([^)]*\)|"[^"]*"|[^ ]+)' | sed 's/  */ /g' | tr '\n' ';')"
+}
+HELD_EXP='0|0|0|--arg tool "$TOOL";--arg mode "$PERM_MODE";--arg cpath "$PERM_CLAUDE_PATH";--argjson l "$OPT_LABELS";--slurpfile r "$T/resp.b";--arg risk "$RISK";--arg tool "$PERM_TOOL";--arg mode "$PERM_MODE";--arg cpath "$PERM_CLAUDE_PATH";--argjson offer "$PERM_OPTIONS";--argjson opts "$opts";--rawfile m <(printf '"'"'%s'"'"' "$N");'
+#@held-scan-end
+check "the held entries stay on stdin: no export / declare -x / here-string / heredoc, no copy of PERM_SUGG, no redirect of it, and every jq --arg/--argjson/--rawfile/--slurpfile (name and value) in perm_options and permission_answered is on the allow-list (SHD-01)" "$HELD_EXP" "$(held_scan "$ANS")"
+check "the decision program gets the held entries through exactly one pipe on stdin" "1" "$(printf '%s\n' "$PAFUNC" | grep -c "printf '%s' \"\$PERM_SUGG\" | jq")"
+check "the decision path never calls realpath, readlink, resolve_path or an external command on a held entry" "0" "$(printf '%s\n%s\n' "$DCODE" "$PAFUNC" | grep -cE 'realpath|readlink|resolve_path|folder_check|\bcd\b' || true)"
+check "the output stage re-runs the lookup: the decision program embeds LOOKUP_JQ and takes no rule, mode, destination or path from the API" "1 0" "$(printf '%s\n' "$ACODE" | grep -c "^'\"\$LOOKUP_JQ\"'\$") $(printf '%s\n' "$DCODE" | grep -cE '\$d\.(rules|mode|destination|label|path|updatedPermissions)|\$r\[0\]\.data\.decision\.(rules|mode|destination|label)' || true)"
+check "the script stays executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
+
+echo "== answer options privacy (ALY-290.3 AC-11, BR-01): no rule text or directory leaves either hook, in any file, process or log =="
+# A canary in ruleContent (Bash addRules) and one in directories (addDirectories, a real subfolder of the sandbox home) goes through BOTH
+# scripts (the reporter also receives PermissionRequest). PATH shims log every argv and environment, a curl stand-in keeps the config it
+# receives on stdin and the body file it names, /proc is read during the runs (also while getent is held, i.e. while the folder is being
+# resolved, and while the wait is held). The canary may be only in the final stdout line of the run whose chosen option holds it.
+PV_RULE="zzcanary-rule-7qx"; PV_DIR="zzcanary-dir-9kq"
+PV_SPY="" ; PVPOLL=""
+pv_spy() {  # DIR [leaky]: every real tool as an argv-logging shim, curl as the recording stand-in, getent as the holdable one
+  local t; mkdir -p "$1"
+  for t in "$REALBIN"/*; do cp "$FIX/argv-canary-shim.sh" "$1/${t##*/}"; done
+  cp "$FIX/curl-spy-shim.sh" "$1/curl"; cp "$FIX/getent-hold-shim.sh" "$1/getent"
+  if [ -n "${2:-}" ]; then   # the negative control: a jq that keeps what it receives on a pipe
+    printf '%s\n' '#!/bin/bash' \
+      '[ -p /dev/stdin ] && { f="$SPY_DIR/in.$$"; "$CANARY_REAL/cat" >"$f"; exec "$CANARY_REAL/jq" "$@" <"$f"; }' \
+      'exec "$CANARY_REAL/jq" "$@"' >"$1/jq"
+  fi
+  chmod 755 "$1"/*
+}
+pv_env() {  # [hold]
+  RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj" "ANS_MARK=$MARK" "CANARY_LOG=$SB/canary.log" "CANARY_REAL=$REALBIN" "SPY_DIR=$PV_SPY" "LIVE_ANSWER_DEBUG=1")
+  [ -z "${1:-}" ] || RUN_ENV+=("HOLD_STARTED=$SB/hold.started" "HOLD_RELEASE=$SB/hold.release")
+}
+pv_snap() {  # OUTFILE: pid, command line and environment of every process of this case (its ANS_MARK), appended
+  local e p
+  for e in $(grep -lsz -x "ANS_MARK=$MARK" /proc/[0-9]*/environ 2>/dev/null); do
+    p=${e%/environ}
+    { printf 'PID %s\n' "${p#/proc/}"; tr '\0' ' ' <"$p/cmdline"; printf '\n'; tr '\0' '\n' <"$e"; } >>"$1" 2>/dev/null
+  done
+  return 0
+}
+pv_poll() { local i; for i in $(seq 1 4000); do [ -e "$2" ] && break; pv_snap "$1"; sleep 0.02; done; }   # bounded count, never a clock assertion
+pv_poll_start() { rm -f "$SB/poll.stop"; pv_poll "$SB/proc.snap" "$SB/poll.stop" & PVPOLL=$!; BGKILL+=("$PVPOLL"); }
+pv_poll_stop() { : >"$SB/poll.stop"; wait "$PVPOLL" 2>/dev/null; PVPOLL=""; }
+pv_note() {  # after a run: its stderr and the stub's log are kept, the stub's log is cleared
+  printf '%s\n' "$ERR" >>"$SB/stderr.all"; slog >>"$SB/allreq.log"; : >"$SB/api/requests.log"
+}
+pv_hits() { grep -rlsF -e "$PV_RULE" -e "$PV_DIR" "$@" 2>/dev/null | sed "s|$SB/||" | sort | tr '\n' ' '; }
+ans_case; mkdir -p "$SB/noshims" "$SB/spy" "$SB/home/$PV_DIR"; SHIMD="$SB/noshims"; DATA_ENV="$DATA"; PV_SPY="$SB/spy"
+pv_spy "$SB/spybin"; REAL="$SB/spybin"; : >"$SB/canary.log"; : >"$SB/proc.snap"; : >"$SB/stdout.nonfinal"; : >"$SB/allreq.log"; : >"$SB/stderr.all"
+PV_AR=$("$JQ_BIN" -nc --arg r "$PV_RULE *" '{type: "addRules", rules: [{toolName: "Bash", ruleContent: $r}], behavior: "allow", destination: "localSettings"}')
+PV_AD=$("$JQ_BIN" -nc --arg d "$SB/home/$PV_DIR" '{type: "addDirectories", directories: [$d], destination: "session"}')
+PV_SUGG_R="[$PV_AR]"; PV_SUGG_F="[$PV_AD,$SM_E]"; PV_SUGG_M="[$PV_AR,$PV_AD]"   # the rule alone, the folder (+ edits), both (a shape the table does not map)
+pv_pay() { ans_payload_ex sess-0001 Bash '{"command":"ls"}' default "$1"; }
+
+# 1. the reporter receives the same PermissionRequest (three payloads: rule, folder, both canaries in one)
+pv_env; pv_poll_start
+for PV_S in "$PV_SUGG_R" "$PV_SUGG_F" "$PV_SUGG_M"; do
+  pv_pay "$PV_S"; run_hook
+  check "the reporter: exit 0, stdout and stderr empty" "0||" "$RC|$OUT|$ERR"
+  printf '%s\n' "$OUT" >>"$SB/stdout.nonfinal"; pv_note
+done
+pv_poll_stop
+check "the reporter wrote a spool for the session (the scan below reads it)" "yes" "$([ -s "$(spool_of sess-0001)" ] && echo yes || echo no)"
+smode wait terminal
+
+# 2. the answer client while the folder is being resolved (getent held)
+pv_pay "$PV_SUGG_F"; pv_env hold; rm -f "$SB/hold.started" "$SB/hold.release"; ans_bg
+for i in $(seq 1 3000); do [ -e "$SB/hold.started" ] && break; sleep 0.01; done
+check "the folder check is running: the held getent started" "yes" "$([ -e "$SB/hold.started" ] && echo yes || echo no)"
+: >"$SB/hold1.snap"; pv_snap "$SB/hold1.snap"; cat "$SB/hold1.snap" >>"$SB/proc.snap"
+check "/proc was read while the folder was being resolved: the hook and the getent are in the capture" "yes yes" "$([ "$(grep -c 'live-answer.sh' "$SB/hold1.snap")" -ge 1 ] && echo yes || echo no) $([ "$(grep -c 'getent passwd' "$SB/hold1.snap")" -ge 1 ] && echo yes || echo no)"
+: >"$SB/hold.release"; ans_bg_end
+check "run with the folder held: exit 0, nothing printed, no stderr" "0||" "$RC|$OUT|$ERR"
+check "the open offered the folder (ids only)" "allow_once,allow_edits_session,allow_folder,switch_auto,deny|false" "$(slog | "$JQ_BIN" -r 'select(.method == "POST" and .path == "/api/live/requests") | .body | fromjson | (([.options[]?.id] | join(",")) + "|" + ((.options_partial // false) | tostring))')"
+printf '%s\n' "$OUT" >>"$SB/stdout.nonfinal"; pv_note
+
+# 3. the answer client while the wait is held (curl in flight, every entry in memory)
+pv_env; smode wait hold; ans_bg; swait_hits 1
+: >"$SB/hold2.snap"; pv_snap "$SB/hold2.snap"; cat "$SB/hold2.snap" >>"$SB/proc.snap"
+check "/proc was read while the wait was held: the hook and a curl with --max-redirs are in the capture" "yes yes" "$([ "$(grep -c 'live-answer.sh' "$SB/hold2.snap")" -ge 1 ] && echo yes || echo no) $([ "$(grep -c 'max-redirs' "$SB/hold2.snap")" -ge 1 ] && echo yes || echo no)"
+kill -TERM "$BGPID" 2>/dev/null; ans_bg_end
+printf '%s\n' "$OUT" >>"$SB/stdout.nonfinal"; pv_note; rm -f "$DATA/live/answer-backoff"; smode wait terminal
+
+# 4. the unmapped payload with both canaries: no options beyond once and deny, partial, nothing printed
+pv_pay "$PV_SUGG_M"; pv_env; pv_poll_start; ans_run; pv_poll_stop
+check "both canaries in one payload: only the plain options, partial, silent" "allow_once,switch_auto,deny|true|0||" "$(oids)|$RC|$OUT|$ERR"
+printf '%s\n' "$OUT" >>"$SB/stdout.nonfinal"; pv_note
+
+# 5. the user chooses the persistent rule: the rule text is in the final line, the directory is not
+pv_pay "$PV_SUGG_R"; pv_env; pv_poll_start
+odec '{"behavior":"allow","option":"allow_always"}'
+pv_poll_stop
+ocheck "allow_always: the one line holds exactly the held rule group" "$(oexp "$PV_SUGG_R")"
+check "allow_always: the rule canary is in that one final line, the directory canary is not" "1 1 0" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ') $(printf '%s\n' "$OUT" | grep -c "$PV_RULE") $(printf '%s\n' "$OUT" | grep -c "$PV_DIR")"
+pv_note
+
+# 6. the user chooses the folder: the directory is in the final line, the rule text is not
+pv_pay "$PV_SUGG_F"; pv_env; pv_poll_start
+odec '{"behavior":"allow","option":"allow_folder"}'
+pv_poll_stop
+ocheck "allow_folder: the one line holds exactly the held directory entry" "$(oexp "[$PV_AD]")"
+check "allow_folder: the directory canary is in that one final line, the rule canary is not" "1 0 1" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ') $(printf '%s\n' "$OUT" | grep -c "$PV_RULE") $(printf '%s\n' "$OUT" | grep -c "$PV_DIR")"
+pv_note
+
+# the scan: the scan sources were really filled
+check "the shims logged the processes the runs started" "yes" "$([ "$(grep -c '^ARGV ' "$SB/canary.log")" -gt 10 ] && echo yes || echo no)"
+check "the curl stand-in kept the configs (token header, body file line) and the open bodies it was given" "yes yes" "$([ "$(grep -l 'data-binary = "@' "$SB"/spy/cfg.* 2>/dev/null | wc -l | tr -d ' ')" -ge 2 ] && echo yes || echo no) $([ "$(grep -l '"session_hash"' "$SB"/spy/body.* 2>/dev/null | wc -l | tr -d ' ')" -ge 2 ] && echo yes || echo no)"
+check "the /proc capture holds processes of the runs (hook, getent, curl)" "yes" "$([ "$(grep -c '^PID ' "$SB/proc.snap")" -ge 6 ] && echo yes || echo no)"
+check "the debug log exists, is private (600) and non-empty" "600 yes" "$(find "$DATA/live/answer-debug.log" -prune -printf '%m' 2>/dev/null) $([ -s "$DATA/live/answer-debug.log" ] && echo yes || echo no)"
+# the scan: no canary anywhere but the final lines
+check "no canary in any open body or other request the stub received (both scripts)" "" "$(pv_hits "$SB/allreq.log")"
+check "no canary in any curl config or body file (copied while they existed)" "" "$(pv_hits "$SB/spy")"
+check "no canary in any file under the plugin data dir (spool, state, temp files, 0600 debug log)" "" "$(pv_hits "$DATA")"
+check "no canary in the argv or environment logged by the PATH shims" "" "$(pv_hits "$SB/canary.log")"
+check "no canary in any /proc cmdline or environ captured during the runs (also while the folder was resolved)" "" "$(pv_hits "$SB/proc.snap")"
+check "no canary on stderr of either script, nor on the stdout of the reporter or of a run without a chosen option" "" "$(pv_hits "$SB/stderr.all" "$SB/stdout.nonfinal")"
+check "no process of the case is left (the held getent and curl are gone)" "0" "$(marked)"
+# negative control 1: a deliberately leaky jq copy in the sandbox keeps what it receives; the same scan must flag it
+mkdir -p "$SB/spy2"; pv_spy "$SB/spybin2" leaky; REAL="$SB/spybin2"; PV_SPY="$SB/spy2"; pv_env
+pv_pay "$PV_SUGG_F"; smode wait terminal; ans_run
+check "control: the leaky jq run still exits 0 silently" "0||" "$RC|$OUT|$ERR"
+check "control: the scan flags the canary the leaky shim kept (a file under spy2)" "yes" "$(case "$(pv_hits "$SB/spy2")" in spy2/in.*) echo yes ;; *) echo no ;; esac)"
+REAL="$SB/spybin"; PV_SPY="$SB/spy"
+# negative control 2: a process holding the canary in its command line and in its environment is flagged by the /proc capture
+: >"$SB/ctl.snap"
+ANS_MARK="$MARK" PVLEAK="$PV_RULE" "$BASH_BIN" -c 'sleep 3; :' "$PV_DIR" & CTLP=$!; CTLS=$(pstart "$CTLP")
+for i in $(seq 1 300); do pv_snap "$SB/ctl.snap"; [ "$(pv_hits "$SB/ctl.snap")" != "" ] && break; sleep 0.01; done
+[ "$(pstart "$CTLP")" = "$CTLS" ] && kill "$CTLP" 2>/dev/null; wait "$CTLP" 2>/dev/null
+check "control: the /proc capture flags a canary in a command line and in an environment" "yes yes" "$([ "$(grep -c "^bash -c\|bash -c" "$SB/ctl.snap")" -ge 1 ] && grep -qF "$PV_DIR" "$SB/ctl.snap" && echo yes || echo no) $(grep -q "^PVLEAK=$PV_RULE" "$SB/ctl.snap" && echo yes || echo no)"
 end_case_ans
 
 #@keepnext

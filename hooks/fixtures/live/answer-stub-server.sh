@@ -11,9 +11,11 @@
 # node's pid). It writes DIR/port when listening, appends one JSON line per request to DIR/requests.log
 # ({method, path, auth, ctype, body}: `auth` is true/false, the credential itself is never logged), and re-reads these control files
 # of DIR at every request:
-#   open         ok (default) | unanswerable | 404 (code not_found) | run_not_found (404, code run_not_found) | 405 | 429 | 500 | garbage | notjson | redirect | hold | killmid
+#   open         ok (default) | unanswerable | 400 (invalid_request) | 404 (code not_found) | run_not_found (404, code run_not_found) | 405 | 429 | 500 | garbage | notjson | redirect | hold | killmid
+#   open-created (ALY-290.1, D-03) the `created` key of the open answer: true (default) | false | missing (no key) | string (the string "true")
 #   wait         space-separated modes, the Nth wait call takes the Nth word (the last repeats):
 #                pending (default) | allow | deny | question | decision | nodecision | terminal | expired | no_audience | slow | hold | malformed | unknown | redirect | 500 | 404 | 429
+#                rawbody (ALY-290.2): answers with the file wait-raw as the whole body, byte for byte
 #                rawdata (ALY-269.5): answers with the file wait-data as the whole `data` object (any decision shape)
 #   expires-in   seconds from the open to `expiresAt` (default 100); expires-at: a raw expiresAt string that overrides it
 #   decision     (ALY-269.4) raw JSON file read by the wait mode `decision`: its content becomes `data.decision` of an `answered` wait
@@ -39,6 +41,7 @@ const common = (req, res, mode, okFn) => {
   switch (mode) {
     case "hold": return;
     case "500": return fail(res, req.url, 500, "internal_error");
+    case "400": return fail(res, req.url, 400, "invalid_request");
     case "404": return fail(res, req.url, 404, "not_found");
     case "run_not_found": return send(res, 404, { timestamp: "2026-01-01T00:00:00.000Z", requestId: "r-1", correlationId: "c-1", path: req.url, error: { statusCode: 404, message: { code: "run_not_found", message: "Session not found." } } });
     case "405": return fail(res, req.url, 405, "method_not_allowed");
@@ -56,10 +59,15 @@ const server = createServer((req, res) => {
   req.on("end", () => {
     appendFileSync(`${dir}/requests.log`, JSON.stringify({ method: req.method, path: req.url, auth: !!req.headers.authorization, ctype: req.headers["content-type"] ?? null, body: raw }) + "\n");
     const path = req.url.split("?")[0];
-    if (path === "/redirect-target") return ok(res, { id: "stub-req-1", expiresAt: new Date(Date.now() + 100000).toISOString(), answerable: true });
+    if (path === "/redirect-target") return ok(res, { id: "stub-req-1", expiresAt: new Date(Date.now() + 100000).toISOString(), answerable: true, created: true });
     if (req.method === "POST" && path === "/api/live/requests") {
       const m = read("open", "ok");
-      return common(req, res, m, () => ok(res, { id: "stub-req-1", expiresAt: read("expires-at", "") || new Date(Date.now() + Number(read("expires-in", "100")) * 1000).toISOString(), answerable: m !== "unanswerable" }));
+      return common(req, res, m, () => {
+        const data = { id: "stub-req-1", expiresAt: read("expires-at", "") || new Date(Date.now() + Number(read("expires-in", "100")) * 1000).toISOString(), answerable: m !== "unanswerable" };
+        const c = read("open-created", "true");
+        if (c === "true") data.created = true; else if (c === "false") data.created = false; else if (c === "string") data.created = "true";
+        return ok(res, data);
+      });
     }
     const w = path.match(/^\/api\/live\/requests\/([^/]+)\/(wait|ack|cancel)$/);
     if (!w) return fail(res, req.url, 404, "not_found");
@@ -76,6 +84,7 @@ const server = createServer((req, res) => {
           case "decision": return done("answered", { decision: JSON.parse(read("decision", "null")) });
           case "nodecision": return done("answered");
           case "rawdata": return ok(res, JSON.parse(read("wait-data", "{}")));   // ALY-269.5: the raw `data` of the wait answer, from the control file wait-data
+          case "rawbody": return send(res, 200, readFileSync(`${dir}/wait-raw`, "utf8"));   // ALY-290.2: the file wait-raw is the whole body, byte for byte (two documents, a trailing document)
           case "terminal": return done("terminal", { reason: "cmd_end" });
           case "expired": return done("expired", { reason: "expired" });
           case "no_audience": return done("expired", { reason: "no_audience" });

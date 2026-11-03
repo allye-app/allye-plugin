@@ -1,11 +1,15 @@
 #!/bin/bash
-# Claude Code blocking PermissionRequest hook of the Live return channel (ALY-269, D-07). Slice ALY-269.3: the answer CLIENT.
-# It opens a request on the Allye API and waits for the answer. Slice .5 adds the permission path: risk, D-08 phrase and the
-# PermissionRequest output (the question path is slice .4). stdin = the Claude Code hook JSON, stdout = hook output.
+# Claude Code blocking PermissionRequest hook of the Live return channel (ALY-269, D-07). It opens a request on the Allye API and waits for
+# the answer. Question path (ALY-269.4): AskUserQuestion. Permission path (ALY-269.5, ALY-290): risk, the D-08 phrase, the terminal options
+# of the prompt offered as fixed ids (once, session edits, session rule, folder, persistent rule, auto mode, deny) and the PermissionRequest
+# output. The rule text, directories and modes of permission_suggestions stay on this machine (ALY-290, BR-01): they are held in memory in one
+# unexported variable, reach jq on stdin only, never leave in the open, and appear only in the final stdout line of the option the user chose,
+# rebuilt by the hook itself from those held entries (never from the API). Whatever the request's risk, an offered id is honoured (a request opened with options); a fresh
+# password or MFA for a persistent rule is enforced by the API. stdin = the Claude Code hook JSON, stdout = hook output.
 #
 # Contract (BR-02, AC-16): the terminal keeps the last word. On any doubt the script exits 0 with no output; every exit below is
 # a literal `exit 0`, there is no `set -e`, and a top-level ERR trap ends with exit 0. stderr is never written (`exec 2>/dev/null`),
-# stdout gets one line only for a strictly validated permission decision (permission_answered). Runtime: bash 3.2+, curl, jq, sha256sum or shasum.
+# stdout gets one line only for a strictly validated permission decision (permission_answered, one jq program). Runtime: bash 3.2+, curl, jq, sha256sum or shasum.
 #
 # Origin and credential (AC-17, D-15, D-16): the API origin and the token come ONLY from the pairing file, read through
 # hooks/lib/credential.sh (load_live_credential); no environment variable or project setting is consulted for either. The origin is
@@ -21,7 +25,7 @@
 # hooks/live-report.sh slice .2 computes `h`. The session is identified to the API by session_hash = sha256 of the session_id (no
 # trailing newline), the same value as the reporter's HASH.
 #
-# Open (AC-06): POST /api/live/requests {session_hash, kind, hash, risk, tool[, phrase][, after]} (no tu, never; `after` = the reporter's seq when readable safely, see read_after), --max-time 2.
+# Open (AC-06): POST /api/live/requests {session_hash, kind, hash, risk, tool[, phrase][, options][, options_partial][, after]} (no tu, never; `after` = the reporter's seq when readable safely, see read_after), --max-time 2.
 # answerable false: exit at once. true: poll GET /api/live/requests/:id/wait until the deadline = min(110 s, expiresAt), each chunk
 # --max-time min(30, remaining - 1), stopping when 1 s or less remains. 110 is the default of ANSWER_BUDGET_DEFAULT below;
 # LIVE_ANSWER_BUDGET_S (digits, at most 110) lowers it and exists for tests only. Every status ends the loop here except `pending`.
@@ -654,27 +658,227 @@ phrase_of() {
   return 0
 }
 
-# DECIDE_JQ (AC-07, AC-09, BR-02): the ONLY producer of the PermissionRequest output. It prints nothing unless status is `answered`
-# and the decision is an object whose keys are `behavior` (exactly "allow" or "deny") and optionally `message` (a string). The message
-# is cleaned: ANSI escape sequences removed, control, bidi, zero-width, tag and other invisible code points (the reporter's actbad)
-# stripped, whitespace to single spaces, 200 code points at most. NFC runs through `uconv -x any-nfc` only when that tool is on the
-# PATH (none is guaranteed): without it, strip and cap only. A decision `allow` on a request whose OWN risk is high is dropped here (fail closed,
-# BR-02: the API enforces deny-only for high, this is the plugin-side check). Never updatedPermissions, updatedInput or an "always" rule.
+# ─── ALY-290.1: the options of a permission request (D-10, D-11, D-12, D-14, D-15; AC-01 to AC-10) ─────
+# Cross-slice contracts (the output stage of slice .2 and the folder check of slice .5 consume exactly these):
+#   PERM_SUGG          held, UNEXPORTED: the payload's permission_suggestions as compact JSON, ALWAYS a valid JSON array (`[]` for a missing, null or
+#                      non-array value, for more than 32 KiB (utf8bytelength) and for a read failure). It reaches jq on stdin only: never argv,
+#                      environment, here-string or file.
+#   PERM_TOOL          the unredacted tool name of the open (TOOL is renamed `mcp` afterwards); the output stage re-runs the lookup with it.
+#   PERM_MODE          the literal permission_mode ([A-Za-z]{1,32}), or "".
+#   PERM_CLAUDE_PATH   yes | no | unknown: for Write, Edit and NotebookEdit, whether file_path / notebook_path has a `.claude` path component
+#                      (unknown = missing or not a string); "no" for every other tool.
+#   LOOKUP_JQ          pure lookup of the WHOLE shape (S24) against the SPIKE table. stdin = the held suggestions; --arg tool, mode, cpath only.
+#                      Output {ids, groups: {id: [entries verbatim, payload order]}, partial}; ids in D-02 order, never switch_auto, deny or allow_once.
+#   folder_check       reads the allow_folder group's `directories` JSON on stdin; returns 0 ONLY on a full successful check (ALY-290.5:
+#                      builtin-only resolution, refuses /, home and its ancestors; any doubt fails closed: allow_folder not offered, options_partial true).
+#   PERM_OFFER         array, final id list in D-02 order, always starting allow_once and ending deny (also computed when texts are off).
+#   PERM_PARTIAL       true | false (D-14).
+#   PERM_OPTIONS       JSON [{id, label}] of PERM_OFFER, labels from OPT_LABELS (D-15).
+# Phrase "Use a tool" is set here (outside PHRASE_DEFS), only when texts are on; options go on the open body only with texts on and a phrase.
+OPT_LABELS='{"allow_once":"Yes","allow_edits_session":"Yes, allow all edits this session","allow_session":"Yes, allow for this session","allow_folder":"Yes, allow this folder","allow_always":"Yes, always allow","switch_auto":"Yes, switch to auto mode","deny":"No"}'
+DENIED_TOOLS=" ExitPlanMode "   # D-12: literal names (spike S19, T20): never a phrase, never options, not answerable
+READ_JQ='
+(.permission_suggestions) as $s
+| (if ($s | type) == "array" then (if ($s | tojson | utf8bytelength) > 32768 then "big", "[]" else "ok", ($s | tojson) end) else "none", "[]" end),
+  (.permission_mode | if type == "string" and test("\\A[A-Za-z]{1,32}\\z") then . else "" end),
+  (.tool_name as $t | if ($t | IN("Write", "Edit", "NotebookEdit")) then
+      ((if $t == "NotebookEdit" then "notebook_path" else "file_path" end) as $k
+       | (.tool_input | objects | .[$k]) as $p
+       | if ($p | type) != "string" or $p == "" then "unknown"
+         elif ($p | gsub("\\\\"; "/") | split("/") | any(ascii_downcase == ".claude")) then "yes" else "no" end)
+    else "no" end)'
+LOOKUP_JQ='
+def strs: type == "array" and length >= 1 and all(.[]; type == "string");
+def rule_ok($t; $wide): type == "object" and ((keys == ["ruleContent", "toolName"]) or (keys == ["toolName"])) and .toolName == $t
+  and (if has("ruleContent") then (.ruleContent | type == "string" and (gsub("\\s"; "") | . != "" and . != "*")) else $wide end);
+def tag($t; $wide):
+  if type != "object" then null
+  elif .type == "addDirectories" then
+    if keys == ["destination", "directories", "type"] and .destination == "session" and (.directories | strs) then "AD" else null end
+  elif .type == "setMode" then
+    if keys == ["destination", "mode", "type"] and .mode == "acceptEdits" and .destination == "session" then "SM" else null end
+  elif .type == "addRules" then
+    if keys == ["behavior", "destination", "rules", "type"] and .behavior == "allow" and (.destination | IN("session", "localSettings", "projectSettings", "userSettings"))
+       and (.rules | type == "array" and (length == 1 or length == 2)) and all(.rules[]; rule_ok($t; $wide))
+    then "AR:" + .destination + ":" + ([.rules[] | if has("ruleContent") then "c" else "n" end] | join("")) else null end
+  else null end;
+def order: ["allow_edits_session", "allow_session", "allow_folder", "allow_always"];
+. as $sugg
+| if ($sugg | length) == 0 then {ids: [], groups: {}, partial: false} else
+  ($sugg | map(tag($tool; ($tool | startswith("mcp__")) or $tool == "WebSearch"))) as $shape
+  | (if any($shape[]; . == null) then null else $shape end) as $sh
+  | (if $sh == null then null
+     elif $tool == "Bash" and ($mode == "default" or $mode == "acceptEdits") then
+       (if $mode == "default" and $sh == ["AD", "SM"] then {allow_folder: [0], allow_edits_session: [1]}
+        elif ($sh | length) == 1 and ($sh[0] | test("\\AAR:(localSettings|projectSettings|userSettings):c{1,2}\\z")) then {allow_always: [0]}
+        elif ($sh | length) == 1 and ($sh[0] | test("\\AAR:session:c{1,2}\\z")) then {allow_session: [0]}
+        else null end)
+     elif $mode != "default" then null
+     elif ($tool | IN("Write", "Edit", "NotebookEdit")) then (if $sh == ["SM"] then {allow_edits_session: [0]} else null end)
+     elif $tool == "Read" then (if $sh == ["AR:session:c"] then {allow_session: [0]} else null end)
+     elif $tool == "WebFetch" then (if $sh == ["AR:localSettings:c"] then {allow_always: [0]} else null end)
+     elif $tool == "WebSearch" then (if $sh == ["AR:localSettings:n"] then {allow_always: [0]} else null end)
+     elif $tool == "Skill" then (if $sh == ["AR:localSettings:c", "AR:localSettings:c"] then {allow_always: [0, 1]} else null end)
+     elif ($tool | startswith("mcp__")) then (if $sh == ["AR:localSettings:n"] then {allow_always: [0]} else null end)
+     else null end) as $sel
+  | if $sel == null then {ids: [], groups: {}, partial: true}
+    elif ($tool | IN("Write", "Edit", "NotebookEdit")) and $cpath != "no" then {ids: [], groups: {}, partial: true}
+    else {ids: [order[] | select(. as $i | $sel | has($i))], groups: ($sel | with_entries(.value |= map($sugg[.]))), partial: false} end
+  end'
+folder_check() {  # ALY-290.5 (BR-07, AC-23, D-17): stdin = the group's directories as JSON; 0 only when EVERY directory was checked and none is refused
+  # jq alone validates the group (an array of 1 or more strings, each absolute, no control character, so no newline) and prints "n COUNT" then one
+  # directory per line, all or nothing. The loop gets them through the pipe. Resolution uses only shell builtins in a subshell (cd -P, pwd -P):
+  # nothing is exec'd with a directory, so none reaches argv or the environment. Refused: / , home and every ancestor of home, for $HOME and the
+  # passwd home (getent, when it exists; its argv is only the uid), compared without case. Any doubt (unresolvable, HOME unset or not absolute,
+  # jq failing, a count that does not match) returns 1.
+  jq -r 'if type == "array" and length >= 1 and all(.[]; type == "string" and startswith("/") and (explode | all(. >= 32 and . != 127)))
+         then ("n " + (length | tostring)), .[] else empty end' 2>/dev/null | {
+    local hdr n d rd h gh homes=() c=0 x
+    shopt -s nocasematch
+    [[ -n "${HOME-}" && "${HOME-}" == /* ]] || return 1
+    h=$(CDPATH= cd -P -- "$HOME" 2>/dev/null && pwd -P) || return 1
+    [ -n "$h" ] || return 1
+    while [[ "$h" == *//* ]]; do h=${h//\/\//\/}; done
+    homes=("$h")
+    h=$HOME   # SHD-02: the lexical $HOME too, so a symlinked home does not let its lexical ancestor through
+    while [[ "$h" == *//* ]]; do h=${h//\/\//\/}; done
+    homes+=("$h")
+    if command -v getent >/dev/null 2>&1; then
+      gh=$(getent passwd "$UID" 2>/dev/null | { IFS=: read -r x x x x x gh x; printf '%s' "$gh"; })
+      if [[ "$gh" == /* ]]; then
+        h=$(CDPATH= cd -P -- "$gh" 2>/dev/null && pwd -P) || h="$gh"
+        while [[ "$h" == *//* ]]; do h=${h//\/\//\/}; done
+        homes+=("$h")
+      fi
+    fi
+    IFS= read -r hdr || return 1
+    case "$hdr" in "n "[1-9]*) n=${hdr#n } ;; *) return 1 ;; esac
+    while IFS= read -r d; do
+      [ -n "$d" ] || return 1
+      rd=$(CDPATH= cd -P -- "$d" 2>/dev/null && pwd -P) || return 1
+      [[ "$rd" == /* ]] || return 1
+      while [[ "$rd" == //* ]]; do rd=${rd#/}; done   # SHD-01: pwd -P can return // or //path (POSIX leaves it open)
+      [ "$rd" != / ] || return 1
+      rd=${rd%/}
+      for h in "${homes[@]}"; do
+        h=${h%/}
+        [ -n "$h" ] || return 1
+        [[ "$h/" != "$rd/"* ]] || return 1   # equal to home or an ancestor of it, at a / boundary
+      done
+      c=$((c + 1))
+    done
+    [ "$c" = "$n" ]
+  }
+}
+# perm_options: sets PERM_* and (texts on) the constant PHRASE, from $INPUT and the unredacted $TOOL. Never fails the run.
+perm_options() {
+  local out st rest lk id ids line part=true sw=0 offer=() o
+  PERM_SUGG='[]'; PERM_MODE=""; PERM_CLAUDE_PATH=no; PERM_OFFER=(allow_once deny); PERM_PARTIAL=false; PERM_TOOL=$TOOL
+  PERM_OPTIONS='[{"id":"allow_once","label":"Yes"},{"id":"deny","label":"No"}]'
+  # the denied list is checked before the phrase and drops even a grammar phrase
+  case "$DENIED_TOOLS" in *" $TOOL "*) PHRASE=""; return 0 ;; esac
+  out=$(printf '%s' "$INPUT" | jq -r "$READ_JQ" 2>/dev/null) || out=""
+  st=${out%%$'\n'*}; rest=${out#*$'\n'}
+  if [ "$st" = ok ] || [ "$st" = none ] || [ "$st" = big ]; then
+    PERM_SUGG=${rest%%$'\n'*}; rest=${rest#*$'\n'}
+    PERM_MODE=${rest%%$'\n'*}; PERM_CLAUDE_PATH=${rest#*$'\n'}
+    [ "$st" != big ] || PERM_PARTIAL=true
+    [[ "$PERM_MODE" =~ ^[A-Za-z]{1,32}$ ]] || PERM_MODE=""
+    case "$PERM_CLAUDE_PATH" in yes|no|unknown) ;; *) PERM_CLAUDE_PATH=unknown ;; esac
+    printf '%s' "$PERM_SUGG" | jq -e 'type == "array"' >/dev/null 2>&1 || { PERM_SUGG='[]'; PERM_PARTIAL=true; }
+  else
+    PERM_SUGG='[]'; PERM_PARTIAL=true   # a read failure keeps valid JSON and reports it
+  fi
+  lk=$(printf '%s' "$PERM_SUGG" | jq -r --arg tool "$TOOL" --arg mode "$PERM_MODE" --arg cpath "$PERM_CLAUDE_PATH" "$LOOKUP_JQ"$'\n''| (.partial | tostring), .ids[]' 2>/dev/null) || lk="true"
+  [ -n "$lk" ] || lk="true"
+  part=${lk%%$'\n'*}
+  [ "$part" != true ] || PERM_PARTIAL=true
+  ids=""; [[ "$lk" != *$'\n'* ]] || ids=${lk#*$'\n'}
+  offer=(allow_once)
+  for id in $ids; do
+    case "$id" in
+      allow_folder)
+        if printf '%s' "$PERM_SUGG" | jq -c '[.[] | select(.type == "addDirectories")] | .[0].directories' 2>/dev/null | folder_check; then offer+=("$id"); else PERM_PARTIAL=true; fi ;;
+      allow_edits_session|allow_session|allow_always) offer+=("$id") ;;
+    esac
+  done
+  case "$TOOL" in Bash) case "$PERM_MODE" in default|acceptEdits) offer+=(switch_auto) ;; esac ;; esac
+  offer+=(deny)
+  PERM_OFFER=("${offer[@]}")
+  o=$(printf '%s\n' "${PERM_OFFER[@]}" | jq -R -s -c --argjson l "$OPT_LABELS" 'split("\n") | map(select(. != "")) | map({id: ., label: $l[.]})' 2>/dev/null) || o=""
+  if [ -n "$o" ]; then PERM_OPTIONS="$o"; else PERM_OFFER=(allow_once deny); PERM_PARTIAL=true; fi
+  # the constant phrase (D-12): texts on, no grammar phrase, an allow-listed tool
+  if [ -z "$PHRASE" ] && ! texts_off; then
+    case "$TOOL" in mcp__*|WebFetch|Bash|Write|Edit|NotebookEdit|Read|WebSearch|Skill) PHRASE="Use a tool" ;; esac
+  fi
+  return 0
+}
+texts_off() {  # activity-off or detailed-off in the live dir, any entry (also a symlink) counts, as phrase_of
+  [ -e "$LIVE_DIR/activity-off" ] || [ -L "$LIVE_DIR/activity-off" ] || [ -e "$LIVE_DIR/detailed-off" ] || [ -L "$LIVE_DIR/detailed-off" ]
+}
+
+# DECIDE_JQ (AC-07, AC-09, AC-13 to AC-16, BR-02, D-04): the ONLY producer of the PermissionRequest output. One jq run: stdin = the held
+# suggestions (a pipe, never an argument), --slurpfile r = the bounded copy of the wait answer (head -c 65536), --arg tool/mode/cpath = the
+# held literals of the open, --argjson offer = the PERM_OPTIONS of the open, --argjson opts = whether the open carried options. It prints
+# nothing unless the answer is exactly one document with status `answered` and a decision that is strictly valid:
+#   opened with options: {behavior, option[, message]}; `option` is a string id the hook itself offered (inside the D-02 table), `behavior`
+#     is the table's (allow for every id but deny), `message` only with deny (cleaned: ANSI removed, control, bidi, zero-width, tag and other
+#     invisible code points stripped, whitespace to single spaces, 200 code points at most); any other key is malformed.
+#     allow_once -> {behavior: allow}; deny -> {behavior: deny, message?}; allow_edits_session, allow_session, allow_folder, allow_always ->
+#     {behavior: allow, updatedPermissions: exactly the held group of that id}, taken from a RE-RUN of the lookup on the held suggestions
+#     (never from the API); switch_auto -> the one constructed entry {type: setMode, mode: auto, destination: session} (AC-15).
+#     The risk of the request does not change this: a high-risk request prints the id it offered, like any other; the whole list is validated
+#     before it is printed.
+#   opened without options (texts off): the legacy {behavior[, message]} shape, an allow only at a request whose own risk is not high.
+# NFC runs through `uconv -x any-nfc` only when that tool is on the PATH (none is guaranteed): without it, strip and cap only.
+# Never updatedInput, bypassPermissions or dontAsk (BR-06).
 DECIDE_JQ='
 def msgclean:
   gsub("\u001b\\[[0-9;?]*[ -/]*[@-~]"; "") | gsub("\u001b\\][^\u0007\u001b]*(\u0007|\u001b\\\\)"; "")
   | .[0:2000] | explode | map(if actws then 32 elif actbad then empty else . end) | implode
   | gsub(" +"; " ") | sub("\\A "; "") | sub(" \\z"; "") | .[0:200] | sub(" \\z"; "");
-.data | objects | select(.status == "answered") | .decision | objects
-| select(((keys - ["behavior", "message"]) == []) and (.behavior | IN("allow", "deny")) and ((has("message") | not) or (.message | type == "string")))
-| select(.behavior == "deny" or $risk != "high")
-| (if has("message") then (.message | msgclean) else "" end) as $m
-| {hookSpecificOutput: {hookEventName: "PermissionRequest", decision: ({behavior: .behavior} + (if $m != "" then {message: $m} else {} end))}}'
+def d02: {allow_once: "allow", allow_edits_session: "allow", allow_session: "allow", allow_folder: "allow", allow_always: "allow", switch_auto: "allow", deny: "deny"};
+def rule_ok($t): type == "object" and ((keys == ["ruleContent", "toolName"] and (.ruleContent | type == "string")) or keys == ["toolName"]) and .toolName == $t;
+def entry_ok($t):
+  type == "object" and (
+    (.type == "addDirectories" and keys == ["destination", "directories", "type"] and .destination == "session"
+      and (.directories | type == "array" and length >= 1 and all(.[]; type == "string")))
+    or (.type == "setMode" and keys == ["destination", "mode", "type"] and (.mode | IN("acceptEdits", "auto")) and .destination == "session")
+    or (.type == "addRules" and keys == ["behavior", "destination", "rules", "type"] and .behavior == "allow"
+      and (.destination | IN("session", "localSettings", "projectSettings", "userSettings"))
+      and (.rules | type == "array" and (length == 1 or length == 2) and all(.[]; rule_ok($t)))));
+def outline($d): {hookSpecificOutput: {hookEventName: "PermissionRequest", decision: $d}};
+'"$LOOKUP_JQ"'
+| . as $L
+| ($r | select(length == 1) | .[0] | objects | .data | objects | select(.status == "answered") | .decision | objects) as $d
+| (if $opts then
+     ($d | select(((keys - ["behavior", "message", "option"]) == []) and (.option | type == "string") and (.option as $o | d02 | has($o))
+        and (.option as $o | any($offer[]; .id == $o)) and (d02[.option] == .behavior)
+        and ((has("message") | not) or (.option == "deny" and (.message | type == "string"))))
+      | {id: .option, behavior: .behavior, m: (if has("message") then (.message | msgclean) else "" end)})
+   else
+     ($d | select(((keys - ["behavior", "message"]) == []) and (.behavior | IN("allow", "deny")) and ((has("message") | not) or (.message | type == "string")))
+      | select(.behavior == "deny" or $risk != "high")
+      | {id: (if .behavior == "allow" then "allow_once" else "deny" end), behavior: .behavior, m: (if has("message") then (.message | msgclean) else "" end)})
+   end) as $c
+| if ($c.id | IN("allow_edits_session", "allow_session", "allow_folder", "allow_always")) then
+    ($L.groups[$c.id] // empty) as $g
+    | select(($g | type == "array" and length >= 1) and all($g[]; entry_ok($tool)))
+    | outline({behavior: "allow", updatedPermissions: $g})
+  elif $c.id == "switch_auto" then
+    [{type: "setMode", mode: "auto", destination: "session"}] as $g
+    | select(all($g[]; entry_ok($tool)))
+    | outline({behavior: "allow", updatedPermissions: $g})
+  else outline({behavior: $c.behavior} + (if $c.m != "" then {message: $c.m} else {} end)) end'
 
 # permission_answered: validates $T/resp and prints the decision line (one printf, after every check). Returns 1 when nothing was printed.
 permission_answered() {
-  local O
-  O=$(head -c 65536 "$T/resp" 2>/dev/null | jq -c --arg risk "$RISK" "$PHRASE_DEFS"$'\n'"$DECIDE_JQ" 2>/dev/null) || return 1
+  local O opts=false scope=none id
+  [ "${BOPT:-null}" = null ] || opts=true
+  head -c 65536 "$T/resp" >"$T/resp.b" 2>/dev/null || return 1
+  # the held suggestions reach jq on stdin only (a pipe); the response is the bounded copy
+  O=$(printf '%s' "$PERM_SUGG" | jq -c --slurpfile r "$T/resp.b" --arg risk "$RISK" --arg tool "$PERM_TOOL" --arg mode "$PERM_MODE" --arg cpath "$PERM_CLAUDE_PATH" \
+      --argjson offer "$PERM_OPTIONS" --argjson opts "$opts" "$PHRASE_DEFS"$'\n'"$DECIDE_JQ" 2>/dev/null) || return 1
   [ -n "$O" ] || return 1
   case "$O" in *$'\n'*) return 1 ;; '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"'*) ;; *) return 1 ;; esac
   # SHD-05: NFC of the message only when uconv is on the PATH (a failure, or a changed line count, prints nothing); without it strip+cap stay
@@ -687,11 +891,20 @@ permission_answered() {
     O=$(printf '%s' "$O" | jq -c --rawfile m <(printf '%s' "$N") '.hookSpecificOutput.decision.message = ($m | .[0:200] | sub(" +\\z"; ""))') || return 1
     case "$O" in *$'\n'*) return 1 ;; esac
   fi
+  # debug: fixed words only, the path and the scope word of the chosen id (never an entry, a rule or a label)
+  if [ "$opts" = true ]; then
+    id=$(jq -r '.[0].data.decision.option | strings' "$T/resp.b" 2>/dev/null) || id=""
+    case "$id" in
+      allow_once) scope=once ;; deny) scope=deny ;; allow_edits_session|allow_session) scope=session ;;
+      allow_folder) scope=folder ;; allow_always) scope=persistent ;; switch_auto) scope=mode ;; *) scope=none ;;
+    esac
+    dbg "decision option $scope"
+  else dbg "decision legacy"; fi
   printf '%s\n' "$O"
 }
 
 main() {
-  local F SID TOOL HASH SHASH KIND SEL line rem mt wstart dl exp_in st reason R rid ans exp
+  local F SID TOOL HASH SHASH KIND SEL line rem mt wstart dl exp_in st reason R rid ans exp crt BOPT BPART
 
   _src="${BASH_SOURCE[0]}"
   case "$_src" in */*) ;; *) _src="./$_src" ;; esac
@@ -750,7 +963,7 @@ main() {
   HASH=$(printf '%s' "$INPUT" | hash_of "$SEL") || return 0
   [[ "$HASH" =~ ^[0-9a-f]{64}$ ]] || return 0
   if [ "$SEL" = permission ]; then
-    classify_risk; phrase_of
+    classify_risk; phrase_of; perm_options
     # SHD-06: another server's tool name is sent as the literal `mcp` (like the reporter's redtool); the API recomputes (unknown = high)
     case "$TOOL" in mcp__*) [[ "$TOOL" =~ ^mcp__plugin_allye_allye__[A-Za-z0-9_-]{1,40}$ ]] || TOOL=mcp ;; esac
   fi   # ALY-269.5: risk and D-08 phrase from the payload
@@ -763,8 +976,12 @@ $QBODY_PROG" >"$T/body" 2>/dev/null || return 0
     [ -s "$T/body" ] || return 0   # a text the cleaner removed, no options...: no open
   else
     # the phrase travels on stdin (never argv); `phrase` is omitted when empty
-    printf '%s' "$PHRASE" | jq -R -s -c --arg s "$SHASH" --arg k "$KIND" --arg h "$HASH" --arg r "$RISK" --arg t "$TOOL" \
-      '{session_hash: $s, kind: $k, hash: $h, risk: $r, tool: $t} + (if . != "" then {phrase: .} else {} end)' >"$T/body" 2>/dev/null || return 0
+    # options (ALY-290.1): only with texts on and a phrase; ids and fixed labels only, never an entry (BR-01)
+    BOPT=null; BPART=false
+    if [ -n "$PHRASE" ] && ! texts_off; then BOPT="$PERM_OPTIONS"; BPART="$PERM_PARTIAL"; fi
+    printf '%s' "$PHRASE" | jq -R -s -c --arg s "$SHASH" --arg k "$KIND" --arg h "$HASH" --arg r "$RISK" --arg t "$TOOL" --argjson o "$BOPT" --argjson p "$BPART" \
+      '{session_hash: $s, kind: $k, hash: $h, risk: $r, tool: $t} + (if . != "" then {phrase: .} else {} end)
+       + (if $o != null then {options: $o} + (if $p then {options_partial: true} else {} end) else {} end)' >"$T/body" 2>/dev/null || return 0
   fi
   INPUT=""
   # after (ALY-269.10): the reporter's highest seq, added to the strict body for either kind; omitted when it cannot be read cleanly
@@ -791,11 +1008,14 @@ $QBODY_PROG" >"$T/body" 2>/dev/null || return 0
   esac
   R=$(head -c 65536 "$T/resp" 2>/dev/null | jq -r '
     if (.data | type) == "object" and (.data.id | type == "string" and test("\\A[A-Za-z0-9_-]{1,64}\\z")) and (.data.answerable | type) == "boolean"
-    then "\(.data.id) \(.data.answerable) \((.data.expiresAt | strings | sub("\\.[0-9]+"; "") | sub("[+-]00:?00$"; "Z") | try fromdateiso8601 catch "bad") // "bad")"
+    then "\(.data.id) \(.data.answerable) \(.data.created | if type == "boolean" then tostring else "bad" end) \((.data.expiresAt | strings | sub("\\.[0-9]+"; "") | sub("[+-]00:?00$"; "Z") | try fromdateiso8601 catch "bad") // "bad")"
     else empty end' 2>/dev/null) || R=""
   if [ -z "$R" ]; then backoff_set 60; dbg "open malformed"; return 0; fi
-  rid=${R%% *}; ans=${R#* }; exp=${ans#* }; ans=${ans%% *}
+  rid=${R%% *}; ans=${R#* }; crt=${ans#* }; ans=${ans%% *}; exp=${crt#* }; crt=${crt%% *}
   [[ "$rid" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || { backoff_set 60; return 0; }
+  # ALY-290.1 (AC-22, D-03): a permission whose open did not create the row (created false, missing or not a boolean) joined another
+  # hook's row: exit 0 now, no output and no cancel (RID and PENDING are not set yet). Questions ignore `created`.
+  if [ "$SEL" = permission ] && [ "$crt" != true ]; then dbg "not created"; return 0; fi
   if [ "$ans" != true ]; then dbg "not answerable"; return 0; fi
   RID="$rid"; PENDING=1   # the request is open from here: every later end of the script cancels it (no backoff for a bad expiresAt)
 
