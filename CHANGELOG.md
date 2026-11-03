@@ -1,3 +1,10 @@
+## [2.16.1](https://github.com/allye-app/allye-plugin/compare/v2.16.0...v2.16.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* **skills:** shorten bridge-pilot SKILL.md to the docs-gate limit ([c0fa8db](https://github.com/allye-app/allye-plugin/commit/c0fa8db08bd9c58bbf1606613a2b019f32328c52))
+
 # [2.16.0](https://github.com/allye-app/allye-plugin/compare/v2.15.1...v2.16.0) (2026-10-31)
 
 
