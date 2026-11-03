@@ -664,8 +664,8 @@ phrase_of() {
 #                      (unknown = missing or not a string); "no" for every other tool.
 #   LOOKUP_JQ          pure lookup of the WHOLE shape (S24) against the SPIKE table. stdin = the held suggestions; --arg tool, mode, cpath only.
 #                      Output {ids, groups: {id: [entries verbatim, payload order]}, partial}; ids in D-02 order, never switch_auto, deny or allow_once.
-#   folder_check       reads the allow_folder group's `directories` JSON on stdin; returns 0 ONLY on a full successful check. In slice .1 it is a
-#                      stub that always fails closed (allow_folder never offered, options_partial true); slice .5 replaces its body only.
+#   folder_check       reads the allow_folder group's `directories` JSON on stdin; returns 0 ONLY on a full successful check (ALY-290.5:
+#                      builtin-only resolution, refuses /, home and its ancestors; any doubt fails closed: allow_folder not offered, options_partial true).
 #   PERM_OFFER         array, final id list in D-02 order, always starting allow_once and ending deny (also computed when texts are off).
 #   PERM_PARTIAL       true | false (D-14).
 #   PERM_OPTIONS       JSON [{id, label}] of PERM_OFFER, labels from OPT_LABELS (D-15).
@@ -720,10 +720,50 @@ def order: ["allow_edits_session", "allow_session", "allow_folder", "allow_alway
     elif ($tool | IN("Write", "Edit", "NotebookEdit")) and $cpath != "no" then {ids: [], groups: {}, partial: true}
     else {ids: [order[] | select(. as $i | $sel | has($i))], groups: ($sel | with_entries(.value |= map($sugg[.]))), partial: false} end
   end'
-folder_check() {  # slice .1 stub: reads and ignores the directories, fails closed (slice .5 replaces this body)
-  local _l
-  while IFS= read -r _l; do :; done
-  return 1
+folder_check() {  # ALY-290.5 (BR-07, AC-23, D-17): stdin = the group's directories as JSON; 0 only when EVERY directory was checked and none is refused
+  # jq alone validates the group (an array of 1 or more strings, each absolute, no control character, so no newline) and prints "n COUNT" then one
+  # directory per line, all or nothing. The loop gets them through the pipe. Resolution uses only shell builtins in a subshell (cd -P, pwd -P):
+  # nothing is exec'd with a directory, so none reaches argv or the environment. Refused: / , home and every ancestor of home, for $HOME and the
+  # passwd home (getent, when it exists; its argv is only the uid), compared without case. Any doubt (unresolvable, HOME unset or not absolute,
+  # jq failing, a count that does not match) returns 1.
+  jq -r 'if type == "array" and length >= 1 and all(.[]; type == "string" and startswith("/") and (explode | all(. >= 32 and . != 127)))
+         then ("n " + (length | tostring)), .[] else empty end' 2>/dev/null | {
+    local hdr n d rd h gh homes=() c=0 x
+    shopt -s nocasematch
+    [[ -n "${HOME-}" && "${HOME-}" == /* ]] || return 1
+    h=$(CDPATH= cd -P -- "$HOME" 2>/dev/null && pwd -P) || return 1
+    [ -n "$h" ] || return 1
+    while [[ "$h" == *//* ]]; do h=${h//\/\//\/}; done
+    homes=("$h")
+    h=$HOME   # SHD-02: the lexical $HOME too, so a symlinked home does not let its lexical ancestor through
+    while [[ "$h" == *//* ]]; do h=${h//\/\//\/}; done
+    homes+=("$h")
+    if command -v getent >/dev/null 2>&1; then
+      gh=$(getent passwd "$UID" 2>/dev/null | { IFS=: read -r x x x x x gh x; printf '%s' "$gh"; })
+      if [[ "$gh" == /* ]]; then
+        h=$(CDPATH= cd -P -- "$gh" 2>/dev/null && pwd -P) || h="$gh"
+        while [[ "$h" == *//* ]]; do h=${h//\/\//\/}; done
+        homes+=("$h")
+      fi
+    fi
+    IFS= read -r hdr || return 1
+    case "$hdr" in "n "[1-9]*) n=${hdr#n } ;; *) return 1 ;; esac
+    while IFS= read -r d; do
+      [ -n "$d" ] || return 1
+      rd=$(CDPATH= cd -P -- "$d" 2>/dev/null && pwd -P) || return 1
+      [[ "$rd" == /* ]] || return 1
+      while [[ "$rd" == //* ]]; do rd=${rd#/}; done   # SHD-01: pwd -P can return // or //path (POSIX leaves it open)
+      [ "$rd" != / ] || return 1
+      rd=${rd%/}
+      for h in "${homes[@]}"; do
+        h=${h%/}
+        [ -n "$h" ] || return 1
+        [[ "$h/" != "$rd/"* ]] || return 1   # equal to home or an ancestor of it, at a / boundary
+      done
+      c=$((c + 1))
+    done
+    [ "$c" = "$n" ]
+  }
 }
 # perm_options: sets PERM_* and (texts on) the constant PHRASE, from $INPUT and the unredacted $TOOL. Never fails the run.
 perm_options() {

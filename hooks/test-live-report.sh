@@ -6665,7 +6665,7 @@ O_OK='allow_once,deny|false'
 
 echo "== answer options lookup: the whole shape against the SPIKE table, tool and literal mode (AC-01, AC-02, AC-03, ALY-290.1) =="
 ans_case; smode wait terminal
-orow "Bash default, directory + setMode: each its own id; allow_folder fails closed (stub), partial" Bash default '{"command":"ls"}' "[$AD_E,$SM_E]" 'allow_once,allow_edits_session,switch_auto,deny|true'
+orow "Bash default, directory + setMode: each its own id; the directory is unresolvable (/tmp/ao-x): allow_folder fails closed, partial (the offered case is in the folder section)" Bash default '{"command":"ls"}' "[$AD_E,$SM_E]" 'allow_once,allow_edits_session,switch_auto,deny|true'
 orow "Bash default, setMode alone is not a table row" Bash default '{"command":"ls"}' "[$SM_E]" 'allow_once,switch_auto,deny|true'
 orow "Bash default, setMode before directory (payload order is part of the shape)" Bash default '{"command":"ls"}' "[$SM_E,$AD_E]" 'allow_once,switch_auto,deny|true'
 orow "Bash acceptEdits, one rule, localSettings" Bash acceptEdits '{"command":"ls"}' "[$(arl localSettings Bash 'git init *')]" 'allow_once,allow_always,switch_auto,deny|false'
@@ -6895,6 +6895,132 @@ check "PERM_SUGG never reaches --arg, --argjson, a here-string or a redirect to 
 check "the suggestions are read once, before INPUT is cleared" "1 yes" "$(printf '%s\n' "$ACODE" | grep -c 'jq -r "\$READ_JQ"') $([ "$(printf '%s\n' "$ACODE" | grep -n 'perm_options$\|; perm_options' | head -n 1 | cut -d: -f1)" -lt "$(printf '%s\n' "$ACODE" | grep -n '^  INPUT=""' | head -n 1 | cut -d: -f1)" ] && echo yes || echo no)"
 check "the script stays executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
 end_case_ans
+
+echo "== answer options folder (ALY-290.5 AC-23, BR-07, D-17): allow_folder is refused for /, home and their ancestors, whole group, fail closed =="
+O_FOLD='allow_once,allow_edits_session,allow_folder,switch_auto,deny|false'
+O_NOFOLD='allow_once,allow_edits_session,switch_auto,deny|true'
+dj() { "$JQ_BIN" -nc '$ARGS.positional' --args "$@"; }
+fbuild() {  # DIRS-JSON: [addDirectories(session), setMode] suggestions
+  "$JQ_BIN" -nc --argjson d "$1" --argjson s "$SM_E" '[{type: "addDirectories", directories: $d, destination: "session"}, $s]'
+}
+frow() {  # NAME DIRS-JSON EXPECTED [ENV...]: Bash in default mode; ENV words (KEY=VALUE) are added after the sandbox HOME
+  local name="$1" dirs="$2" exp="$3"; shift 3
+  ans_payload_ex sess-0001 Bash '{"command":"ls"}' default "$(fbuild "$dirs")"; : >"$SB/api/requests.log"
+  RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj" "$@"); ans_run; RUN_ENV=("CLAUDE_PROJECT_DIR=$SB/proj")
+  check "folder $name" "$exp|0|" "$(oids)|$RC|$ERR"
+}
+frow_nohome() {  # NAME DIRS-JSON EXPECTED: as frow, with HOME absent from the environment
+  local name="$1" dirs="$2" exp="$3"
+  ans_payload_ex sess-0001 Bash '{"command":"ls"}' default "$(fbuild "$dirs")"; : >"$SB/api/requests.log"
+  env -i XDG_CONFIG_HOME="$SB/config" XDG_CACHE_HOME="$SB/cache" CLAUDE_PLUGIN_DATA="$DATA" PATH="$REAL" ANS_MARK="$MARK" CLAUDE_PROJECT_DIR="$SB/proj" "$BASH_BIN" "$ANS" <"$SB/stdin" >"$SB/out" 2>"$SB/err"
+  RC=$?; ERR=$(cat "$SB/err")
+  check "folder $name" "$exp|0|" "$(oids)|$RC|$ERR"
+}
+ans_case; smode wait terminal
+mkdir -p "$SB/home/proj/deep" "$SB/hom" "$SB/x" "$SB/other"
+ln -s "$SB/home/proj" "$SB/x/lnk"; ln -s "$SB/home" "$SB/x/hl"
+GETENT_DIR="$ROOT_TMP/realbin-getent$N"; make_realbin "$GETENT_DIR"; cp "$FIX/getent-shim.sh" "$GETENT_DIR/getent"
+frow "a subfolder of home is offered (builtins only: no realpath, readlink or getent on PATH)" "$(dj "$SB/home/proj")" "$O_FOLD"
+check "the default sandbox PATH has no realpath, readlink or getent" "none" "$(for t in realpath readlink getent; do [ -e "$REAL/$t" ] && echo "$t"; done | tr '\n' ' ')none" 
+frow "a sibling whose name starts like home ($SB/hom) is offered" "$(dj "$SB/hom")" "$O_FOLD"
+frow "a deeper subfolder is offered" "$(dj "$SB/home/proj/deep")" "$O_FOLD"
+frow "/ is refused" "$(dj /)" "$O_NOFOLD"
+frow "/// is refused" "$(dj ///)" "$O_NOFOLD"
+frow "\$HOME is refused" "$(dj "$SB/home")" "$O_NOFOLD"
+frow "an ancestor of home (the sandbox root) is refused" "$(dj "$SB")" "$O_NOFOLD"
+frow "an ancestor two levels up is refused" "$(dj "$(dirname "$SB")")" "$O_NOFOLD"
+if [ -d /home ]; then frow "/home is refused when HOME is /home" "$(dj /home)" "$O_NOFOLD" HOME=/home; fi
+frow "// is refused (double leading slash, SHD-01)" "$(dj //)" "$O_NOFOLD"
+frow "//<sandbox home> is refused (double leading slash, SHD-01)" "$(dj "/$SB/home")" "$O_NOFOLD"
+frow "//<sandbox home>/proj is offered (double leading slash, a subfolder)" "$(dj "/$SB/home/proj")" "$O_FOLD"
+frow "//<ancestor of home> is refused" "$(dj "/$SB")" "$O_NOFOLD"
+if [ -d /home ]; then
+  frow "//home is refused when HOME is /home (SHD-01)" "$(dj //home)" "$O_NOFOLD" HOME=/home
+  frow "/proc/self/root/home is refused when HOME is /home (SHD-01)" "$(dj /proc/self/root/home)" "$O_NOFOLD" HOME=/home
+fi
+if [ -d /proc/self/root ]; then
+  frow "/proc/self/root (the root through the magic link) is refused" "$(dj /proc/self/root)" "$O_NOFOLD"
+  frow "/proc/self/root + the sandbox home is refused" "$(dj "/proc/self/root$SB/home")" "$O_NOFOLD"
+  frow "/proc/self/root + an ancestor of the sandbox home is refused" "$(dj "/proc/self/root$SB")" "$O_NOFOLD"
+  frow "/proc/self/root + a subfolder of the sandbox home is offered" "$(dj "/proc/self/root$SB/home/proj")" "$O_FOLD"
+fi
+frow "a symlinked HOME: the lexical ancestor of HOME is refused with no getent (SHD-02)" "$(dj "$SB/x")" "$O_NOFOLD" HOME="$SB/x/hl"
+frow "a symlinked HOME: its resolved home is refused" "$(dj "$SB/home")" "$O_NOFOLD" HOME="$SB/x/hl"
+frow "a symlinked HOME: a subfolder of the resolved home is offered" "$(dj "$SB/home/proj")" "$O_FOLD" HOME="$SB/x/hl"
+frow "~ is refused (not absolute)" "$(dj '~')" "$O_NOFOLD"
+frow "~/proj is refused (not absolute)" "$(dj '~/proj')" "$O_NOFOLD"
+frow "a trailing slash on home is refused" "$(dj "$SB/home/")" "$O_NOFOLD"
+frow "several trailing slashes on home are refused" "$(dj "$SB/home///")" "$O_NOFOLD"
+frow "a subfolder with a trailing slash is offered" "$(dj "$SB/home/proj/")" "$O_FOLD"
+frow "dot segments to home are refused (home/proj/..)" "$(dj "$SB/home/proj/..")" "$O_NOFOLD"
+frow "dot segments to home are refused (home/./)" "$(dj "$SB/home/./")" "$O_NOFOLD"
+frow "dot segments up to the root are refused" "$(dj "$SB/home/../..")" "$O_NOFOLD"
+frow "dot segments inside a subfolder path are offered" "$(dj "$SB/home/./proj/../proj")" "$O_FOLD"
+frow "link/.. through a symlink resolves physically to home and is refused" "$(dj "$SB/x/lnk/..")" "$O_NOFOLD"
+frow "a symlink to home is refused" "$(dj "$SB/x/hl")" "$O_NOFOLD"
+frow "a path through a symlink to home, into a subfolder, is offered" "$(dj "$SB/x/hl/proj")" "$O_FOLD"
+frow "a relative path is refused" "$(dj proj)" "$O_NOFOLD"
+frow "a dot alone is refused" "$(dj .)" "$O_NOFOLD"
+frow "two dots alone are refused" "$(dj ..)" "$O_NOFOLD"
+frow "a relative path with a slash is refused" "$(dj home/proj)" "$O_NOFOLD"
+frow "an unresolvable path is refused (fail closed)" "$(dj "$SB/does-not-exist")" "$O_NOFOLD"
+frow "a path through a regular file is refused (fail closed)" "$(dj "$SB/stdin/x")" "$O_NOFOLD"
+frow "an empty string is refused" "$(dj "")" "$O_NOFOLD"
+frow "an empty string beside a good folder refuses the whole group" "$(dj "$SB/home/proj" "")" "$O_NOFOLD"
+frow "an entry with a newline is refused" "$(dj "$SB/home/proj"$'\n'"$SB/hom")" "$O_NOFOLD"
+frow "a newline alone before a slash is refused" "$(dj $'\n/')" "$O_NOFOLD"
+frow "an entry with a bell is refused" "$(dj "$SB/home/proj"$'\a')" "$O_NOFOLD"
+frow "an entry with a tab is refused" "$(dj "$SB/home/"$'\t'"proj")" "$O_NOFOLD"
+frow "an entry with a carriage return is refused" "$(dj "$SB/hom"$'\r')" "$O_NOFOLD"
+frow "an entry with DEL is refused" "$(dj "$SB/hom"$'\x7f')" "$O_NOFOLD"
+frow "an entry that is not a string is refused (the shape is not in the table: no allow_edits_session either)" '[7]' 'allow_once,switch_auto,deny|true'
+frow "two directories, only the second refused: the whole group is refused" "$(dj "$SB/home/proj" "$SB/home")" "$O_NOFOLD"
+frow "two directories, only the first refused: the whole group is refused" "$(dj / "$SB/home/proj")" "$O_NOFOLD"
+frow "two good directories are offered" "$(dj "$SB/home/proj" "$SB/hom")" "$O_FOLD"
+frow_nohome "HOME unset refuses (fail closed)" "$(dj "$SB/hom")" "$O_NOFOLD"
+frow "HOME empty refuses (fail closed)" "$(dj "$SB/hom")" "$O_NOFOLD" HOME=
+frow "HOME not absolute refuses (fail closed)" "$(dj "$SB/hom")" "$O_NOFOLD" HOME=relative/home
+frow "HOME unresolvable refuses (fail closed)" "$(dj "$SB/hom")" "$O_NOFOLD" HOME="$SB/no-home"
+frow "HOME with a trailing slash still refuses home" "$(dj "$SB/home")" "$O_NOFOLD" HOME="$SB/home/"
+frow "HOME pointing elsewhere, no getent: only HOME counts, the real passwd home is offered" "$(dj "$SB/home")" "$O_FOLD" HOME="$SB/other"
+# the getent branch: a shim on PATH reports the passwd home
+REAL="$GETENT_DIR"
+frow "HOME elsewhere, getent reports home: the passwd home is refused" "$(dj "$SB/home")" "$O_NOFOLD" HOME="$SB/other" GETENT_HOME="$SB/home" GETENT_LOG="$SB/getent.log"
+check "getent was called once, with only passwd and the uid" "passwd $(id -u) 1" "$(head -n 1 "$SB/getent.log" 2>/dev/null) $(wc -l <"$SB/getent.log" 2>/dev/null | tr -d ' ')"
+frow "HOME elsewhere, getent reports home: an ancestor of the passwd home is refused" "$(dj "$SB")" "$O_NOFOLD" HOME="$SB/other" GETENT_HOME="$SB/home"
+frow "getent reports a different-case home: the case-different path is refused (nocasematch)" "$(dj "$SB/home")" "$O_NOFOLD" HOME="$SB/other" GETENT_HOME="$(printf '%s' "$SB/home" | tr 'a-z' 'A-Z')"
+frow "getent reports home: an unrelated folder is still offered" "$(dj "$SB/hom")" "$O_FOLD" HOME="$SB/other" GETENT_HOME="$SB/home"
+frow "getent present but silent (no GETENT_HOME): HOME still decides, a subfolder is offered" "$(dj "$SB/home/proj")" "$O_FOLD"
+REAL="$REALBIN"
+# jq failing
+JQF1="$ROOT_TMP/realbin-jqf1-$N"; make_realbin "$JQF1" jq
+printf '%s\n' "#!$BASH_BIN" 'for a in "$@"; do case "$a" in *explode*) exit 5 ;; esac; done' "exec $JQ_BIN \"\$@\"" >"$JQF1/jq"; chmod +x "$JQF1/jq"
+JQF2="$ROOT_TMP/realbin-jqf2-$N"; make_realbin "$JQF2" jq
+printf '%s\n' "#!$BASH_BIN" 'for a in "$@"; do case "$a" in *".[0].directories") exit 5 ;; esac; done' "exec $JQ_BIN \"\$@\"" >"$JQF2/jq"; chmod +x "$JQF2/jq"
+REAL="$JQF1"; frow "jq failing in the folder check: not offered (fail closed)" "$(dj "$SB/home/proj")" "$O_NOFOLD"
+REAL="$JQF2"; frow "jq failing when the group is read: not offered (fail closed)" "$(dj "$SB/home/proj")" "$O_NOFOLD"
+REAL="$REALBIN"
+frow "back on the real jq a subfolder is offered again" "$(dj "$SB/home/proj")" "$O_FOLD"
+echo "== answer options folder canary: the directory string reaches no argv or environment of any process (AC-11 light, ALY-290.5) =="
+CANARY_DIR="$ROOT_TMP/realbin-canary$N"; mkdir -p "$CANARY_DIR"
+for t in "$REALBIN"/*; do cp "$FIX/argv-canary-shim.sh" "$CANARY_DIR/${t##*/}"; done
+mkdir -p "$SB/zz-canary-dir-x"; : >"$SB/canary.log"
+REAL="$CANARY_DIR"
+frow "the canary run offers the folder" "$(dj "$SB/zz-canary-dir-x")" "$O_FOLD" CANARY_LOG="$SB/canary.log" CANARY_REAL="$REALBIN"
+check "the canary run logged the processes it started" "yes" "$([ "$(grep -c '^ARGV ' "$SB/canary.log")" -gt 3 ] && echo yes || echo no)"
+check "the directory string is in no argv or environment of any process" "0" "$(grep -c 'zz-canary-dir-x' "$SB/canary.log" || true)"
+REAL="$REALBIN"
+end_case_ans
+
+echo "== answer options folder static: no path tool and no external command touches a held directory (AC-20, D-17, ALY-290.5) =="
+FCODE=$(awk '/^folder_check\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$ANS" | grep -v '^[[:space:]]*#')
+check "the folder check was found" "yes" "$([ -n "$FCODE" ] && printf '%s\n' "$FCODE" | grep -q 'cd -P' && echo yes || echo no)"
+check "the folder check never calls realpath, readlink or resolve_path" "0" "$(printf '%s\n' "$FCODE" | grep -cE 'realpath|readlink|resolve_path' || true)"
+check "the folder check calls no external tool but jq and getent (passwd and the uid only)" "0" "$(printf '%s\n' "$FCODE" | grep -E '(^|[|;&({`]|\$\()[[:space:]]*(cat|cut|sed|awk|tr|dirname|basename|ls|stat|find|env|xargs|sort|head|tail|grep|wc|readlink|realpath|python[0-9]*|node|perl|sh|bash)([[:space:]]|$)' | grep -cv '^$' || true)"
+check "getent is called as: getent passwd \"\$UID\" only" "1" "$(printf '%s\n' "$FCODE" | grep -c 'getent passwd "\$UID"' || true)"
+check "the held group never goes through --arg, --argjson, export, a here-string, a heredoc or a redirect to a file" "0" "$(printf '%s\n' "$FCODE" | sed -e 's/2>\/dev\/null//g' -e 's/>\/dev\/null//g' -e 's/>&[0-9]//g' -e 's/>=//g' | grep -cE -- '--(arg|argjson|slurpfile|rawfile)|(^|[[:space:]])(export|declare|typeset)[[:space:]]|<<|[0-9]?>>?[[:space:]]*[^[:space:]]' || true)"
+check "the directories reach the loop through a pipe" "1" "$(printf '%s\n' "$FCODE" | grep -c "empty end' 2>/dev/null | {" || true)"
+check "the script stays executable (mode 755)" "755" "$(find "$ANS" -prune -printf '%m')"
 
 #@keepnext
 echo "== no final flusher left behind (ALY-217.7 AC-39) =="
