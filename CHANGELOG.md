@@ -1,3 +1,10 @@
+## [2.17.1](https://github.com/allye-app/allye-plugin/compare/v2.17.0...v2.17.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **hooks:** allow the api-zeta.allye.app HML origin and retire api.zeta.allye.app ([d90473b](https://github.com/allye-app/allye-plugin/commit/d90473b676196284ff972fa41fbfcea873f35283))
+
 # [2.17.0](https://github.com/allye-app/allye-plugin/compare/v2.16.1...v2.17.0) (2026-11-03)
 
 
