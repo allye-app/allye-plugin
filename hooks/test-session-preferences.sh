@@ -191,7 +191,7 @@ echo "== stored apiUrl outside the list =="
 new_case
 for bad in "http://example.com" "https://evil.com" "https://api.allye.app.evil.com" "https://api.allye.app/" "https://api.allye.app/path" "https://api.allye.app?x=1" "https://user:pw@api.allye.app" \
   "https://api.allye.app:443" "http://api.allye.app" "http://localhost" "http://127.0.0.1" "http://localhost.evil.com:80" "http://127.0.0.1.evil.com:80" "http://localhost@evil.com:80" \
-  "http://[::1]:8080" "https://localhost:8080" "HTTPS://API.ALLYE.APP" "https://zeta.allye.app" "" "ftp://x"; do
+  "http://[::1]:8080" "https://localhost:8080" "HTTPS://API.ALLYE.APP" "https://zeta.allye.app" "" "ftp://x" "https://api.zeta.allye.app" "https://api.zeta.allye.app/x"; do
   mkcred "$bad"; : >"$SB/log/calls.log"
   run_hook
   expect_hint "apiUrl '$bad'" "$FIX"
@@ -204,7 +204,29 @@ run_hook; expect_hint "apiUrl missing" "$FIX"
 run_hook; expect_hint "apiUrl not a string" "$FIX"
 end_case
 new_case
-for ok in https://api.allye.app https://api.zeta.allye.app; do
+# ALY-296 (AC-02, AC-04): the HML origin is https://api-zeta.allye.app; hostile variants stored in the credential are refused.
+# Values with a newline, a carriage return or a non-ASCII letter are built with printf and carried by jq --arg (a literal would hide them).
+HML=https://api-zeta.allye.app; CYR=$(printf '\xd0\xb0')
+HOSTILE=("$HML.evil.example" "$HML@evil.example" "$HML\\@evil" "http://api-zeta.allye.app" "$HML/" "$HML/x" "$HML:443" "https://API-ZETA.allye.app" \
+  "https://${CYR}pi-zeta.allye.app" "https://api-zeta.${CYR}llye.app" "$HML?x" "$HML#x" "")
+for tail in $'\n' $'\r' ' '; do for q in '' '?x' '#x'; do HOSTILE+=("$HML$tail$q"); done; done
+HOSTILE+=("https://api.allye.app"$'\n' "https://api.allye.app"$'\r' "https://api.allye.app " "https://api.allye.app"$'\n'$'\n')
+n_nl=0; n_cr=0
+for bad in "${HOSTILE[@]}"; do case "$bad" in *$'\n'*) n_nl=$((n_nl + 1)) ;; esac; case "$bad" in *$'\r'*) n_cr=$((n_cr + 1)) ;; esac; done
+check "the stored rows really carry a newline (3 HML variants + 2 PROD)" "5" "$n_nl"
+check "the stored rows really carry a carriage return (3 HML variants + PROD)" "4" "$n_cr"
+for bad in "${HOSTILE[@]}"; do
+  q=$(printf '%q' "$bad")
+  mkcred "$bad"; : >"$SB/log/calls.log"
+  check "  the stored apiUrl really is the hostile value $q" "$(printf '%s' "$bad" | od -An -tx1 | tr -d ' \n')" "$("$JQ_BIN" -j '.apiUrl' "$CRED" | od -An -tx1 | tr -d ' \n')"
+  run_hook
+  expect_hint "AC-04 stored apiUrl $q" "$FIX"
+  check "  nothing sent for $q" "0" "$(curl_calls)"
+done
+check "  no request reached the API" "0" "$(reqs)"
+end_case
+new_case
+for ok in https://api.allye.app https://api-zeta.allye.app; do
   mkcred "$ok"; : >"$SB/log/refused.log"
   run_hook
   check "$ok passes validation (the curl shim then refuses the non-loopback host)" "$ok/api/memories/preferences" "$(sed -n 's/^REFUSED //p' "$SB/log/refused.log" | tail -1)"

@@ -378,13 +378,14 @@ echo "== ALLYE_API_URL =="
 new_case; begin_pairing
 for bad in "http://example.com" "http://127.0.0.1.evil.com:80" "http://localhost.evil.com:80" "http://localhost@evil.com:80" "https://evil.com" "https://api.allye.app.evil.com" "https://evil.com/api.allye.app" \
   "https://user:pw@api.allye.app" "https://api.allye.app/" "https://api.allye.app/path" "https://api.allye.app?x=1" "https://api.allye.app#f" "https://api.allye.app:443" \
-  "http://api.allye.app" "https://api.zeta.allye.app/x" "https://zeta.allye.app" "http://[::1]:8080" "https://localhost:8080" "http://localhost" "http://127.0.0.1" \
+  "http://api.allye.app" "https://api.zeta.allye.app" "https://api.zeta.allye.app/x" "https://zeta.allye.app" "http://[::1]:8080" "https://localhost:8080" "http://localhost" "http://127.0.0.1" \
   "http://127.0.0.1:80/x" "http://127.0.0.1:80/" "ftp://example.com" "example.com" "https://exa mple.com" "javascript:alert(1)" "HTTPS://API.ALLYE.APP"; do
   RUN_ENV=("ALLYE_API_URL=$bad")
   run_script finish "$DATA" "$CH" "$CODE"
   check "refused ALLYE_API_URL '$bad'" "yes" "$([ "$RC" -ne 0 ] && echo yes || echo no)"
   check "  nothing sent for '$bad'" "0" "$(grep -c '^curl' "$SB/log/calls.log" 2>/dev/null || true)"
-  check "  message names the allowed origins" "yes" "$(contains 'https://api.zeta.allye.app' "$ERR")"
+  check "  message names the allowed origins" "yes" "$(contains 'https://api-zeta.allye.app' "$ERR")"
+  check "  message does not name the retired origin" "no" "$(contains 'api.zeta.allye.app' "$ERR")"
   case "$bad" in *evil*|*pw@*|*example*|*::1*) absent "  value not echoed back for '$bad'" "$bad" "$SB/out" "$SB/err" ;; esac
   RUN_ENV=("ALLYE_API_URL=$bad"); run_script begin "$DATA"
   check "  begin refuses '$bad' too" "yes" "$([ "$RC" -ne 0 ] && echo yes || echo no)"
@@ -394,7 +395,7 @@ RUN_ENV=()
 run_script finish "$DATA" "$CH" "$CODE"
 check "default URL is https://api.allye.app (the curl shim refuses it, nothing reaches the fake)" "https://api.allye.app/api/hook-pairings/exchange" "$(sed -n 's/^REFUSED //p' "$SB/log/refused.log" | head -1)"
 check "default URL: pairing file kept" "yes" "$([ -f "$PF" ] && echo yes || echo no)"
-for ok in https://api.allye.app https://api.zeta.allye.app; do
+for ok in https://api.allye.app https://api-zeta.allye.app; do
   RUN_ENV=("ALLYE_API_URL=$ok"); run_script finish "$DATA" "$CH" "$CODE"
   check "$ok passes validation (the curl shim then refuses the non-loopback host)" "$ok/api/hook-pairings/exchange" "$(sed -n 's/^REFUSED //p' "$SB/log/refused.log" | tail -1)"
 done
@@ -403,6 +404,51 @@ run_script finish "$DATA" "$CH" "$CODE"
 check "http://localhost:<port> is accepted" "0" "$RC"
 check "stored URL is the localhost origin" "http://localhost:$PORT" "$("$JQ_BIN" -r '.apiUrl' "$DATA/hook-credential.json")"
 end_case
+
+# ALY-296 (AC-02, AC-04): the HML origin is https://api-zeta.allye.app; the old one is refused, and so is every hostile variant.
+# Values with a newline, a carriage return or a non-ASCII letter are built with printf (a literal would hide them).
+# An empty ALLYE_API_URL means "use the default" in this script, so it is not a refusal row here (the stored-credential suites cover it).
+HML=https://api-zeta.allye.app; CYR=$(printf '\xd0\xb0')
+HOSTILE=("$HML.evil.example" "$HML@evil.example" "$HML\\@evil" "http://api-zeta.allye.app" "$HML/" "$HML/x" "$HML:443" "https://API-ZETA.allye.app" \
+  "https://${CYR}pi-zeta.allye.app" "https://api-zeta.${CYR}llye.app" "$HML?x" "$HML#x" "https://api.zeta.allye.app" "https://api.zeta.allye.app/x")
+for tail in $'\n' $'\r' ' '; do for q in '' '?x' '#x'; do HOSTILE+=("$HML$tail$q"); done; done
+HOSTILE+=("https://api.allye.app"$'\n' "https://api.allye.app"$'\r' "https://api.allye.app ")
+new_case; begin_pairing
+for bad in "${HOSTILE[@]}"; do
+  q=$(printf '%q' "$bad")
+  RUN_ENV=("ALLYE_API_URL=$bad"); : >"$SB/log/calls.log"
+  run_script finish "$DATA" "$CH" "$CODE"
+  check "AC-04 refused ALLYE_API_URL $q" "yes" "$([ "$RC" -ne 0 ] && echo yes || echo no)"
+  check "  nothing sent for $q" "0" "$(grep -c '^curl' "$SB/log/calls.log" 2>/dev/null || true)"
+  check "  message names the new origin for $q" "yes" "$(contains 'https://api-zeta.allye.app' "$ERR")"
+  RUN_ENV=("ALLYE_API_URL=$bad"); run_script begin "$DATA"
+  check "  begin refuses $q too" "yes" "$([ "$RC" -ne 0 ] && echo yes || echo no)"
+done
+n_nl=0; n_cr=0
+for bad in "${HOSTILE[@]}"; do case "$bad" in *$'\n'*) n_nl=$((n_nl + 1)) ;; esac; case "$bad" in *$'\r'*) n_cr=$((n_cr + 1)) ;; esac; done
+check "AC-04: the rows really carry a newline (3 HML variants + PROD)" "4" "$n_nl"
+check "AC-04: the rows really carry a carriage return (3 HML variants + PROD)" "4" "$n_cr"
+check "AC-04: no request reached the API" "0" "$(exchange_count)"
+end_case
+
+# AC-05: the three allow-list copies are byte-identical (case line, whole function body), and the message names the new origin.
+CASE_LINE='    https://api.allye.app|https://api-zeta.allye.app) return 0 ;;'
+CRED_LIB="$SCRIPT_DIR/lib/credential.sh"; PREFS="$SCRIPT_DIR/session-preferences.sh"
+fn_text() { sed -n '/^valid_api_url() {/,/^}/p' "$1"; }
+line_of() { grep -F -- 'https://api.allye.app|' "$1"; }
+for f in "$HOOK" "$CRED_LIB" "$PREFS"; do
+  check "AC-05: $(basename "$f") has exactly the contract case line" "$CASE_LINE" "$(line_of "$f")"
+done
+check "AC-05: valid_api_url is byte-identical in credential.sh and allye-hooks.sh" "$(fn_text "$HOOK" | od -An -tx1 | tr -d ' \n')" "$(fn_text "$CRED_LIB" | od -An -tx1 | tr -d ' \n')"
+check "AC-05: valid_api_url is byte-identical in session-preferences.sh and allye-hooks.sh" "$(fn_text "$HOOK" | od -An -tx1 | tr -d ' \n')" "$(fn_text "$PREFS" | od -An -tx1 | tr -d ' \n')"
+check "AC-05: the function body is not empty" "yes" "$([ -n "$(fn_text "$HOOK")" ] && echo yes || echo no)"
+MSG_LINE=$(grep '^API_URL_MSG=' "$HOOK")
+check "AC-05: API_URL_MSG is exactly the contract text" 'API_URL_MSG="ALLYE_API_URL must be exactly one of https://api.allye.app, https://api-zeta.allye.app, http://localhost:<port> or http://127.0.0.1:<port>; nothing was sent."' "$MSG_LINE"
+check "AC-05: API_URL_MSG names the new origin" "yes" "$(contains 'https://api-zeta.allye.app' "$MSG_LINE")"
+check "AC-05: API_URL_MSG does not name the retired origin" "no" "$(contains 'api.zeta.allye.app' "$MSG_LINE")"
+for f in "$HOOK" "$CRED_LIB" "$PREFS"; do
+  check "AC-05: $(basename "$f") does not carry the retired origin" "0" "$(grep -cF 'api.zeta.allye.app' "$f" || true)"
+done
 
 # ─── Concurrent pairings and replacement (AC-17, D-48) ──────────────────────
 #@group s06 1
