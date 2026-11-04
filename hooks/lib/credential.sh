@@ -26,7 +26,7 @@ safe_file() {
 valid_api_url() {
   local re_loop='^http://(localhost|127\.0\.0\.1):[0-9]{1,5}$'
   case "$1" in
-    https://api.allye.app|https://api.zeta.allye.app) return 0 ;;
+    https://api.allye.app|https://api-zeta.allye.app) return 0 ;;
   esac
   [[ "$1" =~ $re_loop ]]
 }
@@ -54,10 +54,11 @@ load_live_credential() {
   [ ! -L "$cred" ] || return 1
   safe_file "$cred" || return 1
   body=$(cat "$cred" 2>/dev/null) || return 1
+  # The shape check refuses a control character in apiUrl: the $(...) read below would strip a trailing newline.
   printf '%s' "$body" | jq -e '
     type == "object"
     and (.token | type == "string" and test("\\Aalyh_[A-Za-z0-9_-]{43}\\z"))
-    and (.apiUrl | type == "string")
+    and (.apiUrl | type == "string" and (test("[[:cntrl:]]") | not))
     and (.email | type == "string")
     and (.tenantName | type == "string")' >/dev/null 2>&1 || return 1
   LIVE_TOKEN=$(printf '%s' "$body" | jq -r '.token' 2>/dev/null) || { LIVE_TOKEN=""; return 1; }

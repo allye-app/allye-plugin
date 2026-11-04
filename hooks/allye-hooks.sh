@@ -74,11 +74,11 @@ safe_file() {
 valid_api_url() {
   local re_loop='^http://(localhost|127\.0\.0\.1):[0-9]{1,5}$'
   case "$1" in
-    https://api.allye.app|https://api.zeta.allye.app) return 0 ;;
+    https://api.allye.app|https://api-zeta.allye.app) return 0 ;;
   esac
   [[ "$1" =~ $re_loop ]]
 }
-API_URL_MSG="ALLYE_API_URL must be exactly one of https://api.allye.app, https://api.zeta.allye.app, http://localhost:<port> or http://127.0.0.1:<port>; nothing was sent."
+API_URL_MSG="ALLYE_API_URL must be exactly one of https://api.allye.app, https://api-zeta.allye.app, http://localhost:<port> or http://127.0.0.1:<port>; nothing was sent."
 
 # Device name from `uname -n` up to the first dot, [A-Za-z0-9 ._-] only, at most 64 characters.
 device_name() {

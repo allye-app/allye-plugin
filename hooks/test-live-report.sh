@@ -268,6 +268,16 @@ chmod 700 "$DATA"
 check "load_live_credential: relative directory refused" "[] 1|| " "$(lcc "plugindata")"
 mkcred "https://evil.example"
 check "load_live_credential: URL outside the fixed list refused" "[] 1|| " "$(lcc "$DATA")"
+mkcred "https://api.zeta.allye.app"
+check "load_live_credential: the retired HML origin refused (ALY-296)" "[] 1|| " "$(lcc "$DATA")"
+mkcred "https://api-zeta.allye.app"
+check "load_live_credential: the new HML origin accepted (ALY-296)" "[] 0|$TOKEN|https://api-zeta.allye.app " "$(lcc "$DATA")"
+mkcred "https://api-zeta.allye.app"$'\n'
+check "load_live_credential: the HML origin followed by a newline refused (ALY-296)" "[] 1|| " "$(lcc "$DATA")"
+mkcred "https://api.allye.app"$'\n'
+check "load_live_credential: the PROD origin followed by a newline refused (ALY-296)" "[] 1|| " "$(lcc "$DATA")"
+mkcred "https://api-zeta.allye.app"$'\r'
+check "load_live_credential: the HML origin followed by a carriage return refused (ALY-296)" "[] 1|| " "$(lcc "$DATA")"
 mkcred; "$JQ_BIN" '.token = "alyh_short"' "$CRED" >"$SB/c.json" && cat "$SB/c.json" >"$CRED"
 check "load_live_credential: malformed token refused" "[] 1|| " "$(lcc "$DATA")"
 mkcred; ln -s "$CRED" "$SB/link.json"; mv "$DATA" "$SB/real"; ln -s "$SB/real" "$DATA"
@@ -319,6 +329,7 @@ new_case; mkcred; DATA_ENV="relative/dir"; BEFORE=$(snapshot "$DATA"); run_hook;
 new_case; mkcred; DATA_ENV='${CLAUDE_PLUGIN_DATA}/x'; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "CLAUDE_PLUGIN_DATA unexpanded"; DATA_ENV="$DATA"; run_hook; expect_spooled "CLAUDE_PLUGIN_DATA unexpanded"; end_case
 new_case; mkcred; chmod 644 "$CRED"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential file readable by others"; chmod 600 "$CRED"; run_hook; expect_spooled "credential file readable by others"; end_case
 new_case; mkcred "https://evil.example"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential URL outside the fixed list"; mkcred; run_hook; expect_spooled "credential URL outside the fixed list"; end_case
+new_case; mkcred "https://api.zeta.allye.app"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential URL is the retired HML origin"; mkcred; run_hook; expect_spooled "credential URL is the retired HML origin"; end_case
 new_case; mkcred; "$JQ_BIN" 'del(.token)' "$CRED" >"$SB/c.json" && cat "$SB/c.json" >"$CRED"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "credential without a token"; mkcred; run_hook; expect_spooled "credential without a token"; end_case
 new_case; mkcred; chmod 755 "$DATA"; BEFORE=$(snapshot "$DATA"); run_hook; expect_inert "data directory not 0700"; chmod 700 "$DATA"; run_hook; expect_spooled "data directory not 0700"; end_case
 
@@ -5294,7 +5305,7 @@ smode wait terminal; ans_run
 quiet "environment and project settings point elsewhere"
 check "the paired origin got the requests, the wrong origin got none (not even through a proxy variable)" "1 0" "$(sopen) $(wc -l <"$WRONG/requests.log" | tr -d ' ')"
 kill "$WPID" 2>/dev/null; wait "$WPID" 2>/dev/null
-for bad in "http://evil.example.test" "http://127.0.0.1:1/x" "ftp://127.0.0.1:1" "https://api.allye.app/" "http://127.0.0.1"; do
+for bad in "http://evil.example.test" "http://127.0.0.1:1/x" "ftp://127.0.0.1:1" "https://api.allye.app/" "http://127.0.0.1" "https://api.zeta.allye.app"; do
   RUN_ENV=(); mkcred "$bad"; : >"$SB/api/requests.log"; ans_run
   check "an unusable paired origin ($bad): nothing sent, exit 0, silent" "0|0|" "$(sopen)|$RC|$OUT$ERR"
 done
@@ -6046,7 +6057,7 @@ optout_row "live off as a dangling symlink (fail safe)" "off "
 ans_case; rm -f "$CRED"
 optout_row "credential missing" ""
 check "credential missing: the live directory was not created" "no" "$([ -e "$DATA/live" ] && echo yes || echo no)"
-for bad in "http://evil.example.test" "ftp://127.0.0.1:1" "http://127.0.0.1"; do
+for bad in "http://evil.example.test" "ftp://127.0.0.1:1" "http://127.0.0.1" "https://api.zeta.allye.app"; do
   ans_case; mkcred "$bad"
   optout_row "unusable origin $bad" ""
   check "unusable origin $bad: the live directory was not created" "no" "$([ -e "$DATA/live" ] && echo yes || echo no)"

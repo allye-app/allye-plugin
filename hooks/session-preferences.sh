@@ -56,16 +56,17 @@ if [ ! -e "$CRED" ] && [ ! -L "$CRED" ]; then done_silent; fi
 valid_api_url() {
   local re_loop='^http://(localhost|127\.0\.0\.1):[0-9]{1,5}$'
   case "$1" in
-    https://api.allye.app|https://api.zeta.allye.app) return 0 ;;
+    https://api.allye.app|https://api-zeta.allye.app) return 0 ;;
   esac
   [[ "$1" =~ $re_loop ]]
 }
 
+# The shape check refuses a control character in apiUrl: the $(...) read below would strip a trailing newline.
 CRED_BEFORE=$(cat "$CRED" 2>/dev/null) || emit "$HINT_FIX"
 printf '%s' "$CRED_BEFORE" | jq -e '
   type == "object"
   and (.token | type == "string" and test("\\Aalyh_[A-Za-z0-9_-]{43}\\z"))
-  and (.apiUrl | type == "string")
+  and (.apiUrl | type == "string" and (test("[[:cntrl:]]") | not))
   and (.email | type == "string")
   and (.tenantName | type == "string")' >/dev/null 2>&1 || emit "$HINT_FIX"
 TOKEN=$(printf '%s' "$CRED_BEFORE" | jq -r '.token')
